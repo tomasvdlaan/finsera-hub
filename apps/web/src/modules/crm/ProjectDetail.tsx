@@ -4,6 +4,7 @@ import type { EntityRef } from '@platform/contracts';
 import { api } from '../../lib/api.js';
 import { Links } from '../../shell/Links.js';
 import { Timeline } from '../../shell/Timeline.js';
+import { ProjectBurn } from '../time/ProjectBurn.js';
 import { EditableField } from './EditableField.js';
 import {
   PROJECT_STATUSES,
@@ -156,9 +157,15 @@ export function ProjectDetail() {
           </>
         )}
         {error && <p className="error">{error}</p>}
+      </section>
+
+      <section>
+        <h2>Budget burn</h2>
         <p className="muted">
-          Hours logged against this project appear here once time registration lands in Phase 2.
+          Contributed by the Time module through its manifest — this page gained the widget
+          without CRM changing.
         </p>
+        <ProjectBurn projectId={id} />
       </section>
 
       <section>

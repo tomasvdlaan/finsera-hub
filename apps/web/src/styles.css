@@ -199,3 +199,73 @@ ol {
   justify-content: center;
   gap: 0.75rem;
 }
+
+/* timesheet grid */
+/* A seven-day grid is wider than the reading column; let it scroll inside its own
+   container rather than pushing the whole page sideways. */
+.grid-scroll {
+  overflow-x: auto;
+  margin: 1rem 0;
+}
+.grid {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 640px;
+}
+.grid th,
+.grid td {
+  border: 1px solid var(--border);
+  padding: 0.35rem 0.5rem;
+  text-align: center;
+  font-weight: 400;
+}
+.grid thead th {
+  font-size: 0.85rem;
+  background: var(--surface);
+}
+.grid th[scope='row'] {
+  text-align: left;
+  min-width: 180px;
+}
+.grid td input {
+  width: 100%;
+  min-width: 56px;
+  border: none;
+  background: transparent;
+  text-align: center;
+  padding: 0.25rem;
+  border-radius: 4px;
+}
+.grid td input:focus {
+  outline: 2px solid var(--accent);
+  background: var(--bg);
+}
+.grid td input:disabled {
+  color: var(--muted);
+}
+.grid .weekend {
+  background: color-mix(in srgb, var(--surface) 60%, transparent);
+}
+.grid .today {
+  color: var(--accent);
+  font-weight: 600;
+}
+.grid .total,
+.grid tfoot {
+  font-weight: 600;
+  background: var(--surface);
+}
+
+/* budget meter */
+.meter {
+  height: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+  max-width: 360px;
+}
+.meter-fill {
+  height: 100%;
+  transition: width 0.2s;
+}

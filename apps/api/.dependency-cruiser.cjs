@@ -11,12 +11,31 @@
 module.exports = {
   forbidden: [
     {
-      name: 'modules-no-cross-import',
+      // Master §10: "When module A needs data from module B, it calls B's internal API."
+      //
+      // Two files across a module boundary are legitimate:
+      //   *.service.ts — the published API itself (Time reads a project budget from CRM)
+      //   *.module.ts  — Nest's DI seam; importing it is how the dependency is declared,
+      //                  which we WANT explicit so the graph stays visible and acyclic
+      //
+      // Everything else is internals. A schema import in particular would mean one
+      // module reading another's tables, which is the single thing that makes modules
+      // unreplaceable (Master §15.2).
+      name: 'modules-no-internals-import',
       severity: 'error',
       comment:
-        'A module may not import from another module. Cross-module calls go through the other module’s exported service token, declared in the manifest.',
-      from: { path: '^src/modules/([^/]+)/' },
-      to: { path: '^src/modules/', pathNot: '^src/modules/$1/' },
+        'A module may import another module’s *.service.ts (its API) or *.module.ts (DI wiring) — never its schema, controller, or manifest.',
+      // Specs are exempt: an integration test composing two modules is the point of the
+      // test, and test files never ship.
+      from: { path: '^src/modules/([^/]+)/', pathNot: '\\.spec\\.ts$' },
+      to: {
+        path: '^src/modules/',
+        pathNot: [
+          '^src/modules/$1/',
+          '^src/modules/[^/]+/[^/]+\\.service\\.ts$',
+          '^src/modules/[^/]+/[^/]+\\.module\\.ts$',
+        ],
+      },
     },
     {
       name: 'core-no-modules',
