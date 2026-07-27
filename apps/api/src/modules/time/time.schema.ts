@@ -8,16 +8,24 @@ import {
   pgSchema,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
 
 /**
- * The Time Registration module's schema (Phase 2 brief §3).
+ * The Time Registration module's schema.
  *
  * Duration is WHOLE MINUTES, never decimal hours — same reasoning as money in cents:
  * 7.4 hours is not exactly representable in binary floating point, and these numbers
- * eventually multiply by a rate to produce an invoice. The UI accepts "7,5" or "7:30"
- * and converts at the edge.
+ * eventually multiply by a rate to produce an invoice.
+ *
+ * An entry may be expressed three ways:
+ *   1. a bare duration        — minutes, no clock times (logging yesterday from memory)
+ *   2. a finished session     — startedAt + endedAt, minutes derived on save
+ *   3. a RUNNING session      — startedAt with no endedAt, minutes still null
+ *
+ * (3) is why there is no separate timer table or timer state: a running timer is simply
+ * an entry that has not ended yet. One less thing to keep in sync.
  */
 export const time = pgSchema('time');
 
@@ -26,13 +34,14 @@ export const entries = time.table(
   {
     id: uuid('id').primaryKey(), // same value as core.entities.id
 
-    // Both required — a time entry with no person or no project cannot be invoiced,
-    // reported on, or attributed. Stored as registry ids, validated in the service.
     personId: uuid('person_id').notNull(),
     projectId: uuid('project_id').notNull(),
 
-    workedOn: date('worked_on').notNull(), // a day, not a moment
-    minutes: integer('minutes').notNull(),
+    workedOn: date('worked_on').notNull(), // the day this belongs to
+    startedAt: timestamp('started_at', { withTimezone: true }),
+    endedAt: timestamp('ended_at', { withTimezone: true }),
+    minutes: integer('minutes'), // null while running
+
     billable: boolean('billable').notNull().default(true),
     description: text('description'), // optional on purpose — required notes kill adoption
 
@@ -42,11 +51,27 @@ export const entries = time.table(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    // The week view's only query shape.
     index('entries_person_date_idx').on(t.personId, t.workedOn),
     index('entries_project_idx').on(t.projectId),
-    check('entries_minutes_positive', sql`${t.minutes} > 0`),
-    // 24h in a day. A typo of 800 instead of 80 should not silently become a 13-hour day.
-    check('entries_minutes_sane', sql`${t.minutes} <= 1440`),
+
+    // Only one clock can be running per person; two would make "stop the timer"
+    // ambiguous and quietly double-count the overlap.
+    uniqueIndex('entries_one_running_per_person')
+      .on(t.personId)
+      .where(sql`${t.startedAt} IS NOT NULL AND ${t.endedAt} IS NULL`),
+
+    check('entries_minutes_positive', sql`${t.minutes} IS NULL OR ${t.minutes} > 0`),
+    check('entries_minutes_sane', sql`${t.minutes} IS NULL OR ${t.minutes} <= 1440`),
+
+    // An end without a start is meaningless.
+    check('entries_end_needs_start', sql`${t.endedAt} IS NULL OR ${t.startedAt} IS NOT NULL`),
+    check('entries_end_after_start', sql`${t.endedAt} IS NULL OR ${t.endedAt} > ${t.startedAt}`),
+
+    // Every entry is either measurable (has minutes) or currently running. Without this
+    // an entry could exist with no duration and no clock — billable for nothing.
+    check(
+      'entries_measurable_or_running',
+      sql`${t.minutes} IS NOT NULL OR (${t.startedAt} IS NOT NULL AND ${t.endedAt} IS NULL)`,
+    ),
   ],
 );

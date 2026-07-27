@@ -5,7 +5,7 @@ import { ManifestRegistry } from '../../core/manifest/manifest.registry.js';
 import { CrmModule } from '../crm/crm.module.js';
 import { TimeController } from './time.controller.js';
 import { timeManifest } from './time.manifest.js';
-import { TimeService, type LogHoursInput } from './time.service.js';
+import { TimeService, type CreateEntryInput } from './time.service.js';
 
 /**
  * Time Registration — the first module that depends on another.
@@ -40,8 +40,12 @@ export class TimeModule implements OnModuleInit {
     this.aiTools.bind('time_unsubmitted_weeks', (actor: Actor) =>
       this.time.unsubmittedWeeks(actor),
     );
-    this.aiTools.bind('time_log_hours', (actor: Actor, input) =>
-      this.time.logHours(actor, input as LogHoursInput, { aiInitiated: true }),
+    this.aiTools.bind('time_get_day', (actor: Actor, input) =>
+      this.time.getDay(actor, input as { date?: string }),
     );
+    this.aiTools.bind('time_log_hours', (actor: Actor, input) =>
+      this.time.createEntry(actor, input as CreateEntryInput, { aiInitiated: true }),
+    );
+    this.aiTools.bind('time_stop_timer', (actor: Actor) => this.time.stopEntry(actor));
   }
 }

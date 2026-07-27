@@ -59,3 +59,16 @@ export function formatDayHeader(iso: string): string {
 
 export const isToday = (iso: string) => iso === new Date().toISOString().slice(0, 10);
 export const isWeekend = (index: number) => index >= 5;
+
+export const todayIso = () => new Date().toISOString().slice(0, 10);
+
+export function shiftDay(date: string, days: number): string {
+  const d = new Date(`${date}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+/** ISO timestamp → "09:30" in the viewer's local time. */
+export function formatClock(iso: string): string {
+  return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}

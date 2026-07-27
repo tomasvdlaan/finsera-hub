@@ -17,7 +17,7 @@ export const timeManifest = defineManifest({
   structuralRefs: [{ from: 'time_entry', toType: 'project', required: true }],
 
   publishes: [
-    { name: 'time_entry.created', description: 'Hours were logged.' },
+    { name: 'time_entry.created', description: 'Hours were logged, or a timer was started.' },
     { name: 'timesheet.submitted', description: 'A person submitted a week of hours.' },
     { name: 'timesheet.reopened', description: 'A submitted week was unlocked for correction.' },
   ],
@@ -71,20 +71,40 @@ export const timeManifest = defineManifest({
       handler: 'unsubmittedWeeks',
     },
     {
+      name: 'time_get_day',
+      description: 'List the time entries for one day, with start/end times and notes.',
+      inputSchema: z.object({ date: z.string().optional() }),
+      outputSchema: z.object({}),
+      permission: 'time.entries.write_own',
+      riskClass: 'read',
+      handler: 'getDay',
+    },
+    {
       name: 'time_log_hours',
       description:
-        'Log hours against a project for a day. Duration is in minutes (90 = one and a half hours).',
+        'Log hours against a project. Give either minutes (90 = one and a half hours) or a start and end time. Omitting the end time starts a running timer.',
       inputSchema: z.object({
         projectId: z.string().uuid(),
-        workedOn: z.string(), // ISO date
-        minutes: z.number().int().min(1).max(1440),
+        workedOn: z.string().optional(), // ISO date; defaults to today
+        minutes: z.number().int().min(1).max(1440).optional(),
+        startedAt: z.string().optional(), // ISO timestamp
+        endedAt: z.string().optional(),
         description: z.string().optional(),
         billable: z.boolean().optional(),
       }),
-      outputSchema: z.object({ id: z.string(), minutes: z.number() }),
+      outputSchema: z.object({ id: z.string() }),
       permission: 'time.entries.write_own',
       riskClass: 'write:draft',
-      handler: 'logHours',
+      handler: 'createEntry',
+    },
+    {
+      name: 'time_stop_timer',
+      description: 'Stop the currently running timer and record the elapsed time.',
+      inputSchema: z.object({}),
+      outputSchema: z.object({}),
+      permission: 'time.entries.write_own',
+      riskClass: 'write:draft',
+      handler: 'stopEntry',
     },
   ],
 });

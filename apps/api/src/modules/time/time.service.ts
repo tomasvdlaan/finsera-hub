@@ -16,13 +16,15 @@ import { RegistryService } from '../../core/registry/registry.service.js';
 import { CrmService } from '../crm/crm.service.js';
 import { entries } from './time.schema.js';
 
-export interface LogHoursInput {
+export interface CreateEntryInput {
   projectId: string;
-  workedOn: string; // ISO date
-  minutes: number;
+  workedOn?: string; // ISO date; defaults to today or the start time's day
+  minutes?: number | null;
+  startedAt?: string | null; // ISO timestamp
+  endedAt?: string | null;
   description?: string | null;
   billable?: boolean;
-  personId?: string; // defaults to the actor; only 'manage' may log for others
+  personId?: string;
 }
 
 export interface ProjectBurn {
@@ -40,7 +42,7 @@ export interface ProjectBurn {
 /** Monday of the week containing `date`. Weeks start Monday (Dutch/EU convention). */
 export function weekStart(date: string): string {
   const d = new Date(`${date}T00:00:00Z`);
-  const day = (d.getUTCDay() + 6) % 7; // Monday = 0
+  const day = (d.getUTCDay() + 6) % 7;
   d.setUTCDate(d.getUTCDate() - day);
   return d.toISOString().slice(0, 10);
 }
@@ -51,12 +53,14 @@ export function addDays(date: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+const today = () => new Date().toISOString().slice(0, 10);
+
 /**
- * Time Registration (Phase 2 brief).
+ * Time Registration.
  *
- * This is the first module that depends on another: budget burn needs CRM's project
- * data. It calls CrmService — never crm.projects — which is what keeps both modules
- * replaceable (Master §10). The dependency runs one way only: Time → CRM.
+ * The first module that depends on another: budget burn needs CRM's project data, so it
+ * calls CrmService — never crm.projects — which is what keeps both modules replaceable
+ * (Master §10). The dependency runs one way only: Time → CRM.
  */
 @Injectable()
 export class TimeService {
@@ -70,30 +74,37 @@ export class TimeService {
     private readonly crm: CrmService,
   ) {}
 
-  // ── logging ────────────────────────────────────────────────
+  // ── entries ────────────────────────────────────────────────
 
-  async logHours(actor: Actor, input: LogHoursInput, origin: { aiInitiated?: boolean } = {}) {
+  /**
+   * Create an entry. Accepts a bare duration, a finished session (start+end), or a
+   * running session (start only) — see the schema comment for why those three.
+   */
+  async createEntry(actor: Actor, input: CreateEntryInput, origin: { aiInitiated?: boolean } = {}) {
     await this.require(actor, 'time.entries.write_own');
-
     const personId = input.personId ?? actor.userId;
-    if (personId !== actor.userId) {
-      // Logging on someone else's behalf is a separate, rarer capability.
-      await this.require(actor, 'time.entries.manage');
-    }
+    if (personId !== actor.userId) await this.require(actor, 'time.entries.manage');
 
-    const minutes = this.validateMinutes(input.minutes);
-    const workedOn = this.validateDate(input.workedOn);
+    const startedAt = input.startedAt ? this.parseInstant(input.startedAt) : null;
+    const endedAt = input.endedAt ? this.parseInstant(input.endedAt) : null;
+    const workedOn = this.validateDate(
+      input.workedOn ?? startedAt?.toISOString().slice(0, 10) ?? today(),
+    );
+
+    const minutes = this.resolveMinutes(input.minutes ?? null, startedAt, endedAt);
+    const running = startedAt !== null && endedAt === null;
+
+    if (running) await this.assertNoRunningEntry(personId);
     await this.assertWeekOpen(personId, workedOn);
 
-    // Cross-module call: the project must exist and be visible to this actor.
-    const project = await this.crm.getProject(actor, input.projectId);
+    const project = await this.crm.getProject(actor, input.projectId); // cross-module call
 
     const id = this.registry.newId();
     await this.db.transaction(async (tx) => {
       await this.registry.register(tx, {
         id,
         entityType: 'time_entry',
-        displayName: `${(minutes / 60).toFixed(2)}h on ${project.name}`,
+        displayName: this.displayName(project.name, minutes, input.description, running),
         urlPath: `/time/entries/${id}`,
       });
 
@@ -102,12 +113,13 @@ export class TimeService {
         personId,
         projectId: input.projectId,
         workedOn,
+        startedAt,
+        endedAt,
         minutes,
-        billable: input.billable ?? this.defaultBillable(project.billingModel),
+        billable: input.billable ?? true,
         description: input.description ?? null,
       });
 
-      // Mirror the structural ref so hours show on the project's timeline (Master §8.3).
       await this.links.createWithin(tx, actor, {
         fromId: id,
         toId: input.projectId,
@@ -116,10 +128,10 @@ export class TimeService {
 
       await this.audit.record(tx, {
         actorId: actor.userId,
-        action: 'time_entry.create',
+        action: running ? 'time_entry.start' : 'time_entry.create',
         entityType: 'time_entry',
         entityId: id,
-        detail: { projectId: input.projectId, workedOn, minutes },
+        detail: { projectId: input.projectId, workedOn, minutes, running },
         aiInitiated: origin.aiInitiated ?? false,
       });
 
@@ -128,73 +140,90 @@ export class TimeService {
         entityType: 'time_entry',
         entityId: id,
         actorId: actor.userId,
-        payload: { projectId: input.projectId, minutes, workedOn },
+        payload: { projectId: input.projectId, minutes, workedOn, running },
       });
     });
 
-    return { id, minutes };
+    return this.getEntry(actor, id);
   }
 
-  /**
-   * Set the minutes for a person+project+day in one call — the shape the week grid needs.
-   * Zero deletes the entry, so clearing a cell is the same gesture as typing over it.
-   */
-  async setCell(
-    actor: Actor,
-    input: { projectId: string; workedOn: string; minutes: number; personId?: string },
-  ) {
+  async updateEntry(actor: Actor, id: string, patch: Partial<CreateEntryInput>) {
     await this.require(actor, 'time.entries.write_own');
-    const personId = input.personId ?? actor.userId;
-    if (personId !== actor.userId) await this.require(actor, 'time.entries.manage');
+    const before = await this.rawEntry(id);
+    if (before.personId !== actor.userId) await this.require(actor, 'time.entries.manage');
+    if (before.submittedAt) throw new BadRequestException('That week is submitted — reopen it first');
 
-    const workedOn = this.validateDate(input.workedOn);
-    await this.assertWeekOpen(personId, workedOn);
-
-    const existing = await this.db
-      .select()
-      .from(entries)
-      .where(
-        and(
-          eq(entries.personId, personId),
-          eq(entries.projectId, input.projectId),
-          eq(entries.workedOn, workedOn),
-        ),
-      )
-      .limit(1);
-
-    const current = existing[0];
-
-    if (input.minutes <= 0) {
-      if (current) await this.deleteEntry(actor, current.id);
-      return { minutes: 0 };
-    }
-
-    const minutes = this.validateMinutes(input.minutes);
-    if (!current) {
-      await this.logHours(actor, { projectId: input.projectId, workedOn, minutes, personId });
-      return { minutes };
-    }
+    const startedAt =
+      patch.startedAt === undefined ? before.startedAt : this.parseInstantOrNull(patch.startedAt);
+    const endedAt =
+      patch.endedAt === undefined ? before.endedAt : this.parseInstantOrNull(patch.endedAt);
+    const workedOn = this.validateDate(patch.workedOn ?? before.workedOn);
+    const minutes = this.resolveMinutes(
+      patch.minutes === undefined ? before.minutes : (patch.minutes ?? null),
+      startedAt,
+      endedAt,
+      // A running entry that stays running keeps its null duration.
+      { allowNullWhenRunning: true },
+    );
 
     await this.db.transaction(async (tx) => {
       await tx
         .update(entries)
-        .set({ minutes, updatedAt: new Date() })
-        .where(eq(entries.id, current.id));
+        .set({
+          projectId: patch.projectId ?? before.projectId,
+          workedOn,
+          startedAt,
+          endedAt,
+          minutes,
+          billable: patch.billable ?? before.billable,
+          description: patch.description === undefined ? before.description : patch.description,
+          updatedAt: new Date(),
+        })
+        .where(eq(entries.id, id));
+
       await this.audit.record(tx, {
         actorId: actor.userId,
         action: 'time_entry.update',
         entityType: 'time_entry',
-        entityId: current.id,
-        detail: { from: current.minutes, to: minutes },
+        entityId: id,
+        detail: { before: { minutes: before.minutes }, after: { minutes } },
       });
     });
-    return { minutes };
+
+    return this.getEntry(actor, id);
+  }
+
+  /** Stop a running entry: set the end to now and freeze the elapsed minutes. */
+  async stopEntry(actor: Actor, id?: string) {
+    await this.require(actor, 'time.entries.write_own');
+    const running = id ? await this.rawEntry(id) : await this.runningEntry(actor.userId);
+    if (!running) throw new NotFoundException('Nothing is running');
+    if (running.endedAt) throw new BadRequestException('That entry has already stopped');
+    if (running.personId !== actor.userId) await this.require(actor, 'time.entries.manage');
+
+    const endedAt = new Date();
+    const minutes = Math.max(1, Math.round((endedAt.getTime() - running.startedAt!.getTime()) / 60_000));
+
+    await this.db.transaction(async (tx) => {
+      await tx
+        .update(entries)
+        .set({ endedAt, minutes, updatedAt: endedAt })
+        .where(eq(entries.id, running.id));
+      await this.audit.record(tx, {
+        actorId: actor.userId,
+        action: 'time_entry.stop',
+        entityType: 'time_entry',
+        entityId: running.id,
+        detail: { minutes },
+      });
+    });
+
+    return this.getEntry(actor, running.id);
   }
 
   async deleteEntry(actor: Actor, id: string) {
     await this.require(actor, 'time.entries.write_own');
-    const [row] = await this.db.select().from(entries).where(eq(entries.id, id)).limit(1);
-    if (!row) throw new NotFoundException('Time entry not found');
+    const row = await this.rawEntry(id);
     if (row.personId !== actor.userId) await this.require(actor, 'time.entries.manage');
     if (row.submittedAt) throw new BadRequestException('That week is submitted — reopen it first');
 
@@ -211,63 +240,96 @@ export class TimeService {
     });
   }
 
-  // ── the week view ──────────────────────────────────────────
+  async getEntry(actor: Actor, id: string) {
+    await this.require(actor, 'time.entries.write_own');
+    const row = await this.rawEntry(id);
+    if (row.personId !== actor.userId) await this.require(actor, 'time.entries.read_all');
+    return this.decorate(row);
+  }
 
-  /**
-   * A week of one person's hours, shaped for the grid: rows are projects, cells are
-   * minutes per day. Projects logged in the *previous* week are included as empty rows,
-   * because most weeks repeat and pre-listed rows are what make entry fast.
-   */
+  // ── day view: the primary screen ───────────────────────────
+
+  async getDay(actor: Actor, opts: { date?: string; personId?: string } = {}) {
+    await this.require(actor, 'time.entries.write_own');
+    const personId = opts.personId ?? actor.userId;
+    if (personId !== actor.userId) await this.require(actor, 'time.entries.read_all');
+
+    const date = this.validateDate(opts.date ?? today());
+    const rows = await this.db
+      .select()
+      .from(entries)
+      .where(and(eq(entries.personId, personId), eq(entries.workedOn, date)))
+      .orderBy(asc(entries.startedAt), asc(entries.createdAt));
+
+    const projects = await this.projectNames(actor, rows.map((r) => r.projectId));
+
+    return {
+      date,
+      entries: rows.map((r) => ({
+        ...this.decorate(r),
+        projectName: projects.get(r.projectId)?.name ?? '(unavailable)',
+        clientName: projects.get(r.projectId)?.clientName ?? null,
+      })),
+      totalMinutes: rows.reduce((sum, r) => sum + this.effectiveMinutes(r), 0),
+      billableMinutes: rows
+        .filter((r) => r.billable)
+        .reduce((sum, r) => sum + this.effectiveMinutes(r), 0),
+      submitted: rows.length > 0 && rows.every((r) => r.submittedAt !== null),
+    };
+  }
+
+  /** Whatever is currently running for this person, if anything. */
+  async getRunning(actor: Actor) {
+    await this.require(actor, 'time.entries.write_own');
+    const row = await this.runningEntry(actor.userId);
+    if (!row) return { running: null };
+    const projects = await this.projectNames(actor, [row.projectId]);
+    return {
+      running: {
+        ...this.decorate(row),
+        projectName: projects.get(row.projectId)?.name ?? '(unavailable)',
+      },
+    };
+  }
+
+  // ── week summary (read-only now that entries carry detail) ──
+
   async getWeek(actor: Actor, opts: { weekOf?: string; personId?: string } = {}) {
     await this.require(actor, 'time.entries.write_own');
     const personId = opts.personId ?? actor.userId;
     if (personId !== actor.userId) await this.require(actor, 'time.entries.read_all');
 
-    const monday = weekStart(opts.weekOf ?? new Date().toISOString().slice(0, 10));
+    const monday = weekStart(opts.weekOf ?? today());
     const sunday = addDays(monday, 6);
-    const prevMonday = addDays(monday, -7);
+    const week = await this.entriesBetween(personId, monday, sunday);
 
-    const [thisWeek, lastWeek] = await Promise.all([
-      this.entriesBetween(personId, monday, sunday),
-      this.entriesBetween(personId, prevMonday, addDays(prevMonday, 6)),
-    ]);
+    const projects = await this.projectNames(actor, week.map((e) => e.projectId));
+    const projectIds = [...new Set(week.map((e) => e.projectId))];
 
-    const projectIds = [
-      ...new Set([...thisWeek, ...lastWeek].map((e) => e.projectId)),
-    ];
-
-    // Names come from CRM's service, not its tables.
-    const projects = await Promise.all(
-      projectIds.map(async (id) => {
-        try {
-          const p = await this.crm.getProject(actor, id);
-          return { id, name: p.name, clientId: p.clientId };
-        } catch {
-          return { id, name: '(unavailable)', clientId: null };
-        }
-      }),
-    );
-
-    const rows = projects.map((p) => ({
-      ...p,
+    const rows = projectIds.map((id) => ({
+      id,
+      name: projects.get(id)?.name ?? '(unavailable)',
+      clientName: projects.get(id)?.clientName ?? null,
       days: Object.fromEntries(
         Array.from({ length: 7 }, (_, i) => {
           const day = addDays(monday, i);
-          const entry = thisWeek.find((e) => e.projectId === p.id && e.workedOn === day);
-          return [day, entry ? entry.minutes : 0];
+          const minutes = week
+            .filter((e) => e.projectId === id && e.workedOn === day)
+            .reduce((sum, e) => sum + this.effectiveMinutes(e), 0);
+          return [day, minutes];
         }),
       ),
     }));
-
-    const submitted = thisWeek.length > 0 && thisWeek.every((e) => e.submittedAt !== null);
 
     return {
       weekOf: monday,
       days: Array.from({ length: 7 }, (_, i) => addDays(monday, i)),
       rows,
-      totalMinutes: thisWeek.reduce((sum, e) => sum + e.minutes, 0),
-      billableMinutes: thisWeek.filter((e) => e.billable).reduce((s, e) => s + e.minutes, 0),
-      submitted,
+      totalMinutes: week.reduce((sum, e) => sum + this.effectiveMinutes(e), 0),
+      billableMinutes: week
+        .filter((e) => e.billable)
+        .reduce((sum, e) => sum + this.effectiveMinutes(e), 0),
+      submitted: week.length > 0 && week.every((e) => e.submittedAt !== null),
     };
   }
 
@@ -281,6 +343,10 @@ export class TimeService {
     const monday = weekStart(this.validateDate(weekOf));
     const week = await this.entriesBetween(person, monday, addDays(monday, 6));
     if (week.length === 0) throw new BadRequestException('Nothing to submit for that week');
+    if (week.some((e) => e.startedAt && !e.endedAt)) {
+      // Submitting with a clock still running would freeze an entry that has no duration.
+      throw new BadRequestException('Stop the running timer before submitting');
+    }
 
     await this.db.transaction(async (tx) => {
       await tx
@@ -303,7 +369,6 @@ export class TimeService {
         detail: { weekOf: monday, personId: person, entries: week.length },
       });
 
-      // Invoicing (Phase 5c) keys off this event.
       await this.events.publish(tx, {
         name: 'timesheet.submitted',
         entityType: 'time_entry',
@@ -312,7 +377,7 @@ export class TimeService {
         payload: {
           weekOf: monday,
           personId: person,
-          totalMinutes: week.reduce((s, e) => s + e.minutes, 0),
+          totalMinutes: week.reduce((s, e) => s + this.effectiveMinutes(e), 0),
         },
       });
     });
@@ -320,7 +385,6 @@ export class TimeService {
     return { weekOf: monday, submitted: true };
   }
 
-  /** Real timesheets get corrected; a lock that cannot be undone just stops people submitting. */
   async reopenWeek(actor: Actor, weekOf: string, personId?: string) {
     await this.require(actor, 'time.entries.manage');
     const person = personId ?? actor.userId;
@@ -353,7 +417,7 @@ export class TimeService {
   async unsubmittedWeeks(actor: Actor) {
     await this.require(actor, 'time.entries.write_own');
     const rows = await this.db
-      .select({ workedOn: entries.workedOn, minutes: entries.minutes })
+      .select({ workedOn: entries.workedOn, minutes: entries.minutes, startedAt: entries.startedAt, endedAt: entries.endedAt })
       .from(entries)
       .where(and(eq(entries.personId, actor.userId), isNull(entries.submittedAt)))
       .orderBy(asc(entries.workedOn));
@@ -361,7 +425,7 @@ export class TimeService {
     const byWeek = new Map<string, number>();
     for (const r of rows) {
       const wk = weekStart(r.workedOn);
-      byWeek.set(wk, (byWeek.get(wk) ?? 0) + r.minutes);
+      byWeek.set(wk, (byWeek.get(wk) ?? 0) + this.effectiveMinutes(r));
     }
     return {
       weeks: [...byWeek.entries()].map(([weekOf, minutes]) => ({
@@ -377,16 +441,20 @@ export class TimeService {
     await this.require(actor, 'time.entries.read_all');
     const project = await this.crm.getProject(actor, projectId); // service, not schema
 
-    const [totals] = await this.db
+    const rows = await this.db
       .select({
-        total: sql<number>`COALESCE(SUM(${entries.minutes}), 0)`,
-        billable: sql<number>`COALESCE(SUM(${entries.minutes}) FILTER (WHERE ${entries.billable}), 0)`,
+        minutes: entries.minutes,
+        billable: entries.billable,
+        startedAt: entries.startedAt,
+        endedAt: entries.endedAt,
       })
       .from(entries)
       .where(eq(entries.projectId, projectId));
 
-    const loggedMinutes = Number(totals?.total ?? 0);
-    const billableMinutes = Number(totals?.billable ?? 0);
+    const loggedMinutes = rows.reduce((s, r) => s + this.effectiveMinutes(r), 0);
+    const billableMinutes = rows
+      .filter((r) => r.billable)
+      .reduce((s, r) => s + this.effectiveMinutes(r), 0);
 
     return {
       projectId,
@@ -397,7 +465,6 @@ export class TimeService {
       loggedHours: +(loggedMinutes / 60).toFixed(2),
       billableHours: +(billableMinutes / 60).toFixed(2),
       budgetAmountCents: project.budgetAmountCents,
-      // Only meaningful when a rate is known; fixed fee burns against the agreed price.
       burnedAmountCents:
         project.defaultRateCents != null
           ? Math.round((billableMinutes / 60) * project.defaultRateCents)
@@ -407,16 +474,93 @@ export class TimeService {
 
   // ── internals ──────────────────────────────────────────────
 
-  private async entriesBetween(personId: string, from: string, to: string) {
-    return this.db
+  /**
+   * Minutes a row counts for. A running entry has no stored duration, so its elapsed
+   * time is computed live — otherwise a timer running since this morning would show as
+   * zero in every total.
+   */
+  private effectiveMinutes(row: {
+    minutes: number | null;
+    startedAt: Date | null;
+    endedAt: Date | null;
+  }): number {
+    if (row.minutes != null) return row.minutes;
+    if (row.startedAt && !row.endedAt) {
+      return Math.max(0, Math.round((Date.now() - row.startedAt.getTime()) / 60_000));
+    }
+    return 0;
+  }
+
+  private decorate(row: typeof entries.$inferSelect) {
+    const running = row.startedAt !== null && row.endedAt === null;
+    return {
+      ...row,
+      running,
+      effectiveMinutes: this.effectiveMinutes(row),
+    };
+  }
+
+  /** Project names come from CRM's service — one call per distinct project. */
+  private async projectNames(actor: Actor, projectIds: string[]) {
+    const unique = [...new Set(projectIds)];
+    const map = new Map<string, { name: string; clientName: string | null }>();
+    await Promise.all(
+      unique.map(async (id) => {
+        try {
+          const p = await this.crm.getProject(actor, id);
+          const client = await this.crm.getClient(actor, p.clientId).catch(() => null);
+          map.set(id, { name: p.name, clientName: client?.name ?? null });
+        } catch {
+          /* project unreadable for this actor — rendered as unavailable */
+        }
+      }),
+    );
+    return map;
+  }
+
+  private displayName(
+    projectName: string,
+    minutes: number | null,
+    description: string | null | undefined,
+    running: boolean,
+  ): string {
+    const prefix = running ? 'running' : `${((minutes ?? 0) / 60).toFixed(2)}h`;
+    return description ? `${prefix} — ${description}` : `${prefix} on ${projectName}`;
+  }
+
+  private async rawEntry(id: string) {
+    const [row] = await this.db.select().from(entries).where(eq(entries.id, id)).limit(1);
+    if (!row) throw new NotFoundException('Time entry not found');
+    return row;
+  }
+
+  private async runningEntry(personId: string) {
+    const [row] = await this.db
       .select()
       .from(entries)
       .where(
         and(
           eq(entries.personId, personId),
-          gte(entries.workedOn, from),
-          lte(entries.workedOn, to),
+          isNotNull(entries.startedAt),
+          isNull(entries.endedAt),
         ),
+      )
+      .limit(1);
+    return row ?? null;
+  }
+
+  private async assertNoRunningEntry(personId: string): Promise<void> {
+    if (await this.runningEntry(personId)) {
+      throw new BadRequestException('A timer is already running — stop it first');
+    }
+  }
+
+  private async entriesBetween(personId: string, from: string, to: string) {
+    return this.db
+      .select()
+      .from(entries)
+      .where(
+        and(eq(entries.personId, personId), gte(entries.workedOn, from), lte(entries.workedOn, to)),
       )
       .orderBy(asc(entries.workedOn));
   }
@@ -439,12 +583,29 @@ export class TimeService {
   }
 
   /**
-   * Client work is billable by default regardless of billing model — retainer hours are
-   * still delivery, they are just invoiced differently. Internal work is marked
-   * non-billable per entry, since the module cannot tell which projects are internal.
+   * Work out the stored duration. Start+end wins over a supplied duration, because the
+   * clock times are the evidence — a mismatch between them is a bug, not a preference.
    */
-  private defaultBillable(_billingModel: string): boolean {
-    return true;
+  private resolveMinutes(
+    minutes: number | null,
+    startedAt: Date | null,
+    endedAt: Date | null,
+    opts: { allowNullWhenRunning?: boolean } = {},
+  ): number | null {
+    if (startedAt && endedAt) {
+      if (endedAt <= startedAt) throw new BadRequestException('End time must be after start time');
+      return this.validateMinutes(Math.round((endedAt.getTime() - startedAt.getTime()) / 60_000));
+    }
+    if (startedAt && !endedAt) {
+      // Running: duration is not known yet.
+      if (minutes != null && !opts.allowNullWhenRunning) {
+        throw new BadRequestException('A running entry cannot also have a fixed duration');
+      }
+      return null;
+    }
+    if (endedAt && !startedAt) throw new BadRequestException('An end time needs a start time');
+    if (minutes == null) throw new BadRequestException('Give a duration, or a start time');
+    return this.validateMinutes(minutes);
   }
 
   private validateMinutes(minutes: number): number {
@@ -462,25 +623,46 @@ export class TimeService {
     return date;
   }
 
+  private parseInstant(value: string): Date {
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) throw new BadRequestException(`Invalid time '${value}'`);
+    return d;
+  }
+
+  private parseInstantOrNull(value: string | null | undefined): Date | null {
+    return value ? this.parseInstant(value) : null;
+  }
+
   private async require(actor: Actor, capability: string): Promise<void> {
     if (!(await this.permissions.can(actor, capability))) {
       throw new ForbiddenException(`Missing capability '${capability}'`);
     }
   }
 
+  /**
+   * Published reporting views (manifest contract).
+   *
+   * DROP then CREATE rather than CREATE OR REPLACE: the latter cannot change a view's
+   * column names or order, so adding a column mid-list fails with "cannot change name
+   * of view column" — at boot, which is where this was caught.
+   */
   async ensureReportingViews(): Promise<void> {
+    await this.db.execute(sql`DROP VIEW IF EXISTS time.v_entries CASCADE`);
+    await this.db.execute(sql`DROP VIEW IF EXISTS time.v_weekly_totals CASCADE`);
     await this.db.execute(sql`
-      CREATE OR REPLACE VIEW time.v_entries AS
-      SELECT e.id, e.person_id, e.project_id, e.worked_on, e.minutes,
-             e.minutes / 60.0 AS hours, e.billable, e.submitted_at, e.created_at
+      CREATE VIEW time.v_entries AS
+      SELECT e.id, e.person_id, e.project_id, e.worked_on,
+             e.started_at, e.ended_at, e.minutes, e.minutes / 60.0 AS hours,
+             e.billable, e.description, e.submitted_at, e.created_at,
+             (e.started_at IS NOT NULL AND e.ended_at IS NULL) AS running
         FROM time.entries e
     `);
     await this.db.execute(sql`
-      CREATE OR REPLACE VIEW time.v_weekly_totals AS
+      CREATE VIEW time.v_weekly_totals AS
       SELECT e.person_id,
              date_trunc('week', e.worked_on)::date AS week_of,
-             SUM(e.minutes) AS total_minutes,
-             SUM(e.minutes) FILTER (WHERE e.billable) AS billable_minutes,
+             SUM(COALESCE(e.minutes, 0)) AS total_minutes,
+             SUM(COALESCE(e.minutes, 0)) FILTER (WHERE e.billable) AS billable_minutes,
              bool_and(e.submitted_at IS NOT NULL) AS submitted
         FROM time.entries e
        GROUP BY e.person_id, date_trunc('week', e.worked_on)

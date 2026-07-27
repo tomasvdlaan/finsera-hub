@@ -269,3 +269,30 @@ ol {
   height: 100%;
   transition: width 0.2s;
 }
+
+/* time entries (day view) */
+.entries li {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 0.4rem;
+  background: var(--surface);
+}
+.entries li.running {
+  border-color: var(--accent);
+}
+.entry-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.entry-side {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}

@@ -236,3 +236,44 @@ novelty wears off?* If not, fix that before Phase 3 — every later module assum
    deliberate.
 5. **Test data** — my "De Chocolaterie" fixtures are still in the dev database alongside your real
    client. Clear them?
+
+---
+
+## Amendment — richer entries (2026-07-27, after first use)
+
+The brief above said start/end times were "deliberately absent" and the week grid was the
+primary screen. First use changed that: entries needed start time, end time, and notes.
+This section supersedes §2, §3 and §5 where they conflict.
+
+**What changed**
+
+- **The day view is now the primary screen.** One day at a time, a list of entries, each
+  with optional start/end, project, client, notes and a billable flag. The week grid
+  survives as a read-only summary at `/time/week`.
+- **Multiple entries per project per day.** A morning and an afternoon session on the same
+  project are two entries. The old grid could not express this — one cell held one number
+  — which is the concrete reason the grid could not stay primary.
+- **A running timer is an entry with a start and no end.** Tomas's suggestion, and better
+  than the separate timer I had proposed: no timer table, no timer state machine, no
+  "forgotten running timer" living in a different code path. It falls out of the data model.
+
+**What that forced**
+
+`minutes` became nullable, so the schema now carries the rules that keep entries honest:
+every entry is either measurable or running (`minutes IS NOT NULL OR (started_at IS NOT
+NULL AND ended_at IS NULL)`), an end requires a start and must follow it, and a partial
+unique index allows only one running entry per person — two would make "stop the timer"
+ambiguous and double-count the overlap.
+
+Totals compute a running entry's elapsed time live, otherwise a timer running since
+morning would show as zero everywhere. Submitting a week with a timer still running is
+refused, since it would freeze an entry that has no recorded duration.
+
+**Unchanged:** minutes remain the stored unit, durations still accept `7.5` / `7:30` /
+`90m`, submission still locks a week and publishes `timesheet.submitted`, and budget burn
+still reads CRM through its service.
+
+**Lesson for later phases.** The under-a-minute constraint was real but I let it decide the
+*data model*, not just the UI. Entries were shaped to fit a fast grid, and the grid then
+could not hold what the work actually looked like. Model what happened; optimise the
+screen separately.

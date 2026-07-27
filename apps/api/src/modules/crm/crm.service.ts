@@ -528,10 +528,17 @@ export class CrmService {
       .where(and(eq(contacts.clientId, clientId), eq(contacts.isPrimary, true)));
   }
 
-  /** Reporting views (manifest) — created idempotently at bootstrap. */
+  /**
+   * Published reporting views (manifest contract), rebuilt at bootstrap.
+   *
+   * DROP then CREATE: CREATE OR REPLACE cannot change a view's column names or order,
+   * so adding a column mid-list would fail at boot.
+   */
   async ensureReportingViews(): Promise<void> {
+    await this.db.execute(sql`DROP VIEW IF EXISTS crm.v_clients CASCADE`);
+    await this.db.execute(sql`DROP VIEW IF EXISTS crm.v_projects CASCADE`);
     await this.db.execute(sql`
-      CREATE OR REPLACE VIEW crm.v_clients AS
+      CREATE VIEW crm.v_clients AS
       SELECT c.id, c.name, c.status, c.owner_id, c.created_at,
              (SELECT count(*) FROM crm.projects p
                WHERE p.client_id = c.id AND p.archived_at IS NULL) AS project_count
@@ -539,7 +546,7 @@ export class CrmService {
        WHERE c.archived_at IS NULL
     `);
     await this.db.execute(sql`
-      CREATE OR REPLACE VIEW crm.v_projects AS
+      CREATE VIEW crm.v_projects AS
       SELECT p.id, p.name, p.status, p.client_id, c.name AS client_name,
              p.billing_model, p.currency, p.default_rate_cents, p.budget_amount_cents,
              p.budget_hours, p.retainer_amount_cents, p.retainer_period,
