@@ -13,7 +13,9 @@ import { DemoModule } from './modules/demo/demo.module.js';
  */
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
+    // Nest resolves .env against the process cwd (apps/api), so the repo-root file
+    // must be listed explicitly — otherwise config silently falls back to defaults.
+    ConfigModule.forRoot({ isGlobal: true, envFilePath: ['.env', '../../.env'] }),
     LoggerModule.forRoot({
       pinoHttp: {
         transport: process.env.NODE_ENV !== 'production' ? { target: 'pino-pretty' } : undefined,

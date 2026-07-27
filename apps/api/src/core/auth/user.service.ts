@@ -24,7 +24,7 @@ export class UserService {
    * The very first user becomes admin — otherwise a fresh install has no one who can
    * grant anything. Subsequent users default to 'member'.
    */
-  async resolveFromClaims(claims: OidcClaims): Promise<Actor> {
+  async resolveFromClaims(claims: OidcClaims, accessToken: string): Promise<Actor> {
     const existing = await this.db.query.users.findFirst({
       where: eq(users.oidcSubject, claims.sub),
     });
@@ -33,23 +33,58 @@ export class UserService {
       return { userId: existing.id, role: existing.role as Actor['role'] };
     }
 
+    // The access token carries only `sub` — profile claims live at the userinfo
+    // endpoint. Fetched once, at provisioning, rather than on every request.
+    const profile = await this.fetchUserInfo(accessToken);
+
     const anyUser = await this.db.query.users.findFirst({ columns: { id: true } });
     const isFirstUser = anyUser === undefined;
     const id = uuidv7();
+    const email = profile?.email ?? claims.email ?? claims.preferred_username ?? 'unknown';
+    const role = isFirstUser ? 'admin' : 'member';
 
-    await this.db.insert(users).values({
-      id,
-      oidcSubject: claims.sub,
-      email: claims.email ?? claims.preferred_username ?? 'unknown',
-      displayName: claims.name ?? claims.email ?? 'Unknown user',
-      role: isFirstUser ? 'admin' : 'member',
+    // Concurrent first requests (the shell loads /me and /navigation in parallel) can
+    // both reach this point, so the insert must be idempotent rather than racing on
+    // the unique constraint. Whoever loses the race simply reads the winner's row.
+    const [inserted] = await this.db
+      .insert(users)
+      .values({
+        id,
+        oidcSubject: claims.sub,
+        email,
+        displayName: profile?.name ?? claims.name ?? email,
+        role,
+      })
+      .onConflictDoNothing({ target: users.oidcSubject })
+      .returning({ id: users.id, role: users.role });
+
+    if (inserted) {
+      this.logger.log(`Provisioned user ${email}${isFirstUser ? ' as admin (first user)' : ''}`);
+      return { userId: inserted.id, role: inserted.role as Actor['role'] };
+    }
+
+    const winner = await this.db.query.users.findFirst({
+      where: eq(users.oidcSubject, claims.sub),
     });
+    return { userId: winner!.id, role: winner!.role as Actor['role'] };
+  }
 
-    this.logger.log(
-      `Provisioned user ${claims.email ?? claims.sub}${isFirstUser ? ' as admin (first user)' : ''}`,
-    );
-
-    return { userId: id, role: isFirstUser ? 'admin' : 'member' };
+  private async fetchUserInfo(accessToken: string): Promise<OidcClaims | null> {
+    const issuer = process.env.ZITADEL_ISSUER;
+    if (!issuer) return null;
+    try {
+      const res = await fetch(`${issuer}/oidc/v1/userinfo`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!res.ok) {
+        this.logger.warn(`userinfo returned ${res.status}; provisioning with token claims only`);
+        return null;
+      }
+      return (await res.json()) as OidcClaims;
+    } catch (err) {
+      this.logger.warn(`userinfo unreachable (${(err as Error).message}); using token claims`);
+      return null;
+    }
   }
 
   async byId(userId: string) {
