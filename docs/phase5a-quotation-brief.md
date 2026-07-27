@@ -1,6 +1,6 @@
 # Phase 5a — Quotation
 
-**Status:** brief, awaiting decisions
+**Status:** ✅ built and verified (2026-07-28). Decisions D1–D6 confirmed as recommended.
 **Depends on:** Phase 1 (CRM), Phase 3 (Documents), Phase 5c (VAT engine, PDF rendering, org settings)
 **Parent:** [phase5-commercial-brief.md](phase5-commercial-brief.md)
 
@@ -31,7 +31,7 @@ Phase 5c built more than invoicing. Quoting reuses it rather than duplicating it
 
 | Reused | From |
 |---|---|
-| VAT computation per rate group, half-up, integer cents | `billing/vat.ts` |
+| VAT computation per rate group, half-up, integer cents | `core/money/vat.ts` (moved there during this phase) |
 | Org identity on the document header (KvK, BTW, IBAN) | `core/settings` |
 | PDF rendering conventions and layout | `billing/invoice-render.ts` |
 | Storing the sent document immutably | Document Management |
@@ -122,9 +122,9 @@ Per the AI plan, this is the headline scenario: **"draft a quote from this conve
 
 | Tool | Risk class | Notes |
 |---|---|---|
-| `quote_list` | `read` | Pipeline visibility |
-| `quote_draft_from_context` | `write:draft` | Drafts scope and lines from a meeting note, document, or chat context |
-| `quote_send` | `restricted` | **Not bound.** Same treatment as `billing_send_invoice` — the assistant never sends a client-facing commercial document |
+| `sales_list_quotes` | `read` | Pipeline visibility |
+| `sales_draft_quote` | `write:draft` | Drafts scope and lines from a meeting note, document, or chat context |
+| `sales_send_quote` | `restricted` | **Not bound.** Same treatment as `billing_send_invoice` — the assistant never sends a client-facing commercial document |
 
 The draft tool is where AI earns its place: turning "they want a Power BI dashboard, maybe three
 days, plus a workshop" into structured lines you then correct. It must produce a **draft that looks
@@ -159,7 +159,45 @@ Written before the UI, in the spirit of 5c:
 
 ---
 
-## 8. What this phase deliberately does not do
+## 8. What was built (2026-07-28)
+
+All six decisions were confirmed as recommended. Delivered against §7:
+
+| Step | Status |
+|---|---|
+| Schema, VAT wiring, service, immutability trigger | ✅ 24 tests |
+| PDF reusing the invoice layout | ✅ filed at send, CONCEPT preview for drafts |
+| List, detail, line editor | ✅ |
+| Accept → project conversion | ✅ carries rate and budget |
+| AI draft tool | ✅ verified live |
+
+**Verified end to end.** A two-line quote (24h × €35 + €450 fixed) sent as `Q2026-0001`,
+accepted, and the project it created carried €35/hr and the €1290 ex-VAT budget. The AI
+tool was given *"about three days at my usual rate plus a half-day workshop for a fixed
+450 euro"* and produced exactly that: 24 hours at €35 looked up from the client's project,
+a €450 fixed line, drafted not sent, with `ai_initiated` recorded in the audit log. All
+test data was removed afterwards, so `Q2026-0001` remains free.
+
+### Two things the build surfaced, neither about quotes
+
+**The VAT engine moved to `core/money/vat.ts`.** The boundary rule refused Sales importing
+`billing/vat.ts`, and it was right: two modules now price the same work, so the engine is a
+platform concern rather than billing's private business. A quote and its invoice must agree
+to the cent, and they only can by running the same code.
+
+**The test suite was writing uploads into the real storage directory.** `StorageService`
+resolves `STORAGE_PATH` at construction and nothing overrode it under test, so 374 orphaned
+files had accumulated — unreferenced by any row, and included in every nightly backup. Tests
+now use a throwaway directory; storage reconciles exactly against `docs.versions`.
+
+### One thing deliberately left as-is
+
+An **expired quote can still be accepted**. Expiry is information, not a lock — whether to
+honour a lapsed price is a commercial decision, and the database should not make it.
+
+---
+
+## 9. What this phase deliberately does not do
 
 - **No client portal.** D2 above.
 - **No rate card module.** D1 above; 5b generalises when a second rate exists.

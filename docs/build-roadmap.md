@@ -142,9 +142,9 @@ Effort is **T-shirt size** + a **rough focused-build-week range** for one AI-ass
 
 **Module goal:** close the money cycle (quote → contract → project → hours → invoice) on centrally managed rates. Three modules, built in this internal order because rates/budgets flow downstream.
 
-- **5a — Quotation:** quotes from rate cards/templates; versioning; branded PDF + click-to-accept; statuses feed pipeline; `quote.accepted` → project scaffold + filed PDF. Tools: `create_draft_quote`, `get_quote_status`. *(M, ~3–4 wk)*
+- **5a — Quotation** ✅ *built 2026-07-28, see [phase5a-quotation-brief.md](phase5a-quotation-brief.md)* **:** quotes from rate cards/templates; versioning; branded PDF + click-to-accept; statuses feed pipeline; `quote.accepted` → project scaffold + filed PDF. Tools: `create_draft_quote`, `get_quote_status`. *(M, ~3–4 wk)*
 - **5b — Contracts & rate cards:** register (framework/SOW/NDA/DPA), rates + indexation with effective dates, renewal/notice alerts, project→contract links, `contract.expiring`. Rate cards become the single source feeding quotation/time/invoicing. Tool: `extract_contract_terms`. *(M, ~3–4 wk)*
-- **5c — Invoicing:** drafts from `timesheet.approved` (T&M) or milestones (fixed fee); VAT (21% / reverse-charge / exempt); sequential numbering; PDF send + status + reminders; credit notes; accounting export. Tools: `create_draft_invoice` (`write:draft`); `send_invoice` stays **`restricted` — not exposed to the assistant initially.** *(L, ~4–6 wk)*
+- **5c — Invoicing** ✅ *core built 2026-07-27; sending and reminders outstanding* **:** drafts from `timesheet.approved` (T&M) or milestones (fixed fee); VAT (21% / reverse-charge / exempt); sequential numbering; PDF send + status + reminders; credit notes; accounting export. Tools: `create_draft_invoice` (`write:draft`); `send_invoice` stays **`restricted` — not exposed to the assistant initially.** *(L, ~4–6 wk)*
 
 **AI this phase (the "generate a quote from a chat message" milestone):** draft quotes from meeting notes + rate cards; invoice-line descriptions generated from time entries; escalating payment-reminder drafts; contract-term extraction into structured fields (human-verified). This is where the AI plan's headline scenario becomes real.
 

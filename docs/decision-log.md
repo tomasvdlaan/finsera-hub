@@ -90,6 +90,25 @@ Phase 0 (walking skeleton) approved for build against `phase0-spec.md` as drafte
 | G3 | Transcription chosen? | — | *pending* |
 | G4 | Portal auth + security review passed? | — | *pending* |
 
+## Phase 5a decisions (2026-07-28)
+
+Recorded in [phase5a-quotation-brief.md](phase5a-quotation-brief.md) §4; all confirmed as
+recommended.
+
+| # | Decision | Why |
+|---|---|---|
+| Q1 | **No rate-card module.** Quotes carry explicit rates; accepting writes the rate onto the project. | At one client and one rate, a rate card is an abstraction over a single number. 5b generalises when a second rate exists. |
+| Q2 | **No click-to-accept.** Acceptance is marked on our side. | It would be the platform's first unauthenticated public endpoint — the exact reason the Client Portal was scheduled last. Lands with Phase 7. |
+| Q3 | **Sent quotes immutable; revisions create v2.** | A quote is a document you made a promise with. "Which version did they agree to?" must have an answer. |
+| Q4 | **`Q2026-0001`, allocated on send, gaps tolerated, separate counter.** | No authority audits an abandoned quote; but an abandoned quote must never disturb the invoice sequence, which legally cannot have gaps. |
+| Q5 | **Expiry derived from today, never stored.** | Nothing should change state while nobody is looking. An expired quote can still be accepted — honouring a lapsed price is a commercial decision. |
+| Q6 | **Accepting offers a project, does not force one.** | A quote for extra work on an existing project should attach to it. That is a click, not a guess. |
+
+**Supersedes** the parent brief's §9 note that rate cards must precede quotes. That reasoning
+holds at ten clients; at one it inverts. Revisit when a second rate appears.
+
+---
+
 ---
 
 ## G0 — Walking skeleton (2026-07-27)
