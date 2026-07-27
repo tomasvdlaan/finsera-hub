@@ -3,7 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { LoggerModule } from 'nestjs-pino';
 import { CoreModule } from './core/core.module.js';
 import { ShellModule } from './shell/shell.module.js';
-import { DemoModule } from './modules/demo/demo.module.js';
+import { CrmModule } from './modules/crm/crm.module.js';
 
 /**
  * The composition root — the ONLY place where core, shell, and modules meet.
@@ -25,7 +25,7 @@ import { DemoModule } from './modules/demo/demo.module.js';
     ShellModule,
 
     // ── domain modules (Layer 2) ──
-    DemoModule, // throwaway — delete after gate G0
+    CrmModule,
   ],
 })
 export class AppModule {}

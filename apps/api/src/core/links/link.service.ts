@@ -3,7 +3,7 @@ import type { Actor, Link } from '@platform/contracts';
 import { and, eq, inArray, isNull, or } from 'drizzle-orm';
 import { v7 as uuidv7 } from 'uuid';
 import { AuditService } from '../audit/audit.service.js';
-import { DB, type Database, type Executor } from '../db/db.module.js';
+import { DB, type Database, type Executor, type Tx } from '../db/db.module.js';
 import { links } from '../db/core.schema.js';
 import { PermissionService } from '../permissions/permission.service.js';
 import { RegistryService } from '../registry/registry.service.js';
@@ -31,6 +31,48 @@ export class LinkService {
     private readonly permissions: PermissionService,
     private readonly audit: AuditService,
   ) {}
+
+  /**
+   * Create a link inside the caller's transaction.
+   *
+   * Modules use this to mirror a structural relationship (project → client) as a
+   * contextual link at creation time, which is what makes structural relationships
+   * visible to the core's generic machinery — timelines, search, the 360° view
+   * (Master §8.3). The structural FK remains the business-logic source of truth; the
+   * link is how the core learns the relationship exists without knowing any module's
+   * schema.
+   *
+   * Reads go through the same tx, because the entity being linked was very likely
+   * registered moments earlier in it and is not yet visible outside.
+   */
+  async createWithin(tx: Tx, actor: Actor, input: CreateLinkInput): Promise<string> {
+    const [from, to] = await Promise.all([
+      this.registry.resolveOne(input.fromId, tx),
+      this.registry.resolveOne(input.toId, tx),
+    ]);
+    if (!from || !to) throw new NotFoundException('Both entities must exist in the registry');
+
+    const [canSeeFrom, canSeeTo] = await Promise.all([
+      this.permissions.canSee(actor, input.fromId, tx),
+      this.permissions.canSee(actor, input.toId, tx),
+    ]);
+    if (!canSeeFrom || !canSeeTo) throw new ForbiddenException('Cannot link these entities');
+
+    const id = uuidv7();
+    await tx
+      .insert(links)
+      .values({
+        id,
+        fromType: from.entityType,
+        fromId: input.fromId,
+        toType: to.entityType,
+        toId: input.toId,
+        linkKind: input.kind ?? null,
+        createdBy: actor.userId,
+      })
+      .onConflictDoNothing();
+    return id;
+  }
 
   async create(actor: Actor, input: CreateLinkInput): Promise<Link> {
     if (input.fromId === input.toId) {

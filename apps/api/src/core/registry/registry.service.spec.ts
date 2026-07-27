@@ -9,7 +9,9 @@ import { entities } from '../db/core.schema.js';
 import { resetDb, testDb } from '../../test/db.js';
 
 // A stand-in module table, mirroring how a real module stores its own rows.
-const fixture = pgSchema('demo');
+// Lives in its own schema so core tests depend on no real module (created by
+// scripts/setup-test-db.mjs).
+const fixture = pgSchema('fixture');
 const fixtureItems = fixture.table('items', {
   id: uuid('id').primaryKey(),
   title: text('title').notNull(),
@@ -20,9 +22,9 @@ function makeRegistry() {
   const manifests = new ManifestRegistry();
   manifests.register(
     defineManifest({
-      name: 'demo',
+      name: 'fixture',
       version: '1.0.0',
-      entities: [{ type: 'demo_item', displayTemplate: '{title}', urlPattern: '/demo/items/:id' }],
+      entities: [{ type: 'fixture_item', displayTemplate: '{title}', urlPattern: '/fixture/items/:id' }],
     }),
   );
   manifests.seal();
@@ -32,7 +34,7 @@ function makeRegistry() {
 describe('RegistryService', () => {
   beforeEach(async () => {
     await resetDb();
-    await testDb.execute(sql`DELETE FROM demo.items`);
+    await testDb.execute(sql`DELETE FROM fixture.items`);
   });
 
   it('registers an entity and resolves it', async () => {
@@ -42,16 +44,16 @@ describe('RegistryService', () => {
     await testDb.transaction(async (tx) => {
       await registry.register(tx, {
         id,
-        entityType: 'demo_item',
+        entityType: 'fixture_item',
         displayName: 'Build dashboard',
-        urlPath: `/demo/items/${id}`,
+        urlPath: `/fixture/items/${id}`,
       });
     });
 
     const ref = await registry.resolveOne(id);
     expect(ref).toMatchObject({
       id,
-      entityType: 'demo_item',
+      entityType: 'fixture_item',
       displayName: 'Build dashboard',
       deleted: false,
     });
@@ -63,14 +65,14 @@ describe('RegistryService', () => {
     await testDb.transaction((tx) =>
       registry.register(tx, {
         id,
-        entityType: 'demo_item',
+        entityType: 'fixture_item',
         displayName: 'x',
-        urlPath: `/demo/items/${id}`,
+        urlPath: `/fixture/items/${id}`,
       }),
     );
 
     const [row] = await testDb.select().from(entities).where(eq(entities.id, id));
-    expect(row!.owningModule).toBe('demo');
+    expect(row!.owningModule).toBe('fixture');
   });
 
   it('refuses an entity type no manifest declares', async () => {
@@ -98,9 +100,9 @@ describe('RegistryService', () => {
       testDb.transaction(async (tx) => {
         await registry.register(tx, {
           id,
-          entityType: 'demo_item',
+          entityType: 'fixture_item',
           displayName: 'doomed',
-          urlPath: `/demo/items/${id}`,
+          urlPath: `/fixture/items/${id}`,
         });
         // created_by is NOT NULL — this insert fails and must take the registry with it
         await tx.insert(fixtureItems).values({ id, title: 'doomed', createdBy: null as never });
@@ -120,9 +122,9 @@ describe('RegistryService', () => {
     await testDb.transaction(async (tx) => {
       await registry.register(tx, {
         id,
-        entityType: 'demo_item',
+        entityType: 'fixture_item',
         displayName: 'kept',
-        urlPath: `/demo/items/${id}`,
+        urlPath: `/fixture/items/${id}`,
       });
       await tx.insert(fixtureItems).values({ id, title: 'kept', createdBy: actor });
     });
@@ -138,9 +140,9 @@ describe('RegistryService', () => {
     await testDb.transaction((tx) =>
       registry.register(tx, {
         id,
-        entityType: 'demo_item',
+        entityType: 'fixture_item',
         displayName: 'before',
-        urlPath: `/demo/items/${id}`,
+        urlPath: `/fixture/items/${id}`,
       }),
     );
 
@@ -160,9 +162,9 @@ describe('RegistryService', () => {
         await testDb.transaction((tx) =>
           registry.register(tx, {
             id,
-            entityType: 'demo_item',
+            entityType: 'fixture_item',
             displayName: name,
-            urlPath: `/demo/items/${id}`,
+            urlPath: `/fixture/items/${id}`,
           }),
         );
         return id;

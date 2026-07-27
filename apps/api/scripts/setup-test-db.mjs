@@ -27,4 +27,18 @@ execSync('pnpm exec drizzle-kit migrate', {
   stdio: 'inherit',
   env: { ...process.env, DATABASE_URL: url },
 });
+
+// A stand-in module table for core tests that must prove "module row and registry entry
+// commit together" without depending on any real module's schema.
+const db = new pg.Client({ connectionString: url });
+await db.connect();
+await db.query('CREATE SCHEMA IF NOT EXISTS fixture');
+await db.query(`
+  CREATE TABLE IF NOT EXISTS fixture.items (
+    id uuid PRIMARY KEY,
+    title text NOT NULL,
+    created_by uuid NOT NULL
+  )`);
+await db.end();
+
 console.log(`Migrated ${dbName}`);
