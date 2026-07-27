@@ -133,6 +133,37 @@ describe('TimeService', () => {
     expect(entry.minutes).toBe(90);
   });
 
+  it('accepts a session that crosses midnight', async () => {
+    // A late shift: 22:00 Monday to 02:00 Tuesday is four hours. The entry stays
+    // attributed to the day it started, which is how the day view groups it.
+    const entry = await time.createEntry(actor, {
+      projectId,
+      workedOn: MONDAY,
+      startedAt: `${MONDAY}T22:00:00Z`,
+      endedAt: `${addDays(MONDAY, 1)}T02:00:00Z`,
+    });
+
+    expect(entry.minutes).toBe(240);
+    expect(entry.workedOn).toBe(MONDAY);
+
+    const day = await time.getDay(actor, { date: MONDAY });
+    expect(day.totalMinutes).toBe(240);
+    // Not double-counted on the following day.
+    const next = await time.getDay(actor, { date: addDays(MONDAY, 1) });
+    expect(next.totalMinutes).toBe(0);
+  });
+
+  it('caps a cross-midnight session at 24 hours', async () => {
+    await expect(
+      time.createEntry(actor, {
+        projectId,
+        workedOn: MONDAY,
+        startedAt: `${MONDAY}T09:00:00Z`,
+        endedAt: `${addDays(MONDAY, 2)}T09:00:00Z`, // 48 hours
+      }),
+    ).rejects.toThrow(/1440/);
+  });
+
   it('rejects an end before the start', async () => {
     await expect(
       time.createEntry(actor, {

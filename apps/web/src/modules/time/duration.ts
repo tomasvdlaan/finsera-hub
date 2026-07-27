@@ -72,3 +72,39 @@ export function shiftDay(date: string, days: number): string {
 export function formatClock(iso: string): string {
   return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
+
+/** ISO timestamp → "09:30" for an <input type="time"> (local, 24h, zero-padded). */
+export function toClockValue(iso: string | null): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+/**
+ * Turn a date plus two clock times into unambiguous timestamps.
+ *
+ * A shift can cross midnight — 22:00 to 02:00 is four hours, not a negative one. When
+ * the end clock is at or before the start clock, it belongs to the following day. The
+ * API takes explicit timestamps, so this inference lives here, where the ambiguity is:
+ * the clock times are what the user typed, the dates are what they meant.
+ */
+export function resolveTimes(
+  date: string,
+  start: string,
+  end: string,
+): { startedAt: string | null; endedAt: string | null; crossesMidnight: boolean } {
+  if (!start) return { startedAt: null, endedAt: end ? `${date}T${end}:00` : null, crossesMidnight: false };
+
+  const startedAt = `${date}T${start}:00`;
+  if (!end) return { startedAt, endedAt: null, crossesMidnight: false };
+
+  const crossesMidnight = end <= start; // string compare is safe for zero-padded HH:MM
+  const endDate = crossesMidnight ? shiftDay(date, 1) : date;
+  return { startedAt, endedAt: `${endDate}T${end}:00`, crossesMidnight };
+}
+
+/** True when an entry's end falls on a later day than its start. */
+export function spansMidnight(startedAt: string | null, endedAt: string | null): boolean {
+  if (!startedAt || !endedAt) return false;
+  return new Date(startedAt).toDateString() !== new Date(endedAt).toDateString();
+}

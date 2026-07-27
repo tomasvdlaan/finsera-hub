@@ -1,22 +1,8 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../../lib/api.js';
-import { formatClock, formatHours, parseDuration, shiftDay, todayIso } from './duration.js';
-
-interface Entry {
-  id: string;
-  projectId: string;
-  projectName: string;
-  clientName: string | null;
-  workedOn: string;
-  startedAt: string | null;
-  endedAt: string | null;
-  minutes: number | null;
-  effectiveMinutes: number;
-  running: boolean;
-  billable: boolean;
-  description: string | null;
-}
+import { formatHours, parseDuration, resolveTimes, shiftDay, todayIso } from './duration.js';
+import { EntryRow, type Entry, type Project } from './EntryRow.js';
 
 interface Day {
   date: string;
@@ -26,11 +12,6 @@ interface Day {
   submitted: boolean;
 }
 
-interface Project {
-  id: string;
-  name: string;
-}
-
 /**
  * The day view — the primary entry screen.
  *
@@ -38,7 +19,8 @@ interface Project {
  * end IS the running timer: there is no separate timer concept to keep in sync.
  */
 export function DayView() {
-  const [date, setDate] = useState(todayIso());
+  const [params] = useSearchParams();
+  const [date, setDate] = useState(params.get('date') ?? todayIso());
   const [day, setDay] = useState<Day | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -84,8 +66,6 @@ export function DayView() {
     return () => clearInterval(t);
   }, [hasRunning]);
 
-  const iso = (clock: string) => (clock ? `${date}T${clock}:00` : null);
-
   const add = async (e: FormEvent) => {
     e.preventDefault();
     if (!projectId) return;
@@ -94,11 +74,13 @@ export function DayView() {
     try {
       const minutes = duration ? parseDuration(duration) : null;
       if (duration && minutes === null) throw new Error(`"${duration}" is not a duration`);
+      // 22:00–02:00 is a four-hour shift, not a negative one.
+      const { startedAt, endedAt } = resolveTimes(date, start, end);
       await api.post('/time/entries', {
         projectId,
         workedOn: date,
-        startedAt: iso(start),
-        endedAt: iso(end),
+        startedAt,
+        endedAt,
         // Times win when both are given; the clock is the evidence.
         minutes: start ? undefined : minutes,
         description: description.trim() || null,
@@ -153,13 +135,11 @@ export function DayView() {
     }
   };
 
-  const patch = async (id: string, body: Record<string, unknown>) => {
-    try {
-      await api.patch(`/time/entries/${id}`, body);
-      await load();
-    } catch (err) {
-      setError((err as Error).message);
-    }
+  // Errors are re-thrown so the editing row can show them beside the fields being
+  // corrected, rather than at the top of a page the user is not looking at.
+  const patch_ = async (id: string, body: Record<string, unknown>) => {
+    await api.patch(`/time/entries/${id}`, body);
+    await load();
   };
 
   if (!day) return <p className="muted">{error ?? 'Loading…'}</p>;
@@ -187,38 +167,15 @@ export function DayView() {
       ) : (
         <ul className="entries">
           {day.entries.map((e) => (
-            <li key={e.id} className={e.running ? 'running' : undefined}>
-              <div className="entry-main">
-                <Link to={`/crm/projects/${e.projectId}`}>{e.projectName}</Link>
-                {e.clientName && <span className="muted"> · {e.clientName}</span>}
-                {e.description && <div>{e.description}</div>}
-                <span className="muted">
-                  {e.startedAt ? formatClock(e.startedAt) : '—'}
-                  {' → '}
-                  {e.endedAt ? formatClock(e.endedAt) : e.running ? 'running' : '—'}
-                </span>
-              </div>
-
-              <div className="entry-side">
-                <strong>{formatHours(e.effectiveMinutes)}h</strong>
-                {!e.billable && <span className="badge">non-billable</span>}
-                {e.running ? (
-                  <button onClick={() => void stop(e.id)}>Stop</button>
-                ) : (
-                  <button
-                    className="link-button"
-                    onClick={() => void patch(e.id, { billable: !e.billable })}
-                  >
-                    {e.billable ? 'mark internal' : 'mark billable'}
-                  </button>
-                )}
-                {!day.submitted && (
-                  <button className="link-button" onClick={() => void remove(e.id)}>
-                    delete
-                  </button>
-                )}
-              </div>
-            </li>
+            <EntryRow
+              key={e.id}
+              entry={e}
+              projects={projects}
+              locked={day.submitted}
+              onSave={(patch) => patch_(e.id, patch)}
+              onStop={() => stop(e.id)}
+              onDelete={() => remove(e.id)}
+            />
           ))}
         </ul>
       )}

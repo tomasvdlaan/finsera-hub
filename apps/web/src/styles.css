@@ -107,6 +107,10 @@ main {
   flex: 1;
   padding: 2rem;
   max-width: 820px;
+  /* A flex item defaults to min-width:auto and refuses to shrink below its content, so
+     a wide table pushed the whole page sideways and scrolled the sidebar off-screen.
+     This lets .grid-scroll do its job instead. */
+  min-width: 0;
 }
 section {
   margin-top: 2rem;
