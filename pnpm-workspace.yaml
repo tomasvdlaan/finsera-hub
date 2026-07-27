@@ -1,0 +1,6 @@
+packages:
+  - apps/*
+  - packages/*
+allowBuilds:
+  # esbuild compiles its native binary on install — required by vite and vitest
+  esbuild: true

@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pnpm --version)",
+      "Bash(docker --version)",
+      "Bash(git --version)",
+      "Bash(npm install *)",
+      "Bash(tail -20 /Users/tomasvanderlaan/.npm/_logs/2026-07-27T12_23_31_619Z-debug-0.log)",
+      "Bash(mkdir -p ~/.local/bin)",
+      "Bash(corepack enable *)",
+      "Bash(~/.local/bin/pnpm --version)"
+    ]
+  }
+}

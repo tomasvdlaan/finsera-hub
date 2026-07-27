@@ -1,0 +1,19 @@
+# dependencies
+node_modules/
+
+# build output
+dist/
+.turbo/
+
+# environment — secrets never enter the repo (spec §9)
+.env
+.env.local
+
+# logs & coverage
+*.log
+coverage/
+
+# os / editor
+.DS_Store
+.idea/
+.vscode/
