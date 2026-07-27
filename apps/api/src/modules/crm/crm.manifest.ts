@@ -45,6 +45,11 @@ export const crmManifest = defineManifest({
   ],
   widgets: [],
 
+  chatWidgets: [
+    { entityType: 'client', component: 'crm:client-card' },
+    { entityType: 'project', component: 'crm:project-card' },
+  ],
+
   // Published now so Phase 6a is assembly rather than archaeology (roadmap principle 4).
   reportingViews: [
     { view: 'crm.v_clients', description: 'Clients with status, owner, and project counts.' },

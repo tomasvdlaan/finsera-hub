@@ -99,6 +99,7 @@ export class ShellController {
       permissions: m.permissions,
       navigation: m.navigation,
       widgets: m.widgets,
+      chatWidgets: m.chatWidgets,
       reportingViews: m.reportingViews,
       portalExposure: m.portalExposure,
       aiTools: m.aiTools.map((t) => ({

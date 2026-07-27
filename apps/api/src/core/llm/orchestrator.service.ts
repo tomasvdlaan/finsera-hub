@@ -1,10 +1,11 @@
 import { ForbiddenException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import type { Actor } from '@platform/contracts';
+import type { Actor, EntityRef } from '@platform/contracts';
 import type { ModelMessage } from 'ai';
 import { and, asc, desc, eq } from 'drizzle-orm';
 import { v7 as uuidv7 } from 'uuid';
 import { DB, type Database } from '../db/db.module.js';
 import { conversations, messages } from '../db/core.schema.js';
+import { PermissionService } from '../permissions/permission.service.js';
 import { RegistryService } from '../registry/registry.service.js';
 import { LlmService } from './llm.service.js';
 import { AiToolRegistry, type ToolInvocation } from './tool-registry.service.js';
@@ -22,8 +23,18 @@ export interface AskResult {
   conversationId: string;
   answer: string;
   toolCalls: ToolInvocation[];
+  /**
+   * Records this answer touched, resolved through the registry.
+   *
+   * The chat renders these as cards, so an answer about a document can show the
+   * document rather than describe it. Collected from what the tools actually returned,
+   * not from what the model claims — the model cannot invent a reference this way.
+   */
+  references: EntityRef[];
   usage: { inputTokens: number; outputTokens: number };
 }
+
+const UUID_PATTERN = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
 
 const HISTORY_LIMIT = 20;
 
@@ -44,6 +55,7 @@ export class OrchestratorService {
     private readonly llm: LlmService,
     private readonly tools: AiToolRegistry,
     private readonly registry: RegistryService,
+    private readonly permissions: PermissionService,
   ) {}
 
   async ask(actor: Actor, input: AskInput): Promise<AskResult> {
@@ -73,6 +85,8 @@ export class OrchestratorService {
       result.text.trim() ||
       'I could not produce an answer for that. Try rephrasing, or ask something narrower.';
 
+    const references = await this.collectReferences(actor, invocations, answer);
+
     await this.db.transaction(async (tx) => {
       await tx.insert(messages).values([
         { id: uuidv7(), conversationId, role: 'user', content: question, toolCalls: [] },
@@ -88,6 +102,7 @@ export class OrchestratorService {
             executed: i.executed,
             reason: i.reason ?? null,
           })),
+          references,
         },
       ]);
       await tx
@@ -101,7 +116,7 @@ export class OrchestratorService {
         `${result.usage.inputTokens}+${result.usage.outputTokens} tokens`,
     );
 
-    return { conversationId, answer, toolCalls: invocations, usage: result.usage };
+    return { conversationId, answer, toolCalls: invocations, references, usage: result.usage };
   }
 
   // ── conversations ──────────────────────────────────────────
@@ -132,6 +147,46 @@ export class OrchestratorService {
   async deleteConversation(actor: Actor, id: string) {
     await this.assertOwned(actor, id);
     await this.db.delete(conversations).where(eq(conversations.id, id));
+  }
+
+  /**
+   * Which records this answer is about.
+   *
+   * Ids are taken from what the tools returned and from the answer text, then resolved
+   * through the registry and filtered by what the actor may see. Two consequences worth
+   * stating: the model cannot fabricate a reference, because an id it invents will not
+   * resolve; and a reference cannot leak, because permission is checked per entity.
+   */
+  private async collectReferences(
+    actor: Actor,
+    invocations: ToolInvocation[],
+    answer: string,
+  ): Promise<EntityRef[]> {
+    const ids = new Set<string>();
+    const harvest = (value: unknown, depth = 0) => {
+      if (depth > 6 || ids.size > 40) return;
+      if (typeof value === 'string') {
+        for (const match of value.match(UUID_PATTERN) ?? []) ids.add(match.toLowerCase());
+      } else if (Array.isArray(value)) {
+        value.forEach((v) => harvest(v, depth + 1));
+      } else if (value && typeof value === 'object') {
+        Object.values(value).forEach((v) => harvest(v, depth + 1));
+      }
+    };
+
+    for (const invocation of invocations) {
+      harvest(invocation.result);
+      harvest(invocation.input);
+    }
+    harvest(answer);
+    if (ids.size === 0) return [];
+
+    const resolved = await this.registry.resolve([...ids]);
+    const visible = await this.permissions.visibleIds(
+      actor,
+      resolved.map((r) => r.id),
+    );
+    return resolved.filter((r) => visible.has(r.id) && !r.deleted).slice(0, 12);
   }
 
   // ── internals ──────────────────────────────────────────────
@@ -186,6 +241,9 @@ export class OrchestratorService {
       'Money is stored in whole euro cents; durations in whole minutes. Convert for the reader.',
       "Be brief. This is a colleague's working tool, not a chat product.",
       `Today is ${new Date().toISOString().slice(0, 10)}.`,
+      'When you mention a specific record, cite it inline as [[entity:<its id>]] — the ' +
+        'interface turns that into a card the reader can open. Use the real id from a ' +
+        'tool result; never invent one.',
     ];
 
     if (contextEntityId) {

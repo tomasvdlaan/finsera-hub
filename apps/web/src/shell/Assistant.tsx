@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useLocation } from 'react-router-dom';
 import { api } from '../lib/api.js';
+import { chatWidgets } from '../modules/index.js';
+import type { ChatWidgetProps } from '../modules/types.js';
+import { Link } from 'react-router-dom';
 
 interface ToolCall {
   toolName: string;
@@ -10,11 +13,63 @@ interface ToolCall {
   reason?: string;
 }
 
+interface Reference {
+  id: string;
+  entityType: string;
+  displayName: string;
+  urlPath: string;
+}
+
 interface Turn {
   role: 'user' | 'assistant';
   content: string;
   toolCalls?: ToolCall[];
+  references?: Reference[];
   pending?: boolean;
+}
+
+/**
+ * Render a reference using whichever module registered a card for its entity type.
+ *
+ * An unregistered type falls back to a link rather than breaking: a new entity type is
+ * never wrong in chat, only plainer than it could be.
+ */
+function ReferenceCard(props: ChatWidgetProps) {
+  const Widget = chatWidgets[props.entityType];
+  if (Widget) return <Widget {...props} />;
+  return (
+    <div className="chat-card">
+      <div className="chat-card-head">
+        <span className="badge">{props.entityType}</span>
+        <Link to={props.urlPath}>{props.displayName}</Link>
+      </div>
+    </div>
+  );
+}
+
+const CITATION = /\[\[entity:([0-9a-f-]{36})\]\]/gi;
+
+/**
+ * Split an answer on [[entity:id]] citations, rendering each as its card in place.
+ *
+ * A citation naming an id the tools never returned is dropped — the model cannot
+ * conjure a card for a record that does not exist or that this user may not see.
+ */
+function AnswerBody({ text, references }: { text: string; references: Reference[] }) {
+  const byId = new Map(references.map((r) => [r.id.toLowerCase(), r]));
+  const parts: React.ReactNode[] = [];
+  let cursor = 0;
+
+  for (const match of text.matchAll(CITATION)) {
+    const at = match.index ?? 0;
+    if (at > cursor) parts.push(text.slice(cursor, at));
+    const ref = byId.get(match[1]!.toLowerCase());
+    if (ref) parts.push(<ReferenceCard key={`${ref.id}-${at}`} {...ref} />);
+    cursor = at + match[0].length;
+  }
+  if (cursor < text.length) parts.push(text.slice(cursor));
+
+  return <div className="turn-content">{parts}</div>;
 }
 
 /**
@@ -56,12 +111,18 @@ export function Assistant({ onClose }: { onClose: () => void }) {
         conversationId: string;
         answer: string;
         toolCalls: ToolCall[];
+        references: Reference[];
       }>('/assistant/ask', { message, conversationId, context: { entityId: contextEntityId } });
 
       setConversationId(res.conversationId);
       setTurns((t) => [
         ...t.slice(0, -1),
-        { role: 'assistant', content: res.answer, toolCalls: res.toolCalls },
+        {
+          role: 'assistant',
+          content: res.answer,
+          toolCalls: res.toolCalls,
+          references: res.references,
+        },
       ]);
     } catch (err) {
       setTurns((t) => t.slice(0, -1));
@@ -106,7 +167,13 @@ export function Assistant({ onClose }: { onClose: () => void }) {
               <span className="muted">thinking…</span>
             ) : (
               <>
-                <div className="turn-content">{turn.content}</div>
+                <AnswerBody text={turn.content} references={turn.references ?? []} />
+                {/* Records the answer touched but did not cite inline. */}
+                {turn.references
+                  ?.filter((r) => !turn.content.toLowerCase().includes(r.id.toLowerCase()))
+                  .map((r) => (
+                    <ReferenceCard key={r.id} {...r} />
+                  ))}
                 {/* Transparency: what the assistant actually did to answer. */}
                 {turn.toolCalls && turn.toolCalls.length > 0 && (
                   <div className="turn-tools">

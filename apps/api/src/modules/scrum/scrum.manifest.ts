@@ -39,6 +39,8 @@ export const scrumManifest = defineManifest({
 
   widgets: [{ slot: 'entity-page', component: 'scrum:open-tasks' }],
 
+  chatWidgets: [{ entityType: 'task', component: 'scrum:task-card' }],
+
   reportingViews: [
     { view: 'scrum.v_tasks', description: 'Tasks with status, estimate and completion.' },
     { view: 'scrum.v_sprints', description: 'Sprints with their task counts.' },

@@ -16,6 +16,7 @@ interface ModuleDoc {
   permissions: Array<{ capability: string; description: string }>;
   navigation: Array<{ label: string; path: string }>;
   widgets: Array<{ slot: string; component: string }>;
+  chatWidgets: Array<{ entityType: string; component: string }>;
   reportingViews: Array<{ view: string; description: string }>;
   portalExposure: Array<{ entityType: string }>;
   aiTools: Array<{ name: string; description: string; permission: string; riskClass: string }>;
@@ -156,6 +157,15 @@ export function Modules() {
                     ...m.widgets.map((w) => ({ code: w.component, note: `slot: ${w.slot}` })),
                   ].map((x, i) => (
                     <Row key={i} code={x.code} note={x.note} />
+                  ))}
+                </Block>
+
+                <Block
+                  title="Chat cards"
+                  hint="How the assistant renders this module's records inside an answer."
+                >
+                  {m.chatWidgets.map((w) => (
+                    <Row key={w.entityType} code={w.component} note={`for ${w.entityType}`} />
                   ))}
                 </Block>
 

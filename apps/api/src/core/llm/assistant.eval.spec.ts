@@ -60,7 +60,11 @@ describe.skipIf(!LlmService.hasCredentials())('assistant evals [live]', () => {
     tools.bind('time_log_hours', (a: Actor, i) => time.createEntry(a, i as never, { aiInitiated: true }));
     tools.bind('time_stop_timer', (a: Actor) => time.stopEntry(a));
 
-    return { orchestrator: new OrchestratorService(testDb, new LlmService(), tools, registry), crm, time };
+    return {
+      orchestrator: new OrchestratorService(testDb, new LlmService(), tools, registry, permissions),
+      crm,
+      time,
+    };
   };
 
   beforeAll(() => {

@@ -64,6 +64,19 @@ export const widgetSchema = z.object({
   component: z.string(), // key the web shell resolves to a React component
 });
 
+/**
+ * How one of this module's entity types renders as a card inside the assistant.
+ *
+ * The assistant answers about records, so a reply that names a document should be able
+ * to show it — openable, downloadable, actionable — rather than describing it in prose.
+ * Declared here so a new module's entities become chat-renderable the same way they
+ * become linkable and searchable: by saying so, not by editing the chat.
+ */
+export const chatWidgetSchema = z.object({
+  entityType: identifier, //  'document', 'task', …
+  component: z.string(), //   key the web shell resolves to a React component
+});
+
 export const reportingViewSchema = z.object({
   view: z.string(), //    'crm.v_clients' — the module's stable, queryable public shape
   description: z.string(),
@@ -116,6 +129,8 @@ export const moduleManifestSchema = z.object({
 
   navigation: z.array(navigationSchema).default([]),
   widgets: z.array(widgetSchema).default([]),
+  /** Cards the assistant can render for this module's entities. */
+  chatWidgets: z.array(chatWidgetSchema).default([]),
 
   reportingViews: z.array(reportingViewSchema).default([]),
   portalExposure: z.array(portalExposureSchema).default([]),
@@ -125,6 +140,7 @@ export const moduleManifestSchema = z.object({
 
 export type ModuleManifest = z.infer<typeof moduleManifestSchema>;
 export type EntityDeclaration = z.infer<typeof entityDeclarationSchema>;
+export type ChatWidget = z.infer<typeof chatWidgetSchema>;
 export type AiToolDeclaration = z.infer<typeof aiToolSchema>;
 export type PublishedEvent = z.infer<typeof publishedEventSchema>;
 export type Subscription = z.infer<typeof subscriptionSchema>;

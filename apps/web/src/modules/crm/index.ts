@@ -1,4 +1,5 @@
 import type { WebModule } from '../types.js';
+import { ClientChatCard, ProjectChatCard } from './CrmChatCards.js';
 import { ClientDetail } from './ClientDetail.js';
 import { ClientList } from './ClientList.js';
 import { ProjectDetail } from './ProjectDetail.js';
@@ -12,4 +13,8 @@ export const crmWebModule: WebModule = {
     { path: '/crm/projects', Component: ProjectList },
     { path: '/crm/projects/:id', Component: ProjectDetail },
   ],
+  chatWidgets: {
+    client: ClientChatCard,
+    project: ProjectChatCard,
+  },
 };

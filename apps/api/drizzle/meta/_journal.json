@@ -50,6 +50,13 @@
       "when": 1785178486584,
       "tag": "0006_mushy_shatterstar",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1785178756561,
+      "tag": "0007_woozy_nomad",
+      "breakpoints": true
     }
   ]
 }

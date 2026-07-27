@@ -37,6 +37,8 @@ export const docsManifest = defineManifest({
 
   widgets: [{ slot: 'entity-page', component: 'docs:document-list' }],
 
+  chatWidgets: [{ entityType: 'document', component: 'docs:document-card' }],
+
   reportingViews: [
     { view: 'docs.v_documents', description: 'Documents with their current version and index state.' },
   ],

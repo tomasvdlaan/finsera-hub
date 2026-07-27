@@ -163,6 +163,13 @@ export const messages = core.table(
     content: text('content').notNull(),
     /** Tool calls made while producing this message — the audit trail's human-readable half. */
     toolCalls: jsonb('tool_calls').notNull().default([]),
+    /**
+     * Records this message is about, resolved at the time it was written.
+     *
+     * Stored rather than recomputed so reopening a conversation still shows its cards
+     * without replaying every tool call.
+     */
+    references: jsonb('references').notNull().default([]),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('messages_conversation_idx').on(t.conversationId, t.createdAt)],
