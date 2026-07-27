@@ -4,6 +4,7 @@ import type { EntityRef } from '@platform/contracts';
 import { api } from '../../lib/api.js';
 import { Links } from '../../shell/Links.js';
 import { Timeline } from '../../shell/Timeline.js';
+import { EditableField } from './EditableField.js';
 import {
   PROJECT_STATUSES,
   formatMoney,
@@ -41,14 +42,32 @@ export function ProjectDetail() {
       .catch(() => setCandidates([]));
   }, [id]);
 
+  const patch = async (body: Record<string, unknown>) => {
+    try {
+      await api.patch(`/crm/projects/${id}`, body);
+      await load();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  /** Euro string → integer cents. Money never becomes a float on the way to the API. */
+  const cents = (v: string | null) => {
+    if (!v) return null;
+    const parsed = Number(v.replace(',', '.'));
+    return Number.isFinite(parsed) ? Math.round(parsed * 100) : null;
+  };
+  const euros = (c: number | null) => (c == null ? null : (c / 100).toFixed(2));
+
   const setStatus = async (status: string) => {
     await api.patch(`/crm/projects/${id}`, { status });
     await load();
     setRefreshKey((k) => k + 1);
   };
 
-  if (error) return <p className="error">{error}</p>;
-  if (!project) return <p className="muted">Loading…</p>;
+  // Only a failed load blanks the page. A rejected edit (e.g. clearing a fixed-fee
+  // price) must surface inline, with the record still on screen.
+  if (!project) return error ? <p className="error">{error}</p> : <p className="muted">Loading…</p>;
 
   return (
     <>
@@ -74,6 +93,20 @@ export function ProjectDetail() {
         <span className="badge">{humanise(project.billingModel)}</span>
       </div>
 
+      <EditableField label="Name" value={project.name} onSave={(v) => patch({ name: v })} />
+      <EditableField
+        label="Starts on"
+        value={project.startsOn}
+        placeholder="YYYY-MM-DD"
+        onSave={(v) => patch({ startsOn: v })}
+      />
+      <EditableField
+        label="Ends on"
+        value={project.endsOn}
+        placeholder="YYYY-MM-DD"
+        onSave={(v) => patch({ endsOn: v })}
+      />
+
       <section>
         <h2>Commercials</h2>
         <ul className="cards">
@@ -97,6 +130,32 @@ export function ProjectDetail() {
             </>
           )}
         </ul>
+        {project.billingModel === 'retainer' ? (
+          <EditableField
+            label="Retainer €"
+            value={euros(project.retainerAmountCents)}
+            onSave={(v) => patch({ retainerAmountCents: cents(v) })}
+          />
+        ) : (
+          <>
+            <EditableField
+              label="Rate €/hr"
+              value={euros(project.defaultRateCents)}
+              onSave={(v) => patch({ defaultRateCents: cents(v) })}
+            />
+            <EditableField
+              label={project.billingModel === 'fixed_fee' ? 'Agreed price €' : 'Budget cap €'}
+              value={euros(project.budgetAmountCents)}
+              onSave={(v) => patch({ budgetAmountCents: cents(v) })}
+            />
+            <EditableField
+              label="Budget hours"
+              value={project.budgetHours}
+              onSave={(v) => patch({ budgetHours: v ? Number(v) : null })}
+            />
+          </>
+        )}
+        {error && <p className="error">{error}</p>}
         <p className="muted">
           Hours logged against this project appear here once time registration lands in Phase 2.
         </p>

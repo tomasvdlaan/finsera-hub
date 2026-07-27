@@ -1,8 +1,9 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { Links } from '../../shell/Links.js';
 import { Timeline } from '../../shell/Timeline.js';
+import { EditableField } from './EditableField.js';
 import type { EntityRef } from '@platform/contracts';
 import {
   CLIENT_STATUSES,
@@ -25,6 +26,7 @@ interface Overview {
  */
 export function ClientDetail() {
   const { id = '' } = useParams();
+  const navigate = useNavigate();
   const [data, setData] = useState<Overview | null>(null);
   const [candidates, setCandidates] = useState<EntityRef[]>([]);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -51,6 +53,16 @@ export function ClientDetail() {
       .catch(() => setCandidates([]));
   }, [id]);
 
+  const patch = async (body: Record<string, unknown>) => {
+    await api.patch(`/crm/clients/${id}`, body);
+    await load();
+  };
+
+  const archive = async () => {
+    await api.del(`/crm/clients/${id}`);
+    navigate('/crm/clients');
+  };
+
   const setStatus = async (status: string) => {
     await api.patch(`/crm/clients/${id}`, { status });
     await load();
@@ -75,8 +87,8 @@ export function ClientDetail() {
     }
   };
 
-  if (error) return <p className="error">{error}</p>;
-  if (!data) return <p className="muted">Loading…</p>;
+  // Only a failed load blanks the page; a rejected edit surfaces inline below.
+  if (!data) return error ? <p className="error">{error}</p> : <p className="muted">Loading…</p>;
   const { client, contacts, projects } = data;
 
   return (
@@ -96,11 +108,33 @@ export function ClientDetail() {
         </select>
         {client.website && (
           <a href={client.website} target="_blank" rel="noreferrer">
-            {client.website}
+            visit site
           </a>
         )}
+        <button className="link-button" onClick={() => void archive()}>
+          archive client
+        </button>
       </div>
-      {client.notes && <p>{client.notes}</p>}
+      <EditableField
+        label="Name"
+        value={client.name}
+        onSave={(v) => patch({ name: v })}
+      />
+      <EditableField
+        label="Website"
+        value={client.website}
+        placeholder="https://…"
+        onSave={(v) => patch({ website: v })}
+      />
+      <EditableField
+        label="Notes"
+        value={client.notes}
+        placeholder="What you need to remember about this client"
+        multiline
+        onSave={(v) => patch({ notes: v })}
+      />
+
+      {error && <p className="error">{error}</p>}
 
       <section>
         <h2>Contacts</h2>
