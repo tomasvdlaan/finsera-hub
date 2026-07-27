@@ -74,14 +74,12 @@ function BillingBadge({ entry }: { entry: Entry }) {
 export function EntryRow({
   entry,
   projects,
-  locked,
   onSave,
   onStop,
   onDelete,
 }: {
   entry: Entry;
   projects: Project[];
-  locked: boolean;
   onSave: (patch: Record<string, unknown>) => Promise<void>;
   onStop: () => Promise<void>;
   onDelete: () => Promise<void>;
@@ -168,14 +166,14 @@ export function EntryRow({
           {!entry.billable && <span className="badge">internal</span>}
           <BillingBadge entry={entry} />
           {entry.running && (
-            <button onClick={() => void onStop()} disabled={locked}>
+            <button onClick={() => void onStop()}>
               Stop
             </button>
           )}
           <button
             className="link-button"
             onClick={() => setEditing(true)}
-            disabled={locked || frozen}
+            disabled={frozen}
             title={frozen ? 'On an issued invoice — credit it to make changes' : undefined}
           >
             edit
@@ -183,7 +181,7 @@ export function EntryRow({
           <button
             className="link-button"
             onClick={() => void onDelete()}
-            disabled={locked || frozen}
+            disabled={frozen}
             title={frozen ? 'On an issued invoice — credit it to make changes' : undefined}
           >
             delete

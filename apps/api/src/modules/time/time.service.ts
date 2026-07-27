@@ -59,7 +59,6 @@ export interface ProjectBurn {
   onDraftHours: number;
   uninvoicedHours: number;
   uninvoicedAmountCents: number | null;
-  readyToInvoiceHours: number;
   budgetAmountCents: number | null;
   burnedAmountCents: number | null;
 }
@@ -120,7 +119,6 @@ export class TimeService {
     const running = startedAt !== null && endedAt === null;
 
     if (running) await this.assertNoRunningEntry(personId);
-    await this.assertWeekOpen(personId, workedOn);
 
     const project = await this.crm.getProject(actor, input.projectId); // cross-module call
     const taskId = await this.resolveTask(input.taskId);
@@ -187,14 +185,11 @@ export class TimeService {
     await this.require(actor, 'time.entries.write_own');
     const before = await this.rawEntry(id);
     if (before.personId !== actor.userId) await this.require(actor, 'time.entries.manage');
-    // Checked before the submitted guard, and independently of it: reopening a week
-    // clears submittedAt, but an hour on an issued invoice stays frozen either way.
     if (before.invoicedAt) {
       throw new BadRequestException(
         'These hours are on an issued invoice and cannot be changed — credit the invoice first',
       );
     }
-    if (before.submittedAt) throw new BadRequestException('That week is submitted — reopen it first');
 
     const startedAt =
       patch.startedAt === undefined ? before.startedAt : this.parseInstantOrNull(patch.startedAt);
@@ -273,7 +268,6 @@ export class TimeService {
         'These hours are on an issued invoice and cannot be deleted — credit the invoice first',
       );
     }
-    if (row.submittedAt) throw new BadRequestException('That week is submitted — reopen it first');
 
     await this.db.transaction(async (tx) => {
       await tx.delete(entries).where(eq(entries.id, id));
@@ -322,7 +316,6 @@ export class TimeService {
       billableMinutes: rows
         .filter((r) => r.billable)
         .reduce((sum, r) => sum + this.effectiveMinutes(r), 0),
-      submitted: rows.length > 0 && rows.every((r) => r.submittedAt !== null),
     };
   }
 
@@ -377,114 +370,10 @@ export class TimeService {
       billableMinutes: week
         .filter((e) => e.billable)
         .reduce((sum, e) => sum + this.effectiveMinutes(e), 0),
-      submitted: week.length > 0 && week.every((e) => e.submittedAt !== null),
     };
   }
 
-  // ── submission ─────────────────────────────────────────────
-
-  async submitWeek(actor: Actor, weekOf: string, personId?: string) {
-    await this.require(actor, 'time.entries.write_own');
-    const person = personId ?? actor.userId;
-    if (person !== actor.userId) await this.require(actor, 'time.entries.manage');
-
-    const monday = weekStart(this.validateDate(weekOf));
-    const week = await this.entriesBetween(person, monday, addDays(monday, 6));
-    if (week.length === 0) throw new BadRequestException('Nothing to submit for that week');
-    if (week.some((e) => e.startedAt && !e.endedAt)) {
-      // Submitting with a clock still running would freeze an entry that has no duration.
-      throw new BadRequestException('Stop the running timer before submitting');
-    }
-
-    await this.db.transaction(async (tx) => {
-      await tx
-        .update(entries)
-        .set({ submittedAt: new Date() })
-        .where(
-          and(
-            eq(entries.personId, person),
-            gte(entries.workedOn, monday),
-            lte(entries.workedOn, addDays(monday, 6)),
-            isNull(entries.submittedAt),
-          ),
-        );
-
-      await this.audit.record(tx, {
-        actorId: actor.userId,
-        action: 'timesheet.submit',
-        entityType: 'time_entry',
-        entityId: week[0]!.id,
-        detail: { weekOf: monday, personId: person, entries: week.length },
-      });
-
-      await this.events.publish(tx, {
-        name: 'timesheet.submitted',
-        entityType: 'time_entry',
-        entityId: week[0]!.id,
-        actorId: actor.userId,
-        payload: {
-          weekOf: monday,
-          personId: person,
-          totalMinutes: week.reduce((s, e) => s + this.effectiveMinutes(e), 0),
-        },
-      });
-    });
-
-    return { weekOf: monday, submitted: true };
-  }
-
-  async reopenWeek(actor: Actor, weekOf: string, personId?: string) {
-    await this.require(actor, 'time.entries.manage');
-    const person = personId ?? actor.userId;
-    const monday = weekStart(this.validateDate(weekOf));
-
-    await this.db.transaction(async (tx) => {
-      await tx
-        .update(entries)
-        .set({ submittedAt: null })
-        .where(
-          and(
-            eq(entries.personId, person),
-            gte(entries.workedOn, monday),
-            lte(entries.workedOn, addDays(monday, 6)),
-            isNotNull(entries.submittedAt),
-            // Invoiced hours stay submitted: reopening them would let the timesheet
-            // drift away from an invoice that can no longer be changed.
-            isNull(entries.invoicedAt),
-          ),
-        );
-      await this.audit.record(tx, {
-        actorId: actor.userId,
-        action: 'timesheet.reopen',
-        entityType: 'time_entry',
-        entityId: this.registry.newId(),
-        detail: { weekOf: monday, personId: person },
-      });
-    });
-
-    return { weekOf: monday, submitted: false };
-  }
-
-  async unsubmittedWeeks(actor: Actor) {
-    await this.require(actor, 'time.entries.write_own');
-    const rows = await this.db
-      .select({ workedOn: entries.workedOn, minutes: entries.minutes, startedAt: entries.startedAt, endedAt: entries.endedAt })
-      .from(entries)
-      .where(and(eq(entries.personId, actor.userId), isNull(entries.submittedAt)))
-      .orderBy(asc(entries.workedOn));
-
-    const byWeek = new Map<string, number>();
-    for (const r of rows) {
-      const wk = weekStart(r.workedOn);
-      byWeek.set(wk, (byWeek.get(wk) ?? 0) + this.effectiveMinutes(r));
-    }
-    return {
-      weeks: [...byWeek.entries()].map(([weekOf, minutes]) => ({
-        weekOf,
-        hours: +(minutes / 60).toFixed(2),
-      })),
-    };
-  }
+  // ── cross-module reads ─────────────────────────────────────
 
   /**
    * Minutes logged against one task. Called by SCRUM to show effort on a task without
@@ -502,11 +391,6 @@ export class TimeService {
     return rows.reduce((sum, r) => sum + this.effectiveMinutes(r), 0);
   }
 
-  /**
-   * Submitted, billable entries for a project — what invoicing bills from. Submitted
-   * only: an unsubmitted week is still being corrected, and invoicing a moving target
-   * is how an invoice disagrees with the timesheet behind it.
-   */
   /**
    * Claim entries for an invoice, inside the caller's transaction.
    *
@@ -552,6 +436,14 @@ export class TimeService {
       .where(eq(entries.invoiceId, invoiceId));
   }
 
+  /**
+   * Billable entries for a project — what invoicing bills from.
+   *
+   * There is no submission step: an hour with a recorded duration is billable the
+   * moment it is logged. The review that submission used to provide now happens on the
+   * invoice draft, which is editable and shows exactly what the client would see.
+   * Running timers are excluded because they have no duration yet.
+   */
   async entriesForBilling(projectId: string) {
     return this.db
       .select({
@@ -565,7 +457,6 @@ export class TimeService {
         and(
           eq(entries.projectId, projectId),
           eq(entries.billable, true),
-          isNotNull(entries.submittedAt),
           isNotNull(entries.minutes), // a running timer has no duration yet
           isNull(entries.invoiceId), //   already claimed by an invoice
         ),
@@ -585,7 +476,6 @@ export class TimeService {
         billable: entries.billable,
         startedAt: entries.startedAt,
         endedAt: entries.endedAt,
-        submittedAt: entries.submittedAt,
         invoiceId: entries.invoiceId,
         invoicedAt: entries.invoicedAt,
       })
@@ -622,10 +512,6 @@ export class TimeService {
       /** What the not-yet-invoiced billable hours are worth at the project rate. */
       uninvoicedAmountCents:
         rate != null ? Math.round((uninvoicedMinutes / 60) * rate) : null,
-      /** Submitted and ready to bill right now — the rest still needs submitting. */
-      readyToInvoiceHours: hours(
-        sumWhere((r) => r.invoiceId === null && r.submittedAt !== null && r.minutes !== null),
-      ),
       budgetAmountCents: project.budgetAmountCents,
       burnedAmountCents:
         project.defaultRateCents != null
@@ -741,23 +627,6 @@ export class TimeService {
       .orderBy(asc(entries.workedOn));
   }
 
-  private async assertWeekOpen(personId: string, workedOn: string): Promise<void> {
-    const monday = weekStart(workedOn);
-    const [locked] = await this.db
-      .select({ id: entries.id })
-      .from(entries)
-      .where(
-        and(
-          eq(entries.personId, personId),
-          gte(entries.workedOn, monday),
-          lte(entries.workedOn, addDays(monday, 6)),
-          isNotNull(entries.submittedAt),
-        ),
-      )
-      .limit(1);
-    if (locked) throw new BadRequestException('That week is submitted — reopen it first');
-  }
-
   /**
    * Work out the stored duration. Start+end wins over a supplied duration, because the
    * clock times are the evidence — a mismatch between them is a bug, not a preference.
@@ -829,7 +698,7 @@ export class TimeService {
       CREATE VIEW time.v_entries AS
       SELECT e.id, e.person_id, e.project_id, e.worked_on,
              e.started_at, e.ended_at, e.minutes, e.minutes / 60.0 AS hours,
-             e.billable, e.description, e.submitted_at, e.created_at,
+             e.billable, e.description, e.invoice_id, e.invoiced_at, e.created_at,
              (e.started_at IS NOT NULL AND e.ended_at IS NULL) AS running
         FROM time.entries e
     `);
@@ -839,7 +708,8 @@ export class TimeService {
              date_trunc('week', e.worked_on)::date AS week_of,
              SUM(COALESCE(e.minutes, 0)) AS total_minutes,
              SUM(COALESCE(e.minutes, 0)) FILTER (WHERE e.billable) AS billable_minutes,
-             bool_and(e.submitted_at IS NOT NULL) AS submitted
+             SUM(COALESCE(e.minutes, 0)) FILTER (WHERE e.billable AND e.invoiced_at IS NOT NULL)
+               AS invoiced_minutes
         FROM time.entries e
        GROUP BY e.person_id, date_trunc('week', e.worked_on)
     `);

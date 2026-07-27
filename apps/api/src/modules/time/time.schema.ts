@@ -53,8 +53,6 @@ export const entries = time.table(
     billable: boolean('billable').notNull().default(true),
     description: text('description'), // optional on purpose — required notes kill adoption
 
-    submittedAt: timestamp('submitted_at', { withTimezone: true }),
-
     /**
      * Which invoice claims these hours, and whether that invoice has been issued.
      *

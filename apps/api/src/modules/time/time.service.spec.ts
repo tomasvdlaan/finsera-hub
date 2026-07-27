@@ -226,16 +226,6 @@ describe('TimeService', () => {
     await expect(time.stopEntry(actor)).rejects.toThrow(/Nothing is running/);
   });
 
-  it('refuses to submit a week with a timer still running', async () => {
-    // Submitting would lock an entry that has no recorded duration.
-    await time.createEntry(actor, {
-      projectId,
-      workedOn: MONDAY,
-      startedAt: `${MONDAY}T09:00:00Z`,
-    });
-    await expect(time.submitWeek(actor, MONDAY)).rejects.toThrow(/running timer/);
-  });
-
   it('records an optional description', async () => {
     const entry = await time.createEntry(actor, {
       projectId,
@@ -286,59 +276,21 @@ describe('TimeService', () => {
     expect(mine.totalMinutes).toBe(0);
   });
 
-  // ── submission ──
+  // ── what may still be changed ──
 
-  it('submits a week, locks it, and publishes', async () => {
+  it('lets hours be added to any week, however old', async () => {
+    // There is no submission step and no week lock: the timesheet is always open.
+    // Only invoicing freezes hours (see billing.service.spec.ts).
     await time.createEntry(actor, { projectId, workedOn: MONDAY, minutes: 450 });
-    await time.submitWeek(actor, MONDAY);
-
-    const [row] = await testDb.select().from(entries);
-    expect(row!.submittedAt).not.toBeNull();
-
-    // Invoicing (Phase 5c) keys off this event.
-    const names = (await testDb.select().from(events)).map((e) => e.eventName);
-    expect(names).toContain('timesheet.submitted');
-  });
-
-  it('refuses new hours in a submitted week', async () => {
-    await time.createEntry(actor, { projectId, workedOn: MONDAY, minutes: 450 });
-    await time.submitWeek(actor, MONDAY);
-
     await expect(
-      time.createEntry(actor, { projectId, workedOn: addDays(MONDAY, 1), minutes: 60 }),
-    ).rejects.toThrow(/submitted/);
-  });
-
-  it('refuses to delete an entry in a submitted week', async () => {
-    const { id } = await time.createEntry(actor, { projectId, workedOn: MONDAY, minutes: 450 });
-    await time.submitWeek(actor, MONDAY);
-    await expect(time.deleteEntry(actor, id)).rejects.toThrow(/submitted/);
-  });
-
-  it('reopens a submitted week so it can be corrected', async () => {
-    await time.createEntry(actor, { projectId, workedOn: MONDAY, minutes: 450 });
-    await time.submitWeek(actor, MONDAY);
-    await time.reopenWeek(actor, MONDAY);
-
-    // Real timesheets get corrected; a lock that cannot be undone stops people submitting.
-    const [row] = await testDb.select().from(entries);
-    expect(row!.submittedAt).toBeNull();
-    await expect(
-      time.createEntry(actor, { projectId, workedOn: addDays(MONDAY, 1), minutes: 60 }),
+      time.createEntry(actor, { projectId, workedOn: addDays(MONDAY, -365), minutes: 60 }),
     ).resolves.toBeDefined();
   });
 
-  it('refuses to submit an empty week', async () => {
-    await expect(time.submitWeek(actor, MONDAY)).rejects.toThrow(/Nothing to submit/);
-  });
-
-  it('lists weeks with unsubmitted hours', async () => {
-    await time.createEntry(actor, { projectId, workedOn: MONDAY, minutes: 450 });
-    await time.createEntry(actor, { projectId, workedOn: addDays(MONDAY, -7), minutes: 300 });
-
-    const { weeks } = await time.unsubmittedWeeks(actor);
-    expect(weeks).toHaveLength(2);
-    expect(weeks.find((w) => w.weekOf === MONDAY)?.hours).toBe(7.5);
+  it('lets an old entry be edited and deleted', async () => {
+    const { id } = await time.createEntry(actor, { projectId, workedOn: MONDAY, minutes: 450 });
+    await expect(time.updateEntry(actor, id, { minutes: 500 })).resolves.toBeDefined();
+    await expect(time.deleteEntry(actor, id)).resolves.toBeUndefined();
   });
 
   // ── the cross-module read ──

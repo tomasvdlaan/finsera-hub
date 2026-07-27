@@ -23,7 +23,6 @@ interface Week {
   rows: Row[];
   totalMinutes: number;
   billableMinutes: number;
-  submitted: boolean;
 }
 
 /**
@@ -53,25 +52,7 @@ export function Timesheet() {
     void load();
   }, [load]);
 
-  const submit = async () => {
-    if (!week) return;
-    try {
-      await api.post('/time/submit', { weekOf: week.weekOf });
-      await load();
-    } catch (e) {
-      setError((e as Error).message);
-    }
-  };
 
-  const reopen = async () => {
-    if (!week) return;
-    try {
-      await api.post('/time/reopen', { weekOf: week.weekOf });
-      await load();
-    } catch (e) {
-      setError((e as Error).message);
-    }
-  };
 
   if (!week) return <p className="muted">{error ?? 'Loading…'}</p>;
 
@@ -93,14 +74,6 @@ export function Timesheet() {
         <button onClick={() => setWeekOf(shiftWeek(week.weekOf, 1))}>Next →</button>
       </div>
 
-      {week.submitted && (
-        <p className="muted">
-          <span className="badge">submitted</span> This week is locked.{' '}
-          <button className="link-button" onClick={() => void reopen()}>
-            reopen
-          </button>
-        </p>
-      )}
       {error && <p className="error">{error}</p>}
 
       <div className="grid-scroll">
@@ -163,12 +136,6 @@ export function Timesheet() {
           </tfoot>
         </table>
       </div>
-
-      {!week.submitted && week.totalMinutes > 0 && (
-        <div className="row">
-          <button onClick={() => void submit()}>Submit week</button>
-        </div>
-      )}
 
       <p className="muted">
         {formatHours(week.billableMinutes)}h billable of {formatHours(week.totalMinutes)}h logged.

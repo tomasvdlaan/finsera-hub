@@ -37,9 +37,6 @@ export class TimeModule implements OnModuleInit {
     this.aiTools.bind('time_project_hours', (actor: Actor, input) =>
       this.time.projectBurn(actor, (input as { projectId: string }).projectId),
     );
-    this.aiTools.bind('time_unsubmitted_weeks', (actor: Actor) =>
-      this.time.unsubmittedWeeks(actor),
-    );
     this.aiTools.bind('time_get_day', (actor: Actor, input) =>
       this.time.getDay(actor, input as { date?: string }),
     );

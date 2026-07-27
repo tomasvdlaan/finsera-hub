@@ -18,8 +18,6 @@ export const timeManifest = defineManifest({
 
   publishes: [
     { name: 'time_entry.created', description: 'Hours were logged, or a timer was started.' },
-    { name: 'timesheet.submitted', description: 'A person submitted a week of hours.' },
-    { name: 'timesheet.reopened', description: 'A submitted week was unlocked for correction.' },
   ],
 
   subscribes: [],
@@ -27,7 +25,7 @@ export const timeManifest = defineManifest({
   permissions: [
     { capability: 'time.entries.write_own', description: 'Log and edit your own hours.' },
     { capability: 'time.entries.read_all', description: "See everyone's hours." },
-    { capability: 'time.entries.manage', description: 'Reopen a submitted week.' },
+    { capability: 'time.entries.manage', description: "Manage another person's hours." },
   ],
 
   navigation: [{ label: 'Timesheet', path: '/time', icon: 'clock' }],
@@ -60,15 +58,6 @@ export const timeManifest = defineManifest({
       permission: 'time.entries.read_all',
       riskClass: 'read',
       handler: 'projectBurn',
-    },
-    {
-      name: 'time_unsubmitted_weeks',
-      description: 'Weeks with logged hours that have not been submitted yet.',
-      inputSchema: z.object({}),
-      outputSchema: z.object({}),
-      permission: 'time.entries.write_own',
-      riskClass: 'read',
-      handler: 'unsubmittedWeeks',
     },
     {
       name: 'time_get_day',

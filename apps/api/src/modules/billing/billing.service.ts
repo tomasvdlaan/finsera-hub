@@ -61,7 +61,7 @@ export class BillingService {
   // ── drafts ─────────────────────────────────────────────────
 
   /**
-   * Draft an invoice from submitted, billable, not-yet-billed hours on a project.
+   * Draft an invoice from the billable, not-yet-billed hours on a project.
    *
    * One line per person: the client reads "consultancy, name, hours × rate", which is
    * defensible and stable. Entry ids are recorded on the line so an hour can never be
@@ -75,10 +75,12 @@ export class BillingService {
     }
 
     // entriesForBilling already excludes hours claimed by another invoice — Time owns
-    // that question now, so there is no second list here to fall out of step with it.
+    // that question, so there is no second list here to fall out of step with it. There
+    // is no submission step either: a logged hour with a duration is a billable hour,
+    // and the draft is where the work gets reviewed before anything is sent.
     const open = await this.time.entriesForBilling(projectId);
     if (open.length === 0) {
-      throw new BadRequestException('No submitted, unbilled hours on this project');
+      throw new BadRequestException('No unbilled hours on this project');
     }
 
     // Group per person, in a stable order.

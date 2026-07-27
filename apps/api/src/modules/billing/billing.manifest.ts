@@ -51,7 +51,7 @@ export const billingManifest = defineManifest({
     {
       name: 'billing_draft_from_hours',
       description:
-        'Draft an invoice from the submitted, unbilled hours on a project. Returns a DRAFT for review — it does not issue or send anything.',
+        'Draft an invoice from the unbilled hours on a project. Returns a DRAFT for review — it does not issue or send anything.',
       inputSchema: z.object({ projectId: z.string().uuid() }),
       outputSchema: z.object({}),
       permission: 'billing.write',

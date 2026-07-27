@@ -56,7 +56,6 @@ describe.skipIf(!LlmService.hasCredentials())('assistant evals [live]', () => {
     tools.bind('time_project_hours', (a: Actor, i) =>
       time.projectBurn(a, (i as { projectId: string }).projectId),
     );
-    tools.bind('time_unsubmitted_weeks', (a: Actor) => time.unsubmittedWeeks(a));
     tools.bind('time_log_hours', (a: Actor, i) => time.createEntry(a, i as never, { aiInitiated: true }));
     tools.bind('time_stop_timer', (a: Actor) => time.stopEntry(a));
 

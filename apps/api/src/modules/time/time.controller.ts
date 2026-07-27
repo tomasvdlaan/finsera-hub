@@ -64,21 +64,6 @@ export class TimeController {
     return { deleted: true };
   }
 
-  @Post('submit')
-  submit(@CurrentActor() actor: Actor, @Body() body: { weekOf: string; personId?: string }) {
-    return this.time.submitWeek(actor, body.weekOf, body.personId);
-  }
-
-  @Post('reopen')
-  reopen(@CurrentActor() actor: Actor, @Body() body: { weekOf: string; personId?: string }) {
-    return this.time.reopenWeek(actor, body.weekOf, body.personId);
-  }
-
-  @Get('unsubmitted')
-  unsubmitted(@CurrentActor() actor: Actor) {
-    return this.time.unsubmittedWeeks(actor);
-  }
-
   /** Budget burn — the widget CRM's project page renders. */
   @Get('projects/:id/burn')
   burn(@CurrentActor() actor: Actor, @Param('id') id: string) {

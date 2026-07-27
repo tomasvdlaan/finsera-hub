@@ -9,7 +9,6 @@ interface Day {
   entries: Entry[];
   totalMinutes: number;
   billableMinutes: number;
-  submitted: boolean;
 }
 
 /**
@@ -155,11 +154,6 @@ export function DayView() {
         <Link to="/time/week">Week overview</Link>
       </div>
 
-      {day.submitted && (
-        <p className="muted">
-          <span className="badge">submitted</span> This week is locked.
-        </p>
-      )}
       {error && <p className="error">{error}</p>}
 
       {day.entries.length === 0 ? (
@@ -171,7 +165,6 @@ export function DayView() {
               key={e.id}
               entry={e}
               projects={projects}
-              locked={day.submitted}
               onSave={(patch) => patch_(e.id, patch)}
               onStop={() => stop(e.id)}
               onDelete={() => remove(e.id)}
@@ -184,82 +177,80 @@ export function DayView() {
         {formatHours(day.billableMinutes)}h billable of {formatHours(day.totalMinutes)}h logged
       </p>
 
-      {!day.submitted && (
-        <section>
-          <h2>Add time</h2>
-          <form onSubmit={(e) => void add(e)}>
-            <div className="row">
-              <select
-                value={projectId}
-                onChange={(e) => setProjectId(e.target.value)}
-                aria-label="Project"
-              >
-                {projects.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-              <input
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="What did you work on? (optional)"
-                aria-label="Description"
-                style={{ flex: 1, minWidth: 220 }}
-              />
-            </div>
+      <section>
+        <h2>Add time</h2>
+        <form onSubmit={(e) => void add(e)}>
+          <div className="row">
+            <select
+              value={projectId}
+              onChange={(e) => setProjectId(e.target.value)}
+              aria-label="Project"
+            >
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+            <input
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="What did you work on? (optional)"
+              aria-label="Description"
+              style={{ flex: 1, minWidth: 220 }}
+            />
+          </div>
 
-            <div className="row">
-              <label className="muted">
-                From{' '}
-                <input
-                  type="time"
-                  value={start}
-                  onChange={(e) => setStart(e.target.value)}
-                  aria-label="Start time"
-                />
-              </label>
-              <label className="muted">
-                to{' '}
-                <input
-                  type="time"
-                  value={end}
-                  onChange={(e) => setEnd(e.target.value)}
-                  aria-label="End time"
-                />
-              </label>
-              <span className="muted">or</span>
+          <div className="row">
+            <label className="muted">
+              From{' '}
               <input
-                value={duration}
-                onChange={(e) => setDuration(e.target.value)}
-                placeholder="duration (1.5, 1:30, 90m)"
-                aria-label="Duration"
-                disabled={!!start}
+                type="time"
+                value={start}
+                onChange={(e) => setStart(e.target.value)}
+                aria-label="Start time"
               />
-              <label className="muted">
-                <input
-                  type="checkbox"
-                  checked={billable}
-                  onChange={(e) => setBillable(e.target.checked)}
-                />{' '}
-                billable
-              </label>
-            </div>
+            </label>
+            <label className="muted">
+              to{' '}
+              <input
+                type="time"
+                value={end}
+                onChange={(e) => setEnd(e.target.value)}
+                aria-label="End time"
+              />
+            </label>
+            <span className="muted">or</span>
+            <input
+              value={duration}
+              onChange={(e) => setDuration(e.target.value)}
+              placeholder="duration (1.5, 1:30, 90m)"
+              aria-label="Duration"
+              disabled={!!start}
+            />
+            <label className="muted">
+              <input
+                type="checkbox"
+                checked={billable}
+                onChange={(e) => setBillable(e.target.checked)}
+              />{' '}
+              billable
+            </label>
+          </div>
 
-            <div className="row">
-              <button type="submit" disabled={busy || (!start && !duration)}>
-                Add entry
-              </button>
-              <button type="button" onClick={() => void startTimer()} disabled={busy}>
-                Start timer now
-              </button>
-              <span className="muted">
-                Leaving the end time empty starts a running timer.
-              </span>
-            </div>
-          </form>
-        </section>
-      )}
+          <div className="row">
+            <button type="submit" disabled={busy || (!start && !duration)}>
+              Add entry
+            </button>
+            <button type="button" onClick={() => void startTimer()} disabled={busy}>
+              Start timer now
+            </button>
+            <span className="muted">
+              Leaving the end time empty starts a running timer.
+            </span>
+          </div>
+        </form>
+      </section>
     </>
   );
 }

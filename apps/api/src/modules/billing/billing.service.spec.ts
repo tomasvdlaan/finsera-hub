@@ -75,10 +75,9 @@ describe('BillingService', () => {
     return { storage };
   };
 
-  /** Log a submitted week of hours so there is something to bill. */
+  /** Log billable hours. Nothing else is needed — logged hours are billable hours. */
   const submitHours = async (minutes: number, day = MONDAY) => {
     await time.createEntry(actor, { projectId, workedOn: day, minutes });
-    await time.submitWeek(actor, day);
   };
 
   beforeEach(async () => {
@@ -122,7 +121,7 @@ describe('BillingService', () => {
     await billing.draftFromHours(actor, projectId);
 
     // Every submitted entry is now on a draft; a second draft has nothing to bill.
-    await expect(billing.draftFromHours(actor, projectId)).rejects.toThrow(/[Nn]o submitted/);
+    await expect(billing.draftFromHours(actor, projectId)).rejects.toThrow(/[Nn]o unbilled/);
   });
 
   it('frees hours again when the draft holding them is voided', async () => {
@@ -132,12 +131,6 @@ describe('BillingService', () => {
 
     const second = await billing.draftFromHours(actor, projectId);
     expect(second.subtotalCents).toBe(35_000);
-  });
-
-  it('ignores unsubmitted hours', async () => {
-    await time.createEntry(actor, { projectId, workedOn: MONDAY, minutes: 600 });
-    // Not submitted — still being corrected, so not billable.
-    await expect(billing.draftFromHours(actor, projectId)).rejects.toThrow(/[Nn]o submitted/);
   });
 
   it('refuses to draft when the project has no rate', async () => {
@@ -169,7 +162,7 @@ describe('BillingService', () => {
     expect(updated.lines[0]!.sourceEntryIds).toEqual(original.sourceEntryIds);
 
     // The hours are still held by this draft — a second draft finds nothing.
-    await expect(billing.draftFromHours(actor, projectId)).rejects.toThrow(/[Nn]o submitted/);
+    await expect(billing.draftFromHours(actor, projectId)).rejects.toThrow(/[Nn]o unbilled/);
   });
 
   it('adding and removing draft lines recomputes totals server-side', async () => {
@@ -269,12 +262,6 @@ describe('BillingService', () => {
       /issued invoice/,
     );
     await expect(time.deleteEntry(actor, entryId)).rejects.toThrow(/issued invoice/);
-
-    // Even reopening the week leaves them alone.
-    await time.reopenWeek(actor, MONDAY);
-    await expect(time.updateEntry(actor, entryId, { minutes: 30 })).rejects.toThrow(
-      /issued invoice/,
-    );
   });
 
   it('the trigger blocks changes to invoiced hours even outside the service', async () => {
