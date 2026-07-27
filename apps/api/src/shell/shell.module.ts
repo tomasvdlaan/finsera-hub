@@ -1,6 +1,7 @@
 import { Module, type OnApplicationBootstrap } from '@nestjs/common';
 import { ManifestRegistry } from '../core/manifest/manifest.registry.js';
 import { ShellController } from './shell.controller.js';
+import { TimelineService } from './timeline.service.js';
 
 /**
  * Layer 3 — the application shell (backend side): navigation aggregation and the
@@ -11,6 +12,8 @@ import { ShellController } from './shell.controller.js';
  */
 @Module({
   controllers: [ShellController],
+  providers: [TimelineService],
+  exports: [TimelineService],
 })
 export class ShellModule implements OnApplicationBootstrap {
   constructor(private readonly manifests: ManifestRegistry) {}
