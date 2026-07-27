@@ -1,0 +1,2 @@
+ALTER TABLE "insights"."insights" DROP CONSTRAINT "insights_dismissed_is_complete";--> statement-breakpoint
+ALTER TABLE "insights"."insights" ADD CONSTRAINT "insights_dismissed_has_timestamp" CHECK ("insights"."insights"."status" <> 'dismissed' OR "insights"."insights"."dismissed_at" IS NOT NULL);

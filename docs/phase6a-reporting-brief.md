@@ -13,7 +13,7 @@ Phase 6 has four parts. Two are available now, one is gated, one follows:
 | Part | Status |
 |---|---|
 | **6a Reporting** | Built here — every module already publishes a view |
-| **Proactive insight service** | Next slice; it is what finally publishes `contract.expiring` |
+| **Proactive insight service** | ✅ Built 2026-07-28 — see §8 |
 | 6b Meeting Notes | No dependency on 6a; can follow either |
 | 6c Meeting Agent | **Blocked by gate G3** — transcription of client-confidential audio is the most privacy-sensitive choice in the whole roadmap, and it needs deciding before any code |
 
@@ -135,7 +135,61 @@ did not exist yet — the same root cause, caught earlier.)
 
 ---
 
-## 7. Deliberately not in this phase
+## 8. The proactive insight service (2026-07-28)
+
+Six deterministic rules over the published views: overdue invoices, unanswered quotes,
+contract notice windows closing, budgets nearly spent, work left uninvoiced, stalled tasks.
+16 tests.
+
+**It notices and says so. It never acts** — no message sent, no record changed, no status
+altered. Everything ends in a sentence on a screen, because the value of proactivity
+evaporates the moment you cannot trust what it did while you were away.
+
+Rules are SQL, not model output. An LLM drafting a follow-up message is useful; an LLM
+deciding which invoices are overdue is a worse version of a WHERE clause.
+
+### The first background writer
+
+This is the platform's first scheduled process that writes, so the guarantees are narrow
+and deliberate:
+
+- It writes to `insights.insights` and nowhere else. The worst a bug here can do is show a
+  wrong sentence.
+- `refresh()` is idempotent, matched on natural keys — running it twice a minute and once a
+  day produce identical rows. That is what makes restarting it safe, and it is verified
+  live as well as in tests.
+- A failing rule is logged and the other five continue.
+- Disabled entirely under test, where a timer firing mid-assertion is only noise.
+
+### Insights are the one derived thing that is stored
+
+Everything else computed from today — `overdue`, `expired`, `expiringSoon` — is derived on
+read and never stored. Insights are the deliberate exception, and only because they carry
+something a computation cannot: whether **you** have already dealt with them. A dismissal is
+a fact about a person.
+
+Everything else about them stays derived. One whose condition stops being true **resolves
+itself** rather than waiting to be dismissed; one that was dismissed stays hidden while it
+remains true, because otherwise dismissing it would be worthless.
+
+### `contract.expiring`, reconsidered
+
+Phase 5b deferred publishing `contract.expiring` for want of something to notice the day it
+became true. Building this made the better answer clear: it is not a domain event at all.
+Nothing *happened* to the contract — a threshold was crossed relative to today. So it is a
+rule, and the event was never published. Insights declares no domain events.
+
+### Verified live
+
+Work was temporarily aged by 45 days to make a rule genuinely fire: the overview showed
+**"11.5h on Power BI has not been invoiced — €402,50 of work, the oldest 45 days ago"**, a
+second refresh raised nothing new, and asked *"anything I should be worrying about?"* the
+assistant reported exactly that one item and offered to draft the invoice. The dates were
+then restored, and the insight **resolved itself** on the next run with nothing dismissed.
+
+---
+
+## 9. Deliberately not in this phase
 
 - **No LLM-generated SQL.** D1.
 - **No new stored aggregates.** Views are fast enough at this size, and a materialised

@@ -3,6 +3,7 @@ import type { ComponentType } from 'react';
 import { crmWebModule } from './crm/index.js';
 import { docsWebModule } from './docs/index.js';
 import { billingWebModule } from './billing/index.js';
+import { insightsWebModule } from './insights/index.js';
 import { reportingWebModule } from './reporting/index.js';
 import { salesWebModule } from './sales/index.js';
 import { scrumWebModule } from './scrum/index.js';
@@ -20,6 +21,7 @@ export const webModules: WebModule[] = [
   billingWebModule,
   salesWebModule,
   reportingWebModule,
+  insightsWebModule,
 ];
 
 /**

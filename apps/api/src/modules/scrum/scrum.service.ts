@@ -516,7 +516,8 @@ export class ScrumService {
       SELECT t.id, t.project_id, t.title, t.status, t.priority, t.assignee_id,
              t.estimate_minutes, t.estimate_minutes / 60.0 AS estimate_hours,
              t.due_on, t.parent_id, t.sprint_id,
-             (t.completed_at IS NOT NULL) AS completed, t.completed_at, t.created_at
+             (t.completed_at IS NOT NULL) AS completed, t.completed_at,
+             t.created_at, t.updated_at
         FROM scrum.tasks t
        WHERE t.archived_at IS NULL
     `);

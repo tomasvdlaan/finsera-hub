@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api.js';
+import { InsightRow, type Insight } from '../insights/Insights.js';
 
 const money = (cents: number) =>
   new Intl.NumberFormat('nl-NL', { style: 'currency', currency: 'EUR' }).format(cents / 100);
@@ -74,8 +75,15 @@ function Stat({
   return <div className="stat">{to ? <Link to={to}>{body}</Link> : body}</div>;
 }
 
+interface InsightSummary {
+  total: number;
+  urgent: number;
+  top: Insight[];
+}
+
 export function Overview() {
   const [data, setData] = useState<Overview | null>(null);
+  const [insights, setInsights] = useState<InsightSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -83,6 +91,12 @@ export function Overview() {
       .get<Overview>('/reporting/overview')
       .then(setData)
       .catch((e: Error) => setError(e.message));
+    // Insights are a separate call on purpose: a slow rule sweep must not delay the
+    // numbers, and a broken one must not blank the page.
+    api
+      .get<InsightSummary>('/insights/summary')
+      .then(setInsights)
+      .catch(() => setInsights(null));
   }, []);
 
   if (!data) return error ? <p className="error">{error}</p> : <p className="muted">Loading…</p>;
@@ -97,6 +111,25 @@ export function Overview() {
         Every number here is read from what the modules publish — nothing is recalculated,
         so this cannot disagree with the invoice or timesheet behind it.
       </p>
+
+      {insights && insights.total > 0 && (
+        <section>
+          <h2>
+            Needs attention{' '}
+            <span className="badge">{insights.total}</span>
+          </h2>
+          <ul className="insights">
+            {insights.top.map((insight) => (
+              <InsightRow key={insight.id} insight={insight} />
+            ))}
+          </ul>
+          {insights.total > insights.top.length && (
+            <p className="muted">
+              <Link to="/insights">see all {insights.total}</Link>
+            </p>
+          )}
+        </section>
+      )}
 
       <section>
         <h2>Money</h2>

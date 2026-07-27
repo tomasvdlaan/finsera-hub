@@ -210,6 +210,40 @@ ol {
   font-family: ui-monospace, SFMono-Regular, monospace;
 }
 
+/* Insights: a sentence, its severity, and one action. */
+ul.insights {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0;
+}
+ul.insights li.insight {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 0.6rem 0.8rem;
+  margin-bottom: 0.4rem;
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: 6px;
+  background: var(--surface);
+}
+li.insight.sev-urgent {
+  border-left-color: var(--danger, #d05a5a);
+}
+li.insight.sev-attention {
+  border-left-color: var(--warning, #c8912f);
+}
+li.insight.sev-info {
+  border-left-color: var(--border);
+}
+.insight-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  white-space: nowrap;
+}
+
 /* Dashboard stats: a number, its label, and what it means. */
 .stats {
   display: grid;

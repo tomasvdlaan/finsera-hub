@@ -1,0 +1,48 @@
+import { defineManifest } from '@platform/contracts';
+import { z } from 'zod';
+
+/**
+ * Insights observes every module and belongs to none.
+ *
+ * It declares no structural refs because an insight can be about anything with a registry
+ * id, and it publishes no domain events: "a contract is expiring" is not something that
+ * happened to a contract, it is a fact about today crossing a threshold. That distinction
+ * is why `contract.expiring` was deferred out of Phase 5b rather than published there —
+ * modelling it as an insight is the honest shape.
+ */
+export const insightsManifest = defineManifest({
+  name: 'insights',
+  version: '0.1.0',
+
+  entities: [{ type: 'insight', displayTemplate: '{title}', urlPattern: '/insights' }],
+  structuralRefs: [],
+  publishes: [],
+  subscribes: [],
+
+  permissions: [
+    { capability: 'insights.read', description: 'See what the platform has noticed.' },
+    { capability: 'insights.write', description: 'Dismiss and restore insights.' },
+  ],
+
+  navigation: [{ label: 'Insights', path: '/insights', icon: 'bell' }],
+  widgets: [],
+  chatWidgets: [],
+  reportingViews: [],
+  portalExposure: [],
+
+  aiTools: [
+    {
+      name: 'insights_list',
+      description:
+        'Things the platform has noticed and nobody has dealt with: overdue invoices, unanswered quotes, contract notice deadlines, budgets nearly spent, work left uninvoiced, stalled tasks. Ordered most urgent first.',
+      inputSchema: z.object({
+        status: z.enum(['open', 'dismissed', 'resolved']).optional(),
+        rule: z.string().optional(),
+      }),
+      outputSchema: z.object({}),
+      permission: 'insights.read',
+      riskClass: 'read',
+      handler: 'list',
+    },
+  ],
+});
