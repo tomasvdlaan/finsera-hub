@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { Links } from '../../shell/Links.js';
 import { Timeline } from '../../shell/Timeline.js';
+import { DocumentsWidget } from '../docs/DocumentsWidget.js';
 import { EditableField } from './EditableField.js';
 import type { EntityRef } from '@platform/contracts';
 import {
@@ -191,6 +192,11 @@ export function ClientDetail() {
             ))}
           </ul>
         )}
+      </section>
+
+      <section>
+        <h2>Documents</h2>
+        <DocumentsWidget clientId={id} />
       </section>
 
       <section>
