@@ -77,6 +77,40 @@ export class ShellController {
   }
 
   /**
+   * The platform's own documentation: every module's declared surface, straight from the
+   * sealed manifests.
+   *
+   * Not hand-written docs — this IS the contract the core runs on, so it cannot drift
+   * from reality. Event subscribers are resolved here so the page can show wiring
+   * (who reacts to what) rather than just declarations.
+   */
+  @Get('modules')
+  modules() {
+    return this.manifests.all().map((m) => ({
+      name: m.name,
+      version: m.version,
+      entities: m.entities,
+      structuralRefs: m.structuralRefs,
+      publishes: m.publishes.map((e) => ({
+        ...e,
+        subscribers: this.manifests.subscribersOf(e.name),
+      })),
+      subscribes: m.subscribes,
+      permissions: m.permissions,
+      navigation: m.navigation,
+      widgets: m.widgets,
+      reportingViews: m.reportingViews,
+      portalExposure: m.portalExposure,
+      aiTools: m.aiTools.map((t) => ({
+        name: t.name,
+        description: t.description,
+        permission: t.permission,
+        riskClass: t.riskClass,
+      })),
+    }));
+  }
+
+  /**
    * Debug view of the declared AI surface (spec §5). Admin-only; the orchestrator that
    * actually calls these tools arrives in Phase 2.
    */

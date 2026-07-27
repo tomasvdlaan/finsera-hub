@@ -374,3 +374,82 @@ ol {
   flex: 1;
   min-width: 0;
 }
+
+/* platform documentation */
+.stat-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 1rem 0 1.5rem;
+}
+.stat {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.5rem 0.9rem;
+  background: var(--surface);
+  min-width: 92px;
+}
+.stat-value {
+  font-size: 1.4rem;
+  font-weight: 600;
+}
+.module-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin: 0 0 0.6rem;
+  padding: 0;
+  border-top: 1px solid var(--border);
+}
+.module-head {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.7rem 0.9rem;
+  background: var(--surface);
+  border: none;
+  border-radius: var(--radius);
+  text-align: left;
+}
+.module-body {
+  padding: 0.5rem 0.9rem 1rem;
+}
+.module-block {
+  margin-top: 1.1rem;
+}
+.module-block h3 {
+  font-size: 0.95rem;
+  margin: 0;
+}
+.module-block .muted {
+  font-size: 0.85rem;
+}
+ul.decl li {
+  padding: 0.45rem 0 0.45rem 0.7rem;
+  border-left: 2px solid var(--border);
+  margin-bottom: 0.3rem;
+  display: block;
+}
+ul.decl code {
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 0.85rem;
+}
+.risk-read {
+  border-color: var(--accent);
+}
+.risk-write-draft {
+  border-color: #d97706;
+}
+.risk-write-commit,
+.risk-restricted {
+  border-color: var(--error);
+  color: var(--error);
+}
+
+ul.decl code + .badge {
+  margin-left: 0.4rem;
+}
+ul.decl li > div {
+  margin-top: 0.15rem;
+}

@@ -4,6 +4,7 @@ import type { CurrentUser } from '@platform/contracts';
 import { api } from '../lib/api.js';
 import { webModules } from '../modules/index.js';
 import { Assistant } from './Assistant.js';
+import { Modules } from './Modules.js';
 import { AuthProvider, useAuth } from './AuthProvider.js';
 
 interface NavItem {
@@ -79,6 +80,14 @@ function Shell() {
             {assistantOpen ? 'Hide assistant' : 'Ask assistant'}
           </button>
 
+          <NavLink
+            to="/platform/modules"
+            className={({ isActive }) => (isActive ? 'active' : '')}
+            style={{ marginTop: '0.5rem', fontSize: '0.85rem' }}
+          >
+            Platform modules
+          </NavLink>
+
           <div className="sidebar-footer">
             {me && (
               <>
@@ -99,6 +108,7 @@ function Shell() {
             {routes.map(({ path, Component }) => (
               <Route key={path} path={path} element={<Component />} />
             ))}
+            <Route path="/platform/modules" element={<Modules />} />
             <Route path="*" element={<p className="muted">Not found.</p>} />
           </Routes>
         </main>
