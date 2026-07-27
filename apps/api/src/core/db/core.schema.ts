@@ -131,3 +131,39 @@ export const files = core.table('files', {
   uploadedBy: uuid('uploaded_by').references(() => users.id),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * Conversation store (AI plan §3.4).
+ *
+ * Lives in `core` rather than a module because the assistant is a horizontal capability,
+ * not module twelve — every module's tools run through the same conversations.
+ */
+export const conversations = core.table(
+  'conversations',
+  {
+    id: uuid('id').primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    title: text('title').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('conversations_user_idx').on(t.userId, t.updatedAt)],
+);
+
+export const messages = core.table(
+  'messages',
+  {
+    id: uuid('id').primaryKey(),
+    conversationId: uuid('conversation_id')
+      .notNull()
+      .references(() => conversations.id, { onDelete: 'cascade' }),
+    role: text('role').notNull(), // 'user' | 'assistant'
+    content: text('content').notNull(),
+    /** Tool calls made while producing this message — the audit trail's human-readable half. */
+    toolCalls: jsonb('tool_calls').notNull().default([]),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('messages_conversation_idx').on(t.conversationId, t.createdAt)],
+);

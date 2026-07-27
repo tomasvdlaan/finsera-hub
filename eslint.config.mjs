@@ -30,7 +30,11 @@ export default tseslint.config(
     },
   },
   {
+    // Specs are exempt on purpose: an integration test that composes core with real
+    // modules is the point of the test, and test files never ship. The same exemption
+    // exists in .dependency-cruiser.cjs, which is what CI enforces structurally.
     files: ['apps/api/src/core/**/*.ts'],
+    ignores: ['apps/api/src/core/**/*.spec.ts'],
     rules: {
       'no-restricted-imports': [
         'error',

@@ -44,6 +44,20 @@ The AI plan's provider interface is implemented with the Vercel AI SDK; each pro
 **Rejected:** OpenRouter in production path (second data processor, two-hop DPA story, feature lag). *Optionally* still usable for dev-only model comparison — decide when relevant.
 **Open sub-items:** execute Anthropic zero-retention/DPA paperwork before Phase 2; EU-resident fallback model (e.g. Mistral) if client DPAs demand it — evaluate at Phase 2.
 
+### D6a — LLM provider: paid Google Gemini
+**Date:** 2026-07-27 · **Status:** Decided · **Amends:** D6 · **Closes:** O9
+The platform runs on the **paid** Gemini API. D6's provider interface is unchanged — the
+Vercel AI SDK with a direct key, no gateway — only the default provider differs from D6's
+stated intent of Anthropic.
+**Why it matters:** the free Gemini tier permits using submitted content to improve
+Google's products, which is incompatible with client-confidential data. The paid tier
+excludes training on prompts. This was the blocking condition on Assistant v1 (Phase 2b
+brief §8), and it is now met.
+**Still to do:** confirm the paid-tier terms in writing against Finsera's own client DPAs
+before the assistant handles anything sensitive (this is O8, not closed by D6a).
+**Revisit if:** an Anthropic account becomes available — D6 still judges Claude stronger at
+multi-step tool use, which is the orchestrator's whole job. Switching is one env var.
+
 ### D7 — Phase 0 green-lit per technical spec
 **Date:** 2026-07-27 · **Status:** Decided · **Closes:** O1
 Phase 0 (walking skeleton) approved for build against `phase0-spec.md` as drafted: core schema (§3), core service contracts (§4), manifest schema incl. AI-tools section (§5), event dispatcher design (§4), LLM provider interface (§7), 10-step build order (§10).
@@ -63,7 +77,6 @@ Phase 0 (walking skeleton) approved for build against `phase0-spec.md` as drafte
 | O6 | AI cost model: token budget/user/month, alerts, metering | Estimate before Phase 2; revisit at G3 | Transcription is the expected cost spike. |
 | O7 | Tool-autonomy promotion criteria (draft → autonomous) | Before Phase 7 | Track record + eval pass + low blast radius. |
 | O8 | Client communication on AI processing; DPA language | Before any client-facing AI (6c output / Phase 7) | Involve whoever handles DPAs. |
-| O9 | Anthropic zero-retention / DPA paperwork | Before Phase 2 | Follows from D6. |
 
 ---
 

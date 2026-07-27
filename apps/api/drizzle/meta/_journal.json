@@ -29,6 +29,13 @@
       "when": 1785167180358,
       "tag": "0003_dazzling_lyja",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1785168554228,
+      "tag": "0004_perpetual_nomad",
+      "breakpoints": true
     }
   ]
 }

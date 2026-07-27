@@ -7,6 +7,7 @@ import { EventDispatcher } from './events/event-dispatcher.service.js';
 import { EventHandlerRegistry } from './events/event-handler.registry.js';
 import { LinkService } from './links/link.service.js';
 import { LlmService } from './llm/llm.service.js';
+import { OrchestratorService } from './llm/orchestrator.service.js';
 import { AiToolRegistry } from './llm/tool-registry.service.js';
 import { ManifestRegistry } from './manifest/manifest.registry.js';
 import { PermissionService } from './permissions/permission.service.js';
@@ -29,6 +30,7 @@ const services = [
   EventDispatcher,
   LlmService,
   AiToolRegistry,
+  OrchestratorService,
 ];
 
 @Global()

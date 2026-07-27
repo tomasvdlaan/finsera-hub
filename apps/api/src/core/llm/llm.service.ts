@@ -1,7 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
-import { generateText, type LanguageModel, type ModelMessage, type ToolSet } from 'ai';
+import {
+  generateText,
+  stepCountIs,
+  type LanguageModel,
+  type ModelMessage,
+  type ToolSet,
+} from 'ai';
 
 export type ModelRole = 'strong' | 'fast';
 
@@ -19,6 +25,7 @@ export interface GenerateResult {
   text: string;
   toolCalls: Array<{ toolName: string; input: unknown }>;
   usage: { inputTokens: number; outputTokens: number };
+  steps: number;
 }
 
 /**
@@ -78,12 +85,15 @@ export class LlmService {
   async generate(opts: GenerateOptions): Promise<GenerateResult> {
     const model = opts.model ?? this.resolveModel(opts.role);
 
+    // Multi-step: the model may call a tool, read the result, then call another before
+    // answering ("which clients are active?" → "how many hours on their projects?").
+    // The step cap is a runaway guard, not a feature — a loop that never ends bills.
     const result = await generateText({
       model,
       system: opts.system,
       messages: opts.messages,
       tools: opts.tools,
-      stopWhen: opts.maxSteps ? undefined : undefined,
+      stopWhen: stepCountIs(opts.maxSteps ?? 8),
       maxRetries: 2,
     });
 
@@ -97,6 +107,7 @@ export class LlmService {
       text: result.text,
       toolCalls: result.toolCalls.map((c) => ({ toolName: c.toolName, input: c.input })),
       usage,
+      steps: result.steps?.length ?? 1,
     };
   }
 }

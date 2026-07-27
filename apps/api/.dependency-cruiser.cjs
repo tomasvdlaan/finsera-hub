@@ -42,7 +42,8 @@ module.exports = {
       severity: 'error',
       comment:
         'Core must never depend on modules — it learns about them only through manifests at bootstrap.',
-      from: { path: '^src/core/' },
+      // Specs excepted: composing core with real modules is what an integration test is for.
+      from: { path: '^src/core/', pathNot: '\\.spec\\.ts$' },
       to: { path: '^src/modules/' },
     },
     {

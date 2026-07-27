@@ -3,6 +3,7 @@ import { BrowserRouter, NavLink, Navigate, Route, Routes } from 'react-router-do
 import type { CurrentUser } from '@platform/contracts';
 import { api } from '../lib/api.js';
 import { webModules } from '../modules/index.js';
+import { Assistant } from './Assistant.js';
 import { AuthProvider, useAuth } from './AuthProvider.js';
 
 interface NavItem {
@@ -30,6 +31,7 @@ function Shell() {
   const { user, loading, error: authError, login, logout } = useAuth();
   const [nav, setNav] = useState<NavItem[]>([]);
   const [me, setMe] = useState<CurrentUser | null>(null);
+  const [assistantOpen, setAssistantOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -73,6 +75,10 @@ function Shell() {
               </NavLink>
             ))}
           </nav>
+          <button onClick={() => setAssistantOpen((o) => !o)} style={{ marginTop: '0.75rem' }}>
+            {assistantOpen ? 'Hide assistant' : 'Ask assistant'}
+          </button>
+
           <div className="sidebar-footer">
             {me && (
               <>
@@ -96,6 +102,8 @@ function Shell() {
             <Route path="*" element={<p className="muted">Not found.</p>} />
           </Routes>
         </main>
+
+        {assistantOpen && <Assistant onClose={() => setAssistantOpen(false)} />}
       </div>
     </BrowserRouter>
   );
