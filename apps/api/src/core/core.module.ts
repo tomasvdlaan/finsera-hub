@@ -6,6 +6,8 @@ import { EventBus } from './events/event-bus.service.js';
 import { EventDispatcher } from './events/event-dispatcher.service.js';
 import { EventHandlerRegistry } from './events/event-handler.registry.js';
 import { LinkService } from './links/link.service.js';
+import { LlmService } from './llm/llm.service.js';
+import { AiToolRegistry } from './llm/tool-registry.service.js';
 import { ManifestRegistry } from './manifest/manifest.registry.js';
 import { PermissionService } from './permissions/permission.service.js';
 import { RegistryService } from './registry/registry.service.js';
@@ -13,7 +15,8 @@ import { RegistryService } from './registry/registry.service.js';
 /**
  * Layer 1 — the platform core. Owns identity and relationships; has no business logic.
  *
- * Remaining: llm/ (step 9). Everything else in the core is now in place.
+ * Complete as of Phase 0: identity, links, events, permissions, audit, and the AI
+ * provider seam. The orchestrator that drives these tools arrives in Phase 2.
  */
 const services = [
   ManifestRegistry,
@@ -24,6 +27,8 @@ const services = [
   EventBus,
   EventHandlerRegistry,
   EventDispatcher,
+  LlmService,
+  AiToolRegistry,
 ];
 
 @Global()

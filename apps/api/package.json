@@ -15,11 +15,14 @@
     "db:migrate": "drizzle-kit migrate"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^4.0.21",
+    "@ai-sdk/google": "^4.0.24",
     "@nestjs/common": "^11.0.0",
     "@nestjs/config": "^4.0.0",
     "@nestjs/core": "^11.0.0",
     "@nestjs/platform-express": "^11.0.0",
     "@platform/contracts": "workspace:*",
+    "ai": "^7.0.37",
     "drizzle-orm": "^0.38.0",
     "jose": "^5.9.0",
     "nestjs-pino": "^4.2.0",

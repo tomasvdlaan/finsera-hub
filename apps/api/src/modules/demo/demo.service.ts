@@ -28,7 +28,12 @@ export class DemoService {
     private readonly events: EventBus,
   ) {}
 
-  async createItem(actor: Actor, input: { title: string; note?: string }) {
+  async createItem(
+    actor: Actor,
+    input: { title: string; note?: string },
+    /** Set when an AI tool call produced this write, so the audit trail says so. */
+    origin: { aiInitiated?: boolean; conversationId?: string } = {},
+  ) {
     if (!(await this.permissions.can(actor, 'demo.items.create'))) {
       throw new NotFoundException('Not permitted');
     }
@@ -56,6 +61,8 @@ export class DemoService {
         entityType: 'demo_item',
         entityId: id,
         detail: { title: input.title },
+        aiInitiated: origin.aiInitiated ?? false,
+        conversationId: origin.conversationId,
       });
 
       await this.events.publish(tx, {
