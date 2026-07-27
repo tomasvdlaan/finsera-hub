@@ -106,11 +106,26 @@ h2 {
 main {
   flex: 1;
   padding: 2rem;
-  max-width: 820px;
   /* A flex item defaults to min-width:auto and refuses to shrink below its content, so
      a wide table pushed the whole page sideways and scrolled the sidebar off-screen.
      This lets .grid-scroll do its job instead. */
   min-width: 0;
+  /* Generous rather than absent: past this, layout stops being usable and starts being
+     a hike from one side of the screen to the other. */
+  max-width: 1600px;
+}
+
+/*
+ * Prose is capped, layout is not.
+ *
+ * A single width for the whole page cannot serve both: 72ch keeps a paragraph readable,
+ * and a five-column board squeezed into 72ch is unusable. So the constraint lives on the
+ * text rather than on the page.
+ */
+main > p,
+main > section > p,
+main > h1 + p {
+  max-width: 72ch;
 }
 section {
   margin-top: 2rem;
@@ -548,8 +563,9 @@ ul.decl li > div {
   margin: 1rem 0;
 }
 .board-column {
-  flex: 1 0 240px;
+  flex: 1 1 240px;
   min-width: 240px;
+  max-width: 420px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface);
