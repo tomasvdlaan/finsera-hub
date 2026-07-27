@@ -4,6 +4,7 @@ import { LoggerModule } from 'nestjs-pino';
 import { CoreModule } from './core/core.module.js';
 import { ShellModule } from './shell/shell.module.js';
 import { CrmModule } from './modules/crm/crm.module.js';
+import { DocsModule } from './modules/docs/docs.module.js';
 import { TimeModule } from './modules/time/time.module.js';
 
 /**
@@ -28,6 +29,7 @@ import { TimeModule } from './modules/time/time.module.js';
     // ── domain modules (Layer 2) ──
     CrmModule,
     TimeModule,
+    DocsModule,
   ],
 })
 export class AppModule {}

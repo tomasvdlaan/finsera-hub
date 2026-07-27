@@ -6,12 +6,14 @@ import { EventBus } from './events/event-bus.service.js';
 import { EventDispatcher } from './events/event-dispatcher.service.js';
 import { EventHandlerRegistry } from './events/event-handler.registry.js';
 import { LinkService } from './links/link.service.js';
+import { EmbeddingService } from './llm/embedding.service.js';
 import { LlmService } from './llm/llm.service.js';
 import { OrchestratorService } from './llm/orchestrator.service.js';
 import { AiToolRegistry } from './llm/tool-registry.service.js';
 import { ManifestRegistry } from './manifest/manifest.registry.js';
 import { PermissionService } from './permissions/permission.service.js';
 import { RegistryService } from './registry/registry.service.js';
+import { StorageService } from './storage/storage.service.js';
 
 /**
  * Layer 1 — the platform core. Owns identity and relationships; has no business logic.
@@ -29,8 +31,10 @@ const services = [
   EventHandlerRegistry,
   EventDispatcher,
   LlmService,
+  EmbeddingService,
   AiToolRegistry,
   OrchestratorService,
+  StorageService,
 ];
 
 @Global()

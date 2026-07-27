@@ -7,5 +7,5 @@ export default defineConfig({
   dbCredentials: {
     url: process.env.DATABASE_URL ?? 'postgres://platform:platform@localhost:5432/platform',
   },
-  schemaFilter: ['core', 'crm'],
+  schemaFilter: ['core', 'crm', 'time', 'docs'],
 });

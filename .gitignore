@@ -20,3 +20,6 @@ coverage/
 
 # production stack secrets
 deploy/.env
+
+# uploaded files (local storage driver)
+storage/

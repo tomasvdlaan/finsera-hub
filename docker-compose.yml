@@ -1,7 +1,7 @@
 # Local development only — production compose lives in deploy/ (spec §9)
 services:
   postgres:
-    image: postgres:16
+    image: pgvector/pgvector:pg16
     environment:
       POSTGRES_USER: platform
       POSTGRES_PASSWORD: platform
@@ -16,5 +16,26 @@ services:
       timeout: 3s
       retries: 10
 
+  # Development backups. The nightly job used to live only in deploy/, so stopping that
+  # stack left the database holding real records with no copies at all.
+  backup:
+    image: postgres:16
+    entrypoint: ["/bin/bash", "/backup.sh"]
+    environment:
+      PGHOST: postgres
+      PGUSER: platform
+      PGPASSWORD: platform
+      PGDATABASE: platform
+      RETENTION_DAYS: 14
+      BACKUP_INTERVAL_SECONDS: 21600 # every 6 hours
+    volumes:
+      - ./deploy/backup.sh:/backup.sh:ro
+      - devbackups:/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   pgdata:
+  devbackups:
