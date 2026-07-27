@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@platform/contracts": "workspace:*",
+    "docx-preview": "^0.4.0",
     "oidc-client-ts": "^3.5.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

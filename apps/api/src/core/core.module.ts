@@ -5,6 +5,7 @@ import { DbModule } from './db/db.module.js';
 import { EventBus } from './events/event-bus.service.js';
 import { EventDispatcher } from './events/event-dispatcher.service.js';
 import { EventHandlerRegistry } from './events/event-handler.registry.js';
+import { FileTypeRegistry } from './files/file-type.registry.js';
 import { LinkService } from './links/link.service.js';
 import { EmbeddingService } from './llm/embedding.service.js';
 import { LlmService } from './llm/llm.service.js';
@@ -35,6 +36,7 @@ const services = [
   AiToolRegistry,
   OrchestratorService,
   StorageService,
+  FileTypeRegistry,
 ];
 
 @Global()

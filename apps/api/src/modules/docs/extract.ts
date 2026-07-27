@@ -1,36 +1,9 @@
 /**
- * Text extraction and chunking.
+ * Chunking for the knowledge layer.
  *
- * Formats that cannot be read are stored but not indexed, and the UI says so — silently
- * returning no search results for a document that is plainly there is worse than
- * admitting it was never indexed.
+ * Format-specific extraction moved to core's file-type handlers, so this file is only
+ * about splitting text for embedding — one concern, one place.
  */
-
-const TEXT_TYPES = [
-  'text/plain',
-  'text/markdown',
-  'text/csv',
-  'application/json',
-  'text/html',
-];
-
-export function canExtract(mimeType: string): boolean {
-  return TEXT_TYPES.some((t) => mimeType.startsWith(t));
-}
-
-export function extractText(data: Buffer, mimeType: string): string | null {
-  if (!canExtract(mimeType)) return null;
-
-  let text = data.toString('utf8');
-  if (mimeType.startsWith('text/html')) {
-    text = text
-      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-      .replace(/<[^>]+>/g, ' ');
-  }
-  // Collapse whitespace but keep paragraph breaks — they are the best chunk boundaries.
-  return text.replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim() || null;
-}
 
 export interface Chunk {
   ordinal: number;

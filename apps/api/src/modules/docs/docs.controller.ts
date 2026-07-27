@@ -80,6 +80,32 @@ export class DocsController {
     return this.docs.reindex(actor, id);
   }
 
+  /** Structured preview: text, markdown, sanitised HTML, sheets, or "fetch the bytes". */
+  @Get('documents/:id/preview')
+  preview(
+    @CurrentActor() actor: Actor,
+    @Param('id') id: string,
+    @Query('versionId') versionId?: string,
+  ) {
+    return this.docs.previewVersion(actor, id, versionId);
+  }
+
+  /** The raw bytes, inline — what the browser renders for an image or a PDF. */
+  @Get('documents/:id/raw')
+  async raw(
+    @CurrentActor() actor: Actor,
+    @Param('id') id: string,
+    @Res() res: Response,
+    @Query('versionId') versionId?: string,
+  ) {
+    const { version, data } = await this.docs.download(actor, id, versionId);
+    res.setHeader('Content-Type', version.mimeType);
+    res.setHeader('Content-Disposition', 'inline');
+    // Uploaded files are untrusted; stop the browser second-guessing the declared type.
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.send(data);
+  }
+
   @Get('documents/:id/download')
   async download(
     @CurrentActor() actor: Actor,

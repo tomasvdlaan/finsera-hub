@@ -12,13 +12,15 @@ import { AuditService } from '../../core/audit/audit.service.js';
 import { DB, type Database } from '../../core/db/db.module.js';
 import { EventBus } from '../../core/events/event-bus.service.js';
 import { LinkService } from '../../core/links/link.service.js';
+import { FileTypeRegistry } from '../../core/files/file-type.registry.js';
+import type { Preview } from '../../core/files/file-type.js';
 import { EmbeddingService } from '../../core/llm/embedding.service.js';
 import { PermissionService } from '../../core/permissions/permission.service.js';
 import { RegistryService } from '../../core/registry/registry.service.js';
 import { StorageService } from '../../core/storage/storage.service.js';
 import { CrmService } from '../crm/crm.service.js';
 import { chunks, documents, versions } from './docs.schema.js';
-import { canExtract, chunkText, extractText } from './extract.js';
+import { chunkText } from './extract.js';
 
 export interface UploadInput {
   filename: string;
@@ -51,6 +53,7 @@ export class DocsService {
     private readonly links: LinkService,
     private readonly storage: StorageService,
     private readonly embeddings: EmbeddingService,
+    private readonly fileTypes: FileTypeRegistry,
     private readonly crm: CrmService,
   ) {}
 
@@ -68,6 +71,8 @@ export class DocsService {
     if (input.projectId) await this.crm.getProject(actor, input.projectId);
 
     const stored = await this.storage.put(input.data, input.filename);
+    // Parsing a docx or pdf is real work; do it before opening the transaction.
+    const extracted = await this.fileTypes.extract(input.data, input.mimeType, input.filename);
     const documentId = this.registry.newId();
     const versionId = this.registry.newId();
     const title = (input.title ?? input.filename).trim();
@@ -99,7 +104,7 @@ export class DocsService {
         mimeType: input.mimeType,
         sizeBytes: stored.sizeBytes,
         checksum: stored.checksum,
-        extractedText: extractText(input.data, input.mimeType),
+        extractedText: extracted,
         uploadedBy: actor.userId,
       });
 
@@ -151,6 +156,7 @@ export class DocsService {
       .limit(1);
 
     const stored = await this.storage.put(input.data, input.filename);
+    const extracted = await this.fileTypes.extract(input.data, input.mimeType, input.filename);
     const versionId = this.registry.newId();
     const nextVersion = (latest?.version ?? 0) + 1;
 
@@ -164,7 +170,7 @@ export class DocsService {
         mimeType: input.mimeType,
         sizeBytes: stored.sizeBytes,
         checksum: stored.checksum,
-        extractedText: extractText(input.data, input.mimeType),
+        extractedText: extracted,
         uploadedBy: actor.userId,
       });
 
@@ -494,8 +500,12 @@ export class DocsService {
     `);
   }
 
-  /** Exposed for the extraction check in the UI. */
-  static supportsIndexing(mimeType: string): boolean {
-    return canExtract(mimeType);
+  /**
+   * A preview of a version, rendered by whichever file-type handler owns the format.
+   * Binary kinds (image, pdf) tell the caller to fetch the bytes instead.
+   */
+  async previewVersion(actor: Actor, documentId: string, versionId?: string): Promise<Preview> {
+    const { version, data } = await this.download(actor, documentId, versionId);
+    return this.fileTypes.preview(data, version.mimeType, version.filename);
   }
 }

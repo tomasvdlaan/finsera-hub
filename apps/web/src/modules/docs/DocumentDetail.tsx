@@ -5,6 +5,7 @@ import { api } from '../../lib/api.js';
 import { getUser } from '../../lib/auth.js';
 import { Links } from '../../shell/Links.js';
 import { Timeline } from '../../shell/Timeline.js';
+import { DocumentPreview } from './DocumentPreview.js';
 import { UploadForm } from './UploadForm.js';
 import { formatBytes, type DocumentDetail as Doc } from './types.js';
 
@@ -16,6 +17,7 @@ export function DocumentDetail() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
+  const [previewVersionId, setPreviewVersionId] = useState<string | undefined>();
   const [question, setQuestion] = useState('');
   const [passages, setPassages] = useState<string[] | null>(null);
   const [asking, setAsking] = useState(false);
@@ -132,6 +134,11 @@ export function DocumentDetail() {
       {error && <p className="error">{error}</p>}
 
       <section>
+        <h2>Preview</h2>
+        <DocumentPreview documentId={id} versionId={previewVersionId} />
+      </section>
+
+      <section>
         <h2>Versions</h2>
         <p className="muted">
           Newest first. Nothing is overwritten — every earlier version stays downloadable.
@@ -145,6 +152,14 @@ export function DocumentDetail() {
                 {v.filename} · {formatBytes(v.sizeBytes)} ·{' '}
                 {new Date(v.createdAt).toLocaleString()}
               </span>
+              <button
+                className="link-button"
+                onClick={() => setPreviewVersionId(v.id === doc.currentVersionId ? undefined : v.id)}
+              >
+                {previewVersionId === v.id || (v.id === doc.currentVersionId && !previewVersionId)
+                  ? 'previewing'
+                  : 'preview'}
+              </button>
               <button className="link-button" onClick={() => void download(v.id)}>
                 download
               </button>
