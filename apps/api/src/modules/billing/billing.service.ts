@@ -14,9 +14,12 @@ import { EventBus } from '../../core/events/event-bus.service.js';
 import { LinkService } from '../../core/links/link.service.js';
 import { PermissionService } from '../../core/permissions/permission.service.js';
 import { RegistryService } from '../../core/registry/registry.service.js';
+import { SettingsService } from '../../core/settings/settings.service.js';
 import { CrmService } from '../crm/crm.service.js';
+import { DocsService } from '../docs/docs.service.js';
 import { TimeService } from '../time/time.service.js';
 import { invoiceCounters, invoiceLines, invoices } from './billing.schema.js';
+import { renderInvoicePdf, renderInvoiceUbl, type RenderableInvoice } from './invoice-render.js';
 import {
   computeTotals,
   rateForTreatment,
@@ -51,6 +54,8 @@ export class BillingService {
     private readonly links: LinkService,
     private readonly crm: CrmService,
     private readonly time: TimeService,
+    private readonly docs: DocsService,
+    private readonly settings: SettingsService,
   ) {}
 
   // ── drafts ─────────────────────────────────────────────────
@@ -275,7 +280,111 @@ export class BillingService {
       });
     });
 
+    await this.renderAndFilePdf(actor, id).catch(() => {
+      // The invoice is legally issued regardless; the PDF can be regenerated from the
+      // frozen row via /pdf, which is why failure here is logged-and-tolerable.
+    });
+
     return this.getInvoice(actor, id);
+  }
+
+  /**
+   * The PDF as sent, generated once at issue and filed through Document Management —
+   * reproducible seven years later from storage, not from code that may have changed.
+   */
+  private async renderAndFilePdf(actor: Actor, id: string): Promise<void> {
+    const renderable = await this.renderable(actor, id);
+    const org = await this.settings.get();
+    const pdf = await renderInvoicePdf(renderable, org);
+
+    const label = renderable.kind === 'credit_note' ? 'creditnota' : 'factuur';
+    const document = await this.docs.upload(actor, {
+      filename: `${label}-${renderable.number}.pdf`,
+      mimeType: 'application/pdf',
+      data: pdf,
+      title: `${renderable.kind === 'credit_note' ? 'Creditnota' : 'Factuur'} ${renderable.number}`,
+      clientId: (await this.rawInvoice(id)).clientId,
+      category: 'invoice',
+    });
+
+    // pdf_document_id is one of the few columns the immutability trigger permits.
+    await this.db
+      .update(invoices)
+      .set({ pdfDocumentId: document.id, updatedAt: new Date() })
+      .where(eq(invoices.id, id));
+  }
+
+  /** The PDF bytes: the stored original for issued invoices, a live render for drafts. */
+  async getPdf(actor: Actor, id: string): Promise<{ filename: string; data: Buffer }> {
+    await this.require(actor, 'billing.read');
+    const invoice = await this.rawInvoice(id);
+
+    if (invoice.pdfDocumentId) {
+      const stored = await this.docs.download(actor, invoice.pdfDocumentId);
+      return { filename: stored.version.filename, data: stored.data };
+    }
+
+    const renderable = await this.renderable(actor, id);
+    const org = await this.settings.get();
+    return {
+      filename: invoice.number ? `factuur-${invoice.number}.pdf` : 'concept-factuur.pdf',
+      data: await renderInvoicePdf(renderable, org),
+    };
+  }
+
+  async getUbl(actor: Actor, id: string): Promise<{ filename: string; xml: string }> {
+    await this.require(actor, 'billing.read');
+    const invoice = await this.rawInvoice(id);
+    if (!invoice.issuedAt) throw new BadRequestException('Only issued invoices export as UBL');
+    const renderable = await this.renderable(actor, id);
+    const org = await this.settings.get();
+    return { filename: `${invoice.number}.xml`, xml: renderInvoiceUbl(renderable, org) };
+  }
+
+  /** Everything the renderers need, gathered through the services that own it. */
+  private async renderable(actor: Actor, id: string): Promise<RenderableInvoice> {
+    const invoice = await this.rawInvoice(id);
+    const client = await this.crm.getClient(actor, invoice.clientId);
+    const lines = await this.db
+      .select()
+      .from(invoiceLines)
+      .where(eq(invoiceLines.invoiceId, id))
+      .orderBy(asc(invoiceLines.position));
+
+    let creditsNumber: string | null = null;
+    if (invoice.creditsInvoiceId) {
+      creditsNumber = (await this.rawInvoice(invoice.creditsInvoiceId)).number;
+    }
+
+    return {
+      kind: invoice.kind as RenderableInvoice['kind'],
+      number: invoice.number,
+      issueDate: invoice.issueDate,
+      dueOn: invoice.dueOn,
+      vatTreatment: invoice.vatTreatment as VatTreatment,
+      clientVatNumber: invoice.clientVatNumber ?? client.vatNumber,
+      currency: invoice.currency,
+      subtotalCents: invoice.subtotalCents,
+      vatCents: invoice.vatCents,
+      totalCents: invoice.totalCents,
+      notes: invoice.notes,
+      creditsNumber,
+      client: {
+        name: client.name,
+        legalName: client.legalName,
+        invoiceAddress: client.invoiceAddress,
+        kvkNumber: client.kvkNumber,
+        countryCode: client.countryCode,
+        paymentTermsDays: client.paymentTermsDays,
+      },
+      lines: lines.map((l) => ({
+        description: l.description,
+        quantity: l.quantity,
+        unitPriceCents: l.unitPriceCents,
+        amountCents: l.amountCents,
+        vatRate: l.vatRate,
+      })),
+    };
   }
 
   /**

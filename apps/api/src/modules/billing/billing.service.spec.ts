@@ -7,6 +7,12 @@ import { LinkService } from '../../core/links/link.service.js';
 import { ManifestRegistry } from '../../core/manifest/manifest.registry.js';
 import { PermissionService } from '../../core/permissions/permission.service.js';
 import { RegistryService } from '../../core/registry/registry.service.js';
+import { SettingsService } from '../../core/settings/settings.service.js';
+import { StorageService } from '../../core/storage/storage.service.js';
+import { FileTypeRegistry } from '../../core/files/file-type.registry.js';
+import { EmbeddingService } from '../../core/llm/embedding.service.js';
+import { docsManifest } from '../docs/docs.manifest.js';
+import { DocsService } from '../docs/docs.service.js';
 import { resetDb, seedUser, testDb } from '../../test/db.js';
 import { crmManifest } from '../crm/crm.manifest.js';
 import { CrmService } from '../crm/crm.service.js';
@@ -31,6 +37,7 @@ describe('BillingService', () => {
     manifests.register(crmManifest);
     manifests.register(timeManifest);
     manifests.register(billingManifest);
+    manifests.register(docsManifest);
     manifests.seal();
 
     const registry = new RegistryService(testDb, manifests);
@@ -40,7 +47,32 @@ describe('BillingService', () => {
     const bus = new EventBus(manifests);
     crm = new CrmService(testDb, registry, permissions, audit, bus, links);
     time = new TimeService(testDb, registry, permissions, audit, bus, links, crm);
-    billing = new BillingService(testDb, registry, permissions, audit, bus, links, crm, time);
+    const storage = new StorageService();
+    const docs = new DocsService(
+      testDb,
+      registry,
+      permissions,
+      audit,
+      bus,
+      links,
+      storage,
+      new EmbeddingService(),
+      new FileTypeRegistry(),
+      crm,
+    );
+    billing = new BillingService(
+      testDb,
+      registry,
+      permissions,
+      audit,
+      bus,
+      links,
+      crm,
+      time,
+      docs,
+      new SettingsService(testDb),
+    );
+    return { storage };
   };
 
   /** Log a submitted week of hours so there is something to bill. */
@@ -286,6 +318,50 @@ describe('BillingService', () => {
     await submitHours(600);
     const draft = await billing.draftFromHours(actor, projectId);
     await expect(billing.createCreditNote(actor, draft.id)).rejects.toThrow(/issued/);
+  });
+
+  // ── the rendered documents ──
+
+  it('files the PDF through Document Management at issue', async () => {
+    await submitHours(600);
+    const draft = await billing.draftFromHours(actor, projectId);
+    const issued = await billing.issue(actor, draft.id);
+
+    // Stored, not just rendered: seven years from now the bytes must come from
+    // storage, not from code that may have changed.
+    expect(issued.pdfDocumentId).not.toBeNull();
+    const { filename, data } = await billing.getPdf(actor, issued.id);
+    expect(filename).toBe(`factuur-${issued.number}.pdf`);
+    expect(data.subarray(0, 5).toString()).toBe('%PDF-');
+  });
+
+  it('renders a draft preview without storing anything', async () => {
+    await submitHours(600);
+    const draft = await billing.draftFromHours(actor, projectId);
+    const { filename, data } = await billing.getPdf(actor, draft.id);
+    expect(filename).toBe('concept-factuur.pdf');
+    expect(data.subarray(0, 5).toString()).toBe('%PDF-');
+    expect((await billing.getInvoice(actor, draft.id)).pdfDocumentId).toBeNull();
+  });
+
+  it('exports issued invoices as UBL with the fields a package needs', async () => {
+    await submitHours(600);
+    const draft = await billing.draftFromHours(actor, projectId);
+    const issued = await billing.issue(actor, draft.id);
+
+    const { filename, xml } = await billing.getUbl(actor, issued.id);
+    expect(filename).toBe(`${issued.number}.xml`);
+    expect(xml).toContain(`<cbc:ID>${issued.number}</cbc:ID>`);
+    expect(xml).toContain('<cbc:InvoiceTypeCode>380</cbc:InvoiceTypeCode>');
+    expect(xml).toContain('350.00'); // subtotal
+    expect(xml).toContain('73.50'); //  VAT
+    expect(xml).toContain('423.50'); // payable
+  });
+
+  it('refuses UBL for a draft', async () => {
+    await submitHours(600);
+    const draft = await billing.draftFromHours(actor, projectId);
+    await expect(billing.getUbl(actor, draft.id)).rejects.toThrow(/issued/);
   });
 
   // ── reading ──

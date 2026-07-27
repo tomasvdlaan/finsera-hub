@@ -14,6 +14,7 @@ import { AiToolRegistry } from './llm/tool-registry.service.js';
 import { ManifestRegistry } from './manifest/manifest.registry.js';
 import { PermissionService } from './permissions/permission.service.js';
 import { RegistryService } from './registry/registry.service.js';
+import { SettingsService } from './settings/settings.service.js';
 import { StorageService } from './storage/storage.service.js';
 
 /**
@@ -37,6 +38,7 @@ const services = [
   OrchestratorService,
   StorageService,
   FileTypeRegistry,
+  SettingsService,
 ];
 
 @Global()

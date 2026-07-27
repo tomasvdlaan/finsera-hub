@@ -1,10 +1,11 @@
-import { Body, Controller, Delete, ForbiddenException, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Delete, ForbiddenException, Get, Param, Post, Put } from '@nestjs/common';
 import type { Actor, CreateLinkInput } from '@platform/contracts';
 import { CurrentActor } from '../core/auth/current-actor.decorator.js';
 import { Public } from '../core/auth/public.decorator.js';
 import { UserService } from '../core/auth/user.service.js';
 import { EventDispatcher } from '../core/events/event-dispatcher.service.js';
 import { LinkService } from '../core/links/link.service.js';
+import { SettingsService, type OrgSettings } from '../core/settings/settings.service.js';
 import { ManifestRegistry } from '../core/manifest/manifest.registry.js';
 import { TimelineService } from './timeline.service.js';
 
@@ -16,7 +17,23 @@ export class ShellController {
     private readonly links: LinkService,
     private readonly timeline: TimelineService,
     private readonly dispatcher: EventDispatcher,
+    private readonly settings: SettingsService,
   ) {}
+
+  /** The organisation's own legal details — printed on every invoice and quote. */
+  @Get('settings')
+  getSettings() {
+    return this.settings.get();
+  }
+
+  @Put('settings')
+  async updateSettings(
+    @CurrentActor() actor: Actor,
+    @Body() body: Partial<Omit<OrgSettings, 'id' | 'updatedAt'>>,
+  ) {
+    if (actor.role !== 'admin') throw new ForbiddenException();
+    return this.settings.update(body);
+  }
 
   /** Liveness — used by the deploy healthcheck. */
   @Public()

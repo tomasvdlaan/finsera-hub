@@ -5,6 +5,7 @@ import { api } from '../lib/api.js';
 import { webModules } from '../modules/index.js';
 import { Assistant } from './Assistant.js';
 import { Modules } from './Modules.js';
+import { Settings } from './Settings.js';
 import { AuthProvider, useAuth } from './AuthProvider.js';
 
 interface NavItem {
@@ -87,6 +88,13 @@ function Shell() {
           >
             Platform modules
           </NavLink>
+          <NavLink
+            to="/platform/settings"
+            className={({ isActive }) => (isActive ? 'active' : '')}
+            style={{ fontSize: '0.85rem' }}
+          >
+            Organisation
+          </NavLink>
 
           <div className="sidebar-footer">
             {me && (
@@ -109,6 +117,7 @@ function Shell() {
               <Route key={path} path={path} element={<Component />} />
             ))}
             <Route path="/platform/modules" element={<Modules />} />
+            <Route path="/platform/settings" element={<Settings />} />
             <Route path="*" element={<p className="muted">Not found.</p>} />
           </Routes>
         </main>

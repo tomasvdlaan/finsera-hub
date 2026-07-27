@@ -1,4 +1,5 @@
-import { Body, Controller, Delete, Get, Param, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Put, Query, Res } from '@nestjs/common';
+import type { Response } from 'express';
 import type { Actor } from '@platform/contracts';
 import { CurrentActor } from '../../core/auth/current-actor.decorator.js';
 import { BillingService, type DraftLineInput } from './billing.service.js';
@@ -42,6 +43,24 @@ export class BillingController {
     @Body() body: { lines: DraftLineInput[] },
   ) {
     return this.billing.updateDraftLines(actor, id, body.lines);
+  }
+
+  /** The stored original for issued invoices; a live CONCEPT render for drafts. */
+  @Get('invoices/:id/pdf')
+  async pdf(@CurrentActor() actor: Actor, @Param('id') id: string, @Res() res: Response) {
+    const { filename, data } = await this.billing.getPdf(actor, id);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${filename.replace(/"/g, '')}"`);
+    res.send(data);
+  }
+
+  /** UBL 2.1 — importable by any Dutch accounting package (decision: UBL before an API). */
+  @Get('invoices/:id/ubl')
+  async ubl(@CurrentActor() actor: Actor, @Param('id') id: string, @Res() res: Response) {
+    const { filename, xml } = await this.billing.getUbl(actor, id);
+    res.setHeader('Content-Type', 'application/xml');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename.replace(/"/g, '')}"`);
+    res.send(xml);
   }
 
   /** The legal moment: number allocated, VAT validated, row frozen. */

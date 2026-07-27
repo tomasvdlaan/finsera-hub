@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { Links } from '../../shell/Links.js';
 import { Timeline } from '../../shell/Timeline.js';
+import { ClientInvoicesWidget } from '../billing/ClientInvoicesWidget.js';
 import { DocumentsWidget } from '../docs/DocumentsWidget.js';
 import { EditableField } from './EditableField.js';
 import type { EntityRef } from '@platform/contracts';
@@ -136,6 +137,65 @@ export function ClientDetail() {
       />
 
       {error && <p className="error">{error}</p>}
+
+      <section>
+        <h2>Billing details</h2>
+        <p className="muted">
+          What an invoice legally needs. Reverse charge additionally requires the VAT number.
+        </p>
+        <EditableField
+          label="Legal name"
+          value={client.legalName}
+          placeholder="As registered at the KvK"
+          onSave={(v) => patch({ legalName: v })}
+        />
+        <EditableField
+          label="Invoice address"
+          value={client.invoiceAddress}
+          multiline
+          onSave={(v) => patch({ invoiceAddress: v })}
+        />
+        <EditableField label="KvK" value={client.kvkNumber} onSave={(v) => patch({ kvkNumber: v })} />
+        <EditableField
+          label="VAT number"
+          value={client.vatNumber}
+          placeholder="NL…B01 / DE…"
+          onSave={(v) => patch({ vatNumber: v })}
+        />
+        <EditableField
+          label="Country"
+          value={client.countryCode}
+          placeholder="NL"
+          onSave={(v) => patch({ countryCode: v ?? 'NL' })}
+        />
+        <EditableField
+          label="Payment terms (days)"
+          value={String(client.paymentTermsDays)}
+          onSave={(v) => patch({ paymentTermsDays: v ? Number(v) : 30 })}
+        />
+        <EditableField
+          label="Invoice email"
+          value={client.invoiceEmail}
+          onSave={(v) => patch({ invoiceEmail: v })}
+        />
+        <div className="row">
+          <span className="muted">VAT treatment:</span>
+          <select
+            value={client.vatTreatment}
+            onChange={(e) => void patch({ vatTreatment: e.target.value })}
+            aria-label="VAT treatment"
+          >
+            <option value="domestic_21">Dutch client — 21% BTW</option>
+            <option value="reverse_charge">EU client — BTW verlegd</option>
+            <option value="outside_eu">Outside EU — out of scope</option>
+          </select>
+        </div>
+      </section>
+
+      <section>
+        <h2>Invoices</h2>
+        <ClientInvoicesWidget clientId={id} />
+      </section>
 
       <section>
         <h2>Contacts</h2>

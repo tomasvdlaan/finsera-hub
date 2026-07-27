@@ -3,6 +3,7 @@ import type { Actor } from '@platform/contracts';
 import { AiToolRegistry } from '../../core/llm/tool-registry.service.js';
 import { ManifestRegistry } from '../../core/manifest/manifest.registry.js';
 import { CrmModule } from '../crm/crm.module.js';
+import { DocsModule } from '../docs/docs.module.js';
 import { TimeModule } from '../time/time.module.js';
 import { BillingController } from './billing.controller.js';
 import { billingManifest } from './billing.manifest.js';
@@ -13,7 +14,7 @@ import { BillingService } from './billing.service.js';
  * being billed) — both through their services, and both one-way.
  */
 @Module({
-  imports: [CrmModule, TimeModule],
+  imports: [CrmModule, TimeModule, DocsModule],
   controllers: [BillingController],
   providers: [BillingService],
   exports: [BillingService],

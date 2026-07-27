@@ -19,6 +19,14 @@ export interface Client {
   ownerId: string | null;
   website: string | null;
   notes: string | null;
+  legalName: string | null;
+  invoiceAddress: string | null;
+  kvkNumber: string | null;
+  vatNumber: string | null;
+  countryCode: string;
+  vatTreatment: 'domestic_21' | 'reverse_charge' | 'outside_eu';
+  paymentTermsDays: number;
+  invoiceEmail: string | null;
 }
 
 export interface Contact {

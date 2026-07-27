@@ -2,6 +2,7 @@ import type { ChatWidgetProps, WebModule } from './types.js';
 import type { ComponentType } from 'react';
 import { crmWebModule } from './crm/index.js';
 import { docsWebModule } from './docs/index.js';
+import { billingWebModule } from './billing/index.js';
 import { scrumWebModule } from './scrum/index.js';
 import { timeWebModule } from './time/index.js';
 
@@ -14,6 +15,7 @@ export const webModules: WebModule[] = [
   timeWebModule,
   docsWebModule,
   scrumWebModule,
+  billingWebModule,
 ];
 
 /**
