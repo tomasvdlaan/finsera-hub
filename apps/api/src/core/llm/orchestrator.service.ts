@@ -1,6 +1,6 @@
 import { ForbiddenException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { Actor, EntityRef } from '@platform/contracts';
-import type { ModelMessage } from 'ai';
+import type { LanguageModel, ModelMessage } from 'ai';
 import { and, asc, desc, eq } from 'drizzle-orm';
 import { v7 as uuidv7 } from 'uuid';
 import { DB, type Database } from '../db/db.module.js';
@@ -17,6 +17,8 @@ export interface AskInput {
   context?: { entityId?: string };
   /** Names of write:commit tools the user has approved for this turn. */
   confirmed?: string[];
+  /** Injected in tests, mirroring LlmService — production resolves from configuration. */
+  model?: LanguageModel;
 }
 
 export interface AskResult {
@@ -24,17 +26,25 @@ export interface AskResult {
   answer: string;
   toolCalls: ToolInvocation[];
   /**
-   * Records this answer touched, resolved through the registry.
+   * Records the answer explicitly cites, resolved through the registry.
    *
-   * The chat renders these as cards, so an answer about a document can show the
-   * document rather than describe it. Collected from what the tools actually returned,
-   * not from what the model claims — the model cannot invent a reference this way.
+   * Only cited records appear — a card is a deliberate act, not a by-product of having
+   * touched a row. Every id is still checked against what the tools actually returned,
+   * so the model can choose WHICH records to show but cannot invent one.
    */
   references: EntityRef[];
   usage: { inputTokens: number; outputTokens: number };
 }
 
 const UUID_PATTERN = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
+const CITATION_PATTERN = /\[\[entity:([0-9a-f-]{36})\]\]/gi;
+
+/**
+ * Cards are for the record being discussed, not for every record consulted. Past a
+ * handful the chat stops reading as an answer and starts reading as a search result
+ * page, which is the failure this cap exists to prevent.
+ */
+const MAX_REFERENCES = 3;
 
 const HISTORY_LIMIT = 20;
 
@@ -79,6 +89,7 @@ export class OrchestratorService {
       messages: [...history, { role: 'user', content: question }],
       tools,
       maxSteps: 8,
+      model: input.model,
     });
 
     const answer =
@@ -150,43 +161,58 @@ export class OrchestratorService {
   }
 
   /**
-   * Which records this answer is about.
+   * The records this answer deliberately cites.
    *
-   * Ids are taken from what the tools returned and from the answer text, then resolved
-   * through the registry and filtered by what the actor may see. Two consequences worth
-   * stating: the model cannot fabricate a reference, because an id it invents will not
-   * resolve; and a reference cannot leak, because permission is checked per entity.
+   * Three gates, in order: the model must cite it; the id must have come back from a
+   * tool this turn; and the actor must be allowed to see it. The first keeps cards rare
+   * and relevant, the second stops the model inventing one, the third stops a card
+   * leaking a record the asker cannot open.
    */
   private async collectReferences(
     actor: Actor,
     invocations: ToolInvocation[],
     answer: string,
   ): Promise<EntityRef[]> {
-    const ids = new Set<string>();
+    const cited: string[] = [];
+    for (const match of answer.matchAll(CITATION_PATTERN)) {
+      const id = match[1]!.toLowerCase();
+      if (!cited.includes(id)) cited.push(id);
+    }
+    if (cited.length === 0) return [];
+
+    // Ids the tools genuinely produced this turn — the model may pick from these, and
+    // nothing else.
+    const grounded = new Set<string>();
     const harvest = (value: unknown, depth = 0) => {
-      if (depth > 6 || ids.size > 40) return;
+      if (depth > 6 || grounded.size > 200) return;
       if (typeof value === 'string') {
-        for (const match of value.match(UUID_PATTERN) ?? []) ids.add(match.toLowerCase());
+        for (const m of value.match(UUID_PATTERN) ?? []) grounded.add(m.toLowerCase());
       } else if (Array.isArray(value)) {
         value.forEach((v) => harvest(v, depth + 1));
       } else if (value && typeof value === 'object') {
         Object.values(value).forEach((v) => harvest(v, depth + 1));
       }
     };
-
     for (const invocation of invocations) {
       harvest(invocation.result);
       harvest(invocation.input);
     }
-    harvest(answer);
-    if (ids.size === 0) return [];
 
-    const resolved = await this.registry.resolve([...ids]);
+    const candidates = cited.filter((id) => grounded.has(id));
+    if (candidates.length === 0) return [];
+
+    const resolved = await this.registry.resolve(candidates);
     const visible = await this.permissions.visibleIds(
       actor,
       resolved.map((r) => r.id),
     );
-    return resolved.filter((r) => visible.has(r.id) && !r.deleted).slice(0, 12);
+
+    // Keep the model's own ordering: the first thing it cited is what it is talking about.
+    const byId = new Map(resolved.map((r) => [r.id.toLowerCase(), r]));
+    return candidates
+      .map((id) => byId.get(id))
+      .filter((r): r is EntityRef => Boolean(r) && visible.has(r!.id) && !r!.deleted)
+      .slice(0, MAX_REFERENCES);
   }
 
   // ── internals ──────────────────────────────────────────────
@@ -241,9 +267,12 @@ export class OrchestratorService {
       'Money is stored in whole euro cents; durations in whole minutes. Convert for the reader.',
       "Be brief. This is a colleague's working tool, not a chat product.",
       `Today is ${new Date().toISOString().slice(0, 10)}.`,
-      'When you mention a specific record, cite it inline as [[entity:<its id>]] — the ' +
-        'interface turns that into a card the reader can open. Use the real id from a ' +
-        'tool result; never invent one.',
+      'You may show a record as a card by citing it inline as [[entity:<its id>]], using ' +
+        'a real id from a tool result. Do this SPARINGLY — at most one or two per answer, ' +
+        'and only for the record the reader is most likely to open or act on next. ' +
+        'When listing several records, name them in plain text and cite none of them: a ' +
+        'wall of cards is harder to read than a sentence. Never cite a record you are ' +
+        'merely mentioning in passing.',
     ];
 
     if (contextEntityId) {

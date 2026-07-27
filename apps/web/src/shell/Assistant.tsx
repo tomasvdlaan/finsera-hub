@@ -52,8 +52,9 @@ const CITATION = /\[\[entity:([0-9a-f-]{36})\]\]/gi;
 /**
  * Split an answer on [[entity:id]] citations, rendering each as its card in place.
  *
- * A citation naming an id the tools never returned is dropped — the model cannot
- * conjure a card for a record that does not exist or that this user may not see.
+ * Only cited records become cards, and the server has already dropped any citation it
+ * could not ground in a tool result or that this user may not see. A citation the server
+ * did not approve renders as nothing at all rather than leaving [[entity:…]] on screen.
  */
 function AnswerBody({ text, references }: { text: string; references: Reference[] }) {
   const byId = new Map(references.map((r) => [r.id.toLowerCase(), r]));
@@ -69,6 +70,7 @@ function AnswerBody({ text, references }: { text: string; references: Reference[
   }
   if (cursor < text.length) parts.push(text.slice(cursor));
 
+  // Trailing whitespace left by a stripped citation reads as a formatting bug.
   return <div className="turn-content">{parts}</div>;
 }
 
@@ -168,12 +170,6 @@ export function Assistant({ onClose }: { onClose: () => void }) {
             ) : (
               <>
                 <AnswerBody text={turn.content} references={turn.references ?? []} />
-                {/* Records the answer touched but did not cite inline. */}
-                {turn.references
-                  ?.filter((r) => !turn.content.toLowerCase().includes(r.id.toLowerCase()))
-                  .map((r) => (
-                    <ReferenceCard key={r.id} {...r} />
-                  ))}
                 {/* Transparency: what the assistant actually did to answer. */}
                 {turn.toolCalls && turn.toolCalls.length > 0 && (
                   <div className="turn-tools">
