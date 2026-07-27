@@ -174,3 +174,25 @@ export const messages = core.table(
   },
   (t) => [index('messages_conversation_idx').on(t.conversationId, t.createdAt)],
 );
+
+/**
+ * The organisation's own legal identity — what appears on every quote and invoice.
+ *
+ * A single row, in core: these values are not module data, they are who the platform
+ * belongs to. Hard-coding them into a template is how a moved office ships on invoices
+ * for a year.
+ */
+export const orgSettings = core.table('org_settings', {
+  id: integer('id').primaryKey().default(1),
+  legalName: text('legal_name').notNull().default(''),
+  addressLine1: text('address_line1').notNull().default(''),
+  addressLine2: text('address_line2').notNull().default(''),
+  kvkNumber: text('kvk_number').notNull().default(''),
+  vatNumber: text('vat_number').notNull().default(''),
+  iban: text('iban').notNull().default(''),
+  invoiceEmail: text('invoice_email').notNull().default(''),
+  /** Prefix for invoice numbers; the year and counter are appended. */
+  invoiceNumberPrefix: text('invoice_number_prefix').notNull().default(''),
+  defaultPaymentTermsDays: integer('default_payment_terms_days').notNull().default(30),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});

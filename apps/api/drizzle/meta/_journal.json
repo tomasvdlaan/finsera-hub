@@ -57,6 +57,13 @@
       "when": 1785178756561,
       "tag": "0007_woozy_nomad",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1785180622218,
+      "tag": "0008_dashing_nemesis",
+      "breakpoints": true
     }
   ]
 }

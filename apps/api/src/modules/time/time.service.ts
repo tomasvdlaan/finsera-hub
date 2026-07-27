@@ -464,6 +464,31 @@ export class TimeService {
     return rows.reduce((sum, r) => sum + this.effectiveMinutes(r), 0);
   }
 
+  /**
+   * Submitted, billable entries for a project — what invoicing bills from. Submitted
+   * only: an unsubmitted week is still being corrected, and invoicing a moving target
+   * is how an invoice disagrees with the timesheet behind it.
+   */
+  async entriesForBilling(projectId: string) {
+    return this.db
+      .select({
+        id: entries.id,
+        personId: entries.personId,
+        workedOn: entries.workedOn,
+        minutes: entries.minutes,
+      })
+      .from(entries)
+      .where(
+        and(
+          eq(entries.projectId, projectId),
+          eq(entries.billable, true),
+          isNotNull(entries.submittedAt),
+          isNotNull(entries.minutes), // a running timer has no duration yet
+        ),
+      )
+      .orderBy(asc(entries.workedOn));
+  }
+
   // ── budget burn: the cross-module read ─────────────────────
 
   async projectBurn(actor: Actor, projectId: string): Promise<ProjectBurn> {

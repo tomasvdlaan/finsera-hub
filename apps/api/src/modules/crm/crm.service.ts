@@ -12,6 +12,7 @@ import {
   BILLING_MODELS,
   CLIENT_STATUSES,
   PROJECT_STATUSES,
+  VAT_TREATMENTS,
   clients,
   contacts,
   projects,
@@ -27,6 +28,15 @@ export interface CreateClientInput {
   ownerId?: string | null;
   website?: string | null;
   notes?: string | null;
+  // Billing (Phase 5): what an invoice legally needs about the client.
+  legalName?: string | null;
+  invoiceAddress?: string | null;
+  kvkNumber?: string | null;
+  vatNumber?: string | null;
+  countryCode?: string;
+  vatTreatment?: (typeof VAT_TREATMENTS)[number];
+  paymentTermsDays?: number;
+  invoiceEmail?: string | null;
 }
 
 export interface CreateProjectInput {
@@ -98,6 +108,14 @@ export class CrmService {
         ownerId,
         website: input.website ?? null,
         notes: input.notes ?? null,
+        legalName: input.legalName ?? null,
+        invoiceAddress: input.invoiceAddress ?? null,
+        kvkNumber: input.kvkNumber ?? null,
+        vatNumber: input.vatNumber ?? null,
+        countryCode: input.countryCode ?? 'NL',
+        vatTreatment: this.validVatTreatment(input.vatTreatment, input.vatNumber),
+        paymentTermsDays: input.paymentTermsDays ?? 30,
+        invoiceEmail: input.invoiceEmail ?? null,
       });
       await this.audit.record(tx, {
         actorId: actor.userId,
@@ -171,6 +189,7 @@ export class CrmService {
       patch.ownerId === undefined ? before.ownerId : await this.resolveOwner(patch.ownerId);
 
     await this.db.transaction(async (tx) => {
+      const vatNumber = patch.vatNumber === undefined ? before.vatNumber : patch.vatNumber;
       await tx
         .update(clients)
         .set({
@@ -179,6 +198,18 @@ export class CrmService {
           ownerId,
           website: patch.website === undefined ? before.website : patch.website,
           notes: patch.notes === undefined ? before.notes : patch.notes,
+          legalName: patch.legalName === undefined ? before.legalName : patch.legalName,
+          invoiceAddress:
+            patch.invoiceAddress === undefined ? before.invoiceAddress : patch.invoiceAddress,
+          kvkNumber: patch.kvkNumber === undefined ? before.kvkNumber : patch.kvkNumber,
+          vatNumber,
+          countryCode: patch.countryCode ?? before.countryCode,
+          vatTreatment: patch.vatTreatment
+            ? this.validVatTreatment(patch.vatTreatment, vatNumber)
+            : before.vatTreatment,
+          paymentTermsDays: patch.paymentTermsDays ?? before.paymentTermsDays,
+          invoiceEmail:
+            patch.invoiceEmail === undefined ? before.invoiceEmail : patch.invoiceEmail,
           updatedAt: new Date(),
         })
         .where(eq(clients.id, id));
@@ -478,6 +509,21 @@ export class CrmService {
     if (!(await this.permissions.can(actor, capability))) {
       throw new ForbiddenException(`Missing capability '${capability}'`);
     }
+  }
+
+  /** Reverse charge without a VAT number is an invalid invoice waiting to happen. */
+  private validVatTreatment(
+    treatment: (typeof VAT_TREATMENTS)[number] | undefined,
+    vatNumber: string | null | undefined,
+  ): (typeof VAT_TREATMENTS)[number] {
+    const value = treatment ?? 'domestic_21';
+    if (!VAT_TREATMENTS.includes(value)) {
+      throw new BadRequestException(`Unknown VAT treatment '${value}'`);
+    }
+    if (value === 'reverse_charge' && !vatNumber) {
+      throw new BadRequestException('Reverse charge requires the client’s VAT number');
+    }
+    return value;
   }
 
   private requireName(name: string): string {

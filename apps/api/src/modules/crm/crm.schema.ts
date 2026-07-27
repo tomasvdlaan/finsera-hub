@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import {
   bigint,
+  integer,
   boolean,
   check,
   date,
@@ -25,6 +26,13 @@ import {
 export const crm = pgSchema('crm');
 
 export const CLIENT_STATUSES = ['lead', 'proposal', 'active', 'dormant', 'lost'] as const;
+
+/**
+ * How Dutch VAT applies to this client (Phase 5 brief §4). Explicit rather than derived
+ * from the country, because deriving it silently is how an invoice ends up in the wrong
+ * bracket — this is a decision someone makes once, visibly, per client.
+ */
+export const VAT_TREATMENTS = ['domestic_21', 'reverse_charge', 'outside_eu'] as const;
 export const PROJECT_STATUSES = [
   'prospective',
   'active',
@@ -45,6 +53,17 @@ export const clients = crm.table(
     ownerId: uuid('owner_id'), // core.users id; no cross-schema FK by design
     website: text('website'),
     notes: text('notes'),
+
+    // ── billing (deferred from Phase 1, due in Phase 5) ──
+    /** Legal name may differ from the display name; invoices carry the legal one. */
+    legalName: text('legal_name'),
+    invoiceAddress: text('invoice_address'),
+    kvkNumber: text('kvk_number'),
+    vatNumber: text('vat_number'),
+    countryCode: text('country_code').notNull().default('NL'),
+    vatTreatment: text('vat_treatment').notNull().default('domestic_21'),
+    paymentTermsDays: integer('payment_terms_days').notNull().default(30),
+    invoiceEmail: text('invoice_email'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
     archivedAt: timestamp('archived_at', { withTimezone: true }),
@@ -52,6 +71,16 @@ export const clients = crm.table(
   (t) => [
     index('clients_status_idx').on(t.status),
     check('clients_status_valid', sql`${t.status} IN ('lead','proposal','active','dormant','lost')`),
+    check(
+      'clients_vat_treatment_valid',
+      sql`${t.vatTreatment} IN ('domestic_21','reverse_charge','outside_eu')`,
+    ),
+    // An invoice claiming reverse charge without the client's VAT number is invalid, so
+    // the combination cannot even be stored.
+    check(
+      'clients_reverse_charge_needs_vat_number',
+      sql`${t.vatTreatment} <> 'reverse_charge' OR ${t.vatNumber} IS NOT NULL`,
+    ),
   ],
 );
 
