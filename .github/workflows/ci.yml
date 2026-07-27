@@ -8,6 +8,29 @@ on:
 jobs:
   ci:
     runs-on: ubuntu-latest
+
+    # Core service tests assert transactional behaviour (a registry entry and a module
+    # row commit or roll back together), which only a real database can prove.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: platform
+          POSTGRES_PASSWORD: platform
+          POSTGRES_DB: platform
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U platform -d platform"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://platform:platform@localhost:5432/platform
+      ZITADEL_ISSUER: https://finsera-dashboard-nsncri.eu1.zitadel.cloud
+      ZITADEL_CLIENT_ID: "383629804357893947"
+
     steps:
       - uses: actions/checkout@v4
 
@@ -22,6 +45,9 @@ jobs:
 
       - name: Install
         run: pnpm install --frozen-lockfile
+
+      - name: Migrate database
+        run: pnpm --filter @platform/api db:migrate
 
       - name: Lint
         run: pnpm lint

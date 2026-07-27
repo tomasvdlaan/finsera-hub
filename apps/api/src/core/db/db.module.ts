@@ -10,6 +10,8 @@ export type Database = NodePgDatabase<typeof coreSchema>;
 /** A transaction handle. Core services accept this so registry writes, events, and the
  *  module's own row all commit together — the invariant the whole architecture rests on. */
 export type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
+/** Anything that can run a query. Writes should always be passed a Tx. */
+export type Executor = Database | Tx;
 
 @Global()
 @Module({
