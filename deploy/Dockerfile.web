@@ -1,0 +1,28 @@
+# syntax=docker/dockerfile:1
+# The SPA is built to static files; Caddy serves them. Vite inlines VITE_* at BUILD
+# time, so the issuer and client id are build args, not runtime env.
+FROM node:24-slim AS build
+WORKDIR /repo
+
+RUN corepack enable pnpm
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
+COPY packages/config/package.json packages/config/
+COPY packages/contracts/package.json packages/contracts/
+COPY apps/api/package.json apps/api/
+COPY apps/web/package.json apps/web/
+RUN pnpm install --frozen-lockfile
+
+COPY packages packages
+COPY apps/web apps/web
+
+ARG VITE_ZITADEL_ISSUER
+ARG VITE_ZITADEL_CLIENT_ID
+ENV VITE_ZITADEL_ISSUER=$VITE_ZITADEL_ISSUER
+ENV VITE_ZITADEL_CLIENT_ID=$VITE_ZITADEL_CLIENT_ID
+
+RUN pnpm --filter @platform/contracts build && pnpm --filter @platform/web build
+
+FROM caddy:2-alpine AS runtime
+COPY --from=build /repo/apps/web/dist /srv
+COPY deploy/Caddyfile /etc/caddy/Caddyfile

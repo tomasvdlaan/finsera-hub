@@ -1,0 +1,26 @@
+# Caddy serves the SPA and proxies the API on one origin, so the browser sees no CORS
+# and cookies/tokens stay same-site.
+#
+# SITE_ADDRESS is the domain in production (Caddy then provisions TLS automatically)
+# and :80 locally.
+{$SITE_ADDRESS} {
+	encode gzip
+
+	handle /api/* {
+		reverse_proxy {$API_UPSTREAM:api:3001}
+	}
+
+	handle {
+		root * /srv
+		# SPA history fallback: unknown paths render index.html so /auth/callback and
+		# deep links work on a hard refresh.
+		try_files {path} /index.html
+		file_server
+	}
+
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+	}
+}

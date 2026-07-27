@@ -17,3 +17,6 @@ coverage/
 .DS_Store
 .idea/
 .vscode/
+
+# production stack secrets
+deploy/.env
