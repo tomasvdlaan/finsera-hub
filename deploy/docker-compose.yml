@@ -43,6 +43,13 @@ services:
       GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY:-}
       MODEL_STRONG: ${MODEL_STRONG:-anthropic:claude-opus-4-8}
       MODEL_FAST: ${MODEL_FAST:-anthropic:claude-haiku-4-5-20251001}
+      MODEL_EMBEDDING: ${MODEL_EMBEDDING:-google:gemini-embedding-001}
+      STORAGE_DRIVER: ${STORAGE_DRIVER:-local}
+      STORAGE_PATH: /app/storage
+    volumes:
+      # Uploaded files live outside the database, so they need durable storage of their
+      # own — and the backup job needs to see them.
+      - storage:/app/storage
     depends_on:
       postgres:
         condition: service_healthy
@@ -56,7 +63,7 @@ services:
     restart: unless-stopped
 
   postgres:
-    image: postgres:16
+    image: pgvector/pgvector:pg16
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -84,6 +91,7 @@ services:
       BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}
     volumes:
       - ./backup.sh:/backup.sh:ro
+      - storage:/storage:ro
       - backups:/backups
     depends_on:
       postgres:
@@ -92,6 +100,7 @@ services:
 
 volumes:
   pgdata:
+  storage:
   backups:
   caddy_data:
   caddy_config:
