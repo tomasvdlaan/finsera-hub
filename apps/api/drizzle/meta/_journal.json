@@ -99,6 +99,13 @@
       "when": 1785195043611,
       "tag": "0013_last_exiles",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1785195043612,
+      "tag": "0014_readonly_reporting_role",
+      "breakpoints": true
     }
   ]
 }

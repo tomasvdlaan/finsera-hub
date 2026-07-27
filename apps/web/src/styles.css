@@ -210,6 +210,45 @@ ol {
   font-family: ui-monospace, SFMono-Regular, monospace;
 }
 
+/* Dashboard stats: a number, its label, and what it means. */
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 0.75rem;
+  margin: 0.5rem 0 1rem;
+}
+.stat {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.75rem 0.9rem;
+  background: var(--surface);
+}
+.stat a {
+  text-decoration: none;
+  color: inherit;
+  display: block;
+}
+.stat a:hover .stat-value {
+  text-decoration: underline;
+}
+.stat-value {
+  font-size: 1.5rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.stat-value.urgent {
+  color: var(--danger, #d05a5a);
+}
+
+/* An inline bar. Deliberately not a charting library — enough to see shape. */
+.bar {
+  display: inline-block;
+  height: 0.7rem;
+  background: var(--accent, #4a7dbd);
+  border-radius: 2px;
+  min-width: 2px;
+}
+
 /* Contract terms: a definition list that reads as a summary, not a form. */
 dl.terms {
   display: grid;
