@@ -71,8 +71,45 @@ Phase 0 (walking skeleton) approved for build against `phase0-spec.md` as drafte
 
 | Gate | Question | Date | Outcome |
 |---|---|---|---|
-| G0 | Does the core feel right to build on? | — | *pending* |
+| G0 | Does the core feel right to build on? | 2026-07-27 | **PASSED (with one caveat)** — see below |
 | G1 | Replacing spreadsheets? Assistant answering correctly? | — | *pending* |
 | G2 | Accounting + VAT confirmed? | — | *pending* |
 | G3 | Transcription chosen? | — | *pending* |
 | G4 | Portal auth + security review passed? | — | *pending* |
+
+---
+
+## G0 — Walking skeleton (2026-07-27)
+
+**Verdict: passed.** All nine checklist criteria (spec §1) verified against the built
+production stack (Caddy + API + Postgres + backup job), not just the dev server. The core
+is sound to build eleven modules on.
+
+**Caveat — one criterion is partially met.** Criterion 9 was verified locally against the
+production images: `git push` → CI, migrations self-applying at boot, a real backup, and a
+restore drill reproducing every row. What is NOT verified is Hetzner specifically — no TLS
+issuance, no EU residency in practice, no remote deploy. The stack is deliberately
+identical either way; `SITE_ADDRESS` and `deploy/.env` are the only values that change.
+**Close this before Phase 2**, when dogfooding puts real client data in the database.
+
+### What the skeleton changed about the design
+
+Nothing structural — the registry/link/event model held up, which is the result the phase
+existed to produce. Four implementation-level facts were learned by running it:
+
+1. **Manifest validation cannot use `instanceof`.** The CJS api and ESM contracts package
+   resolve to different zod instances, so class identity does not hold across that
+   boundary. Structural checks only.
+2. **JIT provisioning must be idempotent.** The shell loads `/me` and `/navigation` in
+   parallel; both raced to insert the same user. Any first-touch write needs the same
+   treatment.
+3. **Tests must not share the development database.** The suite truncates; pointed at dev
+   it wipes real data. Separate database plus a name guard.
+4. **Postgres treats NULLs as distinct in UNIQUE indexes.** Link deduplication is enforced
+   in code, not by the constraint.
+
+### Follow-ups carried into Phase 1
+
+- Delete the demo module (its job is done; it is the pattern CRM copies).
+- Change `POSTGRES_PASSWORD` in `deploy/.env` before any real deployment.
+- Provision Hetzner and close criterion 9.
