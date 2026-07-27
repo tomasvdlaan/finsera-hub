@@ -4,6 +4,7 @@ import { api } from '../../lib/api.js';
 import { getUser } from '../../lib/auth.js';
 import { Timeline } from '../../shell/Timeline.js';
 import type { Client } from '../crm/types.js';
+import { LineEditor } from './LineEditor.js';
 import { VAT_LABELS, money, type InvoiceDetail as Detail } from './types.js';
 
 export function InvoiceDetail() {
@@ -149,6 +150,9 @@ export function InvoiceDetail() {
 
       <section>
         <h2>Lines</h2>
+        {isDraft ? (
+          <LineEditor invoice={invoice} onSaved={() => void load()} />
+        ) : (
         <div className="grid-scroll">
           <table className="grid">
             <thead>
@@ -191,6 +195,7 @@ export function InvoiceDetail() {
             </tfoot>
           </table>
         </div>
+        )}
         {invoice.vatLegend && <p className="muted">{invoice.vatLegend}</p>}
         {invoice.status === 'issued' && (
           <p className="muted">

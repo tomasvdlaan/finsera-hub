@@ -149,6 +149,50 @@ describe('BillingService', () => {
     await expect(billing.draftFromHours(actor, bare.id)).rejects.toThrow(/no hourly rate/);
   });
 
+  it('editing a draft keeps its hours billed', async () => {
+    await submitHours(600);
+    const draft = await billing.draftFromHours(actor, projectId);
+    const original = draft.lines[0]!;
+
+    // Reword the line and change the rate — the entry ids ride along.
+    await billing.updateDraftLines(actor, draft.id, [
+      {
+        description: 'Consultancy — reworded for the client',
+        quantity: original.quantity,
+        unitPriceCents: 4_000,
+        sourceEntryIds: original.sourceEntryIds as string[],
+      },
+    ]);
+
+    const updated = await billing.getInvoice(actor, draft.id);
+    expect(updated.subtotalCents).toBe(40_000); // 10h × €40
+    expect(updated.lines[0]!.sourceEntryIds).toEqual(original.sourceEntryIds);
+
+    // The hours are still held by this draft — a second draft finds nothing.
+    await expect(billing.draftFromHours(actor, projectId)).rejects.toThrow(/[Nn]o submitted/);
+  });
+
+  it('adding and removing draft lines recomputes totals server-side', async () => {
+    await submitHours(600);
+    const draft = await billing.draftFromHours(actor, projectId);
+    const original = draft.lines[0]!;
+
+    const updated = await billing.updateDraftLines(actor, draft.id, [
+      {
+        description: original.description,
+        quantity: original.quantity,
+        unitPriceCents: original.unitPriceCents,
+        sourceEntryIds: original.sourceEntryIds as string[],
+      },
+      { description: 'Reiskosten', quantity: '1.00', unitPriceCents: 5_000 },
+    ]);
+
+    expect(updated.lines).toHaveLength(2);
+    expect(updated.subtotalCents).toBe(40_000); // €350 + €50
+    expect(updated.vatCents).toBe(8_400); //       21% on the rate group
+    expect(updated.totalCents).toBe(48_400);
+  });
+
   // ── issuing and numbering ──
 
   it('allocates sequential numbers at issue', async () => {

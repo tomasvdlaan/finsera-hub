@@ -6,6 +6,8 @@ export interface InvoiceLine {
   unitPriceCents: number;
   amountCents: number;
   vatRate: string;
+  /** Time entries this line bills — must survive edits, or hours become double-billable. */
+  sourceEntryIds: string[];
 }
 
 export interface Invoice {
