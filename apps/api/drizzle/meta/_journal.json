@@ -71,6 +71,13 @@
       "when": 1785186642510,
       "tag": "0009_aspiring_aaron_stack",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1785186642511,
+      "tag": "0010_frozen_invoiced_hours",
+      "breakpoints": true
     }
   ]
 }

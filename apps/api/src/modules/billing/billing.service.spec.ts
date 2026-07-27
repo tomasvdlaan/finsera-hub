@@ -277,6 +277,45 @@ describe('BillingService', () => {
     );
   });
 
+  it('the trigger blocks changes to invoiced hours even outside the service', async () => {
+    await submitHours(600);
+    const draft = await billing.draftFromHours(actor, projectId);
+    const entryId = (draft.lines[0]!.sourceEntryIds as string[])[0]!;
+    await billing.issue(actor, draft.id);
+
+    // Straight at the database, as a bug or a curious script would. The service guard
+    // is convenience; this is the guarantee.
+    await expect(
+      testDb.execute(sql`UPDATE time.entries SET minutes = 30 WHERE id = ${entryId}`),
+    ).rejects.toThrow(/issued invoice/);
+    await expect(
+      testDb.execute(sql`UPDATE time.entries SET worked_on = '2020-01-01' WHERE id = ${entryId}`),
+    ).rejects.toThrow(/issued invoice/);
+    await expect(
+      testDb.execute(sql`UPDATE time.entries SET billable = false WHERE id = ${entryId}`),
+    ).rejects.toThrow(/issued invoice/);
+    await expect(
+      testDb.execute(sql`DELETE FROM time.entries WHERE id = ${entryId}`),
+    ).rejects.toThrow(/issued invoice/);
+  });
+
+  it('the trigger still permits the billing columns to move', async () => {
+    await submitHours(600);
+    const draft = await billing.draftFromHours(actor, projectId);
+    const entryId = (draft.lines[0]!.sourceEntryIds as string[])[0]!;
+    const issued = await billing.issue(actor, draft.id);
+
+    // Releasing an invoiced hour must stay possible, or crediting an invoice could
+    // never return its hours — the reason the trigger freezes work, not billing.
+    const credit = await billing.createCreditNote(actor, issued.id);
+    await expect(billing.issue(actor, credit.id)).resolves.toBeDefined();
+
+    const [row] = await testDb
+      .execute(sql`SELECT invoiced_at FROM time.entries WHERE id = ${entryId}`)
+      .then((r) => r.rows as Array<{ invoiced_at: string | null }>);
+    expect(row!.invoiced_at).toBeNull();
+  });
+
   it('a credit note returns its hours to billable', async () => {
     await submitHours(600);
     const draft = await billing.draftFromHours(actor, projectId);
