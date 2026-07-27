@@ -5,6 +5,7 @@ import { api } from '../../lib/api.js';
 import { Links } from '../../shell/Links.js';
 import { Timeline } from '../../shell/Timeline.js';
 import { DocumentsWidget } from '../docs/DocumentsWidget.js';
+import { OpenTasksWidget } from '../scrum/OpenTasksWidget.js';
 import { ProjectBurn } from '../time/ProjectBurn.js';
 import { EditableField } from './EditableField.js';
 import {
@@ -167,6 +168,11 @@ export function ProjectDetail() {
           without CRM changing.
         </p>
         <ProjectBurn projectId={id} />
+      </section>
+
+      <section>
+        <h2>Tasks</h2>
+        <OpenTasksWidget projectId={id} />
       </section>
 
       <section>

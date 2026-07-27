@@ -1,0 +1,49 @@
+export interface BoardColumn {
+  key: string;
+  label: string;
+  isDone: boolean;
+}
+
+export interface Board {
+  projectId: string;
+  columns: BoardColumn[];
+  usesSprints: boolean;
+}
+
+export interface Task {
+  id: string;
+  projectId: string;
+  title: string;
+  description: string | null;
+  status: string;
+  assigneeId: string | null;
+  estimateMinutes: number | null;
+  priority: 'low' | 'normal' | 'high' | 'urgent';
+  labels: string[];
+  dueOn: string | null;
+  parentId: string | null;
+  completedAt: string | null;
+}
+
+export interface TaskDetail extends Task {
+  children: Task[];
+  loggedMinutes: number;
+  assignee: { id: string; displayName: string } | null;
+}
+
+export const PRIORITIES = ['low', 'normal', 'high', 'urgent'] as const;
+
+export const hours = (minutes: number | null | undefined): number | null =>
+  minutes == null ? null : +(minutes / 60).toFixed(2);
+
+/** Parse an hours input into whole minutes — the unit everything is stored in. */
+export function toMinutes(input: string): number | null {
+  const trimmed = input.trim().replace(',', '.');
+  if (!trimmed) return null;
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed * 60) : null;
+}
+
+/** Overdue is a fact about today, so it is computed rather than stored. */
+export const isOverdue = (task: Task): boolean =>
+  Boolean(task.dueOn && !task.completedAt && task.dueOn < new Date().toISOString().slice(0, 10));

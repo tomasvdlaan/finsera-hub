@@ -1,12 +1,13 @@
 import type { WebModule } from '../types.js';
+import { Board } from './Board.js';
 import { TaskChatCard } from './TaskChatCard.js';
+import { TaskDetail } from './TaskDetail.js';
 
-/**
- * The board screen lands in step 3 of the phase; the chat card is useful before it,
- * because the assistant can already create and move tasks.
- */
 export const scrumWebModule: WebModule = {
   name: 'scrum',
-  routes: [],
+  routes: [
+    { path: '/scrum', Component: Board },
+    { path: '/scrum/tasks/:id', Component: TaskDetail },
+  ],
   chatWidgets: { task: TaskChatCard },
 };

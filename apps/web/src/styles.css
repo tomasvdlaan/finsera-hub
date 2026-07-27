@@ -537,3 +537,88 @@ ul.decl li > div {
   margin-top: 0.35rem;
   font-size: 0.85rem;
 }
+
+/* board */
+.board {
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-start;
+  overflow-x: auto;
+  padding-bottom: 0.5rem;
+  margin: 1rem 0;
+}
+.board-column {
+  flex: 1 0 240px;
+  min-width: 240px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 0.5rem;
+}
+.board-column.over {
+  border-color: var(--accent);
+}
+.board-column-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0 0.15rem 0.5rem;
+  font-size: 0.9rem;
+}
+.board-column-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  min-height: 60px;
+}
+.task-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.35rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.45rem 0.5rem;
+  font-size: 0.9rem;
+}
+.task-card.dragging {
+  opacity: 0.4;
+}
+.task-card-body {
+  flex: 1;
+  min-width: 0;
+}
+.task-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  align-items: baseline;
+  margin-top: 0.2rem;
+  font-size: 0.8rem;
+}
+.drag-handle {
+  border: none;
+  background: none;
+  color: var(--muted);
+  cursor: grab;
+  padding: 0 0.15rem;
+  line-height: 1.2;
+}
+.task-move {
+  font-size: 0.72rem;
+  padding: 0.05rem 0.15rem;
+  margin-left: auto; /* pushed to the right so badges read left-to-right */
+  max-width: 7rem;
+}
+.task-card-meta {
+  width: 100%;
+}
+.priority-high {
+  border-color: #d97706;
+  color: #d97706;
+}
+.priority-urgent {
+  border-color: var(--error);
+  color: var(--error);
+}
