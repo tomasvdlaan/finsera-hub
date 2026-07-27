@@ -22,11 +22,46 @@ export interface Entry {
   running: boolean;
   billable: boolean;
   description: string | null;
+  /** Derived server-side; 'invoiced' means the hours are on an immutable invoice. */
+  billingStatus: 'not_billable' | 'unbilled' | 'on_draft' | 'invoiced';
+  invoiceId: string | null;
 }
 
 export interface Project {
   id: string;
   name: string;
+}
+
+/**
+ * Whether these hours have reached an invoice yet.
+ *
+ * Only the states worth acting on get a badge: 'unbilled' is the normal case for
+ * recent work and would be noise on every row.
+ */
+function BillingBadge({ entry }: { entry: Entry }) {
+  if (entry.billingStatus === 'on_draft') {
+    return (
+      <Link
+        to={`/billing/invoices/${entry.invoiceId}`}
+        className="badge"
+        title="On a draft invoice — not sent yet"
+      >
+        on draft
+      </Link>
+    );
+  }
+  if (entry.billingStatus === 'invoiced') {
+    return (
+      <Link
+        to={`/billing/invoices/${entry.invoiceId}`}
+        className="badge billed"
+        title="Invoiced — these hours are on an issued invoice"
+      >
+        invoiced
+      </Link>
+    );
+  }
+  return null;
 }
 
 /**
@@ -51,6 +86,7 @@ export function EntryRow({
   onStop: () => Promise<void>;
   onDelete: () => Promise<void>;
 }) {
+  const frozen = entry.billingStatus === 'invoiced';
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -130,15 +166,26 @@ export function EntryRow({
         <div className="entry-side">
           <strong>{formatHours(entry.effectiveMinutes)}h</strong>
           {!entry.billable && <span className="badge">internal</span>}
+          <BillingBadge entry={entry} />
           {entry.running && (
             <button onClick={() => void onStop()} disabled={locked}>
               Stop
             </button>
           )}
-          <button className="link-button" onClick={() => setEditing(true)} disabled={locked}>
+          <button
+            className="link-button"
+            onClick={() => setEditing(true)}
+            disabled={locked || frozen}
+            title={frozen ? 'On an issued invoice — credit it to make changes' : undefined}
+          >
             edit
           </button>
-          <button className="link-button" onClick={() => void onDelete()} disabled={locked}>
+          <button
+            className="link-button"
+            onClick={() => void onDelete()}
+            disabled={locked || frozen}
+            title={frozen ? 'On an issued invoice — credit it to make changes' : undefined}
+          >
             delete
           </button>
         </div>

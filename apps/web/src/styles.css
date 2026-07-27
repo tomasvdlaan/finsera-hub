@@ -210,6 +210,18 @@ ol {
   font-family: ui-monospace, SFMono-Regular, monospace;
 }
 
+/* Billing badges link to their invoice — keep them looking like badges, not links. */
+a.badge {
+  text-decoration: none;
+}
+a.badge:hover {
+  border-color: var(--muted);
+}
+.badge.billed {
+  color: var(--ok, #2f7d4f);
+  border-color: currentColor;
+}
+
 .centered {
   min-height: 100vh;
   display: flex;

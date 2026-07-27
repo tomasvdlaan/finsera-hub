@@ -55,6 +55,23 @@ export const entries = time.table(
 
     submittedAt: timestamp('submitted_at', { withTimezone: true }),
 
+    /**
+     * Which invoice claims these hours, and whether that invoice has been issued.
+     *
+     * This is THE answer to "have these hours been billed?" — deliberately here rather
+     * than derived from invoice lines, because Time may not import Billing (that would
+     * cycle: Billing already imports Time). Billing writes these columns inside the same
+     * transaction that writes the lines, so the two can never disagree.
+     *
+     *   invoiceId null                   → not on any invoice
+     *   invoiceId set, invoicedAt null   → on a draft, still editable
+     *   invoicedAt set                   → invoiced for real; the invoice is immutable
+     *
+     * A registry id, not a foreign key — same reasoning as taskId above.
+     */
+    invoiceId: uuid('invoice_id'),
+    invoicedAt: timestamp('invoiced_at', { withTimezone: true }),
+
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -62,6 +79,7 @@ export const entries = time.table(
     index('entries_person_date_idx').on(t.personId, t.workedOn),
     index('entries_project_idx').on(t.projectId),
     index('entries_task_idx').on(t.taskId),
+    index('entries_invoice_idx').on(t.invoiceId),
 
     // Only one clock can be running per person; two would make "stop the timer"
     // ambiguous and quietly double-count the overlap.
@@ -74,6 +92,11 @@ export const entries = time.table(
 
     // An end without a start is meaningless.
     check('entries_end_needs_start', sql`${t.endedAt} IS NULL OR ${t.startedAt} IS NOT NULL`),
+    // Invoiced means invoiced BY something: the stamp cannot float free of its invoice.
+    check(
+      'entries_invoiced_needs_invoice',
+      sql`${t.invoicedAt} IS NULL OR ${t.invoiceId} IS NOT NULL`,
+    ),
     check('entries_end_after_start', sql`${t.endedAt} IS NULL OR ${t.endedAt} > ${t.startedAt}`),
 
     // Every entry is either measurable (has minutes) or currently running. Without this

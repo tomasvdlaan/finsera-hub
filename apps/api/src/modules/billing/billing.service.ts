@@ -74,9 +74,9 @@ export class BillingService {
       throw new BadRequestException('The project has no hourly rate — set one before invoicing');
     }
 
-    const entries = await this.time.entriesForBilling(projectId);
-    const billed = await this.billedEntryIds();
-    const open = entries.filter((entry) => !billed.has(entry.id));
+    // entriesForBilling already excludes hours claimed by another invoice — Time owns
+    // that question now, so there is no second list here to fall out of step with it.
+    const open = await this.time.entriesForBilling(projectId);
     if (open.length === 0) {
       throw new BadRequestException('No submitted, unbilled hours on this project');
     }
@@ -190,6 +190,9 @@ export class BillingService {
 
     await this.db.transaction(async (tx) => {
       await tx.delete(invoiceLines).where(eq(invoiceLines.invoiceId, id));
+      // Release before re-claiming: hours removed from the lines must become billable
+      // again, and hours kept must stay claimed. Replacing the set does both.
+      await this.time.releaseFromInvoice(tx, id);
       await this.insertLines(tx, id, lines, rate);
       await tx
         .update(invoices)
@@ -262,6 +265,15 @@ export class BillingService {
       await this.registry.updateDisplay(tx, id, {
         displayName: `${invoice.kind === 'credit_note' ? 'Credit note' : 'Invoice'} ${number} — ${client.name}`,
       });
+
+      if (invoice.kind === 'credit_note' && invoice.creditsInvoiceId) {
+        // A credit note reverses its invoice, so the hours it billed become billable
+        // again — that is usually the whole point: re-bill them corrected. Released at
+        // ISSUE rather than at draft, so an abandoned credit-note draft changes nothing.
+        await this.time.releaseFromInvoice(tx, invoice.creditsInvoiceId);
+      } else {
+        await this.time.markInvoiced(tx, id, new Date());
+      }
 
       await this.audit.record(tx, {
         actorId: actor.userId,
@@ -456,6 +468,7 @@ export class BillingService {
         .update(invoices)
         .set({ status: 'void', updatedAt: new Date() })
         .where(eq(invoices.id, id));
+      await this.time.releaseFromInvoice(tx, id); // the hours go back on the pile
       await this.registry.softDelete(tx, id);
       await this.audit.record(tx, {
         actorId: actor.userId,
@@ -570,6 +583,12 @@ export class BillingService {
 
   // ── internals ──────────────────────────────────────────────
 
+  /**
+   * Write an invoice's lines AND claim the hours they bill, in one transaction.
+   *
+   * Both halves here on purpose: a line that bills hours and the hours' own record of
+   * being billed must commit together, or "is this invoiced?" gets two answers.
+   */
   private async insertLines(tx: Tx, invoiceId: string, lines: DraftLineInput[], rate: string) {
     await tx.insert(invoiceLines).values(
       lines.map((line, i) => {
@@ -589,20 +608,15 @@ export class BillingService {
         };
       }),
     );
+
+    await this.time.claimForInvoice(
+      tx,
+      invoiceId,
+      lines.flatMap((line) => line.sourceEntryIds ?? []),
+    );
   }
 
   /** Entry ids already on any non-void invoice — the guard against billing an hour twice. */
-  private async billedEntryIds(): Promise<Set<string>> {
-    const rows = await this.db
-      .select({ ids: invoiceLines.sourceEntryIds, status: invoices.status })
-      .from(invoiceLines)
-      .innerJoin(invoices, eq(invoices.id, invoiceLines.invoiceId))
-      .where(ne(invoices.status, 'void'));
-    const set = new Set<string>();
-    for (const row of rows) for (const id of row.ids as string[]) set.add(id);
-    return set;
-  }
-
   private async rawInvoice(id: string) {
     const [row] = await this.db.select().from(invoices).where(eq(invoices.id, id)).limit(1);
     if (!row) throw new NotFoundException('Invoice not found');

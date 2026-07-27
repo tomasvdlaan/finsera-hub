@@ -5,6 +5,11 @@ import { formatMoney } from '../crm/types.js';
 interface Burn {
   loggedHours: number;
   billableHours: number;
+  invoicedHours: number;
+  onDraftHours: number;
+  uninvoicedHours: number;
+  uninvoicedAmountCents: number | null;
+  readyToInvoiceHours: number;
   budgetedHours: number | null;
   budgetAmountCents: number | null;
   burnedAmountCents: number | null;
@@ -36,6 +41,8 @@ export function ProjectBurn({ projectId }: { projectId: string }) {
         ? Math.round((burn.burnedAmountCents / burn.budgetAmountCents) * 100)
         : null;
 
+  const unbilled = burn.uninvoicedHours > 0 || burn.onDraftHours > 0;
+
   return (
     <div>
       <p>
@@ -51,6 +58,27 @@ export function ProjectBurn({ projectId }: { projectId: string }) {
           </span>
         )}
       </p>
+
+      {unbilled && (
+        <p>
+          <strong>{burn.uninvoicedHours}h</strong> not invoiced
+          {burn.uninvoicedAmountCents != null && (
+            <span className="muted">
+              {' '}
+              ({formatMoney(burn.uninvoicedAmountCents, burn.currency)})
+            </span>
+          )}
+          {burn.readyToInvoiceHours > 0 && (
+            <span className="muted"> · {burn.readyToInvoiceHours}h ready to invoice now</span>
+          )}
+          {burn.onDraftHours > 0 && (
+            <span className="muted"> · {burn.onDraftHours}h on a draft</span>
+          )}
+          {burn.invoicedHours > 0 && (
+            <span className="muted"> · {burn.invoicedHours}h invoiced</span>
+          )}
+        </p>
+      )}
 
       {pct != null && (
         <>

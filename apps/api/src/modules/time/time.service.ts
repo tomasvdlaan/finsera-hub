@@ -6,15 +6,32 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { Actor } from '@platform/contracts';
-import { and, asc, eq, gte, isNotNull, isNull, lte, sql } from 'drizzle-orm';
+import { and, asc, eq, gte, inArray, isNotNull, isNull, lte, sql } from 'drizzle-orm';
 import { AuditService } from '../../core/audit/audit.service.js';
-import { DB, type Database } from '../../core/db/db.module.js';
+import { DB, type Database, type Tx } from '../../core/db/db.module.js';
 import { EventBus } from '../../core/events/event-bus.service.js';
 import { LinkService } from '../../core/links/link.service.js';
 import { PermissionService } from '../../core/permissions/permission.service.js';
 import { RegistryService } from '../../core/registry/registry.service.js';
 import { CrmService } from '../crm/crm.service.js';
 import { entries } from './time.schema.js';
+
+export type BillingStatus = 'not_billable' | 'unbilled' | 'on_draft' | 'invoiced';
+
+/**
+ * What has happened to these hours, money-wise — derived, never stored, so it cannot
+ * fall out of step with the columns it reads.
+ */
+export function billingStatus(row: {
+  billable: boolean;
+  invoiceId: string | null;
+  invoicedAt: Date | null;
+}): BillingStatus {
+  if (!row.billable) return 'not_billable';
+  if (row.invoicedAt) return 'invoiced';
+  if (row.invoiceId) return 'on_draft';
+  return 'unbilled';
+}
 
 export interface CreateEntryInput {
   projectId: string;
@@ -37,6 +54,12 @@ export interface ProjectBurn {
   budgetedHours: number | null;
   loggedHours: number;
   billableHours: number;
+  /** Billable hours by how far they have got towards an invoice; these three sum to billableHours. */
+  invoicedHours: number;
+  onDraftHours: number;
+  uninvoicedHours: number;
+  uninvoicedAmountCents: number | null;
+  readyToInvoiceHours: number;
   budgetAmountCents: number | null;
   burnedAmountCents: number | null;
 }
@@ -164,6 +187,13 @@ export class TimeService {
     await this.require(actor, 'time.entries.write_own');
     const before = await this.rawEntry(id);
     if (before.personId !== actor.userId) await this.require(actor, 'time.entries.manage');
+    // Checked before the submitted guard, and independently of it: reopening a week
+    // clears submittedAt, but an hour on an issued invoice stays frozen either way.
+    if (before.invoicedAt) {
+      throw new BadRequestException(
+        'These hours are on an issued invoice and cannot be changed — credit the invoice first',
+      );
+    }
     if (before.submittedAt) throw new BadRequestException('That week is submitted — reopen it first');
 
     const startedAt =
@@ -238,6 +268,11 @@ export class TimeService {
     await this.require(actor, 'time.entries.write_own');
     const row = await this.rawEntry(id);
     if (row.personId !== actor.userId) await this.require(actor, 'time.entries.manage');
+    if (row.invoicedAt) {
+      throw new BadRequestException(
+        'These hours are on an issued invoice and cannot be deleted — credit the invoice first',
+      );
+    }
     if (row.submittedAt) throw new BadRequestException('That week is submitted — reopen it first');
 
     await this.db.transaction(async (tx) => {
@@ -413,6 +448,9 @@ export class TimeService {
             gte(entries.workedOn, monday),
             lte(entries.workedOn, addDays(monday, 6)),
             isNotNull(entries.submittedAt),
+            // Invoiced hours stay submitted: reopening them would let the timesheet
+            // drift away from an invoice that can no longer be changed.
+            isNull(entries.invoicedAt),
           ),
         );
       await this.audit.record(tx, {
@@ -469,6 +507,51 @@ export class TimeService {
    * only: an unsubmitted week is still being corrected, and invoicing a moving target
    * is how an invoice disagrees with the timesheet behind it.
    */
+  /**
+   * Claim entries for an invoice, inside the caller's transaction.
+   *
+   * Called by Billing whenever invoice lines are written, so an hour's billing state and
+   * the line that bills it commit together or not at all. Refuses to steal hours already
+   * claimed by a different invoice — that refusal IS the double-billing guard, enforced
+   * at the moment of writing rather than by a hopeful read beforehand.
+   */
+  async claimForInvoice(tx: Tx, invoiceId: string, entryIds: string[]): Promise<void> {
+    if (entryIds.length === 0) return;
+
+    const claimed = await tx
+      .select({ id: entries.id, invoiceId: entries.invoiceId })
+      .from(entries)
+      .where(and(inArray(entries.id, entryIds), isNotNull(entries.invoiceId)));
+
+    const stolen = claimed.filter((row) => row.invoiceId !== invoiceId);
+    if (stolen.length > 0) {
+      throw new BadRequestException(
+        `${stolen.length} of these hours are already on another invoice`,
+      );
+    }
+
+    await tx
+      .update(entries)
+      .set({ invoiceId, updatedAt: new Date() })
+      .where(inArray(entries.id, entryIds));
+  }
+
+  /** Release every hour an invoice claims — a voided draft, or a credited invoice. */
+  async releaseFromInvoice(tx: Tx, invoiceId: string): Promise<void> {
+    await tx
+      .update(entries)
+      .set({ invoiceId: null, invoicedAt: null, updatedAt: new Date() })
+      .where(eq(entries.invoiceId, invoiceId));
+  }
+
+  /** Stamp the hours as actually invoiced — the invoice left the building. */
+  async markInvoiced(tx: Tx, invoiceId: string, at: Date): Promise<void> {
+    await tx
+      .update(entries)
+      .set({ invoicedAt: at, updatedAt: new Date() })
+      .where(eq(entries.invoiceId, invoiceId));
+  }
+
   async entriesForBilling(projectId: string) {
     return this.db
       .select({
@@ -484,6 +567,7 @@ export class TimeService {
           eq(entries.billable, true),
           isNotNull(entries.submittedAt),
           isNotNull(entries.minutes), // a running timer has no duration yet
+          isNull(entries.invoiceId), //   already claimed by an invoice
         ),
       )
       .orderBy(asc(entries.workedOn));
@@ -501,6 +585,9 @@ export class TimeService {
         billable: entries.billable,
         startedAt: entries.startedAt,
         endedAt: entries.endedAt,
+        submittedAt: entries.submittedAt,
+        invoiceId: entries.invoiceId,
+        invoicedAt: entries.invoicedAt,
       })
       .from(entries)
       .where(eq(entries.projectId, projectId));
@@ -510,6 +597,17 @@ export class TimeService {
       .filter((r) => r.billable)
       .reduce((s, r) => s + this.effectiveMinutes(r), 0);
 
+    // Billable hours split by how far they have travelled towards an invoice. The gap
+    // between billable and invoiced is money earned but not yet asked for.
+    const sumWhere = (predicate: (r: (typeof rows)[number]) => boolean) =>
+      rows.filter((r) => r.billable && predicate(r)).reduce((s, r) => s + this.effectiveMinutes(r), 0);
+
+    const invoicedMinutes = sumWhere((r) => r.invoicedAt !== null);
+    const onDraftMinutes = sumWhere((r) => r.invoicedAt === null && r.invoiceId !== null);
+    const uninvoicedMinutes = billableMinutes - invoicedMinutes - onDraftMinutes;
+    const rate = project.defaultRateCents;
+    const hours = (minutes: number) => +(minutes / 60).toFixed(2);
+
     return {
       projectId,
       projectName: project.name,
@@ -517,7 +615,17 @@ export class TimeService {
       currency: project.currency,
       budgetedHours: project.budgetHours ? Number(project.budgetHours) : null,
       loggedHours: +(loggedMinutes / 60).toFixed(2),
-      billableHours: +(billableMinutes / 60).toFixed(2),
+      billableHours: hours(billableMinutes),
+      invoicedHours: hours(invoicedMinutes),
+      onDraftHours: hours(onDraftMinutes),
+      uninvoicedHours: hours(uninvoicedMinutes),
+      /** What the not-yet-invoiced billable hours are worth at the project rate. */
+      uninvoicedAmountCents:
+        rate != null ? Math.round((uninvoicedMinutes / 60) * rate) : null,
+      /** Submitted and ready to bill right now — the rest still needs submitting. */
+      readyToInvoiceHours: hours(
+        sumWhere((r) => r.invoiceId === null && r.submittedAt !== null && r.minutes !== null),
+      ),
       budgetAmountCents: project.budgetAmountCents,
       burnedAmountCents:
         project.defaultRateCents != null
@@ -551,6 +659,7 @@ export class TimeService {
       ...row,
       running,
       effectiveMinutes: this.effectiveMinutes(row),
+      billingStatus: billingStatus(row),
     };
   }
 

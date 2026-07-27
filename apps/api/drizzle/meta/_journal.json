@@ -64,6 +64,13 @@
       "when": 1785180622218,
       "tag": "0008_dashing_nemesis",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1785186642510,
+      "tag": "0009_aspiring_aaron_stack",
+      "breakpoints": true
     }
   ]
 }

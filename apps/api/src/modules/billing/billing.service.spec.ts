@@ -193,6 +193,104 @@ describe('BillingService', () => {
     expect(updated.totalCents).toBe(48_400);
   });
 
+  // ── the hours know their own billing state ──
+
+  it('marks hours as on-a-draft, then invoiced', async () => {
+    await submitHours(600);
+    const before = await time.getDay(actor, { date: MONDAY });
+    expect(before.entries[0]!.billingStatus).toBe('unbilled');
+
+    const draft = await billing.draftFromHours(actor, projectId);
+    const onDraft = await time.getDay(actor, { date: MONDAY });
+    expect(onDraft.entries[0]!.invoiceId).toBe(draft.id);
+    expect(onDraft.entries[0]!.billingStatus).toBe('on_draft'); // still editable
+
+    await billing.issue(actor, draft.id);
+    const invoiced = await time.getDay(actor, { date: MONDAY });
+    expect(invoiced.entries[0]!.billingStatus).toBe('invoiced');
+  });
+
+  it('releases hours when the draft holding them is voided', async () => {
+    await submitHours(600);
+    const draft = await billing.draftFromHours(actor, projectId);
+    await billing.voidDraft(actor, draft.id);
+
+    const released = await time.getDay(actor, { date: MONDAY });
+    expect(released.entries[0]!.billingStatus).toBe('unbilled');
+  });
+
+  it('releases hours dropped from a draft, and keeps the rest claimed', async () => {
+    await submitHours(600, MONDAY);
+    await submitHours(300, '2026-07-13');
+    const draft = await billing.draftFromHours(actor, projectId);
+    const line = draft.lines[0]!;
+    const ids = line.sourceEntryIds as string[];
+    expect(ids).toHaveLength(2);
+
+    // Rewrite the draft to bill only the first entry.
+    await billing.updateDraftLines(actor, draft.id, [
+      {
+        description: line.description,
+        quantity: '10.00',
+        unitPriceCents: line.unitPriceCents,
+        sourceEntryIds: [ids[0]!],
+      },
+    ]);
+
+    const all = await time.entriesForBilling(projectId);
+    // The dropped entry is billable again; the kept one is not.
+    expect(all.map((e) => e.id)).toEqual([ids[1]]);
+  });
+
+  it('refuses to put hours on a second invoice', async () => {
+    await submitHours(600);
+    const first = await billing.draftFromHours(actor, projectId);
+    const ids = first.lines[0]!.sourceEntryIds as string[];
+
+    const other = await billing.createDraft(actor, {
+      clientId,
+      lines: [{ description: 'Sneaky', quantity: '1.00', unitPriceCents: 100 }],
+    });
+
+    await expect(
+      billing.updateDraftLines(actor, other.id, [
+        { description: 'Sneaky', quantity: '1.00', unitPriceCents: 100, sourceEntryIds: ids },
+      ]),
+    ).rejects.toThrow(/already on another invoice/);
+  });
+
+  it('an invoiced hour cannot be edited or deleted', async () => {
+    await submitHours(600);
+    const draft = await billing.draftFromHours(actor, projectId);
+    const entryId = (draft.lines[0]!.sourceEntryIds as string[])[0]!;
+    await billing.issue(actor, draft.id);
+
+    await expect(time.updateEntry(actor, entryId, { minutes: 30 })).rejects.toThrow(
+      /issued invoice/,
+    );
+    await expect(time.deleteEntry(actor, entryId)).rejects.toThrow(/issued invoice/);
+
+    // Even reopening the week leaves them alone.
+    await time.reopenWeek(actor, MONDAY);
+    await expect(time.updateEntry(actor, entryId, { minutes: 30 })).rejects.toThrow(
+      /issued invoice/,
+    );
+  });
+
+  it('a credit note returns its hours to billable', async () => {
+    await submitHours(600);
+    const draft = await billing.draftFromHours(actor, projectId);
+    const issued = await billing.issue(actor, draft.id);
+
+    const credit = await billing.createCreditNote(actor, issued.id);
+    // Still claimed while the credit note is only a draft.
+    expect(await time.entriesForBilling(projectId)).toHaveLength(0);
+
+    await billing.issue(actor, credit.id);
+    // Reversed for real — the hours can be corrected and re-billed.
+    expect(await time.entriesForBilling(projectId)).toHaveLength(1);
+  });
+
   // ── issuing and numbering ──
 
   it('allocates sequential numbers at issue', async () => {
