@@ -5,6 +5,7 @@ import { CoreModule } from './core/core.module.js';
 import { ShellModule } from './shell/shell.module.js';
 import { CrmModule } from './modules/crm/crm.module.js';
 import { DocsModule } from './modules/docs/docs.module.js';
+import { ScrumModule } from './modules/scrum/scrum.module.js';
 import { TimeModule } from './modules/time/time.module.js';
 
 /**
@@ -30,6 +31,7 @@ import { TimeModule } from './modules/time/time.module.js';
     CrmModule,
     TimeModule,
     DocsModule,
+    ScrumModule,
   ],
 })
 export class AppModule {}

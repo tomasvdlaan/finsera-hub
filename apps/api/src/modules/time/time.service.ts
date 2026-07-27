@@ -18,6 +18,8 @@ import { entries } from './time.schema.js';
 
 export interface CreateEntryInput {
   projectId: string;
+  /** Optional task; validated through the registry, so Time needs no SCRUM dependency. */
+  taskId?: string | null;
   workedOn?: string; // ISO date; defaults to today or the start time's day
   minutes?: number | null;
   startedAt?: string | null; // ISO timestamp
@@ -98,6 +100,7 @@ export class TimeService {
     await this.assertWeekOpen(personId, workedOn);
 
     const project = await this.crm.getProject(actor, input.projectId); // cross-module call
+    const taskId = await this.resolveTask(input.taskId);
 
     const id = this.registry.newId();
     await this.db.transaction(async (tx) => {
@@ -112,6 +115,7 @@ export class TimeService {
         id,
         personId,
         projectId: input.projectId,
+        taskId,
         workedOn,
         startedAt,
         endedAt,
@@ -125,6 +129,15 @@ export class TimeService {
         toId: input.projectId,
         kind: 'logged_against',
       });
+
+      // Linked to the task as well, so hours show on the task's own timeline.
+      if (taskId) {
+        await this.links.createWithin(tx, actor, {
+          fromId: id,
+          toId: taskId,
+          kind: 'logged_against',
+        });
+      }
 
       await this.audit.record(tx, {
         actorId: actor.userId,
@@ -435,6 +448,22 @@ export class TimeService {
     };
   }
 
+  /**
+   * Minutes logged against one task. Called by SCRUM to show effort on a task without
+   * either module reaching into the other's tables.
+   */
+  async minutesForTask(taskId: string): Promise<number> {
+    const rows = await this.db
+      .select({
+        minutes: entries.minutes,
+        startedAt: entries.startedAt,
+        endedAt: entries.endedAt,
+      })
+      .from(entries)
+      .where(eq(entries.taskId, taskId));
+    return rows.reduce((sum, r) => sum + this.effectiveMinutes(r), 0);
+  }
+
   // ── budget burn: the cross-module read ─────────────────────
 
   async projectBurn(actor: Actor, projectId: string): Promise<ProjectBurn> {
@@ -547,6 +576,19 @@ export class TimeService {
       )
       .limit(1);
     return row ?? null;
+  }
+
+  /**
+   * Validate a task reference through the registry rather than a foreign key — that is
+   * what keeps Time independent of whichever module owns tasks.
+   */
+  private async resolveTask(taskId: string | null | undefined): Promise<string | null> {
+    if (!taskId) return null;
+    const ref = await this.registry.resolveOne(taskId);
+    if (!ref || ref.entityType !== 'task') {
+      throw new BadRequestException('That task does not exist');
+    }
+    return ref.id;
   }
 
   private async assertNoRunningEntry(personId: string): Promise<void> {

@@ -36,6 +36,14 @@ export const entries = time.table(
 
     personId: uuid('person_id').notNull(),
     projectId: uuid('project_id').notNull(),
+    /**
+     * Optional task these hours belong to.
+     *
+     * A registry id, not a foreign key (Master §10): a cross-schema FK would make Time
+     * depend on SCRUM while SCRUM depends on Time for timers — a cycle, with neither
+     * module replaceable. Validated through the registry instead.
+     */
+    taskId: uuid('task_id'),
 
     workedOn: date('worked_on').notNull(), // the day this belongs to
     startedAt: timestamp('started_at', { withTimezone: true }),
@@ -53,6 +61,7 @@ export const entries = time.table(
   (t) => [
     index('entries_person_date_idx').on(t.personId, t.workedOn),
     index('entries_project_idx').on(t.projectId),
+    index('entries_task_idx').on(t.taskId),
 
     // Only one clock can be running per person; two would make "stop the timer"
     // ambiguous and quietly double-count the overlap.

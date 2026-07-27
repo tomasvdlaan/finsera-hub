@@ -1,15 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { embed, embedMany, type EmbeddingModel } from 'ai';
+import { EMBEDDING_DIMENSIONS } from './embedding.constants.js';
 
-/**
- * Vector width for stored embeddings.
- *
- * Lives in core because it is a property of the embedding configuration, not of any one
- * module's schema — modules that store vectors read it from here. 768 rather than the
- * provider default of 3072 because pgvector's HNSW index caps at 2000 dimensions.
- */
-export const EMBEDDING_DIMENSIONS = 768;
+export { EMBEDDING_DIMENSIONS };
 
 /**
  * Embeddings for the knowledge layer (AI plan §3.3).

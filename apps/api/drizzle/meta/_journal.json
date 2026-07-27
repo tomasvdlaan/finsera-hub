@@ -43,6 +43,13 @@
       "when": 1785173640087,
       "tag": "0005_thankful_arclight",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1785178486584,
+      "tag": "0006_mushy_shatterstar",
+      "breakpoints": true
     }
   ]
 }

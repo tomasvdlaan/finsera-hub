@@ -20,10 +20,15 @@ const vector = (name: string, dimensions: number) =>
     fromDriver: (value: string) => JSON.parse(value) as number[],
   })(name);
 
-// Width comes from core's embedding configuration — the module stores what core produces.
-export { EMBEDDING_DIMENSIONS } from '../../core/llm/embedding.service.js';
-
-import { EMBEDDING_DIMENSIONS } from '../../core/llm/embedding.service.js';
+/**
+ * Vector width, declared literally rather than imported.
+ *
+ * The migration tool loads schema files in isolation, so a schema that imports across
+ * the tree cannot be read — which is a fair constraint: a table definition should not
+ * depend on application code. The value must match core's EMBEDDING_DIMENSIONS, and a
+ * test asserts that so the two cannot drift apart silently.
+ */
+const EMBEDDING_DIMENSIONS = 768;
 
 export const docs = pgSchema('docs');
 
