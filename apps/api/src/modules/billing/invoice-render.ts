@@ -1,6 +1,6 @@
 import PDFDocument from 'pdfkit';
 import type { OrgSettings } from '../../core/settings/settings.service.js';
-import { vatLegend, type VatTreatment } from './vat.js';
+import { vatLegend, type VatTreatment } from '../../core/money/vat.js';
 
 /** Everything a rendered invoice needs, gathered by the service before rendering. */
 export interface RenderableInvoice {

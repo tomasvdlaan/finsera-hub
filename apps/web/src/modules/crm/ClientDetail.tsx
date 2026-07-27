@@ -4,6 +4,7 @@ import { api } from '../../lib/api.js';
 import { Links } from '../../shell/Links.js';
 import { Timeline } from '../../shell/Timeline.js';
 import { ClientInvoicesWidget } from '../billing/ClientInvoicesWidget.js';
+import { ClientQuotesWidget } from '../sales/ClientQuotesWidget.js';
 import { DocumentsWidget } from '../docs/DocumentsWidget.js';
 import { EditableField } from './EditableField.js';
 import type { EntityRef } from '@platform/contracts';
@@ -190,6 +191,11 @@ export function ClientDetail() {
             <option value="outside_eu">Outside EU — out of scope</option>
           </select>
         </div>
+      </section>
+
+      <section>
+        <h2>Quotes</h2>
+        <ClientQuotesWidget clientId={id} />
       </section>
 
       <section>

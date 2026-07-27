@@ -1,4 +1,14 @@
 /**
+ * VAT and money arithmetic.
+ *
+ * In core rather than in Billing because two modules now price the same work: a quote
+ * and the invoice that follows must agree to the cent, and they can only do that by
+ * running the same code. The boundary rule caught this the moment Sales imported it —
+ * a module's internals are private, so anything genuinely shared belongs here.
+ *
+ * Pure functions over integers: no database, no dependencies, no I/O.
+ */
+/**
  * The VAT engine (Phase 5 brief §4).
  *
  * Pure functions over integer cents, kept apart from the service so the money maths is

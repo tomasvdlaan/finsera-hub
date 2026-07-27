@@ -26,7 +26,7 @@ import {
   vatLegend,
   type Totals,
   type VatTreatment,
-} from './vat.js';
+} from '../../core/money/vat.js';
 
 export interface DraftLineInput {
   description: string;
