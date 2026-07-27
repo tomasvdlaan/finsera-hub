@@ -210,6 +210,21 @@ ol {
   font-family: ui-monospace, SFMono-Regular, monospace;
 }
 
+/* Contract terms: a definition list that reads as a summary, not a form. */
+dl.terms {
+  display: grid;
+  grid-template-columns: minmax(8rem, max-content) 1fr;
+  gap: 0.35rem 1rem;
+  margin: 0.5rem 0;
+}
+dl.terms dt {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+dl.terms dd {
+  margin: 0;
+}
+
 /* Billing badges link to their invoice — keep them looking like badges, not links. */
 a.badge {
   text-decoration: none;

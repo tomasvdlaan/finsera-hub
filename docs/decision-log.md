@@ -104,6 +104,16 @@ recommended.
 | Q5 | **Expiry derived from today, never stored.** | Nothing should change state while nobody is looking. An expired quote can still be accepted — honouring a lapsed price is a commercial decision. |
 | Q6 | **Accepting offers a project, does not force one.** | A quote for extra work on an existing project should attach to it. That is a click, not a guess. |
 
+### Phase 5b (2026-07-28)
+
+| # | Decision | Why |
+|---|---|---|
+| C1 | **Rate cards fill the project rate; invoicing does not look rates up by work date.** | The project rate stays the single authority, so a rate card edit can never quietly change what a draft invoice bills. `rateOn()` exists and is tested, so date-based lookup remains a small change if an indexation ever crosses a project. |
+| C2 | **A contract is a record with a document attached**, not a new file store. | This platform models "a file" once; Documents already does it. |
+| C3 | **Notice and expiry windows derived on read**; `contract.expiring` deferred. | No scheduler exists, and nothing should change state while nobody is looking. Scheduled proactivity belongs to Phase 6's insight service. |
+| C4 | **Five contract types**, `dpa` among them. | A closed list stops spellings drifting; `dpa` with a sub-processor flag is what makes open item **O8** answerable per client. |
+| C5 | **`sales_draft_contract_terms` is `write:draft`** and must never infer an unstated term. | Extraction is the honest use of AI here; inventing a "standard" notice period would be worse than leaving it blank. |
+
 **Supersedes** the parent brief's §9 note that rate cards must precede quotes. That reasoning
 holds at ten clients; at one it inverts. Revisit when a second rate appears.
 

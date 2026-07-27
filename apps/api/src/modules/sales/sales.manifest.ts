@@ -5,17 +5,25 @@ export const salesManifest = defineManifest({
   name: 'sales',
   version: '0.1.0',
 
-  entities: [{ type: 'quote', displayTemplate: '{number}', urlPattern: '/sales/quotes/:id' }],
+  entities: [
+    { type: 'quote', displayTemplate: '{number}', urlPattern: '/sales/quotes/:id' },
+    { type: 'contract', displayTemplate: '{title}', urlPattern: '/sales/contracts/:id' },
+  ],
 
   structuralRefs: [
     { from: 'quote', toType: 'client', required: true },
     { from: 'quote', toType: 'project', required: false },
+    { from: 'contract', toType: 'client', required: true },
+    { from: 'contract', toType: 'project', required: false },
   ],
 
   publishes: [
     { name: 'quote.sent', description: 'A quote was sent and numbered.' },
     { name: 'quote.accepted', description: 'A client accepted a quote.' },
     { name: 'quote.rejected', description: 'A client rejected a quote.' },
+    { name: 'contract.signed', description: 'A contract was signed and its terms frozen.' },
+    // contract.expiring is deliberately absent: it needs something to notice the day it
+    // becomes true, and scheduled proactivity belongs to Phase 6's insight service.
   ],
 
   subscribes: [],
@@ -23,16 +31,35 @@ export const salesManifest = defineManifest({
   permissions: [
     { capability: 'sales.quotes.read', description: 'View quotes.' },
     { capability: 'sales.quotes.write', description: 'Draft, send and decide on quotes.' },
+    { capability: 'sales.contracts.read', description: 'View contracts and rate cards.' },
+    {
+      capability: 'sales.contracts.write',
+      description: 'Record contracts, sign them, and manage rate cards.',
+    },
   ],
 
-  navigation: [{ label: 'Quotes', path: '/sales', icon: 'file-text' }],
-  widgets: [{ slot: 'entity-page', component: 'sales:client-quotes' }],
-  chatWidgets: [{ entityType: 'quote', component: 'sales:quote-card' }],
+  navigation: [
+    { label: 'Quotes', path: '/sales', icon: 'file-text' },
+    { label: 'Contracts', path: '/sales/contracts', icon: 'file-signature' },
+    { label: 'Rate cards', path: '/sales/rate-cards', icon: 'tag' },
+  ],
+  widgets: [
+    { slot: 'entity-page', component: 'sales:client-quotes' },
+    { slot: 'entity-page', component: 'sales:client-contracts' },
+  ],
+  chatWidgets: [
+    { entityType: 'quote', component: 'sales:quote-card' },
+    { entityType: 'contract', component: 'sales:contract-card' },
+  ],
 
   reportingViews: [
     {
       view: 'sales.v_quotes',
       description: 'Quotes with totals, status, version and derived expiry.',
+    },
+    {
+      view: 'sales.v_contracts',
+      description: 'Contracts with type, dates, notice period and derived days until end.',
     },
   ],
 
@@ -88,6 +115,39 @@ export const salesManifest = defineManifest({
       permission: 'sales.quotes.write',
       riskClass: 'restricted',
       handler: 'sendQuote',
+    },
+    {
+      name: 'sales_list_contracts',
+      description:
+        'List contracts, optionally by client or type (framework, sow, nda, dpa, other). Includes end dates and notice periods.',
+      inputSchema: z.object({
+        clientId: z.string().uuid().optional(),
+        type: z.enum(['framework', 'sow', 'nda', 'dpa', 'other']).optional(),
+      }),
+      outputSchema: z.object({}),
+      permission: 'sales.contracts.read',
+      riskClass: 'read',
+      handler: 'listContracts',
+    },
+    {
+      name: 'sales_draft_contract_terms',
+      description:
+        'Record a contract from terms found in an uploaded document. Returns an UNSIGNED draft for confirmation. Only state terms actually found in the document — never infer a standard notice period or end date that is not written there.',
+      inputSchema: z.object({
+        clientId: z.string().uuid(),
+        type: z.enum(['framework', 'sow', 'nda', 'dpa', 'other']),
+        title: z.string(),
+        documentId: z.string().uuid().optional(),
+        startsOn: z.string().optional().describe('ISO date, only if stated'),
+        endsOn: z.string().optional().describe('ISO date, only if stated'),
+        noticeDays: z.number().int().optional().describe('Only if stated'),
+        allowsSubProcessors: z.enum(['yes', 'no', 'unclear']).optional(),
+        notes: z.string().optional(),
+      }),
+      outputSchema: z.object({}),
+      permission: 'sales.contracts.write',
+      riskClass: 'write:draft',
+      handler: 'createContract',
     },
   ],
 });
