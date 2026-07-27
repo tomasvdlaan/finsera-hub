@@ -21,12 +21,4 @@ export const login = () => userManager.signinRedirect();
 export const logout = () => userManager.signoutRedirect();
 export const getUser = (): Promise<User | null> => userManager.getUser();
 
-/** Fetch wrapper that attaches the bearer token. All API calls go through this. */
-export async function api<T>(path: string): Promise<T> {
-  const user = await getUser();
-  const res = await fetch(`/api${path}`, {
-    headers: user?.access_token ? { Authorization: `Bearer ${user.access_token}` } : {},
-  });
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-  return res.json() as Promise<T>;
-}
+// The API client lives in lib/api.ts — it consumes getUser() for the bearer token.

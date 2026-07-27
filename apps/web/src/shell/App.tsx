@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
+import { BrowserRouter, NavLink, Navigate, Route, Routes } from 'react-router-dom';
 import type { CurrentUser } from '@platform/contracts';
-import { api } from '../lib/auth.js';
+import { api } from '../lib/api.js';
+import { webModules } from '../modules/index.js';
 import { AuthProvider, useAuth } from './AuthProvider.js';
 
 interface NavItem {
@@ -18,8 +20,11 @@ export function App() {
 }
 
 /**
- * Layer 3 — the application shell. Navigation comes from the API, which assembles it
- * from module manifests: the shell hard-codes no module.
+ * Layer 3 — the application shell.
+ *
+ * Navigation comes from the API, which assembles it from module manifests; routes come
+ * from the frontend module registry. The shell names no module in either case, so
+ * adding one touches its own folder plus a single line in modules/index.ts.
  */
 function Shell() {
   const { user, loading, error: authError, login, logout } = useAuth();
@@ -29,7 +34,7 @@ function Shell() {
 
   useEffect(() => {
     if (!user) return;
-    Promise.all([api<NavItem[]>('/core/navigation'), api<CurrentUser>('/core/me')])
+    Promise.all([api.get<NavItem[]>('/core/navigation'), api.get<CurrentUser>('/core/me')])
       .then(([n, m]) => {
         setNav(n);
         setMe(m);
@@ -37,86 +42,61 @@ function Shell() {
       .catch((e: Error) => setError(e.message));
   }, [user]);
 
-  if (loading) return <Centered>Loading…</Centered>;
+  if (loading) return <div className="centered">Loading…</div>;
 
   if (!user) {
     return (
-      <Centered>
-        <h1 style={{ marginBottom: '1rem' }}>Finsera Platform</h1>
-        <button onClick={login} style={buttonStyle}>
-          Sign in
-        </button>
-        {authError && (
-          <p style={{ color: '#b00', marginTop: '1rem', maxWidth: 420, textAlign: 'center' }}>
-            Sign-in failed: {authError}
-          </p>
-        )}
-      </Centered>
+      <div className="centered">
+        <h1>Finsera Platform</h1>
+        <button onClick={login}>Sign in</button>
+        {authError && <p className="error">Sign-in failed: {authError}</p>}
+      </div>
     );
   }
 
-  return (
-    <div style={{ fontFamily: 'system-ui, sans-serif', display: 'flex', minHeight: '100vh' }}>
-      <nav
-        style={{
-          width: 220,
-          borderRight: '1px solid #e5e5e5',
-          padding: '1rem',
-          display: 'flex',
-          flexDirection: 'column',
-        }}
-      >
-        <strong style={{ display: 'block', marginBottom: '1rem' }}>Finsera Platform</strong>
-        {nav.map((item) => (
-          <a key={item.path} href={item.path} style={{ display: 'block', padding: '0.25rem 0' }}>
-            {item.label}
-          </a>
-        ))}
-        <div style={{ marginTop: 'auto', fontSize: '0.85rem', color: '#666' }}>
-          {me && (
-            <>
-              <div>{me.displayName}</div>
-              <div style={{ opacity: 0.7 }}>{me.role}</div>
-            </>
-          )}
-          <button onClick={logout} style={{ ...buttonStyle, marginTop: '0.5rem' }}>
-            Sign out
-          </button>
-        </div>
-      </nav>
-      <main style={{ flex: 1, padding: '2rem' }}>
-        <h1>Walking skeleton</h1>
-        <p>
-          Navigation is assembled from module manifests by the core — the shell references no
-          module directly.
-        </p>
-        {error && <p style={{ color: '#b00' }}>API error: {error}</p>}
-      </main>
-    </div>
-  );
-}
+  const routes = webModules.flatMap((m) => m.routes);
+  const home = nav[0]?.path ?? '/';
 
-const buttonStyle: React.CSSProperties = {
-  padding: '0.5rem 1rem',
-  cursor: 'pointer',
-  border: '1px solid #ccc',
-  borderRadius: 6,
-  background: '#fff',
-};
-
-function Centered({ children }: { children: React.ReactNode }) {
   return (
-    <div
-      style={{
-        fontFamily: 'system-ui, sans-serif',
-        minHeight: '100vh',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-      }}
-    >
-      {children}
-    </div>
+    <BrowserRouter>
+      <div className="layout">
+        <aside className="sidebar">
+          <div className="brand">Finsera Platform</div>
+          <nav>
+            {nav.map((item) => (
+              <NavLink
+                key={item.path}
+                to={item.path}
+                className={({ isActive }) => (isActive ? 'active' : '')}
+              >
+                {item.label}
+              </NavLink>
+            ))}
+          </nav>
+          <div className="sidebar-footer">
+            {me && (
+              <>
+                <div>{me.displayName}</div>
+                <div className="muted">{me.role}</div>
+              </>
+            )}
+            <button onClick={logout} style={{ marginTop: '0.5rem' }}>
+              Sign out
+            </button>
+          </div>
+        </aside>
+
+        <main>
+          {error && <p className="error">API error: {error}</p>}
+          <Routes>
+            <Route path="/" element={<Navigate to={home} replace />} />
+            {routes.map(({ path, Component }) => (
+              <Route key={path} path={path} element={<Component />} />
+            ))}
+            <Route path="*" element={<p className="muted">Not found.</p>} />
+          </Routes>
+        </main>
+      </div>
+    </BrowserRouter>
   );
 }
