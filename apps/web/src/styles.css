@@ -210,6 +210,70 @@ ol {
   font-family: ui-monospace, SFMono-Regular, monospace;
 }
 
+/* Agenda: a checklist that reads as one. */
+ul.agenda {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0;
+}
+ul.agenda li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.3rem 0;
+}
+
+/* Rendered Markdown. Constrained so a pasted table cannot break the layout. */
+.prose {
+  max-width: 72ch;
+}
+.prose h1,
+.prose h2,
+.prose h3 {
+  margin: 1rem 0 0.4rem;
+}
+.prose ul,
+.prose ol {
+  padding-left: 1.4rem;
+  /* The app resets list markers for its own card lists; rendered Markdown wants them
+     back, or a decision list reads as loose indented text. */
+  list-style: revert;
+}
+.prose li {
+  margin: 0.15rem 0;
+}
+.prose li::marker {
+  color: var(--muted);
+}
+/* Task lists are checkboxes, not bullets. */
+.prose li:has(> input[type='checkbox']) {
+  list-style: none;
+  margin-left: -1.1rem;
+}
+.prose table {
+  border-collapse: collapse;
+  display: block;
+  overflow-x: auto;
+  max-width: 100%;
+}
+.prose th,
+.prose td {
+  border: 1px solid var(--border);
+  padding: 0.3rem 0.5rem;
+}
+.prose code {
+  background: var(--surface);
+  padding: 0.05rem 0.25rem;
+  border-radius: 3px;
+}
+.prose blockquote {
+  margin: 0.5rem 0;
+  padding-left: 0.8rem;
+  border-left: 3px solid var(--border);
+  color: var(--muted);
+}
+
 /* Insights: a sentence, its severity, and one action. */
 ul.insights {
   list-style: none;

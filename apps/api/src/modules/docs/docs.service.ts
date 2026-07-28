@@ -20,7 +20,7 @@ import { RegistryService } from '../../core/registry/registry.service.js';
 import { StorageService } from '../../core/storage/storage.service.js';
 import { CrmService } from '../crm/crm.service.js';
 import { chunks, documents, versions } from './docs.schema.js';
-import { chunkText } from './extract.js';
+import { chunkText } from '../../core/text/chunk.js';
 
 export interface UploadInput {
   filename: string;

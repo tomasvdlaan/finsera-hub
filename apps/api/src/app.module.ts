@@ -7,6 +7,7 @@ import { CrmModule } from './modules/crm/crm.module.js';
 import { DocsModule } from './modules/docs/docs.module.js';
 import { BillingModule } from './modules/billing/billing.module.js';
 import { InsightsModule } from './modules/insights/insights.module.js';
+import { MeetingsModule } from './modules/meetings/meetings.module.js';
 import { ReportingModule } from './modules/reporting/reporting.module.js';
 import { SalesModule } from './modules/sales/sales.module.js';
 import { ScrumModule } from './modules/scrum/scrum.module.js';
@@ -40,6 +41,7 @@ import { TimeModule } from './modules/time/time.module.js';
     SalesModule,
     ReportingModule,
     InsightsModule,
+    MeetingsModule,
   ],
 })
 export class AppModule {}

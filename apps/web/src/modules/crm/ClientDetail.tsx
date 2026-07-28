@@ -4,6 +4,7 @@ import { api } from '../../lib/api.js';
 import { Links } from '../../shell/Links.js';
 import { Timeline } from '../../shell/Timeline.js';
 import { ClientInvoicesWidget } from '../billing/ClientInvoicesWidget.js';
+import { ClientNotesWidget } from '../meetings/ClientNotesWidget.js';
 import { ClientContractsWidget } from '../sales/ClientContractsWidget.js';
 import { ClientQuotesWidget } from '../sales/ClientQuotesWidget.js';
 import { DocumentsWidget } from '../docs/DocumentsWidget.js';
@@ -192,6 +193,11 @@ export function ClientDetail() {
             <option value="outside_eu">Outside EU — out of scope</option>
           </select>
         </div>
+      </section>
+
+      <section>
+        <h2>Meetings</h2>
+        <ClientNotesWidget clientId={id} />
       </section>
 
       <section>

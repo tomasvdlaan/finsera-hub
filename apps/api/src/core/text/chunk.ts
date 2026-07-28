@@ -1,8 +1,11 @@
 /**
  * Chunking for the knowledge layer.
  *
- * Format-specific extraction moved to core's file-type handlers, so this file is only
- * about splitting text for embedding — one concern, one place.
+ * In core because more than one module now feeds the knowledge layer: documents have
+ * extracted text, meeting notes have a body, and both need splitting the same way for
+ * embedding. A module's internals are private, so anything genuinely shared belongs here.
+ *
+ * Pure functions over strings: no database, no dependencies, no I/O.
  */
 
 export interface Chunk {

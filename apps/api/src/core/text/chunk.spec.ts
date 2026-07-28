@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { chunkText } from './extract.js';
+import { chunkText } from './chunk.js';
 
 describe('chunkText', () => {
   it('keeps a short document as one chunk', () => {
