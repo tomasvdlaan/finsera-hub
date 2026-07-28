@@ -9,6 +9,9 @@ import { meetingsManifest } from './meetings.manifest.js';
 import { MeetingsService } from './meetings.service.js';
 import { LiveGateway } from './live/live.gateway.js';
 import { LiveService } from './live/live.service.js';
+import { LiveRunner } from './live/live-runner.service.js';
+import { LiveRegistry } from './live/live-registry.service.js';
+import { RecallProvider } from './live/capture/recall.provider.js';
 
 /**
  * Meeting Notes. Depends on CRM (the client a meeting is with) and SCRUM (where an
@@ -17,7 +20,14 @@ import { LiveService } from './live/live.service.js';
 @Module({
   imports: [CrmModule, ScrumModule],
   controllers: [MeetingsController],
-  providers: [MeetingsService, LiveService, LiveGateway],
+  providers: [
+    MeetingsService,
+    LiveService,
+    LiveGateway,
+    LiveRunner,
+    LiveRegistry,
+    RecallProvider,
+  ],
   exports: [MeetingsService],
 })
 export class MeetingsModule implements OnModuleInit {

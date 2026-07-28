@@ -9,6 +9,15 @@ export interface TranscriptLine {
   /** Seconds from the start of the session, so the UI can show a timeline. */
   at: number;
   text: string;
+  /**
+   * Who said it.
+   *
+   * Present whenever the capture provider knows — with per-participant audio it always
+   * does, and it is a real name rather than "Speaker 1". Optional because the browser
+   * fallback can only distinguish the operator from everyone else.
+   */
+  speaker?: string;
+  speakerId?: string;
 }
 
 export interface Proposal {
@@ -59,19 +68,36 @@ export class LiveSession {
     readonly startedAt = new Date(),
   ) {}
 
-  addLine(text: string): TranscriptLine | null {
+  addLine(
+    text: string,
+    speaker?: { id: string; name: string },
+    at?: number,
+  ): TranscriptLine | null {
     const clean = text.trim();
     if (!clean) return null;
     const line: TranscriptLine = {
-      at: Math.round((Date.now() - this.startedAt.getTime()) / 1000),
+      at: at ?? Math.round((Date.now() - this.startedAt.getTime()) / 1000),
       text: clean,
+      speaker: speaker?.name,
+      speakerId: speaker?.id,
     };
     this.lines.push(line);
+    if (speaker) this.speakers.set(speaker.id, speaker.name);
     return line;
   }
 
+  /** Everyone heard so far, so the UI and the extraction prompt can name them. */
+  readonly speakers = new Map<string, string>();
+
+  /**
+   * The transcript as the model reads it.
+   *
+   * Attributed when the provider knows who spoke — which is the difference between the
+   * agent proposing "Marieke will send the dataset" and proposing "someone will send the
+   * dataset". Extraction quality depends on this more than on any prompt wording.
+   */
   get transcript(): string {
-    return this.lines.map((l) => l.text).join('\n');
+    return this.lines.map((l) => (l.speaker ? `${l.speaker}: ${l.text}` : l.text)).join('\n');
   }
 
   /** The last few minutes — what an extraction actually reads. */
