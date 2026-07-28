@@ -52,7 +52,10 @@ export class LiveRegistry {
   }
 
   watch(noteId: string, socket: Watcher): void {
-    this.sessions.get(noteId)?.watchers.add(socket);
+    const entry = this.sessions.get(noteId);
+    if (!entry) return this.logger.warn(`Watcher for unknown session ${noteId}`);
+    entry.watchers.add(socket);
+    this.logger.log(`Watcher attached to ${noteId} (${entry.watchers.size} watching)`);
   }
 
   unwatch(noteId: string, socket: Watcher): void {
@@ -64,8 +67,16 @@ export class LiveRegistry {
     const entry = this.sessions.get(noteId);
     if (!entry) return;
     const message = JSON.stringify(payload);
+    let sent = 0;
     for (const socket of entry.watchers) {
-      if (socket.readyState === (socket.OPEN ?? 1)) socket.send(message);
+      // ws sets readyState 1 when open; OPEN is on the prototype but guard anyway.
+      if (socket.readyState === 1) {
+        socket.send(message);
+        sent++;
+      }
+    }
+    if (payload.type === 'line') {
+      this.logger.log(`line → ${sent}/${entry.watchers.size} watcher(s) on ${noteId}`);
     }
   }
 
