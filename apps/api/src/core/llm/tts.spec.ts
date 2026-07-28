@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { isLocalSpeechAvailable, speakLocally, stripWavHeader } from './tts.local.js';
 import { TtsService, pcmToMp3 } from './tts.service.js';
 
 /** A tone as 16-bit mono PCM at 24 kHz, standing in for speech. */
@@ -61,4 +62,35 @@ describe('TtsService', () => {
     },
     60_000,
   );
+});
+
+describe('local speech', () => {
+  it('finds the samples wherever the header ends', () => {
+    // Assuming a 44-byte header would prepend a burst of noise when `say` writes extra
+    // chunks, which it sometimes does.
+    const pcm = Buffer.from([1, 0, 2, 0, 3, 0]);
+    const wav = Buffer.concat([
+      Buffer.from('RIFF'), Buffer.alloc(4), Buffer.from('WAVE'),
+      Buffer.from('LIST'), (() => { const b = Buffer.alloc(4); b.writeUInt32LE(4); return b; })(),
+      Buffer.alloc(4),
+      Buffer.from('data'), (() => { const b = Buffer.alloc(4); b.writeUInt32LE(pcm.length); return b; })(),
+      pcm,
+    ]);
+    expect(stripWavHeader(wav)).toEqual(pcm);
+  });
+
+  it('leaves raw PCM alone', () => {
+    const raw = Buffer.from([1, 2, 3, 4]);
+    expect(stripWavHeader(raw)).toEqual(raw);
+  });
+
+  it.runIf(isLocalSpeechAvailable())('speaks Dutch faster than the hosted model', async () => {
+    const started = Date.now();
+    const pcm = await speakLocally('Ja, dat klinkt goed.');
+    const elapsed = Date.now() - started;
+
+    expect(pcm.length).toBeGreaterThan(10_000);
+    // The whole reason for this path. The hosted model measures ~2.8s.
+    expect(elapsed).toBeLessThan(2_000);
+  }, 20_000);
 });

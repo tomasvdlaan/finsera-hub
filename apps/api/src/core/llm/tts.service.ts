@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { LOCAL_SAMPLE_RATE, isLocalSpeechAvailable, speakLocally } from './tts.local.js';
 
 /** Gemini returns 24 kHz mono PCM; Recall plays MP3. */
 const SAMPLE_RATE = 24_000;
@@ -18,7 +19,7 @@ export class TtsService {
   private readonly logger = new Logger(TtsService.name);
 
   static isConfigured(): boolean {
-    return Boolean(process.env.GOOGLE_GENERATIVE_AI_API_KEY);
+    return Boolean(process.env.GOOGLE_GENERATIVE_AI_API_KEY) || isLocalSpeechAvailable();
   }
 
   /**
@@ -28,10 +29,34 @@ export class TtsService {
    * direction ("say warmly", "say briskly"), which is the difference between a colleague
    * and a station announcement.
    */
+  /**
+   * Which voice to use.
+   *
+   * Local wins by default where it exists, because in a live conversation speed beats
+   * timbre by a wide margin: the operating system answers in under a second where the
+   * hosted model takes about three, and three seconds of silence in a meeting is far
+   * more noticeable than a synthetic voice. Set TTS_PROVIDER=gemini to prefer quality.
+   */
+  private provider(): 'local' | 'gemini' {
+    const configured = process.env.TTS_PROVIDER;
+    if (configured === 'gemini' || configured === 'local') return configured;
+    return isLocalSpeechAvailable() ? 'local' : 'gemini';
+  }
+
   async speak(
     text: string,
     opts: { voice?: string; style?: string } = {},
   ): Promise<{ mp3: Buffer; mimeType: 'audio/mp3' }> {
+    if (this.provider() === 'local') {
+      try {
+        const pcm = await speakLocally(text, process.env.TTS_LOCAL_VOICE ?? 'Xander');
+        return { mp3: await pcmToMp3(pcm, LOCAL_SAMPLE_RATE), mimeType: 'audio/mp3' };
+      } catch (error) {
+        // Falling through to the hosted model beats saying nothing at all.
+        this.logger.warn(`Local speech failed, using the model: ${(error as Error).message}`);
+      }
+    }
+
     const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
     if (!apiKey) throw new Error('GOOGLE_GENERATIVE_AI_API_KEY is not set');
 
