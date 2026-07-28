@@ -10,6 +10,7 @@ import type { Actor } from '@platform/contracts';
 import { AuthGuard } from '../../../core/auth/auth.guard.js';
 import { RegistryService } from '../../../core/registry/registry.service.js';
 import { MeetingsService } from '../meetings.service.js';
+import { LiveRegistry } from './live-registry.service.js';
 import { LiveService } from './live.service.js';
 import { LiveSession } from './live-session.js';
 
@@ -41,6 +42,7 @@ export class LiveGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private readonly registry: RegistryService,
     private readonly meetings: MeetingsService,
     private readonly live: LiveService,
+    private readonly sessions: LiveRegistry,
   ) {}
 
   async handleConnection(socket: WebSocket, request: IncomingMessage): Promise<void> {
@@ -60,6 +62,21 @@ export class LiveGateway implements OnGatewayConnection, OnGatewayDisconnect {
         throw new Error(
           'Every attendee must be recorded as having consented before a meeting can be transcribed',
         );
+      }
+
+      // A bot session may already be running for this note — started over REST, with
+      // audio arriving from Recall. In that case the browser is a watcher, not a source.
+      const running = this.sessions.get(noteId);
+      if (running) {
+        this.sessions.watch(noteId, socket as never);
+        socket.on('close', () => this.sessions.unwatch(noteId, socket as never));
+        this.send(socket, {
+          type: 'ready',
+          noteId,
+          mode: 'watching',
+          startedAt: running.live.startedAt.toISOString(),
+        });
+        return;
       }
 
       const session = new LiveSession(noteId, actor.userId);

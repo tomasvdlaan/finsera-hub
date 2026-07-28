@@ -71,7 +71,7 @@ describe('RecallSession', () => {
       onError: vi.fn(),
       onEnded: vi.fn(),
     };
-    session = new RecallSession('bot-1', 'key', 'https://eu-central-1.recall.ai', events, new Logger('test'));
+    session = new RecallSession('bot-1', 'key', 'https://eu-central-1.recall.ai', events, new Logger('test'), 'secret-token');
     socket = new FakeSocket();
     session.attach(socket as never);
   });

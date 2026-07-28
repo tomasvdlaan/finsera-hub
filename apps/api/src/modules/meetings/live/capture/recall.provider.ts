@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { Injectable, Logger } from '@nestjs/common';
 import { WebSocket } from 'ws';
 import { SpeechBuffer, pcmToWav } from './vad.js';
@@ -75,7 +76,13 @@ export class RecallProvider implements MeetingCaptureProvider {
       );
     }
 
-    const streamUrl = `${publicBase.replace(/^http/, 'ws')}/api/meetings/recall?noteId=${options.noteId}`;
+    // The endpoint Recall connects to is on the public internet, and Recall sends no
+    // credentials of its own. A per-session secret in the URL is what stops anyone who
+    // guesses the address from injecting audio into a client's meeting notes.
+    const streamToken = randomBytes(24).toString('base64url');
+    const streamUrl =
+      `${publicBase.replace(/^http/, 'ws')}/api/meetings/recall` +
+      `?noteId=${encodeURIComponent(options.noteId)}&token=${streamToken}`;
 
     const response = await fetch(`${this.baseUrl}/api/v1/bot/`, {
       method: 'POST',
@@ -109,7 +116,7 @@ export class RecallProvider implements MeetingCaptureProvider {
     const bot = (await response.json()) as { id: string };
     this.logger.log(`Recall bot ${bot.id} joining for note ${options.noteId}`);
 
-    return new RecallSession(bot.id, apiKey, this.baseUrl, events, this.logger);
+    return new RecallSession(bot.id, apiKey, this.baseUrl, events, this.logger, streamToken);
   }
 }
 
@@ -134,6 +141,8 @@ export class RecallSession implements CaptureSession {
     private readonly baseUrl: string,
     private readonly events: CaptureEvents,
     private readonly logger: Logger,
+    /** Compared against the token Recall presents when it connects. */
+    readonly streamToken: string,
   ) {}
 
   /** Called by the gateway when Recall's websocket arrives and identifies this session. */

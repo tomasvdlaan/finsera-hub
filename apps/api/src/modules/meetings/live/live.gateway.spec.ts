@@ -19,6 +19,7 @@ import { TimeService } from '../../time/time.service.js';
 import { meetingsManifest } from '../meetings.manifest.js';
 import { MeetingsService } from '../meetings.service.js';
 import type { LiveSession } from './live-session.js';
+import { LiveRegistry } from './live-registry.service.js';
 import { LiveGateway } from './live.gateway.js';
 import type { LiveService } from './live.service.js';
 
@@ -115,7 +116,7 @@ describe('LiveGateway', () => {
     };
 
     const auth = { verifyToken: vi.fn().mockResolvedValue(actor) } as unknown as AuthGuard;
-    gateway = new LiveGateway(auth, registry, meetings, live as unknown as LiveService);
+    gateway = new LiveGateway(auth, registry, meetings, live as unknown as LiveService, new LiveRegistry());
 
     const client = await crm.createClient(actor, { name: 'DocHorse', status: 'active' });
     clientId = client.id;

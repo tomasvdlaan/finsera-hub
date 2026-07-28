@@ -8,6 +8,7 @@ import { MeetingsController } from './meetings.controller.js';
 import { meetingsManifest } from './meetings.manifest.js';
 import { MeetingsService } from './meetings.service.js';
 import { LiveGateway } from './live/live.gateway.js';
+import { RecallGateway } from './live/recall.gateway.js';
 import { LiveService } from './live/live.service.js';
 import { LiveRunner } from './live/live-runner.service.js';
 import { LiveRegistry } from './live/live-registry.service.js';
@@ -24,6 +25,7 @@ import { RecallProvider } from './live/capture/recall.provider.js';
     MeetingsService,
     LiveService,
     LiveGateway,
+    RecallGateway,
     LiveRunner,
     LiveRegistry,
     RecallProvider,

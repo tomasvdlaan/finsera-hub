@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { api } from '../../lib/api.js';
 import { getUser } from '../../lib/auth.js';
 
 /** Each segment is a complete, self-contained recording. See the note on start(). */
@@ -7,6 +8,8 @@ const SEGMENT_MS = 25_000;
 interface Line {
   at: number;
   text: string;
+  /** Present when the capture provider knows who spoke — a real name, not "Speaker 1". */
+  speaker?: string;
 }
 
 interface Proposal {
@@ -22,7 +25,7 @@ interface RunningState {
   openQuestions: string[];
 }
 
-type Source = 'microphone' | 'tab';
+type Source = 'bot' | 'microphone' | 'tab';
 
 const money = (cents: number) =>
   new Intl.NumberFormat('nl-NL', { style: 'currency', currency: 'EUR' }).format(cents / 100);
@@ -45,7 +48,8 @@ export function LivePanel({
   canRecord: boolean;
   onFinished: () => void;
 }) {
-  const [source, setSource] = useState<Source>('microphone');
+  const [source, setSource] = useState<Source>('bot');
+  const [meetingUrl, setMeetingUrl] = useState('');
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [deviceId, setDeviceId] = useState('');
   const [running, setRunning] = useState(false);
@@ -122,6 +126,37 @@ export function LivePanel({
     }, SEGMENT_MS);
   }, []);
 
+  /**
+   * Send a bot to the meeting, then watch.
+   *
+   * Unlike the browser routes this captures nothing locally — Recall joins the call and
+   * streams each participant's audio to the server. The socket below is only a viewer.
+   */
+  const startBot = async () => {
+    setError(null);
+    try {
+      await api.post(`/meetings/${noteId}/live/start`, { meetingUrl: meetingUrl.trim() });
+      await openSocket();
+      setRunning(true);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  const openSocket = async () => {
+    const user = await getUser();
+    const url = new URL('/api/meetings/live', window.location.href);
+    url.protocol = url.protocol.replace('http', 'ws');
+    url.searchParams.set('noteId', noteId);
+    url.searchParams.set('token', user?.access_token ?? '');
+    const ws = new WebSocket(url);
+    socket.current = ws;
+    ws.onmessage = handleMessage;
+    ws.onerror = () => setError('The live connection failed.');
+    ws.onclose = () => stopEverything();
+    return ws;
+  };
+
   const start = async () => {
     setError(null);
     try {
@@ -160,34 +195,7 @@ export function LivePanel({
       const ws = new WebSocket(url);
       socket.current = ws;
 
-      ws.onmessage = (event) => {
-        const message = JSON.parse(String(event.data)) as Record<string, unknown>;
-        switch (message.type) {
-          case 'ready':
-            setRunning(true);
-            recordSegment();
-            break;
-          case 'line':
-            setLines((current) => [...current, message.line as Line]);
-            break;
-          case 'proposals':
-            setProposals((current) => [...current, ...(message.proposals as Proposal[])]);
-            break;
-          case 'state':
-            setState(message.state as RunningState);
-            break;
-          case 'cost':
-            setCostCents(message.costCents as number);
-            break;
-          case 'stopped':
-            stopEverything();
-            onFinished();
-            break;
-          case 'error':
-            setError(String(message.message));
-            break;
-        }
-      };
+      ws.onmessage = (event) => handleMessage(event, true);
       ws.onerror = () => setError('The live connection failed.');
       ws.onclose = () => stopEverything();
     } catch (e) {
@@ -196,7 +204,46 @@ export function LivePanel({
     }
   };
 
-  const stop = () => {
+  const handleMessage = (event: MessageEvent, capturing = false) => {
+    const message = JSON.parse(String(event.data)) as Record<string, unknown>;
+    switch (message.type) {
+      case 'ready':
+        setRunning(true);
+        if (capturing) recordSegment();
+        break;
+      case 'line':
+        setLines((current) => [...current, message.line as Line]);
+        break;
+      case 'speaker':
+        break; // roster changes are visible in the transcript itself
+      case 'proposals':
+        setProposals((current) => [...current, ...(message.proposals as Proposal[])]);
+        break;
+      case 'state':
+        setState(message.state as RunningState);
+        break;
+      case 'cost':
+        setCostCents(message.costCents as number);
+        break;
+      case 'stopped':
+      case 'ended':
+        stopEverything();
+        onFinished();
+        break;
+      case 'error':
+        setError(String(message.message));
+        break;
+    }
+  };
+
+  const stop = async () => {
+    if (source === 'bot') {
+      // The bot is stopped server-side; it has to be told to leave the call.
+      await api.post(`/meetings/${noteId}/live/stop`, {}).catch(() => undefined);
+      stopEverything();
+      onFinished();
+      return;
+    }
     if (socket.current?.readyState === WebSocket.OPEN) {
       socket.current.send(JSON.stringify({ type: 'stop' }));
     } else {
@@ -224,6 +271,7 @@ export function LivePanel({
               onChange={(e) => setSource(e.target.value as Source)}
               aria-label="Audio source"
             >
+              <option value="bot">Send a bot to the meeting</option>
               <option value="microphone">Microphone or virtual device</option>
               <option value="tab">A browser tab (Teams in the browser)</option>
             </select>
@@ -241,11 +289,30 @@ export function LivePanel({
                 ))}
               </select>
             )}
-            <button onClick={() => void start()}>Start listening</button>
+            {source === 'bot' ? (
+              <>
+                <input
+                  value={meetingUrl}
+                  onChange={(e) => setMeetingUrl(e.target.value)}
+                  placeholder="Paste the Teams meeting link"
+                  aria-label="Meeting URL"
+                  style={{ flex: 1, minWidth: 260 }}
+                />
+                <button onClick={() => void startBot()} disabled={!meetingUrl.trim()}>
+                  Send the bot
+                </button>
+              </>
+            ) : (
+              <button onClick={() => void start()}>Start listening</button>
+            )}
           </div>
           <p className="muted">
-            Audio is transcribed and discarded — it is never stored. Nothing the assistant
-            proposes is applied until you accept it.
+            {source === 'bot'
+              ? 'A named bot joins the call, so everyone can see it. Each person’s audio ' +
+                'arrives separately, which is what makes “who said what” reliable. Someone ' +
+                'may need to admit it from the lobby.'
+              : 'Audio is transcribed and discarded — it is never stored.'}{' '}
+            Nothing the assistant proposes is applied until you accept it.
           </p>
         </>
       ) : (
@@ -301,7 +368,9 @@ export function LivePanel({
               ) : (
                 lines.map((line, i) => (
                   <p key={i}>
-                    <span className="muted">{clock(line.at)}</span> {line.text}
+                    <span className="muted">{clock(line.at)}</span>{' '}
+                    {line.speaker && <strong>{line.speaker}: </strong>}
+                    {line.text}
                   </p>
                 ))
               )}

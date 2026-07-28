@@ -1,12 +1,38 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import type { Actor } from '@platform/contracts';
 import { CurrentActor } from '../../core/auth/current-actor.decorator.js';
+import { LiveRunner } from './live/live-runner.service.js';
 import { MeetingsService, type CreateNoteInput } from './meetings.service.js';
 import { TEMPLATE_LIST } from './templates.js';
 
 @Controller('meetings')
 export class MeetingsController {
-  constructor(private readonly meetings: MeetingsService) {}
+  constructor(
+    private readonly meetings: MeetingsService,
+    private readonly live: LiveRunner,
+  ) {}
+
+  // ── the live agent ──
+
+  /**
+   * Send a bot to a meeting.
+   *
+   * Consent is checked before the bot travels, not when its audio arrives — by then it
+   * would already have sat in the client's meeting.
+   */
+  @Post(':id/live/start')
+  startLive(
+    @CurrentActor() actor: Actor,
+    @Param('id') id: string,
+    @Body() body: { meetingUrl: string },
+  ) {
+    return this.live.startBot(actor, id, body.meetingUrl);
+  }
+
+  @Post(':id/live/stop')
+  stopLive(@CurrentActor() actor: Actor, @Param('id') id: string) {
+    return this.live.stop(actor, id);
+  }
 
   @Get('templates')
   templates() {
