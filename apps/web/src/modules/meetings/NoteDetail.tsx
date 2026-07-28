@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { Timeline } from '../../shell/Timeline.js';
@@ -6,6 +6,56 @@ import type { Client } from '../crm/types.js';
 import { LivePanel } from './LivePanel.js';
 import { Markdown } from './Markdown.js';
 import type { NoteDetail as Detail } from './types.js';
+
+/**
+ * A one-field inline form.
+ *
+ * Replaces window.prompt, which browsers suppress after a few uses and block entirely in
+ * some contexts — so "add an attendee" silently did nothing. It is also simply better:
+ * the field stays open for the next entry, which is how these are actually used.
+ */
+function AddInline({
+  label,
+  placeholder,
+  onAdd,
+}: {
+  label: string;
+  placeholder: string;
+  onAdd: (value: string) => Promise<unknown>;
+}) {
+  const [value, setValue] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    const text = value.trim();
+    if (!text) return;
+    setBusy(true);
+    try {
+      await onAdd(text);
+      setValue(''); // ready for the next one
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form onSubmit={(e) => void submit(e)}>
+      <div className="row">
+        <input
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder={placeholder}
+          aria-label={label}
+          style={{ flex: 1, minWidth: 200 }}
+        />
+        <button type="submit" disabled={busy || !value.trim()}>
+          {busy ? 'Adding…' : 'Add'}
+        </button>
+      </div>
+    </form>
+  );
+}
 
 export function NoteDetail() {
   const { id = '' } = useParams();
@@ -150,17 +200,11 @@ export function NoteDetail() {
             ))}
           </ul>
         )}
-        <button
-          className="link-button"
-          onClick={() =>
-            void act(async () => {
-              const title = window.prompt('Agenda item?');
-              if (title?.trim()) await api.post(`/meetings/${id}/agenda`, { title: title.trim() });
-            })
-          }
-        >
-          + add agenda item
-        </button>
+        <AddInline
+          label="New agenda item"
+          placeholder="Add an agenda item…"
+          onAdd={(title) => act(() => api.post(`/meetings/${id}/agenda`, { title }))}
+        />
       </section>
 
       <section>
@@ -256,17 +300,11 @@ export function NoteDetail() {
             ))}
           </ul>
         )}
-        <button
-          className="link-button"
-          onClick={() =>
-            void act(async () => {
-              const text = window.prompt('Action point?');
-              if (text?.trim()) await api.post(`/meetings/${id}/actions`, { text: text.trim() });
-            })
-          }
-        >
-          + add action point
-        </button>
+        <AddInline
+          label="New action point"
+          placeholder="Add an action point…"
+          onAdd={(text) => act(() => api.post(`/meetings/${id}/actions`, { text }))}
+        />
         {!note.projectId && note.actionItems.length > 0 && (
           <p className="muted">
             Link this note to a project to turn action points into tasks.
@@ -327,17 +365,11 @@ export function NoteDetail() {
             ))}
           </ul>
         )}
-        <button
-          className="link-button"
-          onClick={() =>
-            void act(async () => {
-              const name = window.prompt('Who attended?');
-              if (name?.trim()) await api.post(`/meetings/${id}/attendees`, { name: name.trim() });
-            })
-          }
-        >
-          + add attendee
-        </button>
+        <AddInline
+          label="New attendee"
+          placeholder="Who is in the meeting?"
+          onAdd={(name) => act(() => api.post(`/meetings/${id}/attendees`, { name }))}
+        />
         <p className="muted">
           Consent is asked per person and recorded with a timestamp. Recording a meeting
           needs every attendee to have agreed.
