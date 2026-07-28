@@ -13,25 +13,25 @@ const tone = (ms: number, hz = 220) => {
 };
 
 describe('pcmToMp3', () => {
-  it('produces something a player will recognise as MP3', () => {
-    const mp3 = pcmToMp3(tone(500));
+  it('produces something a player will recognise as MP3', async () => {
+    const mp3 = await pcmToMp3(tone(500));
     expect(mp3.length).toBeGreaterThan(100);
     // Every MP3 frame starts with sync bits; Recall plays nothing else.
     expect(mp3[0]).toBe(0xff);
     expect(mp3[1]! & 0xe0).toBe(0xe0);
   });
 
-  it('compresses, which is the point of not sending raw PCM', () => {
+  it('compresses, which is the point of not sending raw PCM', async () => {
     const pcm = tone(1_000);
-    expect(pcmToMp3(pcm).length).toBeLessThan(pcm.length);
+    expect((await pcmToMp3(pcm)).length).toBeLessThan(pcm.length);
   });
 
-  it('handles a very short clip without throwing', () => {
-    expect(() => pcmToMp3(tone(10))).not.toThrow();
+  it('handles a very short clip without throwing', async () => {
+    await expect(pcmToMp3(tone(10))).resolves.toBeInstanceOf(Buffer);
   });
 
-  it('handles empty input', () => {
-    expect(pcmToMp3(Buffer.alloc(0)).length).toBeGreaterThanOrEqual(0);
+  it('handles empty input', async () => {
+    expect((await pcmToMp3(Buffer.alloc(0))).length).toBeGreaterThanOrEqual(0);
   });
 });
 
