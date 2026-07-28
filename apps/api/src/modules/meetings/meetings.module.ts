@@ -13,6 +13,7 @@ import { LiveService } from './live/live.service.js';
 import { LiveRunner } from './live/live-runner.service.js';
 import { LiveRegistry } from './live/live-registry.service.js';
 import { RecallProvider } from './live/capture/recall.provider.js';
+import { ConversationService } from './live/conversation.service.js';
 
 /**
  * Meeting Notes. Depends on CRM (the client a meeting is with) and SCRUM (where an
@@ -29,6 +30,7 @@ import { RecallProvider } from './live/capture/recall.provider.js';
     LiveRunner,
     LiveRegistry,
     RecallProvider,
+    ConversationService,
   ],
   exports: [MeetingsService],
 })

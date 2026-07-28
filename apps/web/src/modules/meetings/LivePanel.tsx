@@ -58,6 +58,8 @@ export function LivePanel({
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [state, setState] = useState<RunningState | null>(null);
   const [costCents, setCostCents] = useState(0);
+  const [chatty, setChatty] = useState(false);
+  const [spoken, setSpoken] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const socket = useRef<WebSocket | null>(null);
@@ -264,6 +266,9 @@ export function LivePanel({
       }
       case 'speaker':
         break; // roster changes are visible in the transcript itself
+      case 'spoke':
+        setSpoken((current) => [...current, String(message.text)]);
+        break;
       case 'proposals':
         setProposals((current) => [...current, ...(message.proposals as Proposal[])]);
         break;
@@ -367,11 +372,30 @@ export function LivePanel({
         <>
           <div className="row">
             <span className="badge priority-urgent">● listening</span>
+            <label className="muted">
+              <input
+                type="checkbox"
+                checked={chatty}
+                onChange={(e) => {
+                  setChatty(e.target.checked);
+                  void api.post(`/meetings/${noteId}/live/chatty`, { on: e.target.checked });
+                }}
+              />{' '}
+              let it talk back
+            </label>
             <span className="muted">
               {lines.length} segment{lines.length === 1 ? '' : 's'} · {money(costCents)} so far
             </span>
             <button onClick={stop}>Stop</button>
           </div>
+
+          {chatty && (
+            <p className="muted">
+              The bot will speak in the meeting. It waits at least 8 seconds between
+              replies and chooses silence when it has nothing useful to add.
+              {spoken.length > 0 && ` It has spoken ${spoken.length} time${spoken.length === 1 ? '' : 's'}.`}
+            </p>
+          )}
 
           {state?.summary && (
             <section>

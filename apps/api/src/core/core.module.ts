@@ -16,6 +16,7 @@ import { PermissionService } from './permissions/permission.service.js';
 import { RegistryService } from './registry/registry.service.js';
 import { DbIntegrityService } from './db/integrity.service.js';
 import { SettingsService } from './settings/settings.service.js';
+import { TtsService } from './llm/tts.service.js';
 import { StorageService } from './storage/storage.service.js';
 
 /**
@@ -41,6 +42,7 @@ const services = [
   FileTypeRegistry,
   SettingsService,
   DbIntegrityService,
+  TtsService,
 ];
 
 @Global()

@@ -35,6 +35,17 @@ export class MeetingsController {
     return this.live.status(id);
   }
 
+  /** Let the bot talk back. Off by default; this is the testing switch. */
+  @Post(':id/live/chatty')
+  setChatty(
+    @CurrentActor() actor: Actor,
+    @Param('id') id: string,
+    @Body() body: { on: boolean },
+  ) {
+    this.live.setChatty(id, body.on);
+    return { noteId: id, chatty: this.live.isChatty(id) };
+  }
+
   @Post(':id/live/stop')
   stopLive(@CurrentActor() actor: Actor, @Param('id') id: string) {
     return this.live.stop(actor, id);

@@ -7,6 +7,7 @@ import { RecallProvider } from './capture/recall.provider.js';
 import { LiveRegistry } from './live-registry.service.js';
 import { LiveService } from './live.service.js';
 import { LiveSession } from './live-session.js';
+import { ConversationService } from './conversation.service.js';
 
 /**
  * Runs one live meeting, whatever is supplying the audio.
@@ -28,7 +29,26 @@ export class LiveRunner {
     private readonly live: LiveService,
     private readonly sessions: LiveRegistry,
     private readonly recall: RecallProvider,
+    private readonly conversation: ConversationService,
   ) {}
+
+  /**
+   * Meetings where the bot is allowed to talk back.
+   *
+   * Off by default and per meeting, because a speaking bot is a much bigger presence in
+   * a client's meeting than a silent one — and the extraction that makes this useful
+   * works either way.
+   */
+  private readonly chatty = new Set<string>();
+
+  setChatty(noteId: string, on: boolean): void {
+    if (on) this.chatty.add(noteId);
+    else this.chatty.delete(noteId);
+  }
+
+  isChatty(noteId: string): boolean {
+    return this.chatty.has(noteId);
+  }
 
   /**
    * Send a bot to a meeting.
@@ -121,9 +141,41 @@ export class LiveRunner {
       });
 
       if (live.shouldExtract()) void this.tick(actor, noteId, live);
+      if (this.chatty.has(noteId)) void this.maybeSpeak(actor, noteId, live);
     } catch (error) {
       // A failed utterance loses a sentence. It must not end the meeting.
       this.logger.warn(`Segment failed on ${noteId}: ${(error as Error).message}`);
+    }
+  }
+
+  /**
+   * Consider saying something out loud.
+   *
+   * Never blocks the transcript: if the reply is slow or fails, audio keeps arriving and
+   * the meeting record is unaffected. Speaking is the optional half.
+   */
+  private async maybeSpeak(actor: Actor, noteId: string, live: LiveSession): Promise<void> {
+    const entry = this.sessions.get(noteId);
+    if (!entry?.capture || entry.capture.isSpeaking()) return;
+    if (!this.conversation.mayReply(noteId)) return;
+
+    try {
+      const note = await this.meetings.get(actor, noteId);
+      const reply = await this.conversation.reply(live, {
+        chatty: true,
+        meetingTitle: note.title,
+        agenda: note.agenda.filter((a) => !a.covered).map((a) => a.title),
+      });
+      if (!reply) return;
+
+      await entry.capture.speak(reply.mp3, reply.mimeType);
+      // Recorded in the transcript as itself, so the meeting record shows what the
+      // assistant said rather than pretending it was silent.
+      const line = live.addLine(reply.text, { id: 'assistant', name: 'Assistant' });
+      if (line) this.sessions.broadcast(noteId, { type: 'line', line });
+      this.sessions.broadcast(noteId, { type: 'spoke', text: reply.text });
+    } catch (error) {
+      this.logger.warn(`Could not speak on ${noteId}: ${(error as Error).message}`);
     }
   }
 
@@ -152,6 +204,8 @@ export class LiveRunner {
    * it worth reading afterwards rather than merely worth having.
    */
   async stop(actor: Actor, noteId: string) {
+    this.chatty.delete(noteId);
+    this.conversation.forget(noteId);
     const live = await this.sessions.end(noteId);
     if (!live || live.lines.length === 0) return { saved: false };
 

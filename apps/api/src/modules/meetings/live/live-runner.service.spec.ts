@@ -19,6 +19,7 @@ import { meetingsManifest } from '../meetings.manifest.js';
 import { MeetingsService } from '../meetings.service.js';
 import type { AudioSegment, CaptureEvents, CaptureSession } from './capture/provider.js';
 import type { RecallProvider } from './capture/recall.provider.js';
+import type { ConversationService } from './conversation.service.js';
 import { LiveRegistry } from './live-registry.service.js';
 import { LiveRunner } from './live-runner.service.js';
 import { LiveSession } from './live-session.js';
@@ -45,6 +46,11 @@ describe('LiveRunner', () => {
     costCents: ReturnType<typeof vi.fn>;
   };
   let capture: { join: ReturnType<typeof vi.fn>; isConfigured: ReturnType<typeof vi.fn> };
+  let conversation: {
+    mayReply: ReturnType<typeof vi.fn>;
+    reply: ReturnType<typeof vi.fn>;
+    forget: ReturnType<typeof vi.fn>;
+  };
   let joined: CaptureSession;
   let clientId: string;
   let projectId: string;
@@ -101,6 +107,13 @@ describe('LiveRunner', () => {
       join: vi.fn().mockResolvedValue(joined),
     };
 
+    // Speaking is the optional half; these tests are about the transcript pipeline.
+    conversation = {
+      mayReply: vi.fn().mockReturnValue(true),
+      reply: vi.fn().mockResolvedValue(null),
+      forget: vi.fn(),
+    };
+
     sessions = new LiveRegistry();
     runner = new LiveRunner(
       registry,
@@ -108,6 +121,7 @@ describe('LiveRunner', () => {
       live as unknown as LiveService,
       sessions,
       capture as unknown as RecallProvider,
+      conversation as unknown as ConversationService,
     );
 
     const client = await crm.createClient(actor, { name: 'DocHorse', status: 'active' });
@@ -280,6 +294,51 @@ describe('LiveRunner', () => {
     await runner.startBot(actor, note.id, 'https://teams.microsoft.com/meet/123');
     await runner.speak(note.id, Buffer.from('mp3'), 'audio/mp3');
     expect(joined.speak).toHaveBeenCalledWith(expect.any(Buffer), 'audio/mp3');
+  });
+
+  it('stays silent unless chatty mode is on', async () => {
+    const note = await noteWithConsent();
+    await runner.startBot(actor, note.id, 'https://teams.microsoft.com/meet/123');
+    const session = sessions.get(note.id)!.live;
+    const events = runner.eventsFor(actor, note.id, session);
+
+    await events.onSegment(segment('Marieke', '7'));
+    await new Promise((r) => setTimeout(r, 30));
+    expect(conversation.reply).not.toHaveBeenCalled();
+  });
+
+  it('speaks when chatty, and records what it said in the transcript', async () => {
+    const note = await noteWithConsent();
+    await runner.startBot(actor, note.id, 'https://teams.microsoft.com/meet/123');
+    runner.setChatty(note.id, true);
+
+    conversation.reply.mockResolvedValueOnce({
+      text: 'Zal ik dat als actiepunt noteren?',
+      mp3: Buffer.from('mp3'),
+      mimeType: 'audio/mp3',
+    });
+
+    const session = sessions.get(note.id)!.live;
+    const events = runner.eventsFor(actor, note.id, session);
+    await events.onSegment(segment('Marieke', '7'));
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(joined.speak).toHaveBeenCalledWith(expect.any(Buffer), 'audio/mp3');
+    // What the assistant said belongs in the record, attributed to it.
+    expect(session.lines.some((l) => l.speaker === 'Assistant')).toBe(true);
+  });
+
+  it('does not talk over itself', async () => {
+    const note = await noteWithConsent();
+    await runner.startBot(actor, note.id, 'https://teams.microsoft.com/meet/123');
+    runner.setChatty(note.id, true);
+    joined.isSpeaking = () => true; // already mid-sentence
+
+    const session = sessions.get(note.id)!.live;
+    await runner.eventsFor(actor, note.id, session).onSegment(segment('Marieke', '7'));
+    await new Promise((r) => setTimeout(r, 30));
+
+    expect(conversation.reply).not.toHaveBeenCalled();
   });
 
   it('refuses to speak into a meeting it is not in', async () => {
