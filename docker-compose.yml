@@ -37,6 +37,29 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # A public address for the meeting bot to reach, in development only.
+  #
+  # Recall connects TO us rather than the reverse: it streams each participant's audio
+  # from its own servers to a websocket we expose. localhost does not exist from
+  # Frankfurt, so during development something has to give the API a routable address.
+  #
+  # A quick tunnel needs no Cloudflare account and no host install. It prints an
+  # https URL on startup — copy it into RECALL_WEBHOOK_BASE:
+  #
+  #   docker compose --profile tunnel up -d
+  #   docker compose logs tunnel | grep trycloudflare.com
+  #
+  # The URL changes every restart, which is fine for testing and exactly why this is
+  # not how it should work in production — there the API has its own address and this
+  # service is not used at all.
+  tunnel:
+    profiles: ["tunnel"]
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate --url http://host.docker.internal:3001
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
 volumes:
   pgdata:
   devbackups:
