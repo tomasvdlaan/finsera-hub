@@ -157,7 +157,7 @@ export class LiveRunner {
   private async maybeSpeak(actor: Actor, noteId: string, live: LiveSession): Promise<void> {
     const entry = this.sessions.get(noteId);
     if (!entry?.capture || entry.capture.isSpeaking()) return;
-    if (!this.conversation.mayReply(noteId)) return;
+    if (!this.conversation.mayReply(noteId, true)) return;
 
     try {
       const note = await this.meetings.get(actor, noteId);

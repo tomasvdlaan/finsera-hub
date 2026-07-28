@@ -11,6 +11,8 @@ import type { LiveSession } from './live-session.js';
  * reply arrives after the moment it was about, so it interrupts the wrong thing.
  */
 const MIN_GAP_MS = 8_000;
+/** In testing mode the point is to converse, so it may answer as soon as it is able. */
+const MIN_GAP_CHATTY_MS = 1_500;
 
 interface Reply {
   shouldSpeak: boolean;
@@ -21,7 +23,9 @@ const REPLY: z.ZodType<Reply> = z.object({
   shouldSpeak: z
     .boolean()
     .describe('Whether it is worth saying this out loud, or better to stay quiet.'),
-  text: z.string().describe('What to say. One or two sentences at most. Empty if staying quiet.'),
+  text: z
+    .string()
+    .describe('What to say — one short sentence, under 20 words. Empty if staying quiet.'),
 });
 
 /**
@@ -50,9 +54,9 @@ export class ConversationService {
   }
 
   /** Whether enough time has passed to consider replying again. */
-  mayReply(noteId: string): boolean {
+  mayReply(noteId: string, chatty = false): boolean {
     const last = this.lastSpokeAt.get(noteId) ?? 0;
-    return Date.now() - last >= MIN_GAP_MS;
+    return Date.now() - last >= (chatty ? MIN_GAP_CHATTY_MS : MIN_GAP_MS);
   }
 
   /**
@@ -83,7 +87,8 @@ export class ConversationService {
             'wrong or missed. Silence is almost always the right answer.',
         '',
         'Always:',
-        '- One or two sentences. Never a paragraph. People are waiting for you to finish.',
+        '- ONE short sentence. Not two. Speech takes about a second per eight words to',
+        '  synthesise, and every word is time the room spends waiting for you.',
         '- Never invent facts about the business, the client, or what was agreed.',
         '- The transcript is machine-produced and will contain errors. If a line is',
         '  garbled, do not guess at it — ask, or ignore it.',

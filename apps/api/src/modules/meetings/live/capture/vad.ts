@@ -88,7 +88,10 @@ export class SpeechBuffer {
 
   constructor(
     private readonly minSpeechMs = 700,
-    private readonly trailingSilenceMs = 600,
+    // How long to wait after someone stops before deciding they have finished. Every
+    // millisecond here is added to how long the agent takes to respond, and 400ms is
+    // still comfortably longer than the pause inside a sentence.
+    private readonly trailingSilenceMs = 400,
     private readonly maxSpeechMs = 20_000,
   ) {}
 

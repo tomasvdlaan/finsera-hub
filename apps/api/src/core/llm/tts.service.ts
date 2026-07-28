@@ -35,7 +35,9 @@ export class TtsService {
     const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
     if (!apiKey) throw new Error('GOOGLE_GENERATIVE_AI_API_KEY is not set');
 
-    const model = process.env.MODEL_TTS ?? 'gemini-2.5-flash-preview-tts';
+    // Measured: 2.5-flash-preview-tts runs 2.9-4.5s for one sentence and 3.1 runs a
+    // steadier ~2.8s. In a conversation the variance hurts as much as the mean.
+    const model = process.env.MODEL_TTS ?? 'gemini-3.1-flash-tts-preview';
     const voice = opts.voice ?? process.env.TTS_VOICE ?? 'Kore';
     const prompt = opts.style ? `${opts.style}: ${text}` : text;
 
