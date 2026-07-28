@@ -119,49 +119,100 @@ holds at ten clients; at one it inverts. Revisit when a second rate appears.
 
 ---
 
-## G3 — Meeting transcription and the live agent (2026-07-28) · **Decided**
+## G3 — Meeting capture and the live agent (2026-07-28) · **Decided** · *supersedes the earlier G3 entry*
 
-**Route: the existing LLM provider, metered — no new sub-processor.** Audio is transcribed
-on `MODEL_FAST`; the strong model only ever sees transcript text.
+**Route: Recall.ai, a hosted meeting bot that joins the Teams call.** Transcription stays
+on Gemini; Recall supplies capture and speaker identity only.
 
-**Why not a dedicated STT vendor:** it is exactly the second processor D6 rejected when it
-refused OpenRouter, and it would handle audio, which is more sensitive than the text already
-being sent. The paperwork owed (O8) stays one conversation instead of two.
+### What changed from the first G3 decision
 
-**Why not self-hosted:** for a *live* agent it does not deliver what it appears to. It keeps
-audio local, but the agent must still send transcript text to a model to reason about it —
-so "no client content leaves" is unachievable with a live agent by any route. Self-hosting
-would be fixed monthly compute for a partial benefit. It remains the escape hatch if a
-client's DPA forbids sub-processors, in which case that client's meetings are notes-only.
+The first G3 answer assumed *we* capture audio from the browser and send it to Gemini. It
+was decided before two facts were known:
 
-**Cost shape.** Audio tokenises by duration (~25–32 tokens/second), so an hour is ~100k
-input tokens; the transcript it yields is ~10k. For a live agent the runaway risk is not
-transcription but re-reasoning over a growing transcript — quadratic if done naively.
-Controlled by: a rolling ~3-minute window plus a compact running state, ticking on speech
-pauses rather than a timer, so per-tick cost is constant; reasoning over TEXT, never audio;
-15-minute chunking for the batch path. Break-even against a GPU sits at well over a hundred
-meeting-hours per month, so the conclusion holds even if the unit price estimate is wrong by
-an order of magnitude.
+1. **Meetings happen in Microsoft Teams**, usually hosted in the *client's* tenant.
+2. **Speaker attribution was unsolved**, and it is the thing that makes an in-meeting
+   agent useful rather than decorative. "Speaker 3 asked for supplier drill-down" is close
+   to worthless for extracting action points.
 
-**Controls built in:** pre-flight estimate with confirmation, real per-meeting token cost
-recorded and displayed, and a monthly ceiling that refuses rather than surprises. This
-closes AI-plan open item #3 with measurement instead of a guess.
+A ten-route research sweep, each route adversarially reviewed, established that speaker
+attribution is the real fork. Everything else is a detail by comparison.
 
-**Retention: audio is never persisted.** Streaming means it is captured, transcribed and
-discarded — strictly better than deleting after the fact, because no window exists in which
-a recording could leak. Consent is recorded per attendee before processing, recording state
-is always visible, and nothing reaches CRM or SCRUM without confirmation.
+### Why Recall
 
-**Accepted costs, stated plainly:**
-1. **The provider seam gets thinner.** D6 chose the AI SDK so a provider swap is one line.
-   Realtime audio APIs are far less standardised than text completion, so this feature will
-   couple to one provider more tightly than anything else here. Scoped to this feature.
-2. **A new transport.** WebSockets, in a platform that is REST-only today — and the first
-   surface a client portal must be kept away from.
+It does not diarise. It delivers **a separate audio stream per participant** (up to 16 on
+Teams) with the roster identity attached — `name`, `is_host`, `email`. Attribution is a
+property of the transport, not an inference. Crosstalk stops mattering because two people
+talking over each other are simply two streams.
 
-**Gated per client** by `contracts.allows_sub_processors`, the field Phase 5b added for O8.
+That also makes the alternatives unnecessary rather than beaten: no acoustic diarisation,
+no voice-enrolment intro ritual, and no biometric voiceprints — which would have been
+GDPR Article 9 special-category data, a materially larger obligation than a transcript.
+
+It is also the most mature option, offers an EU (Frankfurt) region on pay-as-you-go, and
+supports audio output so the bot can speak.
+
+### What was rejected, and why
+
+| Option | Why not |
+|---|---|
+| **MeetingBaas** | Best EU story (French SAS) and the best speaking-bot tooling, but a **single mixed mono stream** with speaker names scraped from the Teams UI. Degrades exactly when meetings get interesting. No per-participant track to fall back to. |
+| **Attendee (self-hosted)** | The only zero-processor option, and genuinely tempting. Rejected on cost of *time*, not money: at ~20 meeting-hours/month a VPS costs more than the service (break-even is ~50 h/month), and Chrome-based bots break whenever Microsoft changes the Teams web UI. Absorbing that treadmill is precisely what Recall sells. |
+| **Skribby** | No compliance evidence, no track record. Not for client-confidential audio. |
+| **Teams' own transcript via Graph** | Post-hoc only. The artefact does not exist until transcription stops — no partials, no deltas. Fatal for a live agent. |
+| **Build our own Teams bot** | Per-participant audio is genuinely available via Graph, but it is .NET, needs an Azure Bot registration and a public calling endpoint, and the multi-tenant path is hard. ~€150–300/month fixed before the first meeting. |
+
+### The cost, stated plainly
+
+**This accepts a US-incorporated processor receiving raw client meeting audio**, with no
+self-hosted fallback. That is a bigger concession than D6 refused when it rejected
+OpenRouter — audio is more sensitive than the text that decision protected.
+
+It is accepted knowingly because the alternative that preserves D6 (self-hosted Attendee)
+costs a maintenance burden a one-person business should not carry, and because the EU
+region plus a DPA is a defensible position to describe to a client.
+
+**Mitigations, all required:**
+- Use the **EU region** (`eu-central-1`, Frankfurt), never the default US endpoint.
+- Transcribe with **Gemini**, not Recall's built-in STT, so no *additional* processor sees
+  the content. Recall is transport plus roster metadata.
+- Gate on `contracts.allows_sub_processors` — a client whose DPA forbids sub-processors
+  gets a notes-only meeting.
+- **Self-hosted Attendee remains the documented escape hatch** for exactly that case, which
+  is why capture sits behind a `MeetingCaptureProvider` interface rather than being called
+  directly.
+
+**To obtain from Recall before real client audio:** SOC 2 report and type, ISO 27001
+status, the itemised sub-processor list *for eu-central-1*, whether audio ever transits US
+infrastructure when using the EU region, and the DPA's SCC posture given a US entity.
+
+### The risk that is outside our control
+
+Microsoft ships external-bot detection (`ExternalBotAccessMode`). The default,
+`RequireApprovalWhenDetected`, routes third-party bots to the lobby flagged as suspected
+threats; `BlockDetectedBots` began rolling out August 2026. Microsoft 365 Copilot and
+in-tenant bots are exempt — the policy is explicitly asymmetric against third parties.
+
+Our meetings are in clients' tenants, so we control none of this. Expect a manual admit
+every meeting, and expect some clients to become unreachable. **The browser dual-stream
+capture is kept as a working fallback for exactly that**: no vendor, no admission, no
+client cooperation, and "me versus them" attribution that is complete for a 1:1 call.
+
+### Retained from the first G3 decision
+
+Audio is never persisted. Consent is recorded per attendee before any capture, one refusal
+blocks it, and nothing reaches CRM or the board without confirmation. Cost is metered per
+meeting and displayed.
+
+### Cost
+
+$0.50/recording-hour (raw audio, no Recall STT), no platform fee, first 5 hours free.
+Gemini transcription on top, with **voice-activity gating per stream** — four participants
+for an hour is four stream-hours of audio, and transcribing all of it blindly would cost 4×
+for no benefit. TTS is free at this volume (~€0.03/meeting against a 1M character/month
+free tier), so it carries no weight in the decision.
 
 ---
+
 
 ---
 
