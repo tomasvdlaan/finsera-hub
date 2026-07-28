@@ -29,6 +29,12 @@ export class MeetingsController {
     return this.live.startBot(actor, id, body.meetingUrl);
   }
 
+  /** Is a session still running? Lets a reloaded page rejoin rather than start again. */
+  @Get(':id/live')
+  liveStatus(@CurrentActor() actor: Actor, @Param('id') id: string) {
+    return this.live.status(id);
+  }
+
   @Post(':id/live/stop')
   stopLive(@CurrentActor() actor: Actor, @Param('id') id: string) {
     return this.live.stop(actor, id);

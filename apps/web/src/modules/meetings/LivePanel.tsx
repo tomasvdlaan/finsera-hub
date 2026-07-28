@@ -64,6 +64,37 @@ export function LivePanel({
   const recorder = useRef<MediaRecorder | null>(null);
   const loop = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  /**
+   * Rejoin a session that is still running.
+   *
+   * A refresh loses the panel's state but not the meeting — the bot is still in the call
+   * and the server is still transcribing. Without this the page claims nothing is
+   * happening while it demonstrably is.
+   */
+  useEffect(() => {
+    api
+      .get<{
+        running: boolean;
+        provider?: string;
+        lines?: Line[];
+        proposals?: Proposal[];
+        state?: RunningState;
+        costCents?: number;
+      }>(`/meetings/${noteId}/live`)
+      .then(async (status) => {
+        if (!status.running) return;
+        setSource(status.provider === 'recall' ? 'bot' : 'microphone');
+        setLines(status.lines ?? []);
+        setProposals(status.proposals ?? []);
+        setState(status.state ?? null);
+        setCostCents(status.costCents ?? 0);
+        setRunning(true);
+        await openSocket(); // resume the live feed
+      })
+      .catch(() => undefined);
+    // Only on mount: reconnecting on every render would open a socket per keystroke.
+  }, [noteId]);
+
   useEffect(() => {
     // Labels are hidden until permission is granted, so this list is only useful after a
     // first capture — which is why the microphone option does not depend on it.

@@ -200,6 +200,28 @@ export class LiveRunner {
     await entry.capture.speak(audio, mimeType);
   }
 
+  /**
+   * Whether a session is running, and what it has produced so far.
+   *
+   * The browser holds its live state in memory, so a refresh loses it — but the meeting
+   * has not stopped, and a panel that shows "not running" while a bot sits in the call
+   * is worse than useless. This lets a reload pick the session back up.
+   */
+  status(noteId: string) {
+    const entry = this.sessions.get(noteId);
+    if (!entry) return { running: false as const };
+    return {
+      running: true as const,
+      provider: entry.capture?.providerName ?? 'browser',
+      startedAt: entry.live.startedAt.toISOString(),
+      lines: entry.live.lines,
+      proposals: entry.live.openProposals,
+      state: entry.live.state,
+      costCents: this.live.costCents(entry.live),
+      speakers: [...entry.live.speakers.values()],
+    };
+  }
+
   providers(): MeetingCaptureProvider[] {
     return [this.recall];
   }

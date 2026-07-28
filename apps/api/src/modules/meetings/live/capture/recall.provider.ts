@@ -20,6 +20,13 @@ import type {
  */
 const DEFAULT_REGION = 'https://eu-central-1.recall.ai';
 
+/** What we subscribe to; anything else is worth a look rather than a silent drop. */
+const KNOWN_EVENTS = new Set([
+  'audio_separate_raw.data',
+  'participant_events.join',
+  'participant_events.leave',
+]);
+
 interface RecallMessage {
   event?: string;
   data?: {
@@ -94,6 +101,12 @@ export class RecallProvider implements MeetingCaptureProvider {
           // Per-participant audio: the whole point. Recall's own transcription stays off.
           audio_separate_raw: {},
           participant_events: {},
+          // Recall's defaults record mixed VIDEO and keep it forever. Neither is wanted:
+          // we stream audio through and discard it, and a stored recording of a client
+          // meeting sitting on a vendor's disk is the exact thing this design avoids.
+          // The shortest retention Recall offers is used, and the recording is deleted
+          // explicitly when the bot leaves.
+          retention: { type: 'timed', hours: 1 },
           realtime_endpoints: [
             {
               type: 'websocket',
@@ -134,6 +147,9 @@ export class RecallSession implements CaptureSession {
   private readonly startedAt = new Date();
   private speaking = false;
   private socket: WebSocket | null = null;
+  /** Counters so a shape mismatch is logged a few times, not every frame. */
+  private unrecognised = 0;
+  private noParticipant = 0;
 
   constructor(
     readonly id: string,
@@ -161,8 +177,22 @@ export class RecallSession implements CaptureSession {
       return;
     }
 
+    // Everything below drops messages it does not recognise. Silently doing that is how
+    // "the bot is in the call but the transcript is empty" happens with nothing in the
+    // logs, so the first few unfamiliar frames are recorded verbatim.
+    if (this.unrecognised < 3 && !KNOWN_EVENTS.has(message.event ?? '')) {
+      this.unrecognised++;
+      this.logger.warn(`Unrecognised Recall frame: ${raw.toString().slice(0, 400)}`);
+    }
+
     const participant = message.data?.data?.participant ?? message.data?.participant;
-    if (!participant?.id) return;
+    if (!participant?.id) {
+      if (message.event === 'audio_separate_raw.data' && this.noParticipant < 3) {
+        this.noParticipant++;
+        this.logger.warn(`Audio frame with no participant: ${raw.toString().slice(0, 400)}`);
+      }
+      return;
+    }
     const speaker = this.rememberSpeaker(participant);
 
     if (message.event === 'participant_events.join') {
@@ -268,6 +298,15 @@ export class RecallSession implements CaptureSession {
       method: 'POST',
       headers: { Authorization: `Token ${this.apiKey}` },
     }).catch((error) => this.logger.warn(`Could not stop the bot: ${(error as Error).message}`));
+
+    // The audio was streamed through and discarded here; whatever Recall kept is deleted
+    // rather than left to expire. Short retention is the safety net, not the plan.
+    await fetch(`${this.baseUrl}/api/v1/bot/${this.id}/delete_media/`, {
+      method: 'POST',
+      headers: { Authorization: `Token ${this.apiKey}` },
+    }).catch((error) =>
+      this.logger.warn(`Could not delete the recording: ${(error as Error).message}`),
+    );
 
     this.socket?.close();
   }
