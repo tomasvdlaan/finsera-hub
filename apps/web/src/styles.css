@@ -210,6 +210,20 @@ ol {
   font-family: ui-monospace, SFMono-Regular, monospace;
 }
 
+/* Live transcript: scrolls on its own so the page does not grow for two hours. */
+.transcript {
+  max-height: 22rem;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  background: var(--surface);
+  font-size: 0.9rem;
+}
+.transcript p {
+  margin: 0.2rem 0;
+}
+
 /* Agenda: a checklist that reads as one. */
 ul.agenda {
   list-style: none;

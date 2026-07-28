@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { Timeline } from '../../shell/Timeline.js';
 import type { Client } from '../crm/types.js';
+import { LivePanel } from './LivePanel.js';
 import { Markdown } from './Markdown.js';
 import type { NoteDetail as Detail } from './types.js';
 
@@ -160,6 +161,25 @@ export function NoteDetail() {
         >
           + add agenda item
         </button>
+      </section>
+
+      <section>
+        <h2>Live</h2>
+        <LivePanel
+          noteId={id}
+          canRecord={note.everyoneConsented}
+          onFinished={() => void load()}
+        />
+        {note.transcribedAt && (
+          <p className="muted">
+            Transcribed {note.transcribedAt.slice(0, 16).replace('T', ' ')}
+            {note.transcriptCostCents != null &&
+              ` · cost ${new Intl.NumberFormat('nl-NL', {
+                style: 'currency',
+                currency: 'EUR',
+              }).format(note.transcriptCostCents / 100)}`}
+          </p>
+        )}
       </section>
 
       <section>

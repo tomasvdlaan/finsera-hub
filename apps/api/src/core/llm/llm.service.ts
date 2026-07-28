@@ -1,7 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
+import { z } from 'zod';
 import {
+  generateObject,
   generateText,
   stepCountIs,
   type LanguageModel,
@@ -80,6 +82,85 @@ export class LlmService {
    */
   static hasCredentials(): boolean {
     return Boolean(process.env.ANTHROPIC_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY);
+  }
+
+  /**
+   * A structured answer, validated against a schema.
+   *
+   * Wrapped here rather than called directly for two reasons: the provider seam is meant
+   * to be the only place the AI SDK is touched (D6), and the SDK's generics recurse deep
+   * enough on nested schemas that TypeScript gives up — so the typing is pinned once,
+   * here, instead of at every call site.
+   */
+  async generateStructured<T>(opts: {
+    schema: z.ZodType<T>;
+    system?: string;
+    messages: GenerateOptions['messages'];
+    role?: ModelRole;
+  }): Promise<{ object: T; usage: { inputTokens: number; outputTokens: number } }> {
+    const model = this.resolveModel(opts.role ?? 'fast');
+
+    // The SDK's generics recurse deep enough on nested schemas that TypeScript gives up.
+    // Inference is severed here, in the one wrapper, rather than at every call site —
+    // the schema still validates at runtime, which is what actually protects the caller.
+    const call = generateObject as unknown as (args: {
+      model: LanguageModel;
+      schema: unknown;
+      system?: string;
+      messages: GenerateOptions['messages'];
+      maxRetries: number;
+    }) => Promise<{ object: unknown; usage?: { inputTokens?: number; outputTokens?: number } }>;
+
+    const result = await call({
+      model,
+      schema: opts.schema,
+      system: opts.system,
+      messages: opts.messages,
+      maxRetries: 2,
+    });
+
+    // Validated rather than trusted: the SDK asked for this shape, this asserts it got it.
+    return {
+      object: opts.schema.parse(result.object),
+      usage: {
+        inputTokens: result.usage?.inputTokens ?? 0,
+        outputTokens: result.usage?.outputTokens ?? 0,
+      },
+    };
+  }
+
+  /**
+   * Transcribe or otherwise read a file (audio, image) with a prompt.
+   *
+   * Separate from generate() because it takes no tools and returns plain text: the model
+   * is being used as a converter, not an agent.
+   */
+  async generateFromFile(opts: {
+    prompt: string;
+    data: Buffer;
+    mediaType: string;
+    role?: ModelRole;
+  }): Promise<{ text: string; usage: { inputTokens: number; outputTokens: number } }> {
+    const result = await generateText({
+      model: this.resolveModel(opts.role ?? 'fast'),
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: opts.prompt },
+            { type: 'file', data: opts.data, mediaType: opts.mediaType },
+          ],
+        },
+      ],
+      maxRetries: 2,
+    });
+    return {
+      text: result.text,
+      usage: {
+        inputTokens: result.usage?.inputTokens ?? 0,
+        outputTokens: result.usage?.outputTokens ?? 0,
+      },
+    };
   }
 
   async generate(opts: GenerateOptions): Promise<GenerateResult> {

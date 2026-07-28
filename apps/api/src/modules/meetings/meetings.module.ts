@@ -7,6 +7,8 @@ import { ScrumModule } from '../scrum/scrum.module.js';
 import { MeetingsController } from './meetings.controller.js';
 import { meetingsManifest } from './meetings.manifest.js';
 import { MeetingsService } from './meetings.service.js';
+import { LiveGateway } from './live/live.gateway.js';
+import { LiveService } from './live/live.service.js';
 
 /**
  * Meeting Notes. Depends on CRM (the client a meeting is with) and SCRUM (where an
@@ -15,7 +17,7 @@ import { MeetingsService } from './meetings.service.js';
 @Module({
   imports: [CrmModule, ScrumModule],
   controllers: [MeetingsController],
-  providers: [MeetingsService],
+  providers: [MeetingsService, LiveService, LiveGateway],
   exports: [MeetingsService],
 })
 export class MeetingsModule implements OnModuleInit {

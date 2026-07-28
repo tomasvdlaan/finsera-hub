@@ -7,6 +7,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
+import type { Actor } from '@platform/contracts';
 import type { Request } from 'express';
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from 'jose';
 import { IS_PUBLIC } from './public.decorator.js';
@@ -57,6 +58,18 @@ export class AuthGuard implements CanActivate, OnModuleInit {
     const token = req.headers.authorization?.replace(/^Bearer /i, '');
     if (!token) throw new UnauthorizedException('Missing bearer token');
 
+    req.actor = await this.verifyToken(token);
+    return true;
+  }
+
+  /**
+   * Verify a token and resolve who it belongs to.
+   *
+   * Public because the live meeting socket needs it: a WebSocket has no Authorization
+   * header, so the token arrives as a query parameter — but it is then checked by exactly
+   * this code. A second verification path is how one of them ends up weaker.
+   */
+  async verifyToken(token: string): Promise<Actor> {
     if (!this.issuer) {
       throw new UnauthorizedException('ZITADEL_ISSUER is not configured');
     }
@@ -84,7 +97,7 @@ export class AuthGuard implements CanActivate, OnModuleInit {
       throw new UnauthorizedException('Invalid token');
     }
 
-    req.actor = await this.users.resolveFromClaims(
+    return this.users.resolveFromClaims(
       {
         sub: payload.sub!,
         email: payload.email as string | undefined,
@@ -93,7 +106,5 @@ export class AuthGuard implements CanActivate, OnModuleInit {
       },
       token,
     );
-
-    return true;
   }
 }

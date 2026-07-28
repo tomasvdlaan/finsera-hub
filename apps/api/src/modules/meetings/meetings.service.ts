@@ -434,6 +434,40 @@ export class MeetingsService {
     return this.get(actor, noteId);
   }
 
+  /**
+   * Record what a live session cost, once it has ended.
+   *
+   * Only the cost and the fact it happened — the audio itself was never written
+   * anywhere, and the transcript arrives through the ordinary body update.
+   */
+  async recordTranscription(
+    actor: Actor,
+    id: string,
+    result: { tokens: number; costCents: number; durationSeconds: number },
+  ) {
+    await this.require(actor, 'meetings.write');
+    await this.db.transaction(async (tx) => {
+      await tx
+        .update(notes)
+        .set({
+          transcribedAt: new Date(),
+          transcriptTokens: result.tokens,
+          transcriptCostCents: result.costCents,
+          updatedAt: new Date(),
+        })
+        .where(eq(notes.id, id));
+      await this.audit.record(tx, {
+        actorId: actor.userId,
+        action: 'meeting_note.transcribed',
+        entityType: 'meeting_note',
+        entityId: id,
+        detail: result,
+        aiInitiated: true,
+      });
+    });
+    return this.get(actor, id);
+  }
+
   // ── search ─────────────────────────────────────────────────
 
   /** Chunk and embed a note's body. Replaces whatever was indexed before. */
