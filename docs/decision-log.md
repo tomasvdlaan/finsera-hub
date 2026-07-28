@@ -119,6 +119,50 @@ holds at ten clients; at one it inverts. Revisit when a second rate appears.
 
 ---
 
+## G3 — Meeting transcription and the live agent (2026-07-28) · **Decided**
+
+**Route: the existing LLM provider, metered — no new sub-processor.** Audio is transcribed
+on `MODEL_FAST`; the strong model only ever sees transcript text.
+
+**Why not a dedicated STT vendor:** it is exactly the second processor D6 rejected when it
+refused OpenRouter, and it would handle audio, which is more sensitive than the text already
+being sent. The paperwork owed (O8) stays one conversation instead of two.
+
+**Why not self-hosted:** for a *live* agent it does not deliver what it appears to. It keeps
+audio local, but the agent must still send transcript text to a model to reason about it —
+so "no client content leaves" is unachievable with a live agent by any route. Self-hosting
+would be fixed monthly compute for a partial benefit. It remains the escape hatch if a
+client's DPA forbids sub-processors, in which case that client's meetings are notes-only.
+
+**Cost shape.** Audio tokenises by duration (~25–32 tokens/second), so an hour is ~100k
+input tokens; the transcript it yields is ~10k. For a live agent the runaway risk is not
+transcription but re-reasoning over a growing transcript — quadratic if done naively.
+Controlled by: a rolling ~3-minute window plus a compact running state, ticking on speech
+pauses rather than a timer, so per-tick cost is constant; reasoning over TEXT, never audio;
+15-minute chunking for the batch path. Break-even against a GPU sits at well over a hundred
+meeting-hours per month, so the conclusion holds even if the unit price estimate is wrong by
+an order of magnitude.
+
+**Controls built in:** pre-flight estimate with confirmation, real per-meeting token cost
+recorded and displayed, and a monthly ceiling that refuses rather than surprises. This
+closes AI-plan open item #3 with measurement instead of a guess.
+
+**Retention: audio is never persisted.** Streaming means it is captured, transcribed and
+discarded — strictly better than deleting after the fact, because no window exists in which
+a recording could leak. Consent is recorded per attendee before processing, recording state
+is always visible, and nothing reaches CRM or SCRUM without confirmation.
+
+**Accepted costs, stated plainly:**
+1. **The provider seam gets thinner.** D6 chose the AI SDK so a provider swap is one line.
+   Realtime audio APIs are far less standardised than text completion, so this feature will
+   couple to one provider more tightly than anything else here. Scoped to this feature.
+2. **A new transport.** WebSockets, in a platform that is REST-only today — and the first
+   surface a client portal must be kept away from.
+
+**Gated per client** by `contracts.allows_sub_processors`, the field Phase 5b added for O8.
+
+---
+
 ---
 
 ## G0 — Walking skeleton (2026-07-27)
