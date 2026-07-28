@@ -6,6 +6,8 @@
  * and whatever proposals you accept.
  */
 export interface TranscriptLine {
+  /** Stable identity, so a line delivered twice is recognisable as one line. */
+  id: string;
   /** Seconds from the start of the session, so the UI can show a timeline. */
   at: number;
   text: string;
@@ -76,6 +78,7 @@ export class LiveSession {
     const clean = text.trim();
     if (!clean) return null;
     const line: TranscriptLine = {
+      id: `${this.noteId}-${this.lines.length}-${Date.now()}`,
       at: at ?? Math.round((Date.now() - this.startedAt.getTime()) / 1000),
       text: clean,
       speaker: speaker?.name,

@@ -6,6 +6,7 @@ import { getUser } from '../../lib/auth.js';
 const SEGMENT_MS = 25_000;
 
 interface Line {
+  id: string;
   at: number;
   text: string;
   /** Present when the capture provider knows who spoke — a real name, not "Speaker 1". */
@@ -105,6 +106,8 @@ export function LivePanel({
   }, [running]);
 
   const stopEverything = useCallback(() => {
+    if (socket.current && socket.current.readyState <= WebSocket.OPEN) socket.current.close();
+    socket.current = null;
     if (loop.current) clearTimeout(loop.current);
     loop.current = null;
     if (recorder.current && recorder.current.state !== 'inactive') recorder.current.stop();
@@ -175,6 +178,14 @@ export function LivePanel({
   };
 
   const openSocket = async () => {
+    // React StrictMode invokes mount effects twice in development, which opened two
+    // sockets — and every broadcast then arrived twice, duplicating the transcript.
+    // One panel is one connection regardless of how often the effect runs.
+    const existing = socket.current;
+    if (existing && (existing.readyState === WebSocket.OPEN || existing.readyState === WebSocket.CONNECTING)) {
+      return existing;
+    }
+
     const user = await getUser();
     const url = new URL('/api/meetings/live', window.location.href);
     url.protocol = url.protocol.replace('http', 'ws');
@@ -242,9 +253,15 @@ export function LivePanel({
         setRunning(true);
         if (capturing) recordSegment();
         break;
-      case 'line':
-        setLines((current) => [...current, message.line as Line]);
+      case 'line': {
+        const line = message.line as Line;
+        setLines((current) =>
+          // Belt and braces: a reconnect can replay, and a duplicated line in a client
+          // meeting record is worse than a missing one.
+          current.some((l) => l.id === line.id) ? current : [...current, line],
+        );
         break;
+      }
       case 'speaker':
         break; // roster changes are visible in the transcript itself
       case 'proposals':
@@ -397,8 +414,8 @@ export function LivePanel({
               {lines.length === 0 ? (
                 <p className="muted">Listening…</p>
               ) : (
-                lines.map((line, i) => (
-                  <p key={i}>
+                lines.map((line) => (
+                  <p key={line.id}>
                     <span className="muted">{clock(line.at)}</span>{' '}
                     {line.speaker && <strong>{line.speaker}: </strong>}
                     {line.text}
