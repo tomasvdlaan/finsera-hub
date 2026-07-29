@@ -59,13 +59,17 @@ export class PermissionService {
 
     const declared = this.manifests
       .all()
-      .some((m) => m.permissions.some((p) => p.capability === capability));
+      .flatMap((m) => m.permissions)
+      .find((p) => p.capability === capability);
     if (!declared) {
       throw new Error(
         `Unknown capability '${capability}' — declare it in the owning module's manifest.`,
       );
     }
 
-    return actor.role === 'admin' || actor.role === 'member';
+    if (actor.role === 'admin') return true;
+    // A capability may opt out of the members-hold-everything default. Reserved for the
+    // few whose blast radius reaches outside the business, such as granting a client a login.
+    return actor.role === 'member' && !declared.adminOnly;
   }
 }

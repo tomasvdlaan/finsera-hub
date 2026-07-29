@@ -32,6 +32,9 @@ export const portalManifest = defineManifest({
     {
       capability: 'portal.admin',
       description: 'Invite a client login, and revoke one.',
+      // The one capability that hands data to someone outside the business. Members hold
+      // every other declared capability by default; this one they do not.
+      adminOnly: true,
     },
   ],
 

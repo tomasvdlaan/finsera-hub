@@ -51,6 +51,14 @@ export const subscriptionSchema = z.object({
 export const permissionSchema = z.object({
   capability: z.string(), // 'demo.items.create'
   description: z.string(),
+  /**
+   * Withhold this from members, who otherwise hold every declared capability (v0).
+   *
+   * For the rare capability whose blast radius reaches outside the business — granting a
+   * client a login, say — where "everyone internal can do it" is the wrong default and
+   * waiting for a full role model would mean shipping without the restriction.
+   */
+  adminOnly: z.boolean().default(false),
 });
 
 export const navigationSchema = z.object({

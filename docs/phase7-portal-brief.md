@@ -150,6 +150,61 @@ silent no-op that still reported green.
 That is the same failure mode as the five bugs in Phase 6c: **it does not produce an
 error, it produces a pass.**
 
+## 5b. Step 2 — sign-in
+
+Built: `PortalUsersService`, `PortalAuthGuard`, and one platform change described below.
+Not built, because it is not code: the Zitadel project itself (§5c).
+
+**Audience separation is the whole mechanism.** Both projects live in the same Zitadel
+instance and share an issuer, so a valid signature does not distinguish an internal token
+from a portal one — only the `aud` claim does. Without that check an internal user's token
+would pass the portal guard and be resolved against `portal.users`, leaving the entire
+separation resting on that lookup failing to find a row.
+
+So the portal guard requires its audience, where the internal guard tolerates an empty one
+(`audience || undefined`). That tolerance is defensible for a single trusted tenant and
+indefensible here: an unset variable would silently turn the check off. **An unconfigured
+portal refuses every request rather than accepting any token the instance ever issued.**
+
+It warns at boot instead of dying only because the portal has no endpoints yet — failing
+the whole platform's boot over an unreachable feature would be theatre. A portal client id
+*equal* to the internal one is fatal, because that is a wrong configuration rather than a
+missing one, and its symptom is an internal token quietly working.
+
+**A portal login is invited, never self-provisioned.** Internal users are created
+just-in-time on first sign-in, which is right when the IdP only admits people we hired,
+and exactly wrong here: with JIT, anyone able to obtain a portal-project token becomes a
+portal user and the only remaining question is whose data they map to. An unrecognised
+subject is refused and logged. Revocation sets a column rather than deleting the row, so
+"who could see this client's invoices last year" survives the person leaving.
+
+### The platform change this forced
+
+`portal.admin` is the first capability that hands data to someone outside the business,
+and under the v0 model *members hold every declared capability* — so declaring it changed
+nothing. Rather than special-case a role check inside the portal (two permission systems,
+one of which drifts), `permissionSchema` gained an **`adminOnly`** flag that any module can
+set. `portal.admin` is currently the only capability that uses it.
+
+## 5c. What is yours to do in Zitadel
+
+None of this is code, and all of it is a prerequisite for step 3.
+
+1. **New project** — call it `Finsera Portal`. A separate project, not a new application
+   inside the existing one: the point is a distinct audience.
+2. **New application** inside it, type *User Agent* / PKCE, for the portal front end.
+3. **Token Settings → Auth Token Type: JWT.** Zitadel defaults to opaque tokens, which
+   cannot be validated offline. The guard names this setting in its error, because the
+   generic 401 it otherwise produces cost an afternoon during Phase 6c.
+4. **Login methods** — this is G4, and it is entirely configuration. Enable password and
+   passwordless (magic link); add SSO federation later for a client that has an IdP.
+5. **Turn off self-registration** for the project. The invite check refuses unknown
+   subjects anyway, but two locks on this door are correct.
+6. Put the application's client id in `ZITADEL_PORTAL_CLIENT_ID` (see `.env.example`).
+
+The subject for a new client login comes from Zitadel once the person exists there; that
+is what `invite()` records against a client id.
+
 ## 6. Deliberately not in this phase
 
 - **A portal assistant.** §3.
