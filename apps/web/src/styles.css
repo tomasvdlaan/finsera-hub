@@ -1,12 +1,39 @@
 :root {
+  /* Surfaces and text */
   --bg: #ffffff;
   --surface: #f7f7f8;
+  --surface-raised: #ffffff;
   --text: #18181b;
   --muted: #6b7280;
   --border: #e4e4e7;
+  --border-strong: #c7c7cc;
+
+  /* Accent */
   --accent: #2563eb;
-  --error: #b91c1c;
+  --accent-contrast: #ffffff;
+  --accent-bg: #eff6ff;
+
+  /*
+   * Semantic status colours.
+   *
+   * --danger, --warning and --ok were used at five sites with hardcoded hex fallbacks and
+   * defined nowhere, so every one of them silently rendered the fallback and none of them
+   * changed with the theme. --error is kept as an alias because eight existing rules and
+   * the .error class name depend on it; new work should reach for --danger.
+   */
+  --danger: #b91c1c;
+  --danger-bg: #fef2f2;
+  --error: var(--danger);
+  --warning: #a16207;
+  --warning-bg: #fefce8;
+  --ok: #15803d;
+  --ok-bg: #f0fdf4;
+
+  /* Focus ring, defined once so every interactive element rings identically. */
+  --focus: var(--accent);
+
   --radius: 8px;
+  --radius-sm: 4px;
   color-scheme: light dark;
 }
 
@@ -14,11 +41,24 @@
   :root {
     --bg: #111113;
     --surface: #18181b;
+    --surface-raised: #1f1f23;
     --text: #f4f4f5;
     --muted: #9ca3af;
     --border: #2a2a2e;
+    --border-strong: #3f3f46;
+
     --accent: #60a5fa;
-    --error: #f87171;
+    --accent-contrast: #0b1220;
+    --accent-bg: #172033;
+
+    /* Lighter and less saturated than their light-mode counterparts: the same red that
+       reads as urgent on white vibrates on near-black and fails contrast against it. */
+    --danger: #f87171;
+    --danger-bg: #2a1416;
+    --warning: #fbbf24;
+    --warning-bg: #2a2113;
+    --ok: #4ade80;
+    --ok-bg: #12251a;
   }
 }
 
@@ -222,6 +262,64 @@ button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/*
+ * Keyboard focus was invisible everywhere: the only :focus rule in 900 lines was on grid
+ * inputs, so tabbing through the app showed nothing at all. :focus-visible rather than
+ * :focus, so a mouse click does not leave a ring behind.
+ */
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+/*
+ * Primary: one per screen, for the action the page exists to perform.
+ */
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-contrast);
+  font-weight: 500;
+}
+button.primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+/*
+ * Destructive: the only control allowed to be red.
+ */
+button.destructive,
+.link-button.destructive {
+  color: var(--danger);
+}
+button.destructive {
+  border-color: var(--danger);
+  background: var(--danger-bg);
+}
+button.destructive:hover:not(:disabled) {
+  border-color: var(--danger);
+  background: var(--danger);
+  color: var(--bg);
+}
+
+/*
+ * Quiet: a text-weight control for secondary actions inside a row.
+ *
+ * Its hover used to be `color: var(--error)`, which turned edit, cancel, download PDF,
+ * download UBL, + add line and delete the same red — so the danger signal was on every
+ * control and therefore on none of them. Quiet now hovers toward the text colour, and red
+ * is reserved for .destructive.
+ */
 .link-button {
   border: none;
   background: none;
@@ -230,7 +328,11 @@ button:disabled {
   font-size: 0.85rem;
 }
 .link-button:hover {
-  color: var(--error);
+  color: var(--text);
+  text-decoration: underline;
+}
+.link-button.destructive:hover {
+  color: var(--danger);
 }
 .row {
   display: flex;
@@ -486,11 +588,17 @@ li.insight.sev-info {
   gap: 0.75rem;
   margin: 0.5rem 0 1rem;
 }
+/*
+ * Declared twice before, 240 lines apart, with different padding and a hardcoded 6px
+ * radius in the first — so every .stat on the site silently rendered the second block and
+ * the first was dead weight that read as authoritative.
+ */
 .stat {
   border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 0.75rem 0.9rem;
+  border-radius: var(--radius);
+  padding: 0.5rem 0.9rem;
   background: var(--surface);
+  min-width: 92px;
 }
 .stat a {
   text-decoration: none;
@@ -501,9 +609,10 @@ li.insight.sev-info {
   text-decoration: underline;
 }
 .stat-value {
-  font-size: 1.5rem;
+  font-size: 1.4rem;
   font-weight: 600;
   line-height: 1.3;
+  font-variant-numeric: tabular-nums;
 }
 .stat-value.urgent {
   color: var(--danger, #d05a5a);
@@ -731,17 +840,6 @@ a.badge:hover {
   flex-wrap: wrap;
   gap: 0.5rem;
   margin: 1rem 0 1.5rem;
-}
-.stat {
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 0.5rem 0.9rem;
-  background: var(--surface);
-  min-width: 92px;
-}
-.stat-value {
-  font-size: 1.4rem;
-  font-weight: 600;
 }
 .module-card {
   border: 1px solid var(--border);

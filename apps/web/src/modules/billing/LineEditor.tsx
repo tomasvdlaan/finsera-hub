@@ -155,7 +155,7 @@ export function LineEditor({
                   <td className="muted">{money(Math.round(amount))}</td>
                   <td>
                     <button
-                      className="link-button"
+                      className="link-button destructive"
                       onClick={() => removeRow(i)}
                       aria-label={`Remove line ${i + 1}`}
                     >

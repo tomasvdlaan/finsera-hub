@@ -120,7 +120,7 @@ export function DocumentDetail() {
         <button className="link-button" onClick={() => void reindex()}>
           re-index
         </button>
-        <button className="link-button" onClick={() => void archive()}>
+        <button className="link-button destructive" onClick={() => void archive()}>
           archive
         </button>
       </div>

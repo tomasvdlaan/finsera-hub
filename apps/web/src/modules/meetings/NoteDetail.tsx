@@ -148,7 +148,7 @@ export function NoteDetail() {
           </button>
         )}
         <button
-          className="link-button"
+          className="link-button destructive"
           onClick={() =>
             void act(async () => {
               if (!window.confirm('Delete this note?')) return;
@@ -186,7 +186,7 @@ export function NoteDetail() {
                   <span className={item.covered ? 'muted' : undefined}>{item.title}</span>
                 </label>
                 <button
-                  className="link-button"
+                  className="link-button destructive"
                   onClick={() => void act(() => api.del(`/meetings/${id}/agenda/${item.id}`))}
                   aria-label={`Remove ${item.title}`}
                 >
@@ -359,7 +359,7 @@ export function NoteDetail() {
                     declined
                   </button>
                   <button
-                    className="link-button"
+                    className="link-button destructive"
                     onClick={() =>
                       void act(() => api.del(`/meetings/${id}/attendees/${person.id}`))
                     }

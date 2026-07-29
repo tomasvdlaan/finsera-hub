@@ -179,7 +179,7 @@ export function EntryRow({
             edit
           </button>
           <button
-            className="link-button"
+            className="link-button destructive"
             onClick={() => void onDelete()}
             disabled={frozen}
             title={frozen ? 'On an issued invoice — credit it to make changes' : undefined}

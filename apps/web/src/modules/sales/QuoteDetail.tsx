@@ -140,7 +140,7 @@ export function QuoteDetail() {
               Send quote
             </button>
             <button
-              className="link-button"
+              className="link-button destructive"
               onClick={() =>
                 void act(async () => {
                   await api.del(`/sales/quotes/${id}`);

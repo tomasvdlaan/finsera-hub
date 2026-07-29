@@ -96,7 +96,7 @@ export function ContractDetail() {
               Mark signed
             </button>
             <button
-              className="link-button"
+              className="link-button destructive"
               onClick={() =>
                 void act(async () => {
                   await api.del(`/sales/contracts/${id}`);
@@ -110,7 +110,7 @@ export function ContractDetail() {
         )}
         {contract.status === 'signed' && (
           <button
-            className="link-button"
+            className="link-button destructive"
             onClick={() =>
               void act(() =>
                 api.post(`/sales/contracts/${id}/terminate`, {

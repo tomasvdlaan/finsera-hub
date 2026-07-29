@@ -109,7 +109,7 @@ export function TaskDetail() {
           ))}
         </select>
         <button onClick={() => void startTimer()}>Start timer</button>
-        <button className="link-button" onClick={() => void archive()}>
+        <button className="link-button destructive" onClick={() => void archive()}>
           archive
         </button>
       </div>

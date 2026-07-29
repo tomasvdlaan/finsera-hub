@@ -105,7 +105,7 @@ export function InvoiceDetail() {
               Issue invoice
             </button>
             <button
-              className="link-button"
+              className="link-button destructive"
               onClick={() => void act(async () => {
                 await api.del(`/billing/invoices/${id}`);
                 navigate('/billing');

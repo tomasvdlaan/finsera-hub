@@ -174,7 +174,7 @@ export function RateCards() {
                               </button>
                             )}
                             <button
-                              className="link-button"
+                              className="link-button destructive"
                               onClick={() =>
                                 void act(() =>
                                   api.del(`/sales/rate-cards/${card.id}/rates/${line.id}`),

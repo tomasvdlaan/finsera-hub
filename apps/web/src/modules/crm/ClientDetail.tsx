@@ -123,7 +123,7 @@ export function ClientDetail() {
             visit site
           </a>
         )}
-        <button className="link-button" onClick={() => void archive()}>
+        <button className="link-button destructive" onClick={() => void archive()}>
           archive client
         </button>
       </div>

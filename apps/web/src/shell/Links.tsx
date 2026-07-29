@@ -68,7 +68,7 @@ export function Links({
               <li key={l.id}>
                 <span className="badge">{l.kind ?? 'linked'}</span>
                 <RouterLink to={other.urlPath}>{other.displayName}</RouterLink>
-                <button className="link-button" onClick={() => void remove(l.id)}>
+                <button className="link-button destructive" onClick={() => void remove(l.id)}>
                   remove
                 </button>
               </li>
