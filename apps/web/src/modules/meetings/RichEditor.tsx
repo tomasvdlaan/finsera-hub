@@ -10,6 +10,7 @@ import { EditorContent, useEditor, type Editor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { Markdown } from 'tiptap-markdown';
 import { api } from '../../lib/api.js';
+import { useDialog } from '../../shell/ui/Dialog.js';
 
 /** tiptap-markdown adds this to storage at runtime; it is not in TipTap's own types. */
 type MarkdownStorage = { markdown: { getMarkdown(): string } };
@@ -177,6 +178,7 @@ async function uploadImage(file: File): Promise<string> {
 }
 
 function Toolbar({ editor, onUpload }: { editor: Editor; onUpload: (files: File[]) => void }) {
+  const { ask } = useDialog();
   const chain = useCallback(() => editor.chain().focus(), [editor]);
 
   const Button = ({
@@ -235,10 +237,26 @@ function Toolbar({ editor, onUpload }: { editor: Editor; onUpload: (files: File[
         onClick={() => chain().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()} />
       <Button label="🔗" title="Link"
         onClick={() => {
-          const url = window.prompt('Link to where?', editor.getAttributes('link').href ?? 'https://');
-          if (url === null) return;
-          if (!url.trim()) return chain().unsetLink().run();
-          chain().setLink({ href: url.trim() }).run();
+          void (async () => {
+            const values = await ask({
+              title: 'Link to where?',
+              body: 'Leave it empty to remove the link.',
+              confirmLabel: 'Apply link',
+              fields: [
+                {
+                  name: 'url',
+                  label: 'Address',
+                  // Not type="url": the field must accept empty to mean "unlink", and a
+                  // url input with a value refuses to submit anything unparseable.
+                  defaultValue: (editor.getAttributes('link').href as string) ?? 'https://',
+                  placeholder: 'https://',
+                },
+              ],
+            });
+            if (!values) return;
+            if (!values.url.trim()) return chain().unsetLink().run();
+            chain().setLink({ href: values.url.trim() }).run();
+          })();
         }} />
       <Button label="🖼" title="Insert an image"
         onClick={() => {

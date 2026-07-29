@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../lib/api.js';
+import { useDialog } from '../../shell/ui/Dialog.js';
 import { Timeline } from '../../shell/Timeline.js';
 import type { Client } from '../crm/types.js';
 import { LivePanel } from './LivePanel.js';
@@ -58,6 +59,7 @@ function AddInline({
 }
 
 export function NoteDetail() {
+  const { confirm } = useDialog();
   const { id = '' } = useParams();
   const navigate = useNavigate();
   const [note, setNote] = useState<Detail | null>(null);
@@ -151,7 +153,13 @@ export function NoteDetail() {
           className="link-button destructive"
           onClick={() =>
             void act(async () => {
-              if (!window.confirm('Delete this note?')) return;
+              const go = await confirm({
+                title: 'Delete this note?',
+                body: 'The transcript, agenda and any AI notes go with it. This cannot be undone.',
+                confirmLabel: 'Delete note',
+                destructive: true,
+              });
+              if (!go) return;
               await api.del(`/meetings/${id}`);
               navigate('/meetings');
             })

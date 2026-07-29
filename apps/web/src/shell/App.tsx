@@ -15,6 +15,8 @@ import { Assistant } from './Assistant.js';
 import { Modules } from './Modules.js';
 import { Settings } from './Settings.js';
 import { StatusBar } from './StatusBar.js';
+import { DialogProvider } from './ui/Dialog.js';
+import { ToastProvider } from './ui/Toast.js';
 import { useDocumentTitle } from './useDocumentTitle.js';
 import { AuthProvider, useAuth } from './AuthProvider.js';
 
@@ -27,7 +29,12 @@ interface NavItem {
 export function App() {
   return (
     <AuthProvider>
-      <Shell />
+      {/* Outside the router so a confirmation survives the navigation it may trigger. */}
+      <ToastProvider>
+        <DialogProvider>
+          <Shell />
+        </DialogProvider>
+      </ToastProvider>
     </AuthProvider>
   );
 }

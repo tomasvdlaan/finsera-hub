@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { api } from '../../lib/api.js';
+import { useDialog } from '../../shell/ui/Dialog.js';
+import { useToast } from '../../shell/ui/Toast.js';
 import type { Client, Project } from '../crm/types.js';
 import { money } from './types.js';
 import type { RateCard } from './contractTypes.js';
@@ -12,6 +14,8 @@ import type { RateCard } from './contractTypes.js';
  * never quietly alter a draft invoice.
  */
 export function RateCards() {
+  const { ask } = useDialog();
+  const toast = useToast();
   const [cards, setCards] = useState<RateCard[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -60,32 +64,79 @@ export function RateCards() {
     });
   };
 
+  /**
+   * One dialog with typed fields, replacing three chained prompts.
+   *
+   * The prompts were not merely ugly. Each was free text, so `Number('thirty five')` is
+   * NaN cents and a date typed as 12/03 never parsed — and browsers suppress prompts after
+   * a few in a row, so the third one could simply not appear and the rate would be filed
+   * with whatever the second returned.
+   */
   const addRate = (card: RateCard) =>
     act(async () => {
-      const role = window.prompt('Role?', 'Consultant');
-      if (!role) return;
-      const euros = window.prompt(`Rate for ${role} in euros per hour?`, '35.00');
-      if (!euros) return;
-      const from = window.prompt('In force from? (YYYY-MM-DD)', new Date().toISOString().slice(0, 10));
-      if (!from) return;
-      await api.post(`/sales/rate-cards/${card.id}/rates`, {
-        role: role.trim(),
-        rateCents: Math.round(Number(euros.replace(',', '.')) * 100),
-        effectiveFrom: from,
+      const values = await ask({
+        title: 'Add a rate',
+        body: 'Applies from the date given; earlier work keeps the rate in force at the time.',
+        confirmLabel: 'Add rate',
+        fields: [
+          { name: 'role', label: 'Role', defaultValue: 'Consultant', required: true },
+          {
+            name: 'euros',
+            label: 'Rate per hour (€)',
+            type: 'number',
+            step: '0.01',
+            defaultValue: '35.00',
+            required: true,
+          },
+          {
+            name: 'from',
+            label: 'In force from',
+            type: 'date',
+            defaultValue: new Date().toISOString().slice(0, 10),
+            required: true,
+          },
+        ],
       });
+      if (!values) return;
+      await api.post(`/sales/rate-cards/${card.id}/rates`, {
+        role: values.role.trim(),
+        rateCents: Math.round(Number(values.euros) * 100),
+        effectiveFrom: values.from,
+      });
+      toast.ok(`${values.role} rate added`);
     });
 
+  /**
+   * Pick the project, rather than retype its name.
+   *
+   * This asked for a project by exact name match against a list printed into the prompt —
+   * so a trailing space, a different capitalisation, or a name you misremembered all
+   * produced "No project by that name" after the work of typing it.
+   */
   const applyToProject = (card: RateCard, role: string) =>
     act(async () => {
       const options = projects.filter((p) => !card.clientId || p.clientId === card.clientId);
       if (options.length === 0) throw new Error('No projects for this client');
-      const chosen = window.prompt(
-        `Apply the ${role} rate to which project?\n\n${options.map((p) => p.name).join('\n')}`,
-        options[0]?.name ?? '',
-      );
-      const project = options.find((p) => p.name === chosen?.trim());
-      if (!project) throw new Error('No project by that name');
-      await api.post(`/sales/rate-cards/${card.id}/apply`, { projectId: project.id, role });
+      const values = await ask({
+        title: `Apply the ${role} rate`,
+        body: 'The project keeps this rate until it is changed again.',
+        confirmLabel: 'Apply rate',
+        fields: [
+          {
+            name: 'projectId',
+            label: 'Project',
+            type: 'select',
+            defaultValue: options[0]?.id,
+            options: options.map((p) => ({ value: p.id, label: p.name })),
+          },
+        ],
+      });
+      if (!values) return;
+      await api.post(`/sales/rate-cards/${card.id}/apply`, {
+        projectId: values.projectId,
+        role,
+      });
+      toast.ok(`${role} rate applied to ${options.find((p) => p.id === values.projectId)?.name}`);
     });
 
   return (

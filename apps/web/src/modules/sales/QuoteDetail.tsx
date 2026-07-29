@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../lib/api.js';
+import { useDialog } from '../../shell/ui/Dialog.js';
+import { useToast } from '../../shell/ui/Toast.js';
 import { getUser } from '../../lib/auth.js';
 import { Timeline } from '../../shell/Timeline.js';
 import { EditableField } from '../crm/EditableField.js';
@@ -9,6 +11,8 @@ import { QuoteLineEditor } from './QuoteLineEditor.js';
 import { UNIT_LABELS, money, type QuoteDetail as Detail } from './types.js';
 
 export function QuoteDetail() {
+  const { confirm, ask } = useDialog();
+  const toast = useToast();
   const { id = '' } = useParams();
   const navigate = useNavigate();
   const [quote, setQuote] = useState<Detail | null>(null);
@@ -50,35 +54,62 @@ export function QuoteDetail() {
 
   const send = () =>
     act(async () => {
-      if (
-        !window.confirm(
-          'Send this quote? It gets its number and freezes — changes after this are a revision.',
-        )
-      )
-        return;
+      const go = await confirm({
+        title: 'Send this quote?',
+        body: 'It is allocated its number and freezes, so the version the client reads stays exactly as they read it. Changes after this are a revision.',
+        confirmLabel: 'Send quote',
+      });
+      if (!go) return;
       await api.post(`/sales/quotes/${id}/send`, {});
+      toast.ok('Quote sent');
     });
 
   const accept = () =>
     act(async () => {
       const existing = projects.filter((p) => p.id !== quote?.projectCreatedId);
-      const createNew =
-        existing.length === 0 ||
-        window.confirm(
-          `Create a new project for this quote?\n\nOK = new project "${quote?.title}"\nCancel = attach to an existing project`,
-        );
 
-      if (createNew) {
+      /*
+       * One question with one answer, replacing a confirm whose Cancel meant "no, do the
+       * other thing" — the most confusing shape a dialog can take, because Cancel
+       * everywhere else means "do nothing" and here it committed you to a second prompt.
+       */
+      if (existing.length === 0) {
+        const go = await confirm({
+          title: 'Accept this quote?',
+          body: `A new project "${quote?.title}" is created, carrying the quote's rate and budget.`,
+          confirmLabel: 'Accept and create project',
+        });
+        if (!go) return;
         await api.post(`/sales/quotes/${id}/accept`, { createProject: true });
+        toast.ok('Quote accepted');
         return;
       }
-      const name = window.prompt(
-        `Attach to which project?\n\n${existing.map((p) => p.name).join('\n')}`,
-        existing[0]?.name ?? '',
+
+      const values = await ask({
+        title: 'Accept this quote',
+        body: 'Accepting records the client’s agreement. The work needs a project to hang off.',
+        confirmLabel: 'Accept quote',
+        fields: [
+          {
+            name: 'projectId',
+            label: 'Attach the work to',
+            type: 'select',
+            defaultValue: 'new',
+            options: [
+              { value: 'new', label: `New project — ${quote?.title ?? 'this quote'}` },
+              ...existing.map((p) => ({ value: p.id, label: p.name })),
+            ],
+          },
+        ],
+      });
+      if (!values) return;
+      await api.post(
+        `/sales/quotes/${id}/accept`,
+        values.projectId === 'new'
+          ? { createProject: true }
+          : { attachToProjectId: values.projectId },
       );
-      const match = existing.find((p) => p.name === name?.trim());
-      if (!match) throw new Error('No project by that name');
-      await api.post(`/sales/quotes/${id}/accept`, { attachToProjectId: match.id });
+      toast.ok('Quote accepted');
     });
 
   const downloadPdf = async () => {
@@ -160,11 +191,19 @@ export function QuoteDetail() {
             <button
               className="link-button"
               onClick={() =>
-                void act(() =>
-                  api.post(`/sales/quotes/${id}/reject`, {
-                    reason: window.prompt('Why was it rejected? (optional)') ?? undefined,
-                  }),
-                )
+                void act(async () => {
+                  const values = await ask({
+                    title: 'Mark this quote rejected',
+                    body: 'The reason is kept with the quote, so next year’s pricing has the context.',
+                    confirmLabel: 'Mark rejected',
+                    fields: [{ name: 'reason', label: 'Why was it rejected? (optional)' }],
+                  });
+                  if (!values) return;
+                  await api.post(`/sales/quotes/${id}/reject`, {
+                    reason: values.reason || undefined,
+                  });
+                  toast.ok('Quote marked rejected');
+                })
               }
             >
               mark rejected

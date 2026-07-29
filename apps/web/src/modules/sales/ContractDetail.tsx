@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../lib/api.js';
+import { useDialog } from '../../shell/ui/Dialog.js';
+import { useToast } from '../../shell/ui/Toast.js';
 import { Timeline } from '../../shell/Timeline.js';
 import { EditableField } from '../crm/EditableField.js';
 import type { Client } from '../crm/types.js';
@@ -8,6 +10,8 @@ import { contractUrgency } from './ContractList.js';
 import { TYPE_LABELS, type Contract } from './contractTypes.js';
 
 export function ContractDetail() {
+  const { confirm, ask } = useDialog();
+  const toast = useToast();
   const { id = '' } = useParams();
   const navigate = useNavigate();
   const [contract, setContract] = useState<Contract | null>(null);
@@ -82,13 +86,14 @@ export function ContractDetail() {
             <button
               onClick={() =>
                 void act(async () => {
-                  if (
-                    !window.confirm(
-                      'Mark this contract signed? Its terms freeze — an amendment becomes a new contract.',
-                    )
-                  )
-                    return;
+                  const go = await confirm({
+                    title: 'Mark this contract signed?',
+                    body: 'Its terms freeze. An amendment after this becomes a new contract.',
+                    confirmLabel: 'Mark signed',
+                  });
+                  if (!go) return;
                   await api.post(`/sales/contracts/${id}/sign`, {});
+                  toast.ok('Contract marked signed');
                 })
               }
               disabled={busy}
@@ -112,11 +117,22 @@ export function ContractDetail() {
           <button
             className="link-button destructive"
             onClick={() =>
-              void act(() =>
-                api.post(`/sales/contracts/${id}/terminate`, {
-                  reason: window.prompt('Reason for terminating? (optional)') ?? undefined,
-                }),
-              )
+              void act(async () => {
+                const values = await ask({
+                  title: 'Terminate this contract',
+                  body: 'Recorded against the contract; the notice period still applies.',
+                  confirmLabel: 'Terminate',
+                  destructive: true,
+                  fields: [{ name: 'reason', label: 'Reason (optional)' }],
+                });
+                // Cancel means cancel. Written as `reason: (await ask())?.reason` this
+                // still posted the termination with no reason when you backed out.
+                if (!values) return;
+                await api.post(`/sales/contracts/${id}/terminate`, {
+                  reason: values.reason || undefined,
+                });
+                toast.ok('Contract terminated');
+              })
             }
           >
             terminate

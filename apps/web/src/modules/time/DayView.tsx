@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { TIME_CHANGED, notifyTimeChanged } from '../../shell/useDocumentTitle.js';
+import { useToast } from '../../shell/ui/Toast.js';
 import { formatHours, parseDuration, resolveTimes, shiftDay, todayIso } from './duration.js';
 import { EntryRow, type Entry, type Project } from './EntryRow.js';
 
@@ -19,6 +20,7 @@ interface Day {
  * end IS the running timer: there is no separate timer concept to keep in sync.
  */
 export function DayView() {
+  const toast = useToast();
   const [params] = useSearchParams();
   const [date, setDate] = useState(params.get('date') ?? todayIso());
   const [day, setDay] = useState<Day | null>(null);
@@ -134,10 +136,42 @@ export function DayView() {
     }
   };
 
+  /**
+   * Delete, with an undo rather than a confirmation.
+   *
+   * A dialog in front of a routine, reversible act trains people to dismiss dialogs, which
+   * is what makes the dialog in front of the irreversible ones stop working. Deleting an
+   * hour is routine; the entry is re-creatable from what is already on screen, so the
+   * cheaper and safer shape is to do it and offer the way back.
+   *
+   * Invoiced hours are refused by a database trigger regardless, so nothing here can undo
+   * its way around billing.
+   *
+   * One honest limit: the day view's Entry type carries no taskId, so an entry that was
+   * linked to a task comes back unlinked. Restoring that means widening the type, which
+   * belongs with the timesheet rework rather than here.
+   */
   const remove = async (id: string) => {
+    const entry = day?.entries.find((e) => e.id === id);
     try {
       await api.del(`/time/entries/${id}`);
       await load();
+      toast.ok('Entry deleted', {
+        undo: entry
+          ? async () => {
+              await api.post('/time/entries', {
+                projectId: entry.projectId,
+                workedOn: entry.workedOn,
+                minutes: entry.minutes,
+                description: entry.description,
+                billable: entry.billable,
+              });
+              await load();
+              notifyTimeChanged();
+            }
+          : undefined,
+      });
+      notifyTimeChanged();
     } catch (err) {
       setError((err as Error).message);
     }

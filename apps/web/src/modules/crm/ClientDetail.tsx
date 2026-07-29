@@ -1,6 +1,8 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../lib/api.js';
+import { useDialog } from '../../shell/ui/Dialog.js';
+import { useToast } from '../../shell/ui/Toast.js';
 import { Links } from '../../shell/Links.js';
 import { Timeline } from '../../shell/Timeline.js';
 import { ClientInvoicesWidget } from '../billing/ClientInvoicesWidget.js';
@@ -31,6 +33,8 @@ interface Overview {
  * components this module contributed no code to.
  */
 export function ClientDetail() {
+  const { confirm } = useDialog();
+  const toast = useToast();
   const { id = '' } = useParams();
   const navigate = useNavigate();
   const [data, setData] = useState<Overview | null>(null);
@@ -65,7 +69,17 @@ export function ClientDetail() {
   };
 
   const archive = async () => {
+    // Fired immediately before, from the same `.row` as the status dropdown — so a
+    // misclick one control to the right archived the client with no way back.
+    const go = await confirm({
+      title: `Archive ${client?.name ?? 'this client'}?`,
+      body: 'They disappear from lists and from the pickers on new work. Their invoices, quotes and history are kept.',
+      confirmLabel: 'Archive client',
+      destructive: true,
+    });
+    if (!go) return;
     await api.del(`/crm/clients/${id}`);
+    toast.ok(`${client?.name ?? 'Client'} archived`);
     navigate('/crm/clients');
   };
 

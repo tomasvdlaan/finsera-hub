@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../lib/api.js';
+import { useDialog } from '../../shell/ui/Dialog.js';
+import { useToast } from '../../shell/ui/Toast.js';
 import { getUser } from '../../lib/auth.js';
 import { Timeline } from '../../shell/Timeline.js';
 import type { Client } from '../crm/types.js';
@@ -8,6 +10,8 @@ import { LineEditor } from './LineEditor.js';
 import { VAT_LABELS, money, type InvoiceDetail as Detail } from './types.js';
 
 export function InvoiceDetail() {
+  const { confirm } = useDialog();
+  const toast = useToast();
   const { id = '' } = useParams();
   const navigate = useNavigate();
   const [invoice, setInvoice] = useState<Detail | null>(null);
@@ -44,10 +48,15 @@ export function InvoiceDetail() {
 
   const issue = () =>
     act(async () => {
-      // The one irreversible click in the platform — say so before doing it.
-      if (!window.confirm('Issue this invoice? It gets its legal number and becomes immutable.'))
-        return;
+      // The one irreversible click in the platform — name the consequence before doing it.
+      const go = await confirm({
+        title: 'Issue this invoice?',
+        body: 'It is allocated its legal number and becomes immutable. After this, a correction is a credit note.',
+        confirmLabel: 'Issue invoice',
+      });
+      if (!go) return;
       await api.post(`/billing/invoices/${id}/issue`, {});
+      toast.ok('Invoice issued');
     });
 
   const download = async (kind: 'pdf' | 'ubl') => {
@@ -106,10 +115,20 @@ export function InvoiceDetail() {
             </button>
             <button
               className="link-button destructive"
-              onClick={() => void act(async () => {
-                await api.del(`/billing/invoices/${id}`);
-                navigate('/billing');
-              })}
+              onClick={() =>
+                void act(async () => {
+                  const go = await confirm({
+                    title: 'Void this draft?',
+                    body: 'The draft and its lines are discarded, and the hours on it become billable again.',
+                    confirmLabel: 'Void draft',
+                    destructive: true,
+                  });
+                  if (!go) return;
+                  await api.del(`/billing/invoices/${id}`);
+                  toast.ok('Draft voided — its hours are billable again');
+                  navigate('/billing');
+                })
+              }
             >
               void draft
             </button>
