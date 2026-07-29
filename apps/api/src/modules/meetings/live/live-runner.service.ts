@@ -12,7 +12,7 @@ import { AiToolRegistry } from '../../../core/llm/tool-registry.service.js';
 import { LlmService } from '../../../core/llm/llm.service.js';
 import { TtsService } from '../../../core/llm/tts.service.js';
 import { BehaviourRegistry, type BehaviourSettings } from './behaviours/behaviour.registry.js';
-import { mergeAiNotes } from './behaviours/note-taker.behaviour.js';
+import { assembleBody, bodyInput } from './session-body.js';
 
 /**
  * Runs one live meeting, whatever is supplying the audio.
@@ -370,28 +370,8 @@ export class LiveRunner {
     if (!live || live.lines.length === 0) return { saved: false };
 
     const note = await this.meetings.get(actor, noteId);
-    const transcript = live.lines
-      .map((l) => `${clock(l.at)} ${l.speaker ? `**${l.speaker}:** ` : ''}${l.text}`)
-      .join('\n');
 
-    // The assistant's notes replace its own section and leave everything else alone.
-    const withNotes = live.aiNotes ? mergeAiNotes(note.body, live.aiNotes) : note.body;
-
-    const body = [
-      withNotes.trim(),
-      live.state.summary ? `\n## Summary\n\n${live.state.summary}` : '',
-      live.state.decisions.length > 0
-        ? `\n## Decisions\n\n${live.state.decisions.map((d) => `- ${d}`).join('\n')}`
-        : '',
-      live.state.openQuestions.length > 0
-        ? `\n## Open questions\n\n${live.state.openQuestions.map((q) => `- ${q}`).join('\n')}`
-        : '',
-      `\n## Transcript — ${live.startedAt.toTimeString().slice(0, 5)}\n\n${transcript}`,
-    ]
-      .filter(Boolean)
-      .join('\n');
-
-    await this.meetings.update(actor, noteId, { body });
+    await this.meetings.update(actor, noteId, { body: assembleBody(bodyInput(live, note.body)) });
 
     for (const proposal of live.openProposals) {
       if (proposal.kind === 'action') {
@@ -447,8 +427,3 @@ export class LiveRunner {
   }
 }
 
-function clock(seconds: number): string {
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return `[${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}]`;
-}

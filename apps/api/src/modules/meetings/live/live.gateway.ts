@@ -13,6 +13,7 @@ import { MeetingsService } from '../meetings.service.js';
 import { LiveRegistry } from './live-registry.service.js';
 import { LiveService } from './live.service.js';
 import { LiveSession } from './live-session.js';
+import { assembleBody, bodyInput } from './session-body.js';
 
 interface Client {
   socket: WebSocket;
@@ -172,32 +173,21 @@ export class LiveGateway implements OnGatewayConnection, OnGatewayDisconnect {
   /**
    * Write what the meeting produced.
    *
-   * The transcript is appended to the note body and open proposals become action points
-   * in the PROPOSED state — the same state a typed one starts in, so accepting them uses
-   * the path that already exists rather than a special one.
+   * The body is assembled by the same function the bot path uses, so a meeting recorded
+   * through the microphone produces the same record as one a bot sat in. Open action
+   * proposals become action points in the PROPOSED state — the same state a typed one
+   * starts in, so accepting them uses the path that already exists rather than a special
+   * one. The other proposal kinds are written into the body instead of being dropped.
    */
   private async persist(client: Client): Promise<void> {
     const { session, actor } = client;
     if (session.lines.length === 0) return;
 
     const note = await this.meetings.get(actor, session.noteId);
-    const transcript = session.lines.map((l) => `${formatClock(l.at)} ${l.text}`).join('\n');
 
-    const body = [
-      note.body.trim(),
-      session.state.summary ? `\n## Summary\n\n${session.state.summary}` : '',
-      session.state.decisions.length > 0
-        ? `\n## Decisions\n\n${session.state.decisions.map((d) => `- ${d}`).join('\n')}`
-        : '',
-      session.state.openQuestions.length > 0
-        ? `\n## Open questions\n\n${session.state.openQuestions.map((q) => `- ${q}`).join('\n')}`
-        : '',
-      `\n## Transcript\n\n${transcript}`,
-    ]
-      .filter(Boolean)
-      .join('\n');
-
-    await this.meetings.update(actor, session.noteId, { body });
+    await this.meetings.update(actor, session.noteId, {
+      body: assembleBody(bodyInput(session, note.body)),
+    });
 
     for (const proposal of session.openProposals) {
       if (proposal.kind === 'action') {
@@ -220,8 +210,3 @@ export class LiveGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 }
 
-function formatClock(seconds: number): string {
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return `[${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}]`;
-}

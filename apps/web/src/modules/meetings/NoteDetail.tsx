@@ -65,6 +65,7 @@ export function NoteDetail() {
   const navigate = useNavigate();
   const [note, setNote] = useState<Detail | null>(null);
   const [client, setClient] = useState<Client | null>(null);
+  const [projects, setProjects] = useState<Array<{ id: string; name: string }>>([]);
   const [body, setBody] = useState('');
   const [dirty, setDirty] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -84,6 +85,12 @@ export function NoteDetail() {
 
   useEffect(() => {
     void load();
+    // Needed to offer the project a note has to be linked to before an action point can
+    // become a task; a missing list costs the selector, not the page.
+    api
+      .get<Array<{ id: string; name: string }>>('/crm/projects')
+      .then(setProjects)
+      .catch(() => setProjects([]));
   }, [load]);
 
   const act = async (fn: () => Promise<unknown>) => {
@@ -306,11 +313,34 @@ export function NoteDetail() {
           placeholder="Add an action point…"
           onAdd={(text) => act(() => api.post(`/meetings/${id}/actions`, { text }))}
         />
-        {!note.projectId && note.actionItems.length > 0 && (
-          <p className="muted">
-            Link this note to a project to turn action points into tasks.
-          </p>
-        )}
+        {/* The instruction used to stand here on its own — "link this note to a project to
+            turn action points into tasks" — with nothing on the page that could link one.
+            Accepting an action point is refused by the server without a project, so the
+            control belongs where you find out you need it. */}
+        <div className="row" style={{ marginTop: '0.5rem' }}>
+          <label htmlFor="note-project" className="muted">
+            Project
+          </label>
+          <select
+            id="note-project"
+            value={note.projectId ?? ''}
+            onChange={(e) =>
+              void act(() =>
+                api.patch(`/meetings/${id}`, { projectId: e.target.value || null }),
+              )
+            }
+          >
+            <option value="">Not linked</option>
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+          {!note.projectId && note.actionItems.length > 0 && (
+            <span className="muted">— needed before an action point can become a task</span>
+          )}
+        </div>
       </section>
 
       <section>
