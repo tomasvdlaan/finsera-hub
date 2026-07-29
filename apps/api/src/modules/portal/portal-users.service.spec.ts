@@ -129,6 +129,91 @@ describe('PortalUsersService', () => {
     await expect(service.revoke(member, id)).rejects.toThrow(/Missing capability/);
   });
 
+  // ── invitations that bind on first sign-in ──
+
+  it('binds an invitation to the subject that first signs in with that email', async () => {
+    await service.invite(admin, { clientId, email: 'finance@aclient.nl' });
+
+    // Nothing to resolve until somebody actually arrives.
+    await expect(service.resolveFromSubject('sub-new')).rejects.toThrow(/No portal access/);
+
+    const claimed = await service.claimInvitation('sub-new', 'finance@aclient.nl');
+    expect(claimed?.clientId).toBe(clientId);
+    // And from then on the subject is what identifies them; the email was the introduction.
+    expect((await service.resolveFromSubject('sub-new')).clientId).toBe(clientId);
+  });
+
+  it('matches an email regardless of how it was typed', async () => {
+    await service.invite(admin, { clientId, email: 'Finance@AClient.nl' });
+    expect(await service.claimInvitation('sub-case', 'finance@aclient.nl')).not.toBeNull();
+  });
+
+  it('lets an invitation be claimed exactly once', async () => {
+    await service.invite(admin, { clientId, email: 'finance@aclient.nl' });
+    await service.claimInvitation('sub-first', 'finance@aclient.nl');
+
+    // A second person signing in with the same address finds nothing left to claim —
+    // otherwise one invitation would be a key that copies itself.
+    expect(await service.claimInvitation('sub-second', 'finance@aclient.nl')).toBeNull();
+  });
+
+  it('claims nothing when no invitation names that address', async () => {
+    // The whole point: this is not just-in-time provisioning wearing a hat. No invitation,
+    // no account, however genuine the email.
+    expect(await service.claimInvitation('sub-stranger', 'anyone@example.com')).toBeNull();
+    expect(await testDb.select().from(portalUsers)).toHaveLength(0);
+  });
+
+  it('will not claim a revoked invitation', async () => {
+    const { id } = await service.invite(admin, { clientId, email: 'left@aclient.nl' });
+    await service.revoke(admin, id);
+
+    // Revoking before first sign-in must not leave a claimable row behind.
+    expect(await service.claimInvitation('sub-left', 'left@aclient.nl')).toBeNull();
+  });
+
+  it('refuses to invite the same address to one client twice', async () => {
+    await service.invite(admin, { clientId, email: 'finance@aclient.nl' });
+    await expect(
+      service.invite(admin, { clientId, email: 'FINANCE@aclient.nl' }),
+    ).rejects.toThrow(/already has access/);
+  });
+
+  it('still allows the same address at a different client', async () => {
+    const other = (await crm.createClient(admin, { name: 'Other', status: 'active' })).id;
+    await service.invite(admin, { clientId, email: 'consultant@bureau.nl' });
+    await expect(
+      service.invite(admin, { clientId: other, email: 'consultant@bureau.nl' }),
+    ).resolves.toBeTruthy();
+  });
+
+  it('gives one Zitadel account access to one client, not both', async () => {
+    const other = (await crm.createClient(admin, { name: 'Other', status: 'active' })).id;
+    await service.invite(admin, { clientId, email: 'consultant@bureau.nl' });
+    await service.invite(admin, { clientId: other, email: 'consultant@bureau.nl' });
+
+    const first = await service.claimInvitation('sub-consultant', 'consultant@bureau.nl');
+    expect(first).not.toBeNull();
+
+    // The same account cannot also claim the second invitation. A person working for two
+    // clients needs two accounts, because one session must never span clients — and the
+    // refusal is clean rather than a unique-constraint violation reaching the client.
+    expect(await service.claimInvitation('sub-consultant', 'consultant@bureau.nl')).toBeNull();
+    expect((await service.resolveFromSubject('sub-consultant')).clientId).toBe(first!.clientId);
+  });
+
+  it('reports whether an invitation is still waiting', async () => {
+    await service.invite(admin, { clientId, email: 'pending@aclient.nl' });
+    const [before] = await service.listForClient(admin, clientId);
+    expect(before?.pending).toBe(true);
+
+    await service.claimInvitation('sub-arrived', 'pending@aclient.nl');
+    const [after] = await service.listForClient(admin, clientId);
+    // "Invited" and "has actually been in" are different answers to "why can't they see
+    // anything", and the list has to be able to tell them apart.
+    expect(after?.pending).toBe(false);
+  });
+
   it('records who granted and who revoked access', async () => {
     const { id } = await service.invite(admin, {
       clientId, email: 'audited@aclient.nl', oidcSubject: 'sub-audited',

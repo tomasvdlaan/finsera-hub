@@ -339,8 +339,8 @@ to mark the moment.
 
 **Not fixed, and open:**
 
-- **No rate limiting** on portal endpoints. Sign-in is Zitadel's problem, but enumeration
-  of our own read endpoints is not. Worth adding before an external user.
+- **No rate limiting** on portal *read* endpoints (the request form has one, §5h).
+  Sign-in is Zitadel's problem; enumeration of our reads is not.
 - **`PORTAL_ROLE_CHECK=off`** (G6) means two gates rather than three.
 - The **`internal` role gate refuses everyone** while Zitadel emits no roles, so no new
   colleague can be provisioned.
@@ -421,6 +421,42 @@ is refused.
 internal triage with the client and asker named, converted to a task on the Power BI
 board, and the request marked `converted` with both audit entries — `portal.request`
 attributed to no internal user, `portal.request.converted` attributed to one.
+
+## 5i. Inviting a client
+
+`PortalUsersService.invite()` and `revoke()` were written in step 2 and left unreachable —
+no endpoints, no UI. The first real portal user was created by running SQL, which meant the
+portal had no way to acquire users at all. `PortalAdminController` and a **Portal access**
+section on the client page close that.
+
+**Invitations name an email, not an OIDC subject.** Requiring somebody to copy a numeric
+subject out of the identity provider's console for every client is the kind of friction
+that means nobody invites anyone. `oidc_subject` is now nullable, and binds the first time
+that person signs in with a **verified** email matching the invitation.
+
+The claim is deliberately narrow, and each narrowing closes something:
+
+- The email comes from Zitadel's userinfo endpoint using the caller's own token — never
+  from a request body, never from a claim the caller could shape.
+- `email_verified` must be true. Without it an address is a string somebody typed, and
+  this would be a way to claim another company's invitation by naming it.
+- An invitation can be claimed once. A second person with the same address finds nothing
+  left, so one invitation is not a key that copies itself.
+- A subject that already has a login cannot claim another. One account is one client;
+  somebody working for two needs two accounts, because a session must never span clients.
+
+This is not just-in-time provisioning wearing a hat: no invitation, no account. Someone
+internal still decided, in advance, that this person may see this client's data.
+
+**Two bugs the tests found, and one only clicking found.** A single `UPDATE ... WHERE
+email = …` matched *every* pending invitation for an address, so an address invited to two
+clients had both rows bound to one subject in a single statement and collided on the unique
+index — now one row is chosen explicitly and bound by id. A second claim by an
+already-bound subject surfaced as a constraint violation rather than a refusal.
+
+The third: `revoke()` returned `void`, so the endpoint answered 200 with an empty body and
+the web client's `res.json()` threw. Every service test passed — none of them went through
+HTTP. It returns an object now, like everything else.
 
 ## 6. Deliberately not in this phase
 

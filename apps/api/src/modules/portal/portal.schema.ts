@@ -31,8 +31,16 @@ export const portalUsers = portal.table(
      */
     clientId: uuid('client_id').notNull(),
 
-    /** The subject from the PORTAL Zitadel project. Never an internal subject. */
-    oidcSubject: text('oidc_subject').notNull(),
+    /**
+     * The subject from the portal Zitadel application. Never an internal subject.
+     *
+     * Null until first sign-in. An invitation names an email, because making somebody copy
+     * a numeric subject out of the identity provider's console for every client is the
+     * kind of friction that means nobody invites anyone. The subject is bound the first
+     * time that person signs in with a verified email matching the invitation, and from
+     * then on it is what identifies them — the email is only how the two are introduced.
+     */
+    oidcSubject: text('oidc_subject'),
     email: text('email').notNull(),
     displayName: text('display_name'),
 

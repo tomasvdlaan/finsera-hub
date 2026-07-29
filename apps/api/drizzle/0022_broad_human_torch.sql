@@ -1,0 +1,1 @@
+ALTER TABLE "portal"."users" ALTER COLUMN "oidc_subject" DROP NOT NULL;

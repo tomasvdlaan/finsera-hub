@@ -8,6 +8,7 @@ import { ClientNotesWidget } from '../meetings/ClientNotesWidget.js';
 import { ClientContractsWidget } from '../sales/ClientContractsWidget.js';
 import { ClientQuotesWidget } from '../sales/ClientQuotesWidget.js';
 import { DocumentsWidget } from '../docs/DocumentsWidget.js';
+import { PortalUsers } from '../portal/PortalUsers.js';
 import { EditableField } from './EditableField.js';
 import type { EntityRef } from '@platform/contracts';
 import {
@@ -219,6 +220,10 @@ export function ClientDetail() {
       <section>
         <h2>Invoices</h2>
         <ClientInvoicesWidget clientId={id} />
+      </section>
+
+      <section>
+        <PortalUsers clientId={client.id} />
       </section>
 
       <section>

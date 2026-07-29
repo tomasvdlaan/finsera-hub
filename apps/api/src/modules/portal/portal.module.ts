@@ -3,6 +3,7 @@ import { ManifestRegistry } from '../../core/manifest/manifest.registry.js';
 import { SalesModule } from '../sales/sales.module.js';
 import { ScrumModule } from '../scrum/scrum.module.js';
 import { PortalAuthGuard } from './portal-auth.guard.js';
+import { PortalAdminController } from './portal-admin.controller.js';
 import { PortalPreviewController } from './portal-preview.controller.js';
 import { PortalController } from './portal.controller.js';
 import { PortalUsersService } from './portal-users.service.js';
@@ -28,7 +29,7 @@ import { PortalRequestsService } from './portal-requests.service.js';
  */
 @Module({
   imports: [SalesModule, ScrumModule],
-  controllers: [PortalController, PortalPreviewController],
+  controllers: [PortalController, PortalPreviewController, PortalAdminController],
   providers: [PortalProjection, PortalUsersService, PortalAuthGuard, PortalRequestsService],
   exports: [PortalProjection, PortalUsersService, PortalRequestsService],
 })

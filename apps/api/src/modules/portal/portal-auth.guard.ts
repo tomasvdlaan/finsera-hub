@@ -159,6 +159,43 @@ export class PortalAuthGuard implements CanActivate, OnModuleInit {
     }
 
     // Third gate, and the only one that says *whose* data this is: an invitation we wrote.
-    return this.portalUsers.resolveFromSubject(payload.sub!);
+    try {
+      return await this.portalUsers.resolveFromSubject(payload.sub!);
+    } catch (err) {
+      // An unknown subject may be someone signing in for the first time against an
+      // invitation that names their email. Anything else — revoked, never invited — has
+      // already thrown something more specific and is rethrown untouched.
+      const claimed = await this.claimByEmail(token, payload.sub!);
+      if (claimed) return claimed;
+      throw err;
+    }
+  }
+
+  /**
+   * Bind a first-time sign-in to the invitation naming that email.
+   *
+   * The email is read from Zitadel's userinfo endpoint with the caller's own token, never
+   * from a claim the caller could have shaped and never from the request body — and it is
+   * used only if Zitadel says it is verified. Without `email_verified`, an address is a
+   * string somebody typed, and this would be a way to claim another company's invitation
+   * by naming it.
+   */
+  private async claimByEmail(token: string, subject: string): Promise<PortalVisitor | null> {
+    try {
+      const res = await fetch(`${this.issuer}/oidc/v1/userinfo`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return null;
+
+      const info = (await res.json()) as { email?: string; email_verified?: boolean };
+      if (!info.email || info.email_verified !== true) {
+        this.logger.warn(`Portal sign-in by '${subject}' has no verified email to claim with`);
+        return null;
+      }
+      return await this.portalUsers.claimInvitation(subject, info.email);
+    } catch (err) {
+      this.logger.warn(`Could not check for a pending invitation: ${(err as Error).message}`);
+      return null;
+    }
   }
 }
