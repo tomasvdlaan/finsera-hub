@@ -24,6 +24,13 @@ export const linkSchema = z.object({
   to: entityRefSchema,
   kind: z.string().nullable(),
   createdAt: z.string(),
+  /**
+   * A reference some manifest declares structurally required, which cannot be removed.
+   *
+   * Reported by the server because the browser cannot know it: which references are required
+   * lives in the manifests. Optional in the schema so an older client keeps parsing.
+   */
+  required: z.boolean().optional(),
 });
 export type Link = z.infer<typeof linkSchema>;
 

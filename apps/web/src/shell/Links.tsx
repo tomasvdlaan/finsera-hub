@@ -49,9 +49,17 @@ export function Links({
   };
 
   const remove = async (linkId: string) => {
-    await api.del(`/core/links/${linkId}`);
-    await load();
-    onChange?.();
+    setError(null);
+    try {
+      await api.del(`/core/links/${linkId}`);
+      await load();
+      onChange?.();
+    } catch (e) {
+      // There was no catch here, so a refusal from the server disappeared and the button
+      // simply did nothing — which is how a correct server-side guard became a UI that
+      // looked broken.
+      setError((e as Error).message);
+    }
   };
 
   const others = candidates.filter((c) => c.id !== entityId);
@@ -68,9 +76,13 @@ export function Links({
               <li key={l.id}>
                 <span className="badge">{l.kind ?? 'linked'}</span>
                 <RouterLink to={other.urlPath}>{other.displayName}</RouterLink>
-                <button className="link-button destructive" onClick={() => void remove(l.id)}>
-                  remove
-                </button>
+                {/* A required reference is structure. The server refuses to remove one, so
+                    offering the button would be offering a click that cannot work. */}
+                {!l.required && (
+                  <button className="link-button destructive" onClick={() => void remove(l.id)}>
+                    remove
+                  </button>
+                )}
               </li>
             );
           })}

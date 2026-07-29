@@ -1,6 +1,8 @@
+import { sql } from 'drizzle-orm';
 import {
   bigint,
   boolean,
+  check,
   index,
   integer,
   jsonb,
@@ -196,3 +198,50 @@ export const orgSettings = core.table('org_settings', {
   defaultPaymentTermsDays: integer('default_payment_terms_days').notNull().default(30),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * A comment on any registry entity.
+ *
+ * In core rather than in scrum, because the registry already makes every entity addressable
+ * and a discussion is not a scrum concept — a question about an invoice or a note on a
+ * contract wants the same table. Tasks are simply the first subject.
+ *
+ * Deliberately NOT registered as a registry entity itself. A comment has no page of its own,
+ * so it would need a urlPath that resolves to nothing — and `entities.urlPath` is followed
+ * verbatim by the timeline, the link list and the assistant's citations. It points AT a
+ * registry row instead of becoming one.
+ *
+ * Deliberately not on core.events either. An event is a fact about a domain change with a
+ * declared name from a manifest; a comment is content, it is editable, and it has no
+ * business being replayed to subscribers.
+ */
+export const comments = core.table(
+  'comments',
+  {
+    id: uuid('id').primaryKey(),
+    /** Denormalised alongside the id, exactly as links.fromType is, so a thread can be
+     *  read and permission-checked without joining the registry. */
+    subjectType: text('subject_type').notNull(),
+    subjectId: uuid('subject_id')
+      .notNull()
+      .references(() => entities.id),
+    /** One level of replies. Threads deeper than that turn into an argument with itself. */
+    parentId: uuid('parent_id'),
+    body: text('body').notNull(),
+    authorId: uuid('author_id')
+      .notNull()
+      .references(() => users.id),
+    /**
+     * Soft-deleted, so a reply does not lose its parent and the thread keeps its shape.
+     * The body is blanked on delete rather than kept — "deleted" should mean deleted.
+     */
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+    editedAt: timestamp('edited_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('comments_subject_idx').on(t.subjectId, t.createdAt),
+    index('comments_author_idx').on(t.authorId),
+    check('comments_body_present', sql`length(${t.body}) > 0 OR ${t.deletedAt} IS NOT NULL`),
+  ],
+);

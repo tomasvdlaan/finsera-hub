@@ -1,6 +1,7 @@
 import { Global, Module } from '@nestjs/common';
 import { AuditService } from './audit/audit.service.js';
 import { AuthModule } from './auth/auth.module.js';
+import { CommentService } from './comments/comment.service.js';
 import { DbModule } from './db/db.module.js';
 import { EventBus } from './events/event-bus.service.js';
 import { EventDispatcher } from './events/event-dispatcher.service.js';
@@ -26,6 +27,7 @@ import { StorageService } from './storage/storage.service.js';
  * provider seam. The orchestrator that drives these tools arrives in Phase 2.
  */
 const services = [
+  CommentService,
   ManifestRegistry,
   RegistryService,
   AuditService,

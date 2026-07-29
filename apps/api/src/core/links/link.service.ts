@@ -213,6 +213,14 @@ export class LinkService {
         to: refs.get(r.toId)!,
         kind: r.linkKind,
         createdAt: r.createdAt.toISOString(),
+        /**
+         * Structural, so `remove` will refuse it.
+         *
+         * Reported rather than left for the UI to discover by being told no: a button that
+         * can never work is worse than an absent one, and the browser has no way to know
+         * which references a manifest declares required.
+         */
+        required: this.manifests.isRequiredRef(r.fromType, r.toType),
       }));
   }
 

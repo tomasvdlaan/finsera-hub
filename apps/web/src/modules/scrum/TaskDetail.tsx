@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import type { EntityRef } from '@platform/contracts';
 import { api } from '../../lib/api.js';
+import { Comments } from '../../shell/Comments.js';
 import { Links } from '../../shell/Links.js';
 import { Timeline } from '../../shell/Timeline.js';
 import { EditableField } from '../crm/EditableField.js';
@@ -163,6 +164,11 @@ export function TaskDetail() {
           </ul>
         </section>
       )}
+
+      <section>
+        <h2>Discussion</h2>
+        <Comments entityId={id} />
+      </section>
 
       <section>
         <h2>Links</h2>

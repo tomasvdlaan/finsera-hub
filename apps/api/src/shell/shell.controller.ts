@@ -1,6 +1,17 @@
-import { Body, Controller, Delete, ForbiddenException, Get, Param, Post, Put } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  ForbiddenException,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Put,
+} from '@nestjs/common';
 import { NAV_SECTIONS } from '@platform/contracts';
 import type { Actor, CreateLinkInput } from '@platform/contracts';
+import { CommentService } from '../core/comments/comment.service.js';
 import { CurrentActor } from '../core/auth/current-actor.decorator.js';
 import { Public } from '../core/auth/public.decorator.js';
 import { UserService } from '../core/auth/user.service.js';
@@ -16,6 +27,7 @@ export class ShellController {
     private readonly manifests: ManifestRegistry,
     private readonly users: UserService,
     private readonly links: LinkService,
+    private readonly comments_: CommentService,
     private readonly timeline: TimelineService,
     private readonly dispatcher: EventDispatcher,
     private readonly settings: SettingsService,
@@ -75,6 +87,45 @@ export class ShellController {
         const byOrder = (a.order ?? 100) - (b.order ?? 100);
         return byOrder !== 0 ? byOrder : a.label.localeCompare(b.label);
       });
+  }
+
+  /**
+   * Discussion on a record.
+   *
+   * Beside links and the timeline because it is the same kind of thing: a core capability
+   * over any registry entity, belonging to no module. Permission is the subject's own — if
+   * you can see the record you can discuss it — which is why no capability is named here.
+   */
+  @Get('comments/:entityId')
+  comments(@CurrentActor() actor: Actor, @Param('entityId') entityId: string) {
+    return this.comments_.listFor(actor, entityId);
+  }
+
+  @Post('comments/:entityId')
+  addComment(
+    @CurrentActor() actor: Actor,
+    @Param('entityId') entityId: string,
+    @Body() body: { body?: string; parentId?: string },
+  ) {
+    return this.comments_.add(actor, {
+      subjectId: entityId,
+      body: body?.body ?? '',
+      parentId: body?.parentId,
+    });
+  }
+
+  @Patch('comments/:id')
+  editComment(
+    @CurrentActor() actor: Actor,
+    @Param('id') id: string,
+    @Body() body: { body?: string },
+  ) {
+    return this.comments_.edit(actor, id, body?.body ?? '');
+  }
+
+  @Delete('comments/:id')
+  deleteComment(@CurrentActor() actor: Actor, @Param('id') id: string) {
+    return this.comments_.remove(actor, id);
   }
 
   /** Contextual links for an entity, filtered by the both-endpoints rule. */
