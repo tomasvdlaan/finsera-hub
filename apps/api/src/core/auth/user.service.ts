@@ -113,4 +113,25 @@ export class UserService {
   async byId(userId: string) {
     return this.db.query.users.findFirst({ where: eq(users.id, userId) });
   }
+
+  /**
+   * Who work can be assigned to.
+   *
+   * `isActive` gates this and, until now, was written on every provisioning and read by
+   * nothing — a column that existed as an intention. Someone who has left should stop
+   * appearing in pickers while remaining attached to the hours and tasks they own, which
+   * is the whole reason the flag is a flag rather than a delete.
+   *
+   * Names only. This is a picker's source, not a directory, so it carries no email, no
+   * role and no subject claim: three things a colleague list would leak into every screen
+   * that needs to say "assign to".
+   */
+  async listAssignable(): Promise<Array<{ id: string; displayName: string }>> {
+    const rows = await this.db
+      .select({ id: users.id, displayName: users.displayName })
+      .from(users)
+      .where(eq(users.isActive, true))
+      .orderBy(users.displayName);
+    return rows;
+  }
 }

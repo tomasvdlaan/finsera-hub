@@ -4,6 +4,7 @@ import { and, asc, desc, eq, sql } from 'drizzle-orm';
 import { AuditService } from '../../core/audit/audit.service.js';
 import { DB, type Database } from '../../core/db/db.module.js';
 import { EventBus } from '../../core/events/event-bus.service.js';
+import { UserService } from '../../core/auth/user.service.js';
 import { LinkService } from '../../core/links/link.service.js';
 import { EmbeddingService } from '../../core/llm/embedding.service.js';
 import { PermissionService } from '../../core/permissions/permission.service.js';
@@ -48,6 +49,7 @@ export class MeetingsService {
     private readonly embeddings: EmbeddingService,
     private readonly crm: CrmService,
     private readonly scrum: ScrumService,
+    private readonly users: UserService,
   ) {}
 
   // ── notes ──────────────────────────────────────────────────
@@ -488,6 +490,58 @@ export class MeetingsService {
         detail: { itemId, taskId: task.id, source: item.source },
       });
     });
+
+    return this.get(actor, noteId);
+  }
+
+  /**
+   * Set who owns an action point and when it is due, before it becomes a task.
+   *
+   * Both columns have existed since the module was written, and `acceptActionItem` has
+   * always passed them into `createTask` — but nothing could ever write them, so every
+   * task made from a meeting arrived unowned and undated. This is the missing half.
+   *
+   * Refused once accepted. At that point the task is the record and editing the action
+   * point would change nothing that anyone reads, which is worse than refusing: it would
+   * look like it worked.
+   */
+  async updateActionItem(
+    actor: Actor,
+    noteId: string,
+    itemId: string,
+    patch: { assigneeId?: string | null; dueOn?: string | null },
+  ) {
+    await this.require(actor, 'meetings.write');
+    await this.raw(noteId);
+
+    const [item] = await this.db
+      .select()
+      .from(actionItems)
+      .where(and(eq(actionItems.id, itemId), eq(actionItems.noteId, noteId)))
+      .limit(1);
+    if (!item) throw new NotFoundException('Action point not found');
+    if (item.status === 'accepted') {
+      throw new BadRequestException(
+        'This action point is already a task — change the assignee and due date there',
+      );
+    }
+
+    // A named assignee has to exist and still be here, or accepting the point later fails
+    // at task creation with an error about a user rather than about this.
+    if (patch.assigneeId) {
+      const assignable = await this.users.listAssignable();
+      if (!assignable.some((u) => u.id === patch.assigneeId)) {
+        throw new BadRequestException('That person cannot be assigned work');
+      }
+    }
+
+    await this.db
+      .update(actionItems)
+      .set({
+        assigneeId: patch.assigneeId === undefined ? item.assigneeId : patch.assigneeId,
+        dueOn: patch.dueOn === undefined ? item.dueOn : patch.dueOn,
+      })
+      .where(eq(actionItems.id, itemId));
 
     return this.get(actor, noteId);
   }

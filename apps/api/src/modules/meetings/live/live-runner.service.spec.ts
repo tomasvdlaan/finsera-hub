@@ -16,6 +16,7 @@ import { ScrumService } from '../../scrum/scrum.service.js';
 import { timeManifest } from '../../time/time.manifest.js';
 import { TimeService } from '../../time/time.service.js';
 import { meetingsManifest } from '../meetings.manifest.js';
+import { UserService } from '../../../core/auth/user.service.js';
 import { MeetingsService } from '../meetings.service.js';
 import type { AudioSegment, CaptureEvents, CaptureSession } from './capture/provider.js';
 import type { RecallProvider } from './capture/recall.provider.js';
@@ -91,7 +92,7 @@ describe('LiveRunner', () => {
     const scrum = new ScrumService(testDb, registry, permissions, audit, bus, links, crm, time);
     meetings = new MeetingsService(
       testDb, registry, permissions, audit, bus, links,
-      new EmbeddingService(), crm, scrum,
+      new EmbeddingService(), crm, scrum, new UserService(testDb),
     );
 
     live = {

@@ -16,6 +16,7 @@ import { ScrumService } from '../scrum/scrum.service.js';
 import { timeManifest } from '../time/time.manifest.js';
 import { TimeService } from '../time/time.service.js';
 import { meetingsManifest } from './meetings.manifest.js';
+import { UserService } from '../../core/auth/user.service.js';
 import { MeetingsService } from './meetings.service.js';
 
 const actor: Actor = { userId: crypto.randomUUID(), role: 'admin' };
@@ -50,7 +51,7 @@ describe('MeetingsService', () => {
     scrum = new ScrumService(testDb, registry, permissions, audit, bus, links, crm, time);
     meetings = new MeetingsService(
       testDb, registry, permissions, audit, bus, links,
-      new EmbeddingService(), crm, scrum,
+      new EmbeddingService(), crm, scrum, new UserService(testDb),
     );
     await meetings.ensureReportingViews();
 
@@ -239,6 +240,63 @@ describe('MeetingsService', () => {
     await expect(
       meetings.acceptActionItem(actor, created.id, withAction.actionItems[0]!.id),
     ).rejects.toThrow(/link this note to a project/i);
+  });
+
+  it('carries the owner and due date it was given onto the task', async () => {
+    const created = await note();
+    const withAction = await meetings.addActionItem(actor, created.id, { text: 'Send it' });
+    const itemId = withAction.actionItems[0]!.id;
+
+    await meetings.updateActionItem(actor, created.id, itemId, {
+      assigneeId: actor.userId,
+      dueOn: '2026-08-14',
+    });
+    await meetings.acceptActionItem(actor, created.id, itemId);
+
+    // The point of setting them: they were always passed into createTask and never set.
+    const [task] = await scrum.listTasks(actor, { projectId });
+    expect(task!.dueOn).toBe('2026-08-14');
+    expect(task!.assigneeId).toBe(actor.userId);
+  });
+
+  it('refuses to reassign an action point that is already a task', async () => {
+    const created = await note();
+    const withAction = await meetings.addActionItem(actor, created.id, { text: 'Send it' });
+    const itemId = withAction.actionItems[0]!.id;
+    await meetings.acceptActionItem(actor, created.id, itemId);
+
+    // Silently accepting this would edit a row nothing reads while the task went unchanged.
+    await expect(
+      meetings.updateActionItem(actor, created.id, itemId, { dueOn: '2026-08-14' }),
+    ).rejects.toThrow(/already a task/i);
+  });
+
+  it('refuses an assignee who cannot be assigned work', async () => {
+    const created = await note();
+    const withAction = await meetings.addActionItem(actor, created.id, { text: 'Send it' });
+    await expect(
+      meetings.updateActionItem(actor, created.id, withAction.actionItems[0]!.id, {
+        assigneeId: '019fa41a-0000-7000-8000-000000000000',
+      }),
+    ).rejects.toThrow(/cannot be assigned/i);
+  });
+
+  it('clears an owner and a due date that were set by mistake', async () => {
+    const created = await note();
+    const withAction = await meetings.addActionItem(actor, created.id, { text: 'Send it' });
+    const itemId = withAction.actionItems[0]!.id;
+
+    await meetings.updateActionItem(actor, created.id, itemId, {
+      assigneeId: actor.userId,
+      dueOn: '2026-08-14',
+    });
+    const cleared = await meetings.updateActionItem(actor, created.id, itemId, {
+      assigneeId: null,
+      dueOn: null,
+    });
+
+    expect(cleared.actionItems[0]!.assigneeId).toBeNull();
+    expect(cleared.actionItems[0]!.dueOn).toBeNull();
   });
 
   it('dismisses an action point without touching the board', async () => {

@@ -274,6 +274,17 @@ export class MeetingsController {
     return this.meetings.addActionItem(actor, id, body);
   }
 
+  /** Who owns it and when it is due — settable only while it is still a proposal. */
+  @Patch(':id/actions/:itemId')
+  updateAction(
+    @CurrentActor() actor: Actor,
+    @Param('id') id: string,
+    @Param('itemId') itemId: string,
+    @Body() body: { assigneeId?: string | null; dueOn?: string | null },
+  ) {
+    return this.meetings.updateActionItem(actor, id, itemId, body);
+  }
+
   @Post(':id/actions/:itemId/accept')
   acceptAction(
     @CurrentActor() actor: Actor,

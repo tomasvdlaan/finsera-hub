@@ -67,6 +67,17 @@ export class ShellController {
     };
   }
 
+  /**
+   * Who work can be assigned to — names and ids, nothing else.
+   *
+   * Any signed-in member may read it. Knowing who your colleagues are is not a privilege
+   * inside a company, and every screen that assigns anything needs the list.
+   */
+  @Get('users')
+  users_() {
+    return this.users.listAssignable();
+  }
+
   /** Navigation assembled from module manifests — the shell knows no module by name. */
   /**
    * Every navigation entry every module declares, sorted into shell-owned sections.

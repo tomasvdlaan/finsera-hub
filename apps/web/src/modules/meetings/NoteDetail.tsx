@@ -66,6 +66,7 @@ export function NoteDetail() {
   const [note, setNote] = useState<Detail | null>(null);
   const [client, setClient] = useState<Client | null>(null);
   const [projects, setProjects] = useState<Array<{ id: string; name: string }>>([]);
+  const [people, setPeople] = useState<Array<{ id: string; displayName: string }>>([]);
   const [body, setBody] = useState('');
   const [dirty, setDirty] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -91,6 +92,10 @@ export function NoteDetail() {
       .get<Array<{ id: string; name: string }>>('/crm/projects')
       .then(setProjects)
       .catch(() => setProjects([]));
+    api
+      .get<Array<{ id: string; displayName: string }>>('/core/users')
+      .then(setPeople)
+      .catch(() => setPeople([]));
   }, [load]);
 
   const act = async (fn: () => Promise<unknown>) => {
@@ -270,7 +275,43 @@ export function NoteDetail() {
                     suggested
                   </span>
                 )}
-                {item.dueOn && <span className="muted"> · due {item.dueOn}</span>}
+                {/* Owner and due date, set here rather than after acceptance. Both columns
+                    and both ends of the wire have existed since this module was written —
+                    acceptance has always passed them into the task — but nothing could
+                    write them, so every task made from a meeting arrived unowned and
+                    undated. Editing stops at acceptance, where the task takes over. */}
+                <div className="row" style={{ marginTop: '0.35rem' }}>
+                  <select
+                    aria-label={`Assign "${item.text}"`}
+                    value={item.assigneeId ?? ''}
+                    onChange={(e) =>
+                      void act(() =>
+                        api.patch(`/meetings/${id}/actions/${item.id}`, {
+                          assigneeId: e.target.value || null,
+                        }),
+                      )
+                    }
+                  >
+                    <option value="">Nobody yet</option>
+                    {people.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.displayName}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    type="date"
+                    aria-label={`Due date for "${item.text}"`}
+                    value={item.dueOn ?? ''}
+                    onChange={(e) =>
+                      void act(() =>
+                        api.patch(`/meetings/${id}/actions/${item.id}`, {
+                          dueOn: e.target.value || null,
+                        }),
+                      )
+                    }
+                  />
+                </div>
                 <div className="row">
                   <button
                     className="link-button"

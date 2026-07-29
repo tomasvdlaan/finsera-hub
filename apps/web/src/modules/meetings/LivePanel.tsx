@@ -438,7 +438,25 @@ export function LivePanel({
             <button onClick={stop}>Stop</button>
           </div>
 
-          {behaviours.length > 0 && (
+          {/*
+            Only the bot runs behaviours.
+
+            They live in LiveRunner, which the microphone and tab paths never reach: those
+            go through the socket, which transcribes and extracts but calls no behaviour.
+            The panel used to render this list whichever source was recording, with working
+            checkboxes — so switching the note-taker on during a microphone recording looked
+            like it did something and did nothing. Wiring them up properly needs socket
+            sessions in LiveRegistry first, since a behaviour reports what it did by
+            broadcasting and a socket session is not registered to broadcast to.
+          */}
+          {behaviours.length > 0 && source !== 'bot' && (
+            <p className="muted">
+              Behaviours only run when a bot is in the call. This recording transcribes
+              and extracts action points, but nothing takes live notes.
+            </p>
+          )}
+
+          {behaviours.length > 0 && source === 'bot' && (
             <section>
               <h3>What it is doing</h3>
               <ul className="agenda">

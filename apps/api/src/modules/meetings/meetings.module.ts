@@ -2,6 +2,7 @@ import { Module, type OnModuleInit } from '@nestjs/common';
 import type { Actor } from '@platform/contracts';
 import { AiToolRegistry } from '../../core/llm/tool-registry.service.js';
 import { ManifestRegistry } from '../../core/manifest/manifest.registry.js';
+import { AuthModule } from '../../core/auth/auth.module.js';
 import { CrmModule } from '../crm/crm.module.js';
 import { ScrumModule } from '../scrum/scrum.module.js';
 import { MeetingsController } from './meetings.controller.js';
@@ -24,7 +25,7 @@ import { NoteTakerBehaviour } from './live/behaviours/note-taker.behaviour.js';
  * accepted action point becomes a task) — both through their services, both one-way.
  */
 @Module({
-  imports: [CrmModule, ScrumModule],
+  imports: [AuthModule, CrmModule, ScrumModule],
   controllers: [MeetingsController],
   providers: [
     MeetingsService,
