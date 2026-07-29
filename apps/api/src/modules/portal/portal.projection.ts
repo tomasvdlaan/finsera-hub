@@ -16,6 +16,13 @@ export interface PortalVisitor {
   email: string;
 }
 
+/** Enough to serve bytes, resolved only for files the visitor is entitled to. */
+export interface FileRef {
+  filename: string;
+  mime_type: string;
+  storage_key: string;
+}
+
 /**
  * Everything a client can see, and nothing else.
  *
@@ -142,6 +149,44 @@ export class PortalProjection {
        ORDER BY d.created_at DESC
     `);
     return result.rows;
+  }
+
+  /**
+   * Where an invoice's archived PDF lives, if the visitor owns that invoice.
+   *
+   * Note what this does not do: render one. `BillingService.getPdf` falls back to a live
+   * render when the archive is missing, and the portal deliberately cannot — rendering
+   * would mean importing Billing, and the whole module is built on not doing that. A
+   * missing archive is therefore a 404 here, and an operational problem worth knowing
+   * about rather than papering over.
+   */
+  async invoiceFile(visitor: PortalVisitor, invoiceId: string) {
+    this.assertExposed('invoice');
+    const result = await this.db.execute(sql`
+      SELECT d.filename, d.mime_type, d.storage_key
+        FROM billing.v_invoices i
+        JOIN docs.v_documents d ON d.id = i.pdf_document_id
+       WHERE i.id = ${invoiceId}
+         AND i.client_id = ${visitor.clientId}
+         AND i.status IN ('issued', 'paid')
+       LIMIT 1
+    `);
+    return (result.rows[0] as FileRef | undefined) ?? null;
+  }
+
+  /** Where a shared document's bytes live, if it is in fact shared with this visitor. */
+  async documentFile(visitor: PortalVisitor, documentId: string) {
+    this.assertExposed('document');
+    const result = await this.db.execute(sql`
+      SELECT d.filename, d.mime_type, d.storage_key
+        FROM docs.v_documents d
+        JOIN core.links l ON l.from_id = d.id
+       WHERE d.id = ${documentId}
+         AND l.to_id = ${visitor.clientId}
+         AND l.link_kind = 'shared_with_client'
+       LIMIT 1
+    `);
+    return (result.rows[0] as FileRef | undefined) ?? null;
   }
 
   /** Whether one document is shared with this visitor — checked before serving bytes. */

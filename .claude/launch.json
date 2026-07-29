@@ -1,0 +1,14 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "portal",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@platform/portal", "dev"],
+      "port": 5174,
+      // Not negotiable: the Zitadel redirect URI is registered for this exact origin, so
+      // a reassigned port turns every sign-in into an invalid_redirect_uri error.
+      "autoPort": false
+    }
+  ]
+}

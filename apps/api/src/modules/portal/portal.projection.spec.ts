@@ -314,6 +314,59 @@ describe('PortalProjection', () => {
     expect(await projection.quotes(visitor)).toHaveLength(0);
   });
 
+  // ── files, where the same question gets asked about bytes ──
+
+  it('serves an invoice PDF only to the client it belongs to', async () => {
+    const project = await crm.createProject(actor, {
+      clientId: theirs, name: 'Theirs', billingModel: 'time_and_materials', defaultRateCents: 3_500,
+    });
+    await time.createEntry(actor, { projectId: project.id, workedOn: '2026-07-01', minutes: 60 });
+    const issued = await billing.issue(actor, (await billing.draftFromHours(actor, project.id)).id);
+
+    // Their invoice, our visitor. Knowing the id changes nothing.
+    expect(await projection.invoiceFile(visitor, issued.id)).toBeNull();
+  });
+
+  it('resolves an invoice PDF for the owning client', async () => {
+    const project = await crm.createProject(actor, {
+      clientId: ours, name: 'Ours', billingModel: 'time_and_materials', defaultRateCents: 3_500,
+    });
+    await time.createEntry(actor, { projectId: project.id, workedOn: '2026-07-01', minutes: 60 });
+    const issued = await billing.issue(actor, (await billing.draftFromHours(actor, project.id)).id);
+
+    const file = await projection.invoiceFile(visitor, issued.id);
+    expect(file?.storage_key).toBeTruthy();
+    expect(file?.mime_type).toBe('application/pdf');
+  });
+
+  it('does not serve a draft invoice’s PDF', async () => {
+    const project = await crm.createProject(actor, {
+      clientId: ours, name: 'Ours', billingModel: 'time_and_materials', defaultRateCents: 3_500,
+    });
+    await time.createEntry(actor, { projectId: project.id, workedOn: '2026-07-01', minutes: 60 });
+    const draft = await billing.draftFromHours(actor, project.id);
+
+    expect(await projection.invoiceFile(visitor, draft.id)).toBeNull();
+  });
+
+  it('serves document bytes only when the document was shared', async () => {
+    const doc = await docs.upload(actor, {
+      filename: 'internal.md', mimeType: 'text/markdown',
+      data: Buffer.from('internal'), title: 'Internal', clientId: ours,
+    });
+
+    // Filed under the client, never shared: no listing, and no bytes either. The two
+    // checks are separate code paths and would otherwise be separate opportunities.
+    expect(await projection.documentFile(visitor, doc.id)).toBeNull();
+
+    await testDb.transaction(async (tx) => {
+      await links.createWithin(tx, actor, {
+        fromId: doc.id, toId: ours, kind: 'shared_with_client',
+      });
+    });
+    expect((await projection.documentFile(visitor, doc.id))?.filename).toBe('internal.md');
+  });
+
   // ── a visitor with no data ──
 
   it('returns nothing rather than everything for a client with no records', async () => {

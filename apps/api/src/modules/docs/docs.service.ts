@@ -482,7 +482,7 @@ export class DocsService {
     await this.db.execute(sql`
       CREATE VIEW docs.v_documents AS
       SELECT d.id, d.title, d.category, d.client_id, d.project_id,
-             v.version, v.filename, v.mime_type, v.size_bytes,
+             v.version, v.filename, v.mime_type, v.size_bytes, v.storage_key,
              (v.extracted_text IS NOT NULL) AS indexed,
              d.uploaded_by, d.created_at, d.updated_at
         FROM docs.documents d

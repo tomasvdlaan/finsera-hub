@@ -3,6 +3,7 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import type { Actor } from '@platform/contracts';
@@ -45,6 +46,8 @@ export interface DraftLineInput {
  */
 @Injectable()
 export class BillingService {
+  private readonly logger = new Logger(BillingService.name);
+
   constructor(
     @Inject(DB) private readonly db: Database,
     private readonly registry: RegistryService,
@@ -294,9 +297,12 @@ export class BillingService {
       });
     });
 
-    await this.renderAndFilePdf(actor, id).catch(() => {
-      // The invoice is legally issued regardless; the PDF can be regenerated from the
-      // frozen row via /pdf, which is why failure here is logged-and-tolerable.
+    await this.renderAndFilePdf(actor, id).catch((err: Error) => {
+      // The invoice is legally issued regardless, and /pdf regenerates from the frozen
+      // row — so this is tolerable. It is not, however, unremarkable: a client portal
+      // serves the archived PDF and cannot regenerate one, so silence here becomes
+      // "my invoice will not download" much later, with nothing to point at.
+      this.logger.error(`Invoice ${number} issued but its PDF was not filed: ${err.message}`);
     });
 
     return this.getInvoice(actor, id);
@@ -638,6 +644,7 @@ export class BillingService {
       SELECT i.id, i.kind, i.number, i.status, i.client_id, i.project_id,
              i.vat_treatment, i.subtotal_cents, i.vat_cents, i.total_cents,
              i.issue_date, i.due_on, i.paid_at, i.created_at, i.currency,
+             i.pdf_document_id,
              (i.status = 'issued' AND i.due_on < CURRENT_DATE) AS overdue
         FROM billing.invoices i
        WHERE i.status <> 'void'

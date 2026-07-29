@@ -1,6 +1,6 @@
 # Phase 7 — Client Portal
 
-**Status:** steps 1–2 built (projection, exposure enforcement, sign-in); awaiting Zitadel setup (§5c)
+**Status:** steps 1–3 built; untested against a real client login (no invited user yet)
 **Parent:** [build-roadmap.md](build-roadmap.md) §Phase 7
 
 ---
@@ -93,7 +93,7 @@ That also defers O8 (client DPA language for AI processing) rather than forcing 
 |---|---|
 | 1 | ✅ Portal projection layer + `portalExposure` enforcement, with negative tests |
 | 2 | ✅ Token verification, role separation, invite/revoke |
-| 3 | Read-only portal: projects, documents, invoices |
+| 3 | ✅ Read-only portal: projects, quotes, invoices, documents |
 | 4 | Quote acceptance — the part that earns its keep |
 | 5 | Request form → internal task |
 | 6 | Security review before a single external user |
@@ -239,6 +239,42 @@ One project is enough — see §5b. None of this is code, and all of it blocks s
 
 Each client login is created in Zitadel, granted `portal_client`, and then recorded here
 with `invite()` against a client id — that last step is what maps a person to a company.
+
+## 5d. Step 3 — the read-only portal
+
+**A separate front end (`apps/portal`, port 5174), not a route in the internal app.** A
+shared bundle would ship every internal component, the internal API client and every
+internal route to a client's browser, leaving the separation as a router guard inside code
+they had already downloaded. Verified rather than asserted: the built bundle contains no
+occurrence of `tiptap`, `meetings`, `scrum`, `insights`, `Kanban` or any internal
+capability string.
+
+**The `@Public()` problem.** `AuthGuard` is an APP_GUARD, so a portal route must waive it
+or it would demand an *internal* token and be unusable. `@Public()` alone would publish
+every client's invoices to the internet — and nothing about reading the file would show
+it: the routes work, the projection behaves, every other test passes.
+
+So `@Public()` and `@UseGuards(PortalAuthGuard)` sit together on the class, and
+`portal.controller.spec.ts` asserts the pairing mechanically, plus that no individual
+route re-declares `@Public()` (which would waive the class guard for itself) and that the
+route list is exactly the eight read endpoints. Step 4's first write has to edit that list.
+
+**Serving files without importing Billing or Docs.** The portal needs bytes; the services
+that own them require an `Actor` and an internal capability. Rather than reach into
+another module's tables, the two views now publish where the bytes live
+(`billing.v_invoices.pdf_document_id`, `docs.v_documents.storage_key`), and the portal
+joins published views and reads through core `StorageService`. The module import graph is
+unchanged.
+
+One consequence worth stating: `getPdf` falls back to a live render when the archive is
+missing, and **the portal deliberately cannot** — rendering means Billing. So a missing
+archive is a 404 here. That made an existing silent failure worth fixing: `issue()` filed
+the PDF best-effort inside `.catch(() => {})`, swallowing the error completely. It now
+logs, because otherwise the first symptom is a client unable to download an invoice, weeks
+later, with nothing to point at.
+
+**404 for everything.** "Not yours", "not issued" and "no archived PDF" return the same
+404. Distinguishing them would confirm to a stranger that an invoice with that id exists.
 
 ## 6. Deliberately not in this phase
 
