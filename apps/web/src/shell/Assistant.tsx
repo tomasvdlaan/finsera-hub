@@ -80,7 +80,17 @@ function AnswerBody({ text, references }: { text: string; references: Reference[
  * It is context-aware: the entity id in the current URL is passed along, so "this client"
  * resolves without the user naming it.
  */
-export function Assistant({ onClose }: { onClose: () => void }) {
+export function Assistant({
+  onClose,
+  hidden = false,
+}: {
+  onClose: () => void;
+  /**
+   * Hidden rather than unmounted. The shell keeps this component alive across close/open
+   * so the conversation survives — unmounting discarded every turn and the conversationId.
+   */
+  hidden?: boolean;
+}) {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
@@ -141,7 +151,7 @@ export function Assistant({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <aside className="assistant">
+    <aside className="assistant" hidden={hidden}>
       <div className="assistant-head">
         <strong>Assistant</strong>
         <div>

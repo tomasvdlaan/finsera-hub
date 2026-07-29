@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../../lib/api.js';
+import { TIME_CHANGED, notifyTimeChanged } from '../../shell/useDocumentTitle.js';
 import { formatHours, parseDuration, resolveTimes, shiftDay, todayIso } from './duration.js';
 import { EntryRow, type Entry, type Project } from './EntryRow.js';
 
@@ -45,6 +46,11 @@ export function DayView() {
 
   useEffect(() => {
     void load();
+    // The shell's status bar can stop the clock this page is showing, so listen for it —
+    // otherwise the day view keeps rendering a timer that stopped somewhere else.
+    const refresh = () => void load();
+    window.addEventListener(TIME_CHANGED, refresh);
+    return () => window.removeEventListener(TIME_CHANGED, refresh);
   }, [load]);
 
   useEffect(() => {
@@ -90,6 +96,7 @@ export function DayView() {
       setDuration('');
       setDescription('');
       await load();
+      notifyTimeChanged();
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -111,6 +118,7 @@ export function DayView() {
       });
       setDescription('');
       await load();
+      notifyTimeChanged();
     } catch (err) {
       setError((err as Error).message);
     }
@@ -120,6 +128,7 @@ export function DayView() {
     try {
       await api.post(`/time/entries/${id}/stop`, {});
       await load();
+      notifyTimeChanged();
     } catch (err) {
       setError((err as Error).message);
     }

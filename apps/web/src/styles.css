@@ -98,6 +98,74 @@ h2 {
   color: var(--accent);
   font-weight: 500;
 }
+.sidebar-secondary {
+  margin-top: 0.75rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border);
+}
+.sidebar-secondary a {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+/* Ambient chrome: a running clock is visible from wherever you are when you remember it. */
+.statusbar {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 1.25rem;
+  padding: 0.45rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  font-size: 0.9rem;
+}
+.statusbar-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+  animation: statusbar-pulse 2s ease-in-out infinite;
+}
+@keyframes statusbar-pulse {
+  50% { opacity: 0.35; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .statusbar-dot { animation: none; }
+}
+.statusbar-time {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.statusbar-what {
+  color: var(--text);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.statusbar-note {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.statusbar button {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+/* A clock running longer than a working day was almost certainly forgotten, not worked. */
+.statusbar-warn {
+  border-color: var(--error);
+}
+.statusbar-warn .statusbar-dot {
+  background: var(--error);
+}
+/* `hidden` loses to `display: flex` on specificity, and the assistant is now hidden rather
+   than unmounted — without this it stays on screen after Hide. */
+.assistant[hidden] {
+  display: none;
+}
+
 .sidebar-footer {
   margin-top: auto;
   font-size: 0.85rem;
