@@ -56,6 +56,18 @@ export class PortalAuthGuard implements CanActivate, OnModuleInit {
   }
 
   /**
+   * On unless explicitly switched off, and never off by accident.
+   *
+   * The opt-out is a named value rather than an absent one, so an unset or misspelled
+   * variable leaves the check ON. That is the opposite of how the audience behaves in the
+   * internal guard, and deliberately so: a security check that disappears when you forget
+   * to configure something is the failure mode this module exists to avoid.
+   */
+  private get roleCheckEnabled() {
+    return process.env.PORTAL_ROLE_CHECK !== 'off';
+  }
+
+  /**
    * An unconfigured portal admits nobody, rather than admitting everybody.
    *
    * Unset audience is not "skip the check" — that is the shape of the bug this guard
@@ -83,6 +95,16 @@ export class PortalAuthGuard implements CanActivate, OnModuleInit {
       return;
     }
     this.logger.log(`Portal auth configured for audience ${this.audience}`);
+
+    if (!this.roleCheckEnabled) {
+      // Loud, and on every boot. A temporary relaxation that nobody is reminded of is a
+      // permanent one, and this is the sort of thing that is discovered years later.
+      this.logger.warn(
+        `PORTAL_ROLE_CHECK=off — the '${PORTAL_ROLE}' role is NOT required. Portal access ` +
+          'rests on the audience and the portal.users invitation alone. Remove this ' +
+          'setting once Zitadel role grants work.',
+      );
+    }
   }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -129,7 +151,7 @@ export class PortalAuthGuard implements CanActivate, OnModuleInit {
     // The audience above is necessary and not sufficient: Zitadel will issue a token
     // carrying an audience the holder has no grant for, so `aud` restates the request
     // rather than proving authorisation. The role comes from a grant, so it does.
-    if (!hasRole(payload, PORTAL_ROLE)) {
+    if (this.roleCheckEnabled && !hasRole(payload, PORTAL_ROLE)) {
       this.logger.warn(
         `Portal token rejected: subject '${payload.sub}' has no '${PORTAL_ROLE}' role`,
       );

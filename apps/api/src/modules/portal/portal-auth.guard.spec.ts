@@ -100,6 +100,7 @@ describe('PortalAuthGuard', () => {
       // The reason this check exists: Zitadel will issue a token containing an audience
       // the holder has no grant for, so a passing `aud` restates what the client asked
       // for. Roles come from grants, and cannot be requested into existence.
+      delete process.env.PORTAL_ROLE_CHECK;
       accepts({ sub: 'sub-1' });
 
       await expect(guard.verifyToken('a.b.c')).rejects.toThrow(/Invalid token/);
@@ -107,6 +108,7 @@ describe('PortalAuthGuard', () => {
     });
 
     it('refuses an internal user holding an internal role', async () => {
+      delete process.env.PORTAL_ROLE_CHECK;
       accepts({
         sub: 'sub-employee',
         'urn:zitadel:iam:org:project:roles': { internal: { orgId: 'finsera.nl' } },
@@ -116,6 +118,49 @@ describe('PortalAuthGuard', () => {
       // what keeps employees out, and must never be the only thing that does.
       await expect(guard.verifyToken('a.b.c')).rejects.toThrow(/Invalid token/);
       expect(resolveFromSubject).not.toHaveBeenCalled();
+    });
+
+    it('keeps the role check on unless it is switched off by name', async () => {
+      // An unset or misspelled value must leave the check ON. A security check that
+      // vanishes when configuration is forgotten is the failure this module is about.
+      for (const value of [undefined, '', 'false', 'no', 'OFF', '0']) {
+        if (value === undefined) delete process.env.PORTAL_ROLE_CHECK;
+        else process.env.PORTAL_ROLE_CHECK = value;
+
+        resolveFromSubject.mockClear();
+        accepts({ sub: 'sub-1' });
+        await expect(
+          guard.verifyToken('a.b.c'),
+          `PORTAL_ROLE_CHECK=${String(value)} disabled the check`,
+        ).rejects.toThrow(/Invalid token/);
+        expect(resolveFromSubject).not.toHaveBeenCalled();
+      }
+    });
+
+    // ── with the gate deliberately off (G6) ──
+
+    it('falls back to the invitation when the role check is off', async () => {
+      process.env.PORTAL_ROLE_CHECK = 'off';
+      accepts({ sub: 'sub-client' });
+      resolveFromSubject.mockResolvedValue({
+        portalUserId: 'pu-1', clientId: 'c-1', email: 'them@aclient.nl',
+      });
+
+      expect(await guard.verifyToken('a.b.c')).toMatchObject({ clientId: 'c-1' });
+    });
+
+    it('still refuses an employee with the gate off, via the invitation', async () => {
+      process.env.PORTAL_ROLE_CHECK = 'off';
+      accepts({
+        sub: 'sub-employee',
+        'urn:zitadel:iam:org:project:roles': { internal: { orgId: 'finsera.nl' } },
+      });
+      // No portal.users row, because we never wrote one. This is what carries the weight
+      // while the role gate is off: an invitation we control, not a claim we are handed.
+      resolveFromSubject.mockRejectedValue(new Error('No portal access'));
+
+      await expect(guard.verifyToken('a.b.c')).rejects.toThrow(/No portal access/);
+      expect(resolveFromSubject).toHaveBeenCalledWith('sub-employee');
     });
 
     it('resolves a visitor holding the portal role', async () => {

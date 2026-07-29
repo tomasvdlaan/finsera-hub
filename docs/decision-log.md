@@ -275,6 +275,42 @@ and portal reads in the audit log.
 
 ---
 
+## G6 — Portal role gate temporarily off (2026-07-29) · **Decided, with an expiry**
+
+**`PORTAL_ROLE_CHECK=off`.** The portal no longer requires the `portal_client` role.
+Access rests on two gates instead of three: the portal audience, and the `portal.users`
+invitation row.
+
+**Why.** Zitadel would not emit role claims for the portal project. Verified against an
+11-second-old token: the `urn:zitadel:iam:org:project:roles` scope was granted, and both
+the access token and the userinfo endpoint returned no role claims of any spelling.
+Several rounds of console changes did not shift it. The portal was unusable and untestable
+end to end, which is its own risk — an unexercised auth path is not a safe one.
+
+**Why this is tolerable rather than merely convenient.** The three gates were never equal.
+The invitation is the strongest: it is a row *we* write, naming exactly one client, and it
+is the only gate that answers "whose data". The role was defence in depth — it added "is a
+client at all". Removing it means an employee reaching the portal is refused by the
+invitation lookup rather than before it: a later refusal, not an absent one. There is still
+no path to another client's data, because the projection binds `clientId` from that row.
+
+**What was NOT relaxed, and must not be.** The `internal` role gate on
+`UserService.resolveFromClaims` stays. It has no equivalent second control: without it a
+portal client authenticating against the internal application would be JIT-provisioned as
+a member. Roles not being asserted means that gate currently refuses *everyone*, which is
+the safe direction — but it also means **no new internal user can be provisioned** until
+Zitadel role grants work. A colleague joining would fail with "No access to this platform".
+
+**Shape of the switch.** Opt-out by exact value (`'off'`), never by absence. An unset or
+misspelled variable leaves the check ON, and a test asserts that for `''`, `'false'`,
+`'no'`, `'OFF'` and `'0'`. The guard logs a warning on every boot naming the relaxation,
+because a temporary weakening nobody is reminded of becomes permanent.
+
+**Expiry.** Restore by deleting one line from `.env`. This entry exists so that deletion
+is a decision someone makes rather than a thing nobody remembers.
+
+---
+
 ## G0 — Walking skeleton (2026-07-27)
 
 **Verdict: passed.** All nine checklist criteria (spec §1) verified against the built
