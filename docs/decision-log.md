@@ -71,7 +71,7 @@ Phase 0 (walking skeleton) approved for build against `phase0-spec.md` as drafte
 | # | Decision | Due | Notes |
 |---|---|---|---|
 | O2 | Accounting integration: Exact Online API vs. UBL export | Gate G2 (Phase 5c) | Confirm VAT rules with bookkeeper at the same time. |
-| O3 | Meeting-audio transcription: third-party vs. self-hosted | Gate G3 (Phase 6c) | Most privacy-sensitive choice in the plan. |
+| ~~O3~~ | ~~Meeting-audio transcription~~ | **Closed 2026-07-28** | Recall.ai for capture, Gemini for transcription. See the revised G3 entry. |
 | O4 | Portal auth method: magic link / password / SSO | Gate G4 (Phase 7) | Provider already fixed (Zitadel, separate tenant) per D5. |
 | O5 | Assistant surface: sidebar chat vs. command palette | Before Phase 2 | Recommendation on record: sidebar first, palette later. |
 | O6 | AI cost model: token budget/user/month, alerts, metering | Estimate before Phase 2; revisit at G3 | Transcription is the expected cost spike. |
@@ -87,7 +87,7 @@ Phase 0 (walking skeleton) approved for build against `phase0-spec.md` as drafte
 | G0 | Does the core feel right to build on? | 2026-07-27 | **PASSED (with one caveat)** — see below |
 | G1 | Replacing spreadsheets? Assistant answering correctly? | — | *pending* |
 | G2 | Accounting + VAT confirmed? | — | *pending* |
-| G3 | Transcription chosen? | — | *pending* |
+| G3 | Transcription chosen? | — | **passed 2026-07-28** — Recall.ai, EU region, audio never persisted |
 | G4 | Portal auth + security review passed? | — | *pending* |
 
 ## Phase 5a decisions (2026-07-28)
