@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from 'jose';
+import { PORTAL_ROLE, hasRole } from '../../core/auth/roles.js';
 import { PortalUsersService } from './portal-users.service.js';
 import type { PortalVisitor } from './portal.projection.js';
 
@@ -18,25 +19,25 @@ declare module 'express' {
 }
 
 /**
- * Verifies a token from the PORTAL Zitadel project and resolves it to a visitor.
+ * Verifies a token from the portal application and resolves it to a visitor.
  *
- * Two separate things have to be true, and conflating them is the classic way this goes
- * wrong:
+ * Three separate things have to be true, and conflating any two is how this goes wrong:
  *
  *   1. The token is genuine — signed by Zitadel, not expired. Standard.
- *   2. The token was issued **for the portal**. This is the one that matters. Both
- *      projects live in the same Zitadel instance and share an issuer, so the signature
- *      alone does not distinguish an internal token from a portal one. The audience does.
+ *   2. It was issued **for the portal application** — the audience. Necessary, and on its
+ *      own worth less than it looks: Zitadel lets a client request an arbitrary audience
+ *      scope and returns a token carrying it whether or not the holder has a grant for
+ *      it. So `aud` restates what was asked for, not what was permitted.
+ *   3. The holder **is a portal client** — the role. This is the one that authorises,
+ *      because roles are written from server-side grants and cannot be requested into
+ *      existence. Zitadel's own guidance is to verify roles in addition to `aud`.
  *
- * Without (2), an internal user's token would sail through this guard and get resolved
- * against `portal.users` — and the entire separation would rest on that lookup failing.
- * With (2), an internal token is refused before anyone asks who it belongs to, and a
- * portal token is likewise refused by the internal guard, which checks its own audience.
+ * Then, and only then, `portal.users` decides *whose* data this is.
  *
- * That is why `audience` below is required rather than optional. The internal guard
- * tolerates an empty audience (`audience || undefined`), which is defensible for a single
- * trusted tenant and indefensible here: an unset environment variable would silently turn
- * the check off, which is the failure that looks like everything working.
+ * `audience` is still required rather than optional. The internal guard tolerates an empty
+ * one (`audience || undefined`), defensible for a single trusted tenant and indefensible
+ * here: an unset variable would silently turn a check off, which is the failure that looks
+ * like everything working.
  */
 @Injectable()
 export class PortalAuthGuard implements CanActivate, OnModuleInit {
@@ -49,7 +50,7 @@ export class PortalAuthGuard implements CanActivate, OnModuleInit {
     return process.env.ZITADEL_ISSUER ?? '';
   }
 
-  /** The portal project's client id — never the internal one. */
+  /** The portal application's client id — never the internal one. */
   private get audience() {
     return process.env.ZITADEL_PORTAL_CLIENT_ID ?? '';
   }
@@ -70,14 +71,14 @@ export class PortalAuthGuard implements CanActivate, OnModuleInit {
   onModuleInit(): void {
     if (this.audience && this.audience === process.env.ZITADEL_CLIENT_ID) {
       throw new Error(
-        'ZITADEL_PORTAL_CLIENT_ID equals ZITADEL_CLIENT_ID. The portal must be a ' +
-          'separate Zitadel project, or an internal token authenticates a client.',
+        'ZITADEL_PORTAL_CLIENT_ID equals ZITADEL_CLIENT_ID. The portal needs its own ' +
+          'Zitadel application, or the two are indistinguishable by audience.',
       );
     }
     if (!this.audience) {
       this.logger.warn(
         'ZITADEL_PORTAL_CLIENT_ID is not set — the portal will refuse every request. ' +
-          'Set it to the portal project’s client id (see .env.example).',
+          'Set it to the portal application’s client id (see .env.example).',
       );
       return;
     }
@@ -125,6 +126,17 @@ export class PortalAuthGuard implements CanActivate, OnModuleInit {
       throw new UnauthorizedException('Invalid token');
     }
 
+    // The audience above is necessary and not sufficient: Zitadel will issue a token
+    // carrying an audience the holder has no grant for, so `aud` restates the request
+    // rather than proving authorisation. The role comes from a grant, so it does.
+    if (!hasRole(payload, PORTAL_ROLE)) {
+      this.logger.warn(
+        `Portal token rejected: subject '${payload.sub}' has no '${PORTAL_ROLE}' role`,
+      );
+      throw new UnauthorizedException('Invalid token');
+    }
+
+    // Third gate, and the only one that says *whose* data this is: an invitation we wrote.
     return this.portalUsers.resolveFromSubject(payload.sub!);
   }
 }

@@ -1,6 +1,6 @@
 # Phase 7 — Client Portal
 
-**Status:** step 1 built (projection + exposure enforcement); G4 decided
+**Status:** steps 1–2 built (projection, exposure enforcement, sign-in); awaiting Zitadel setup (§5c)
 **Parent:** [build-roadmap.md](build-roadmap.md) §Phase 7
 
 ---
@@ -38,8 +38,9 @@ other clients, and anything about the business.
 
 ### G4 — how a client signs in
 
-Zitadel is already fixed (D5), with a **separate tenant** so a portal account can never be
-an internal account. What is open is the method:
+Zitadel is already fixed (D5). The original plan was a **separate tenant** so a portal
+account could never be an internal one; §5b explains why the separation ended up resting
+on project roles instead, which works within a single project. What was open is the method:
 
 | | For | Against |
 |---|---|---|
@@ -48,8 +49,8 @@ an internal account. What is open is the method:
 | **SSO into their own tenant** | Best security, no new credential | Only works for clients with an IdP, and needs setup per client — for one client, weeks of work for one login |
 
 **Decided:** none of them, in the sense that we do not build any. All three are Zitadel
-features, so the method is a **configuration choice in the portal project**, not code
-here. What this codebase does is verify a token from that project and look up which
+features, so the method is a **configuration choice in Zitadel**, not code here. What this
+codebase does is verify the token, require the `portal_client` role, and look up which
 client it belongs to. Starting with a password and passwordless link enabled costs
 nothing extra, and adding SSO for a client who has an IdP is later a Zitadel setup task
 rather than a change to anything built.
@@ -81,8 +82,8 @@ That also defers O8 (client DPA language for AI processing) rather than forcing 
   attempt to reach another client's data through every endpoint the portal exposes.
 - **Tests that assert the negative** — a portal user requesting another client's invoice
   gets nothing, and the test fails loudly if that ever changes.
-- **Rate limiting** on the login endpoint, because a magic-link request form is a mail
-  bomb otherwise.
+- **Rate limiting** — on Zitadel's side, since the login endpoint is theirs, not ours. Ours
+  is worth adding on the portal API once endpoints exist.
 - **The audit log covering portal reads**, not just writes. Who saw what matters more
   externally than internally.
 
@@ -91,7 +92,7 @@ That also defers O8 (client DPA language for AI processing) rather than forcing 
 | Step | Deliverable |
 |---|---|
 | 1 | ✅ Portal projection layer + `portalExposure` enforcement, with negative tests |
-| 2 | Zitadel portal project, token verification, rate limiting |
+| 2 | ✅ Token verification, role separation, invite/revoke |
 | 3 | Read-only portal: projects, documents, invoices |
 | 4 | Quote acceptance — the part that earns its keep |
 | 5 | Request form → internal task |
@@ -155,21 +156,37 @@ error, it produces a pass.**
 Built: `PortalUsersService`, `PortalAuthGuard`, and one platform change described below.
 Not built, because it is not code: the Zitadel project itself (§5c).
 
-**Audience separation is the whole mechanism.** Both projects live in the same Zitadel
-instance and share an issuer, so a valid signature does not distinguish an internal token
-from a portal one — only the `aud` claim does. Without that check an internal user's token
-would pass the portal guard and be resolved against `portal.users`, leaving the entire
-separation resting on that lookup failing to find a row.
+**Roles are the boundary; the audience is a supporting check.** The first version of this
+had it backwards, and the correction is worth recording because the wrong version looked
+right and passed its tests.
 
-So the portal guard requires its audience, where the internal guard tolerates an empty one
-(`audience || undefined`). That tolerance is defensible for a single trusted tenant and
-indefensible here: an unset variable would silently turn the check off. **An unconfigured
-portal refuses every request rather than accepting any token the instance ever issued.**
+Zitadel lets a client request an arbitrary audience scope
+(`urn:zitadel:iam:org:project:id:{projectID}:aud`) and **returns a token carrying that
+audience whether or not the holder has any grant for it**. Offline JWKS validation cannot
+tell the difference: the signature is genuine, and `aud` turns out to restate what the
+client asked for rather than what it was permitted. Zitadel's own guidance is to "always
+verify specific roles, scopes or custom claims in addition to checking the aud claim".
 
-It warns at boot instead of dying only because the portal has no endpoints yet — failing
-the whole platform's boot over an unreachable feature would be theatre. A portal client id
-*equal* to the internal one is fatal, because that is a wrong configuration rather than a
-missing one, and its symptom is an internal token quietly working.
+Project **roles** are different in kind. They are written into the token from server-side
+grants and cannot be requested into existence, so checking one offline is a real
+authorisation decision. Two roles: `internal` and `portal_client`.
+
+So a portal request passes three gates, in this order:
+
+| Gate | Answers | Worth alone |
+|---|---|---|
+| signature + issuer + expiry | is this token real | nothing about who |
+| `aud` = portal application | was it minted for the portal | weak — see above |
+| `portal_client` role | is the holder a client | **this is the authorisation** |
+| `portal.users` row | *which* client | the data boundary |
+
+The audience check stays because defence in depth is cheap here, and because a portal
+client id equal to the internal one is a configuration error worth failing on. But it is
+no longer what the separation rests on.
+
+**This also dissolves the one-project constraint.** Roles live at project level, so a
+single project with two applications and two roles gives the same separation — the
+discriminator is *who the user is*, not which application they came through.
 
 **A portal login is invited, never self-provisioned.** Internal users are created
 just-in-time on first sign-in, which is right when the IdP only admits people we hired,
@@ -177,6 +194,17 @@ and exactly wrong here: with JIT, anyone able to obtain a portal-project token b
 portal user and the only remaining question is whose data they map to. An unrecognised
 subject is refused and logged. Revocation sets a column rather than deleting the row, so
 "who could see this client's invoices last year" survives the person leaving.
+
+**And the sharpest consequence, on the internal side.** `UserService.resolveFromClaims`
+provisioned any valid subject as a member. That was reasonable while Zitadel only issued
+tokens to people we hired. The portal ends it: a client authenticating against the
+internal application would have been handed a member account — every client's data, granted
+silently, by a login that looked entirely ordinary.
+
+Provisioning now requires the `internal` role. The gate is on **creation, not
+authentication**, deliberately: gating authentication would lock out every existing user
+the moment this shipped and before Zitadel was configured, and an existing row is already
+an authorisation decision somebody made. The role is what it takes to write a new one.
 
 ### The platform change this forced
 
@@ -188,22 +216,29 @@ set. `portal.admin` is currently the only capability that uses it.
 
 ## 5c. What is yours to do in Zitadel
 
-None of this is code, and all of it is a prerequisite for step 3.
+One project is enough — see §5b. None of this is code, and all of it blocks step 3.
 
-1. **New project** — call it `Finsera Portal`. A separate project, not a new application
-   inside the existing one: the point is a distinct audience.
-2. **New application** inside it, type *User Agent* / PKCE, for the portal front end.
-3. **Token Settings → Auth Token Type: JWT.** Zitadel defaults to opaque tokens, which
-   cannot be validated offline. The guard names this setting in its error, because the
-   generic 401 it otherwise produces cost an afternoon during Phase 6c.
-4. **Login methods** — this is G4, and it is entirely configuration. Enable password and
-   passwordless (magic link); add SSO federation later for a client that has an IdP.
-5. **Turn off self-registration** for the project. The invite check refuses unknown
-   subjects anyway, but two locks on this door are correct.
-6. Put the application's client id in `ZITADEL_PORTAL_CLIENT_ID` (see `.env.example`).
+1. **A second application** in the existing project, type *User Agent* / PKCE, for the
+   portal front end. Its own client id is what `ZITADEL_PORTAL_CLIENT_ID` holds.
+2. **Two project roles**: `internal` and `portal_client`.
+3. **Grant yourself `internal`.** Do this before anything else — it is what lets a new
+   internal user be provisioned. (Your existing login keeps working without it; the gate
+   is on creating users, not on authenticating them.)
+4. **Enable "Assert Roles on Authentication"** at project level, so roles reach the access
+   token. Without it every role check fails and nobody is provisioned — loudly, which is
+   the correct direction to fail, but it will look like a bug.
+5. **Token Settings → Auth Token Type: JWT** on the portal application. Zitadel defaults to
+   opaque tokens that cannot be validated offline; the guard names this setting in its
+   error, because the generic 401 it otherwise produces cost an afternoon in Phase 6c.
+6. **Login methods** — this is G4, entirely configuration: password and passwordless now,
+   SSO federation later for a client that has an IdP.
+7. **Turn off self-registration.** The invite check refuses unknown subjects anyway, and
+   two locks on this door are correct.
+8. Set `ZITADEL_PORTAL_CLIENT_ID`, and `ZITADEL_PROJECT_ID` if you want the project-scoped
+   roles claim rather than the legacy flat one (both are read).
 
-The subject for a new client login comes from Zitadel once the person exists there; that
-is what `invite()` records against a client id.
+Each client login is created in Zitadel, granted `portal_client`, and then recorded here
+with `invite()` against a client id — that last step is what maps a person to a company.
 
 ## 6. Deliberately not in this phase
 

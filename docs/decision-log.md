@@ -214,7 +214,7 @@ free tier), so it carries no weight in the decision.
 ---
 
 
-## G4 — Portal authentication (2026-07-28) · **Decided**
+## G4 — Portal authentication (2026-07-28) · **Decided** · *revised 2026-07-29, see below*
 
 **Zitadel, in a separate project, with the sign-in method configured there rather than
 built here.** Password, passwordless email link, and federated SSO are all things Zitadel
@@ -230,9 +230,37 @@ It also keeps the options open in the way the question was actually asked: a cli
 wants a password gets one, a client who wants a link gets one, and a client with their own
 identity provider can federate later without any of it being a rewrite.
 
-**Separate project, not separate roles.** A portal account must not be able to become an
-internal account by acquiring a permission. Different project, different audience, and a
-token issued for one is rejected by the other — checked rather than assumed.
+**~~Separate project, not separate roles.~~ Revised 2026-07-29 — it is separate roles, and
+the original reasoning was wrong on a point of fact.**
+
+The premise was that a token issued for one project is rejected by the other because the
+audiences differ. That is not a boundary in Zitadel. A client may request an arbitrary
+audience scope (`urn:zitadel:iam:org:project:id:{projectID}:aud`) and **receive a token
+carrying that audience without holding any grant for it**; offline JWKS validation cannot
+detect this, because the signature is genuine and `aud` reflects what was requested rather
+than what was permitted. Zitadel's own guidance is to verify roles or custom claims *in
+addition to* `aud`.
+
+So the separation rests on **project roles** — `internal` and `portal_client` — which are
+written from server-side grants and cannot be requested into existence. The audience check
+stays as a supporting layer, not as the mechanism.
+
+Two consequences:
+
+- **One project is sufficient**, which resolved a hard constraint (only one is available).
+  Two applications give distinct client ids; the roles distinguish *people*, which is the
+  right axis anyway — the question was never which application a token came through.
+- **Internal JIT provisioning had to be closed.** `resolveFromClaims` provisioned any valid
+  subject as a member, which was fine while Zitadel only issued tokens to people we hired.
+  With clients in the same instance, a client authenticating against the internal
+  application would have been handed the whole business. Provisioning now requires the
+  `internal` role; the gate is on creating a user, not on authenticating one, so it did not
+  lock out existing logins on the day it shipped.
+
+**The lesson, which is the same one Phase 6c produced:** the original design passed its
+tests and read as correct. It was wrong about what a third party guarantees, and no amount
+of testing our own code would have found it. Reading the provider's security guidance was
+what found it.
 
 **The mapping from a portal login to a client lives in our database**, not in identity
 provider metadata. A `portal.users` row ties an OIDC subject to exactly one CRM client, so

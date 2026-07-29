@@ -10,6 +10,7 @@ import { Reflector } from '@nestjs/core';
 import type { Actor } from '@platform/contracts';
 import type { Request } from 'express';
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from 'jose';
+import { rolesFrom } from './roles.js';
 import { IS_PUBLIC } from './public.decorator.js';
 import { UserService } from './user.service.js';
 
@@ -103,6 +104,7 @@ export class AuthGuard implements CanActivate, OnModuleInit {
         email: payload.email as string | undefined,
         name: payload.name as string | undefined,
         preferred_username: payload.preferred_username as string | undefined,
+        roles: rolesFrom(payload),
       },
       token,
     );

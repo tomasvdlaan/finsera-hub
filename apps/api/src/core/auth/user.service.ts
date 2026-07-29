@@ -1,15 +1,18 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { ForbiddenException, Inject, Injectable, Logger } from '@nestjs/common';
 import type { Actor } from '@platform/contracts';
 import { eq } from 'drizzle-orm';
 import { v7 as uuidv7 } from 'uuid';
 import { DB, type Database } from '../db/db.module.js';
 import { users } from '../db/core.schema.js';
+import { INTERNAL_ROLE } from './roles.js';
 
 interface OidcClaims {
   sub: string;
   email?: string;
   name?: string;
   preferred_username?: string;
+  /** Project roles from the verified token — the grant, not what the client asked for. */
+  roles?: string[];
 }
 
 @Injectable()
@@ -23,6 +26,18 @@ export class UserService {
    *
    * The very first user becomes admin — otherwise a fresh install has no one who can
    * grant anything. Subsequent users default to 'member'.
+   *
+   * Provisioning is gated on the `internal` project role, and the gate is on CREATION
+   * rather than on authentication. That split is deliberate:
+   *
+   *   Once client logins exist in the same Zitadel instance, "presented a valid token"
+   *   stops meaning "works here". A client authenticating against the internal
+   *   application would otherwise be provisioned as a member — an outsider handed the
+   *   whole business, silently, on first sign-in.
+   *
+   *   Gating authentication instead would lock out every existing user the moment the
+   *   role is introduced and before it is configured. An existing row is already an
+   *   authorisation decision somebody made; the role is what it takes to write a new one.
    */
   async resolveFromClaims(claims: OidcClaims, accessToken: string): Promise<Actor> {
     const existing = await this.db.query.users.findFirst({
@@ -31,6 +46,14 @@ export class UserService {
 
     if (existing) {
       return { userId: existing.id, role: existing.role as Actor['role'] };
+    }
+
+    if (!claims.roles?.includes(INTERNAL_ROLE)) {
+      this.logger.warn(
+        `Refused to provision '${claims.email ?? claims.sub}': the token carries no ` +
+          `'${INTERNAL_ROLE}' role. Grant it in Zitadel if this is a colleague.`,
+      );
+      throw new ForbiddenException('No access to this platform');
     }
 
     // The access token carries only `sub` — profile claims live at the userinfo
