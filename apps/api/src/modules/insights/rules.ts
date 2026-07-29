@@ -235,7 +235,16 @@ export const RULES: Rule[] = [
       rule: 'task_stalled',
       subjectId: String(r.id),
       subjectType: 'task',
-      severity: 'info',
+      /*
+       * Was 'info', and it was the only rule in the file that was — which made it the only
+       * rule that could never reach the front door, because "Needs you" shows urgent and
+       * attention. It is also the only rule about work rather than about money, so the
+       * platform's action queue was structurally incapable of containing a task.
+       *
+       * Graduated rather than flat: a fortnight is a nudge, a month is a decision about
+       * whether the work is still happening.
+       */
+      severity: n(r.days_still) >= 30 ? 'urgent' : 'attention',
       title: `"${String(r.title)}" has not moved in ${n(r.days_still)} days`,
       detail:
         String(r.status) === 'waiting_on_client'
@@ -323,6 +332,51 @@ export const RULES: Rule[] = [
         // Ranked above everything with a euro value: not being able to invoice at all
         // outranks any individual invoice.
         magnitude: Number.MAX_SAFE_INTEGER,
+      };
+    },
+  },
+
+  {
+    name: 'action_item_undecided',
+    description: 'A meeting produced action points that were never accepted or dismissed.',
+    /*
+     * The gap between "we agreed to do this" and "it is on the board".
+     *
+     * meetings.action_items only becomes a task when accepted — nothing reaches the board
+     * without a decision, which is right — but nothing ever noticed the decision going
+     * unmade. A commitment made out loud in a client call and then silently dropped is worse
+     * than one never made, and it was invisible to every surface in the platform.
+     */
+    query: sql`
+      SELECT n.id, n.title, n.meeting_date, cl.name AS client_name,
+             count(a.id)::int AS undecided,
+             (CURRENT_DATE - n.meeting_date)::int AS days_since
+        FROM meetings.action_items a
+        JOIN meetings.v_notes n ON n.id = a.note_id
+        LEFT JOIN crm.v_clients cl ON cl.id = n.client_id
+       WHERE a.status = 'proposed'
+         AND CURRENT_DATE - n.meeting_date >= 3
+       GROUP BY n.id, n.title, n.meeting_date, cl.name
+    `,
+    toCandidate: (r) => {
+      const days = n(r.days_since);
+      return {
+        key: `action_item_undecided:${String(r.id)}`,
+        rule: 'action_item_undecided',
+        subjectId: String(r.id),
+        subjectType: 'meeting',
+        severity: days >= 14 ? 'urgent' : 'attention',
+        title: `${n(r.undecided)} action point${n(r.undecided) === 1 ? '' : 's'} from "${String(r.title)}" undecided`,
+        detail: `${s(r.client_name) ?? 'Internal'} meeting ${days} days ago. Accept them onto the board or dismiss them.`,
+        facts: {
+          undecided: n(r.undecided),
+          daysSince: days,
+          clientName: r.client_name,
+          meetingDate: r.meeting_date,
+        },
+        // Ranked by how long a commitment has been sitting undecided, not by money — this
+        // rule has none, and ranking it at zero would bury it under every invoice.
+        magnitude: days * 100,
       };
     },
   },
