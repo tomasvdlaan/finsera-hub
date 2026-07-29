@@ -218,10 +218,12 @@ export function NoteDetail() {
           <p className="muted">
             Transcribed {note.transcribedAt.slice(0, 16).replace('T', ' ')}
             {note.transcriptCostCents != null &&
-              ` · cost ${new Intl.NumberFormat('nl-NL', {
-                style: 'currency',
-                currency: 'EUR',
-              }).format(note.transcriptCostCents / 100)}`}
+              (note.transcriptCostCents === 0
+                ? ' · cost under € 0,01'
+                : ` · cost ${new Intl.NumberFormat('nl-NL', {
+                    style: 'currency',
+                    currency: 'EUR',
+                  }).format(note.transcriptCostCents / 100)}`)}
           </p>
         )}
       </section>

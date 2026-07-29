@@ -223,7 +223,7 @@ export class LiveRunner {
       live.state.openQuestions.length > 0
         ? `\n## Open questions\n\n${live.state.openQuestions.map((q) => `- ${q}`).join('\n')}`
         : '',
-      `\n## Transcript\n\n${transcript}`,
+      `\n## Transcript — ${live.startedAt.toTimeString().slice(0, 5)}\n\n${transcript}`,
     ]
       .filter(Boolean)
       .join('\n');
@@ -237,6 +237,9 @@ export class LiveRunner {
     }
 
     const costCents = this.live.costCents(live);
+    // Rounded cents read as "0" for a short meeting, which looks like broken metering
+    // rather than a cheap one. The token counts are kept so the real figure is
+    // recoverable, and the UI says "under a cent" instead of nothing.
     await this.meetings.recordTranscription(actor, noteId, {
       tokens: live.tokensIn + live.tokensOut,
       costCents,
