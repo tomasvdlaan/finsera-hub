@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { Actor } from '@platform/contracts';
-import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import { AuditService } from '../../core/audit/audit.service.js';
 import { users } from '../../core/db/core.schema.js';
 import { DB, type Database } from '../../core/db/db.module.js';
@@ -342,16 +342,59 @@ export class ScrumService {
     return this.getTask(actor, id);
   }
 
+  /**
+   * Tasks across every project, or narrowed.
+   *
+   * Widened from single-value filters because a board that spans projects cannot be built on
+   * them: "everything open" means several statuses, and "mine or nobody's" means a set that
+   * includes null. The single-value forms still work — a string is read as a set of one — so
+   * every existing caller and the AI tool keep working unchanged.
+   *
+   * Completed work is excluded by default. A cross-project board that included every task
+   * ever finished would be unreadable within a month, and "show me what is done" is a
+   * different question asked deliberately.
+   */
   async listTasks(
     actor: Actor,
-    filter: { projectId?: string; status?: string; assigneeId?: string; sprintId?: string } = {},
+    filter: {
+      projectId?: string | string[];
+      status?: string | string[];
+      /** `null` in the array means unassigned, which is a real answer rather than a gap. */
+      assigneeId?: (string | null)[] | string;
+      sprintId?: string;
+      dueBefore?: string;
+      includeCompleted?: boolean;
+    } = {},
   ) {
     await this.require(actor, 'scrum.tasks.read');
+    const many = <T>(v: T | T[] | undefined): T[] | undefined =>
+      v === undefined ? undefined : Array.isArray(v) ? v : [v];
+
     const where = [isNull(tasks.archivedAt)];
-    if (filter.projectId) where.push(eq(tasks.projectId, filter.projectId));
-    if (filter.status) where.push(eq(tasks.status, filter.status));
-    if (filter.assigneeId) where.push(eq(tasks.assigneeId, filter.assigneeId));
+
+    const projectIds = many(filter.projectId);
+    if (projectIds?.length) where.push(inArray(tasks.projectId, projectIds));
+
+    const statuses = many(filter.status);
+    if (statuses?.length) where.push(inArray(tasks.status, statuses));
+
+    const assignees = many(filter.assigneeId);
+    if (assignees?.length) {
+      const ids = assignees.filter((a): a is string => a !== null);
+      const wantsUnassigned = assignees.includes(null);
+      // Unassigned is a column on a board, not the absence of a filter — so it has to be
+      // expressible alongside named people rather than instead of them.
+      const clauses = [
+        ids.length ? inArray(tasks.assigneeId, ids) : undefined,
+        wantsUnassigned ? isNull(tasks.assigneeId) : undefined,
+      ].filter(Boolean);
+      if (clauses.length === 1) where.push(clauses[0]!);
+      else if (clauses.length > 1) where.push(or(...clauses)!);
+    }
+
     if (filter.sprintId) where.push(eq(tasks.sprintId, filter.sprintId));
+    if (filter.dueBefore) where.push(lte(tasks.dueOn, filter.dueBefore));
+    if (!filter.includeCompleted) where.push(isNull(tasks.completedAt));
 
     return this.db
       .select()

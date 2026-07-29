@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../lib/api.js';
+import { Comments } from '../../shell/Comments.js';
 import { useDialog } from '../../shell/ui/Dialog.js';
 import { Timeline } from '../../shell/Timeline.js';
 import type { Client } from '../crm/types.js';
@@ -389,6 +390,11 @@ export function NoteDetail() {
           attendee to have agreed. Anyone the bot sees join is added here automatically, so
           the list ends up being who was actually there rather than who was expected.
         </p>
+      </section>
+
+      <section>
+        <h2>Discussion</h2>
+        <Comments entityId={id} />
       </section>
 
       <section>

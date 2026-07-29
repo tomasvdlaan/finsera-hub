@@ -39,8 +39,8 @@ export const salesManifest = defineManifest({
   ],
 
   navigation: [
-    { label: 'Quotes', path: '/sales', icon: 'file-text', section: 'money', order: 2 },
-    { label: 'Contracts', path: '/sales/contracts', icon: 'file-signature', section: 'money', order: 3 },
+    { label: 'Quotes', path: '/sales', icon: 'file-text', section: 'money', order: 2, hidden: true },
+    { label: 'Contracts', path: '/sales/contracts', icon: 'file-signature', section: 'money', order: 3, hidden: true },
     { label: 'Rate cards', path: '/sales/rate-cards', icon: 'tag', section: 'setup', order: 2 },
   ],
   widgets: [

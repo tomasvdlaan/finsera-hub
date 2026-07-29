@@ -22,14 +22,37 @@ export class ScrumController {
     return this.scrum.updateBoard(actor, projectId, body);
   }
 
+  /**
+   * Repeatable query params, so `?status=to_do&status=review` is a set.
+   *
+   * `assigneeId=none` means unassigned — a real answer that a board needs a column for, and
+   * one an absent parameter cannot express.
+   */
   @Get('tasks')
   list(
     @CurrentActor() actor: Actor,
-    @Query('projectId') projectId?: string,
-    @Query('status') status?: string,
-    @Query('assigneeId') assigneeId?: string,
+    @Query('projectId') projectId?: string | string[],
+    @Query('status') status?: string | string[],
+    @Query('assigneeId') assigneeId?: string | string[],
+    @Query('sprintId') sprintId?: string,
+    @Query('dueBefore') dueBefore?: string,
+    @Query('includeCompleted') includeCompleted?: string,
   ) {
-    return this.scrum.listTasks(actor, { projectId, status, assigneeId });
+    const assignees =
+      assigneeId === undefined
+        ? undefined
+        : (Array.isArray(assigneeId) ? assigneeId : [assigneeId]).map((a) =>
+            a === 'none' ? null : a,
+          );
+
+    return this.scrum.listTasks(actor, {
+      projectId,
+      status,
+      assigneeId: assignees,
+      sprintId,
+      dueBefore,
+      includeCompleted: includeCompleted === 'true',
+    });
   }
 
   @Post('tasks')

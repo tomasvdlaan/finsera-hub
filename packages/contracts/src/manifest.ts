@@ -84,6 +84,17 @@ export const navigationSchema = z.object({
   section: z.enum(NAV_SECTIONS).optional(),
   /** Lower sorts first within a section. Ties fall back to the declared label. */
   order: z.number().optional(),
+  /**
+   * Registered, routed, and not in the rail.
+   *
+   * For a destination reached from a hub rather than from the sidebar — the four finance
+   * pages sit behind /money this way. It is not deletion and it is not a permission: the
+   * route still resolves, the page still works, every existing link and bookmark still
+   * lands, and `GET /core/navigation` still reports it so a hub can enumerate what it owns.
+   * Only the rail leaves it out, which is the whole difference between demoting a page and
+   * removing one.
+   */
+  hidden: z.boolean().optional(),
 });
 
 export const widgetSchema = z.object({

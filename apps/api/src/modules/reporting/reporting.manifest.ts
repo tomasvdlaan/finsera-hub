@@ -25,7 +25,7 @@ export const reportingManifest = defineManifest({
 
   permissions: [{ capability: 'reporting.read', description: 'View business reporting.' }],
 
-  navigation: [{ label: 'Overview', path: '/reporting', icon: 'bar-chart', section: 'money', order: 4 }],
+  navigation: [{ label: 'Overview', path: '/reporting', icon: 'bar-chart', section: 'money', order: 4, hidden: true }],
   widgets: [],
   chatWidgets: [],
   reportingViews: [],

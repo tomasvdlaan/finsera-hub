@@ -27,6 +27,8 @@ interface NavItem {
   module: string;
   icon?: string;
   section?: string;
+  /** Routed and reachable, but reached from a hub rather than from the rail. */
+  hidden?: boolean;
 }
 
 /**
@@ -58,6 +60,8 @@ const SECTIONS: Array<{ key: string; label: string | null }> = [
  */
 const SHELL_ITEMS: NavItem[] = [
   { label: 'Today', path: '/today', module: 'shell', icon: 'home', section: 'today' },
+  { label: 'Work', path: '/work', module: 'shell', icon: 'columns', section: 'work' },
+  { label: 'Money', path: '/money', module: 'shell', icon: 'receipt', section: 'money' },
   { label: 'Organisation', path: '/platform/settings', module: 'shell', icon: 'settings', section: 'setup' },
   { label: 'Platform modules', path: '/platform/modules', module: 'shell', icon: 'columns', section: 'setup' },
 ];
@@ -164,7 +168,9 @@ function Shell() {
           <div className="brand">Finsera Platform</div>
           <nav>
             {SECTIONS.map(({ key, label }) => {
-              const items = [...SHELL_ITEMS, ...nav].filter((i) => (i.section ?? 'more') === key);
+              const items = [...SHELL_ITEMS, ...nav].filter(
+                (i) => (i.section ?? 'more') === key && !i.hidden,
+              );
               if (items.length === 0) return null;
               return (
                 <div key={key} className="nav-section">

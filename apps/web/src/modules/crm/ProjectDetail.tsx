@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import type { EntityRef } from '@platform/contracts';
 import { api } from '../../lib/api.js';
+import { Comments } from '../../shell/Comments.js';
 import { Links } from '../../shell/Links.js';
 import { Timeline } from '../../shell/Timeline.js';
 import { DocumentsWidget } from '../docs/DocumentsWidget.js';
@@ -178,6 +179,11 @@ export function ProjectDetail() {
       <section>
         <h2>Documents</h2>
         <DocumentsWidget projectId={id} />
+      </section>
+
+      <section>
+        <h2>Discussion</h2>
+        <Comments entityId={id} />
       </section>
 
       <section>

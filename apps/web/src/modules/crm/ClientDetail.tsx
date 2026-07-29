@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../lib/api.js';
+import { Comments } from '../../shell/Comments.js';
 import { useDialog } from '../../shell/ui/Dialog.js';
 import { useToast } from '../../shell/ui/Toast.js';
 import { Links } from '../../shell/Links.js';
@@ -300,6 +301,11 @@ export function ClientDetail() {
       <section>
         <h2>Documents</h2>
         <DocumentsWidget clientId={id} />
+      </section>
+
+      <section>
+        <h2>Discussion</h2>
+        <Comments entityId={id} />
       </section>
 
       <section>

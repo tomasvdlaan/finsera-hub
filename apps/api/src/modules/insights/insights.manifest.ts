@@ -24,7 +24,7 @@ export const insightsManifest = defineManifest({
     { capability: 'insights.write', description: 'Dismiss and restore insights.' },
   ],
 
-  navigation: [{ label: 'Insights', path: '/insights', icon: 'bell', section: 'today', order: 2 }],
+  navigation: [{ label: 'Insights', path: '/insights', icon: 'bell', section: 'more', order: 1 }],
   widgets: [],
   chatWidgets: [],
   reportingViews: [],
