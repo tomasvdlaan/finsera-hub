@@ -291,4 +291,73 @@ describe('MeetingsService', () => {
     const forClient = await meetings.list(actor, { clientId });
     expect(forClient.map((n) => n.title)).toEqual(['Newer', 'Older']);
   });
+
+  // ── who was actually in the room ──
+
+  it('marks an expected person as having turned up', async () => {
+    const created = await note({ attendees: [{ name: 'Marieke de Vries' }] });
+    const updated = await meetings.recordAttendance(actor, created.id, {
+      name: 'Marieke de Vries',
+    });
+
+    // One person, not two: the name you typed and the name on the roster are the same
+    // human, and duplicating them would make the consent list meaningless.
+    expect(updated.attendees).toHaveLength(1);
+    expect(updated.attendees[0]!.detectedAt).not.toBeNull();
+  });
+
+  it('matches regardless of how it was capitalised or spaced', async () => {
+    const created = await note({ attendees: [{ name: '  Jan Bakker ' }] });
+    const updated = await meetings.recordAttendance(actor, created.id, { name: 'jan bakker' });
+    expect(updated.attendees).toHaveLength(1);
+  });
+
+  it('matches on email when the name was written differently', async () => {
+    const created = await note({
+      attendees: [{ name: 'M. de Vries', email: 'marieke@dochorse.nl' }],
+    });
+    const updated = await meetings.recordAttendance(actor, created.id, {
+      name: 'Marieke de Vries',
+      email: 'marieke@dochorse.nl',
+    });
+    expect(updated.attendees).toHaveLength(1);
+  });
+
+  it('adds someone who turned up unexpectedly, without consent', async () => {
+    const created = await note({ attendees: [{ name: 'Tomas' }] });
+    const updated = await meetings.recordAttendance(actor, created.id, { name: 'Surprise Guest' });
+
+    expect(updated.attendees).toHaveLength(2);
+    const guest = updated.attendees.find((a) => a.name === 'Surprise Guest')!;
+    expect(guest.detectedAt).not.toBeNull();
+    // Being in the room is not agreeing to be recorded.
+    expect(guest.consent).toBeNull();
+  });
+
+  it('names the gap the consent gate cannot cover', async () => {
+    const created = await note({ attendees: [{ name: 'Tomas' }] });
+    await meetings.setConsent(actor, created.id, created.attendees[0]!.id, 'granted');
+    await meetings.recordAttendance(actor, created.id, { name: 'Tomas' });
+
+    let current = await meetings.get(actor, created.id);
+    expect(current.unconsentedPresent).toHaveLength(0);
+
+    // The gate runs before the bot joins, so it cannot cover a late arrival. Rather than
+    // pretend otherwise, the gap is reported.
+    current = await meetings.recordAttendance(actor, created.id, { name: 'Late Arrival' });
+    expect(current.unconsentedPresent.map((p) => p.name)).toEqual(['Late Arrival']);
+  });
+
+  it('is idempotent, because a rejoin is not a second person', async () => {
+    const created = await note();
+    await meetings.recordAttendance(actor, created.id, { name: 'Marieke' });
+    const updated = await meetings.recordAttendance(actor, created.id, { name: 'Marieke' });
+    expect(updated.attendees).toHaveLength(1);
+  });
+
+  it('ignores an empty name', async () => {
+    const created = await note();
+    const updated = await meetings.recordAttendance(actor, created.id, { name: '   ' });
+    expect(updated.attendees).toHaveLength(0);
+  });
 });

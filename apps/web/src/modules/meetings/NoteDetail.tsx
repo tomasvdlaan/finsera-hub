@@ -306,6 +306,15 @@ export function NoteDetail() {
 
       <section>
         <h2>Attendees</h2>
+        {note.unconsentedPresent.length > 0 && (
+          <p className="error">
+            {note.unconsentedPresent.map((p) => p.name).join(', ')}{' '}
+            {note.unconsentedPresent.length === 1 ? 'is' : 'are'} in the meeting and{' '}
+            {note.unconsentedPresent.length === 1 ? 'has' : 'have'} not been asked about
+            recording. The consent check runs before the bot joins, so it cannot cover
+            somebody who arrived afterwards.
+          </p>
+        )}
         {note.attendees.length === 0 ? (
           <p className="muted">Nobody recorded.</p>
         ) : (
@@ -314,6 +323,11 @@ export function NoteDetail() {
               <li key={person.id}>
                 {person.name}
                 {person.email && <span className="muted"> · {person.email}</span>}{' '}
+                {person.detectedAt && (
+                  <span className="badge billed" title="Seen in the meeting by the bot">
+                    present
+                  </span>
+                )}{' '}
                 {person.consent === 'granted' && <span className="badge billed">consented</span>}
                 {person.consent === 'declined' && (
                   <span className="badge priority-urgent">declined</span>
@@ -363,8 +377,9 @@ export function NoteDetail() {
           onAdd={(name) => act(() => api.post(`/meetings/${id}/attendees`, { name }))}
         />
         <p className="muted">
-          Consent is asked per person and recorded with a timestamp. Recording a meeting
-          needs every attendee to have agreed.
+          Consent is asked per person and recorded with a timestamp. Recording needs every
+          attendee to have agreed. Anyone the bot sees join is added here automatically, so
+          the list ends up being who was actually there rather than who was expected.
         </p>
       </section>
 

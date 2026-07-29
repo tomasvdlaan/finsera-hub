@@ -283,6 +283,11 @@ export function LivePanel({
       }
       case 'speaker':
         break; // roster changes are visible in the transcript itself
+      case 'attendees':
+        // Somebody joined. The note reloads so the attendee list and any consent
+        // warning are current without waiting for the meeting to end.
+        onFinished();
+        break;
       case 'spoke':
         setSpoken((current) => [...current, String(message.text)]);
         break;

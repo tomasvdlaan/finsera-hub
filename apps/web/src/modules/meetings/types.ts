@@ -14,6 +14,8 @@ export interface Attendee {
   contactId: string | null;
   consent: 'granted' | 'declined' | null;
   consentAt: string | null;
+  /** Set when the meeting bot actually saw this person in the call. */
+  detectedAt: string | null;
 }
 
 export interface ActionItem {
@@ -47,6 +49,8 @@ export interface NoteDetail extends Note {
   actionItems: ActionItem[];
   /** True only when every attendee has granted; 6c will not record otherwise. */
   everyoneConsented: boolean;
+  /** People the bot saw in the call who were never asked. */
+  unconsentedPresent: Attendee[];
 }
 
 export interface Template {

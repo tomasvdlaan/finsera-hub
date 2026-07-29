@@ -1,0 +1,1 @@
+ALTER TABLE "meetings"."attendees" ADD COLUMN "detected_at" timestamp with time zone;

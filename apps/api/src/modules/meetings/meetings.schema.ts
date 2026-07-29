@@ -144,6 +144,13 @@ export const attendees = meetings.table(
     userId: uuid('user_id'),
     consent: text('consent'),
     consentAt: timestamp('consent_at', { withTimezone: true }),
+    /**
+     * Set when the meeting bot actually saw this person in the call.
+     *
+     * Distinguishes who was expected from who turned up — and the gap between the two is
+     * the interesting part: somebody in the room who was never asked for consent.
+     */
+    detectedAt: timestamp('detected_at', { withTimezone: true }),
   },
   (t) => [
     index('attendees_note_idx').on(t.noteId),

@@ -133,8 +133,11 @@ export class LiveRunner {
       onReady: ({ joinedAt }) =>
         this.sessions.broadcast(noteId, { type: 'ready', joinedAt: joinedAt.toISOString() }),
 
-      onSpeaker: (speaker, event) =>
-        this.sessions.broadcast(noteId, { type: 'speaker', speaker, event }),
+      onSpeaker: (speaker, event) => {
+        this.sessions.broadcast(noteId, { type: 'speaker', speaker, event });
+        // The roster is the truth about who is in the room; the typed list was a guess.
+        if (event === 'joined') void this.noteAttendance(actor, noteId, speaker);
+      },
 
       onSegment: (segment) => this.onSegment(actor, noteId, live, segment),
 
@@ -218,6 +221,35 @@ export class LiveRunner {
       this.sessions.broadcast(noteId, { type: 'spoke', text: reply.text });
     } catch (error) {
       this.logger.warn(`Could not speak on ${noteId}: ${(error as Error).message}`);
+    }
+  }
+
+  /**
+   * Record someone the bot saw, and surface it if they were never asked for consent.
+   *
+   * The bot itself appears on the roster and is skipped: it is a participant, but not one
+   * whose agreement means anything.
+   */
+  private async noteAttendance(
+    actor: Actor,
+    noteId: string,
+    speaker: { id: string; name: string; email?: string | null },
+  ): Promise<void> {
+    const botName = process.env.RECALL_BOT_NAME ?? 'Finsera Notulist';
+    if (speaker.name === botName || speaker.name === 'Assistant') return;
+
+    try {
+      const note = await this.meetings.recordAttendance(actor, noteId, {
+        name: speaker.name,
+        email: speaker.email ?? null,
+      });
+      this.sessions.broadcast(noteId, {
+        type: 'attendees',
+        attendees: note.attendees,
+        unconsentedPresent: note.unconsentedPresent.map((p) => p.name),
+      });
+    } catch (error) {
+      this.logger.warn(`Could not record attendance on ${noteId}: ${(error as Error).message}`);
     }
   }
 

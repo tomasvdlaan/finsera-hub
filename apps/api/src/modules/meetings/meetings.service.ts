@@ -260,6 +260,13 @@ export class MeetingsService {
       actionItems: actions,
       /** 6c refuses to record unless this is true — surfaced here so the UI can say why. */
       everyoneConsented: people.length > 0 && people.every((p) => p.consent === 'granted'),
+      /**
+       * People the bot saw in the call who were never asked.
+       *
+       * The consent gate runs before the bot joins, so it cannot cover somebody who
+       * arrives afterwards. Rather than pretend otherwise, that gap is named.
+       */
+      unconsentedPresent: people.filter((p) => p.detectedAt && p.consent !== 'granted'),
     };
   }
 
@@ -315,6 +322,66 @@ export class MeetingsService {
       email: person.email ?? null,
       contactId: person.contactId ?? null,
     });
+    return this.get(actor, noteId);
+  }
+
+  /**
+   * Record that someone was actually in the meeting.
+   *
+   * Called as people join, from the roster the bot sees. Matches an existing attendee by
+   * name so the person you typed beforehand and the person who turned up are one row
+   * rather than two — and where they do not match, a new row appears with no consent,
+   * which is precisely the thing worth noticing.
+   *
+   * Never sets consent. Being present is not agreeing.
+   */
+  async recordAttendance(
+    actor: Actor,
+    noteId: string,
+    person: { name: string; email?: string | null },
+  ) {
+    await this.require(actor, 'meetings.write');
+    const name = person.name.trim();
+    if (!name) return this.get(actor, noteId);
+
+    const existing = await this.db
+      .select()
+      .from(attendees)
+      .where(eq(attendees.noteId, noteId));
+
+    const match = existing.find(
+      (a) =>
+        a.name.trim().toLowerCase() === name.toLowerCase() ||
+        (person.email && a.email && a.email.toLowerCase() === person.email.toLowerCase()),
+    );
+
+    if (match) {
+      if (match.detectedAt) return this.get(actor, noteId); // already seen
+      await this.db
+        .update(attendees)
+        .set({ detectedAt: new Date(), email: match.email ?? person.email ?? null })
+        .where(eq(attendees.id, match.id));
+      return this.get(actor, noteId);
+    }
+
+    await this.db.transaction(async (tx) => {
+      await tx.insert(attendees).values({
+        id: this.registry.newId(),
+        noteId,
+        name,
+        email: person.email ?? null,
+        detectedAt: new Date(),
+      });
+      await this.audit.record(tx, {
+        actorId: actor.userId,
+        action: 'meeting_attendee.detected',
+        entityType: 'meeting_note',
+        entityId: noteId,
+        detail: { name },
+      });
+    });
+
+    this.logger.log(`Detected an unlisted attendee on ${noteId}: ${name}`);
     return this.get(actor, noteId);
   }
 
