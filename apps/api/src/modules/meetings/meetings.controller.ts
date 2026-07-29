@@ -1,16 +1,106 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Res,
+} from '@nestjs/common';
+import type { Response } from 'express';
+import { StorageService } from '../../core/storage/storage.service.js';
 import type { Actor } from '@platform/contracts';
 import { CurrentActor } from '../../core/auth/current-actor.decorator.js';
 import { LiveRunner } from './live/live-runner.service.js';
 import { MeetingsService, type CreateNoteInput } from './meetings.service.js';
 import { TEMPLATE_LIST } from './templates.js';
 
+/**
+ * A storage key that is safe to read.
+ *
+ * Keys are random paths chosen at upload, so a malformed one means someone is trying it
+ * on. Checked rather than trusted: without this, `../../` in the path would read anything
+ * the process can.
+ */
+export function safeStorageKey(key: string | string[]): string {
+  const joined = Array.isArray(key) ? key.join('/') : key;
+  const decoded = decodeURIComponent(joined);
+  if (!decoded || decoded.includes('..') || decoded.startsWith('/') || decoded.includes('\\')) {
+    throw new BadRequestException('Bad image key');
+  }
+  return decoded;
+}
+
+function mimeFromKey(key: string): string {
+  const ext = key.split('.').pop()?.toLowerCase();
+  return (
+    {
+      png: 'image/png',
+      jpg: 'image/jpeg',
+      jpeg: 'image/jpeg',
+      gif: 'image/gif',
+      webp: 'image/webp',
+      svg: 'image/svg+xml',
+    }[ext ?? ''] ?? 'application/octet-stream'
+  );
+}
+
 @Controller('meetings')
 export class MeetingsController {
   constructor(
     private readonly meetings: MeetingsService,
     private readonly live: LiveRunner,
+    private readonly storage: StorageService,
   ) {}
+
+  // ── images in notes ──
+
+  /**
+   * Store an image pasted or dropped into a note.
+   *
+   * Deliberately NOT a Document: a screenshot pasted mid-sentence is part of the note,
+   * not a filed record, and turning every one into a document would bury the contracts
+   * and invoices that belong there. The bytes still land in the same storage tree, so
+   * the nightly backup covers them either way.
+   */
+  @Post('images')
+  async uploadImage(
+    @CurrentActor() actor: Actor,
+    @Body() body: { filename?: string; mimeType?: string; contentBase64?: string },
+  ) {
+    if (!body?.contentBase64) throw new BadRequestException('contentBase64 is required');
+    if (!body.mimeType?.startsWith('image/')) {
+      throw new BadRequestException('Only images can be inserted into a note');
+    }
+
+    const data = Buffer.from(body.contentBase64, 'base64');
+    if (data.length === 0) throw new BadRequestException('Empty image');
+    if (data.length > 10 * 1024 * 1024) throw new BadRequestException('Images are limited to 10 MB');
+
+    const stored = await this.storage.put(data, body.filename ?? 'pasted-image');
+    return { url: `/api/meetings/images/${encodeURIComponent(stored.key)}`, key: stored.key };
+  }
+
+  /**
+   * Serve a note image.
+   *
+   * The key is a random path chosen at upload, but it is still checked rather than
+   * trusted: a key containing traversal segments would otherwise read anything the
+   * process can.
+   */
+  @Get('images/*key')
+  async image(@Param('key') key: string, @Res() res: Response) {
+    const safe = safeStorageKey(key);
+    if (!(await this.storage.exists(safe))) throw new BadRequestException('Unknown image');
+
+    const data = await this.storage.get(safe);
+    res.setHeader('Content-Type', mimeFromKey(safe));
+    res.setHeader('Cache-Control', 'private, max-age=86400');
+    res.send(data);
+  }
 
   // ── the live agent ──
 

@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Highlight from '@tiptap/extension-highlight';
+import Image from '@tiptap/extension-image';
 import Link from '@tiptap/extension-link';
 // v3 ships all four table nodes from one package, with named exports only.
 import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table';
@@ -8,6 +9,7 @@ import TaskList from '@tiptap/extension-task-list';
 import { EditorContent, useEditor, type Editor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { Markdown } from 'tiptap-markdown';
+import { api } from '../../lib/api.js';
 
 /** tiptap-markdown adds this to storage at runtime; it is not in TipTap's own types. */
 type MarkdownStorage = { markdown: { getMarkdown(): string } };
@@ -39,12 +41,17 @@ export function RichEditor({
 }) {
   /** Set while writing external content in, so the change handler does not echo it back. */
   const applying = useRef(false);
+  /** Paste and drop handlers are created before the editor exists, so they read it here. */
+  const editorRef = useRef<Editor | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   const editor = useEditor({
     editable,
     extensions: [
       StarterKit.configure({ heading: { levels: [1, 2, 3] } }),
       Highlight,
+      // Markdown carries images as ![alt](url), so they survive the round trip.
+      Image.configure({ inline: false, allowBase64: false }),
       Link.configure({ openOnClick: false }),
       TaskList,
       TaskItem.configure({ nested: true }),
@@ -59,7 +66,45 @@ export function RichEditor({
       if (applying.current) return;
       onChange?.(markdownOf(instance));
     },
+    editorProps: {
+      /**
+       * Paste an image straight into the note.
+       *
+       * The common case by a distance: a screenshot of a dashboard, pasted mid-sentence.
+       * Base64 in the document is refused — it would bloat every note and break the
+       * knowledge layer's chunking — so the bytes are uploaded and a URL inserted.
+       */
+      handlePaste: (_view, event) => {
+        const files = imageFilesFrom(event.clipboardData);
+        if (files.length === 0) return false;
+        event.preventDefault();
+        void uploadAll(files);
+        return true;
+      },
+      handleDrop: (_view, event) => {
+        const files = imageFilesFrom((event as DragEvent).dataTransfer);
+        if (files.length === 0) return false;
+        event.preventDefault();
+        void uploadAll(files);
+        return true;
+      },
+    },
   });
+
+  /** Upload, then insert — sequentially, so several pasted images keep their order. */
+  const uploadAll = useCallback(
+    async (files: File[]) => {
+      for (const file of files) {
+        try {
+          const url = await uploadImage(file);
+          editorRef.current?.chain().focus().setImage({ src: url, alt: file.name }).run();
+        } catch (error) {
+          setUploadError((error as Error).message);
+        }
+      }
+    },
+    [],
+  );
 
   /**
    * Take in content written elsewhere — by the note-taking behaviour, mid-meeting.
@@ -85,6 +130,10 @@ export function RichEditor({
   }, [markdown, editor]);
 
   useEffect(() => {
+    editorRef.current = editor;
+  }, [editor]);
+
+  useEffect(() => {
     editor?.setEditable(editable);
   }, [editable, editor]);
 
@@ -92,13 +141,42 @@ export function RichEditor({
 
   return (
     <div className="rich-editor">
-      {editable && <Toolbar editor={editor} />}
+      {editable && <Toolbar editor={editor} onUpload={uploadAll} />}
       <EditorContent editor={editor} />
+      {uploadError && <p className="error">{uploadError}</p>}
     </div>
   );
 }
 
-function Toolbar({ editor }: { editor: Editor }) {
+/** Images from a paste or a drop, ignoring everything else on the clipboard. */
+function imageFilesFrom(source: DataTransfer | null): File[] {
+  if (!source) return [];
+  return [...source.files].filter((f) => f.type.startsWith('image/'));
+}
+
+/**
+ * Store the bytes and get a URL back.
+ *
+ * The image goes to the server rather than into the document as base64: an inlined
+ * screenshot would add a megabyte of text to a note, and the knowledge layer would
+ * cheerfully chunk and embed it.
+ */
+async function uploadImage(file: File): Promise<string> {
+  const buffer = await file.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += 8_192) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + 8_192));
+  }
+  const { url } = await api.post<{ url: string }>('/meetings/images', {
+    filename: file.name || 'pasted-image.png',
+    mimeType: file.type,
+    contentBase64: btoa(binary),
+  });
+  return url;
+}
+
+function Toolbar({ editor, onUpload }: { editor: Editor; onUpload: (files: File[]) => void }) {
   const chain = useCallback(() => editor.chain().focus(), [editor]);
 
   const Button = ({
@@ -161,6 +239,15 @@ function Toolbar({ editor }: { editor: Editor }) {
           if (url === null) return;
           if (!url.trim()) return chain().unsetLink().run();
           chain().setLink({ href: url.trim() }).run();
+        }} />
+      <Button label="🖼" title="Insert an image"
+        onClick={() => {
+          const input = document.createElement('input');
+          input.type = 'file';
+          input.accept = 'image/*';
+          input.multiple = true;
+          input.onchange = () => onUpload([...(input.files ?? [])]);
+          input.click();
         }} />
       <span className="toolbar-sep" />
       <Button label="↶" title="Undo" onClick={() => chain().undo().run()} />

@@ -287,6 +287,18 @@ ol {
   height: 0;
 }
 
+/* Images sit in the flow of the note rather than overflowing it. */
+.rich-editor .tiptap img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+  margin: 0.5rem 0;
+  display: block;
+}
+.rich-editor .tiptap img.ProseMirror-selectednode {
+  outline: 2px solid var(--accent, #4a7dbd);
+}
+
 /* Live transcript: scrolls on its own so the page does not grow for two hours. */
 .transcript {
   max-height: 22rem;

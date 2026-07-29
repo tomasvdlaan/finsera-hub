@@ -4,7 +4,6 @@ import { api } from '../../lib/api.js';
 import { Timeline } from '../../shell/Timeline.js';
 import type { Client } from '../crm/types.js';
 import { LivePanel } from './LivePanel.js';
-import { Markdown } from './Markdown.js';
 import { RichEditor } from './RichEditor.js';
 import type { NoteDetail as Detail } from './types.js';
 
@@ -65,7 +64,6 @@ export function NoteDetail() {
   const [client, setClient] = useState<Client | null>(null);
   const [body, setBody] = useState('');
   const [dirty, setDirty] = useState(false);
-  const [editing, setEditing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -144,9 +142,6 @@ export function NoteDetail() {
       </div>
 
       <div className="row">
-        <button className="link-button" onClick={() => setEditing((e) => !e)}>
-          {editing ? 'done editing' : 'edit note'}
-        </button>
         {note.status === 'draft' && (
           <button onClick={() => void act(() => api.post(`/meetings/${id}/finalise`, {}))}>
             Mark done
@@ -231,17 +226,17 @@ export function NoteDetail() {
 
       <section>
         <h2>Notes</h2>
-        {editing ? (
-          <>
-            <RichEditor markdown={body} onChange={onBodyChange} />
-            <p className="muted">
-              Saves as you type. Markdown shortcuts work too — <code>##</code> for a
-              heading, <code>-</code> for a bullet, <code>- [ ]</code> for a checkbox.
-            </p>
-          </>
-        ) : (
-          <Markdown>{body}</Markdown>
-        )}
+        {/*
+          Always editable. A note is a working document — the thing you do with it is
+          write in it, and a click between reading and writing is a click before every
+          thought. Autosave makes the mode meaningless anyway.
+        */}
+        <RichEditor markdown={body} onChange={onBodyChange} />
+        <p className="muted">
+          Saves as you type. Paste or drop an image straight in. Markdown shortcuts work
+          too — <code>##</code> for a heading, <code>-</code> for a bullet,{' '}
+          <code>- [ ]</code> for a checkbox.
+        </p>
       </section>
 
       <section>
