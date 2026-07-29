@@ -103,6 +103,12 @@ export function ClientDetail() {
       </p>
       <h1>{client.name}</h1>
 
+      <p className="muted">
+        {/* Read-only, audited, and served by the same projection the portal uses — so what
+            it shows is what this client actually gets, not an approximation of it. */}
+        <Link to={`/crm/clients/${client.id}/portal`}>View their client portal →</Link>
+      </p>
+
       <div className="row">
         <select value={client.status} onChange={(e) => void setStatus(e.target.value)}>
           {CLIENT_STATUSES.map((s) => (

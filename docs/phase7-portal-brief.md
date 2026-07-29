@@ -1,6 +1,6 @@
 # Phase 7 — Client Portal
 
-**Status:** steps 1–3 built; untested against a real client login (no invited user yet)
+**Status:** steps 1–3 built, plus internal preview; no invited client login yet
 **Parent:** [build-roadmap.md](build-roadmap.md) §Phase 7
 
 ---
@@ -275,6 +275,38 @@ later, with nothing to point at.
 
 **404 for everything.** "Not yours", "not issued" and "no archived PDF" return the same
 404. Distinguishing them would confirm to a stranger that an invoice with that id exists.
+
+## 5e. Internal access — preview, not impersonation
+
+Internal people needed to see the portal. The obvious implementation is the wrong one:
+teach `PortalAuthGuard` to also accept internal tokens. Fewer lines, and it puts both
+audiences back behind one check — undoing the separation §5b exists to create.
+
+So **preview is a separate surface**. `PortalPreviewController` sits at
+`/api/portal-preview/:clientId`, authenticates as *internal* through the ordinary
+`AuthGuard`, and requires `portal.admin` (adminOnly — reading a client's portal and
+handing someone a login to it are the same kind of act). `PortalAuthGuard` is untouched
+and still accepts only an invited client.
+
+It **reuses `PortalProjection` unchanged**, which is the point rather than a convenience:
+a preview built on its own queries drifts, and a wrong preview is worse than none because
+it is believed. A test asserts preview output equals what the client would get.
+
+**Every read is audited**, not a "start preview" call. A session that must be started can
+be skipped by hitting the read endpoints directly, and then the log is silent while the
+data still flows. Noisier, unbypassable, and internal preview traffic is a person clicking.
+
+Three properties are asserted mechanically rather than trusted, because all three fail
+silently: no route carries `@Public()`; every route is a GET (step 4 gives clients quote
+acceptance, and preview must never accept on their behalf); every route is scoped to a
+`:clientId` path parameter, so no endpoint here can return data without naming one client.
+
+An unknown client id is a 404 rather than an empty list — `[]` would read as "this client
+has nothing", which is a different and misleading answer.
+
+The UI lives in the internal app (`apps/web`), never in `apps/portal`, so the portal
+bundle stays client-only. It carries a banner saying the visit is recorded, because
+someone should know that before rather than discover it after.
 
 ## 6. Deliberately not in this phase
 

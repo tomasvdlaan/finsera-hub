@@ -1,6 +1,7 @@
 import { Module, type OnModuleInit } from '@nestjs/common';
 import { ManifestRegistry } from '../../core/manifest/manifest.registry.js';
 import { PortalAuthGuard } from './portal-auth.guard.js';
+import { PortalPreviewController } from './portal-preview.controller.js';
 import { PortalController } from './portal.controller.js';
 import { PortalUsersService } from './portal-users.service.js';
 import { portalManifest } from './portal.manifest.js';
@@ -16,7 +17,7 @@ import { PortalProjection } from './portal.projection.js';
  * is a bound parameter of every query that exists.
  */
 @Module({
-  controllers: [PortalController],
+  controllers: [PortalController, PortalPreviewController],
   providers: [PortalProjection, PortalUsersService, PortalAuthGuard],
   exports: [PortalProjection, PortalUsersService],
 })

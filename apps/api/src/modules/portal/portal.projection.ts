@@ -4,19 +4,33 @@ import { DB, type Database } from '../../core/db/db.module.js';
 import { ManifestRegistry } from '../../core/manifest/manifest.registry.js';
 
 /**
- * Who is asking, and which client they are.
+ * A signed-in client, resolved from an invitation.
  *
  * Deliberately not an `Actor`. An Actor is an internal identity with capabilities, and
- * accepting one here would make it possible to serve internal data through a portal
- * endpoint by passing the wrong object. A different type makes that a compile error.
+ * accepting one on the client path would make it possible to serve internal data through
+ * a portal endpoint by passing the wrong object. A different type makes that a compile
+ * error.
  */
-export interface PortalVisitor {
+export interface PortalVisitor extends PortalAudience {
   portalUserId: string;
-  clientId: string;
   email: string;
 }
 
-/** Enough to serve bytes, resolved only for files the visitor is entitled to. */
+/**
+ * Whose data a projection query is about.
+ *
+ * Narrower than `PortalVisitor` because there are two legitimate callers and only one of
+ * them is a visitor: a signed-in client, and an internal preview of what that client sees.
+ * The projection's job is "show exactly this client's data"; deciding *which* client is
+ * allowed is the caller's, and there are exactly two places that decide —
+ * `PortalAuthGuard` (from an invitation) and `PortalPreviewController` (from an internal
+ * capability, audited). Anything else passing a clientId here is a bug.
+ */
+export interface PortalAudience {
+  clientId: string;
+}
+
+/** Enough to serve bytes, resolved only for files this client is entitled to. */
 export interface FileRef {
   filename: string;
   mime_type: string;
@@ -73,12 +87,12 @@ export class PortalProjection {
     }
   }
 
-  async projects(visitor: PortalVisitor) {
+  async projects(audience: PortalAudience) {
     this.assertExposed('project');
     const result = await this.db.execute(sql`
       SELECT p.id, p.name, p.status, p.starts_on, p.ends_on
         FROM crm.v_projects p
-       WHERE p.client_id = ${visitor.clientId}
+       WHERE p.client_id = ${audience.clientId}
        ORDER BY p.created_at DESC
     `);
     // No rates, no budget, no margin: those columns are not selected, so no future
@@ -86,13 +100,13 @@ export class PortalProjection {
     return result.rows;
   }
 
-  async invoices(visitor: PortalVisitor) {
+  async invoices(audience: PortalAudience) {
     this.assertExposed('invoice');
     const result = await this.db.execute(sql`
       SELECT i.id, i.number, i.status, i.issue_date, i.due_on,
              i.subtotal_cents, i.vat_cents, i.total_cents, i.overdue, i.currency
         FROM billing.v_invoices i
-       WHERE i.client_id = ${visitor.clientId}
+       WHERE i.client_id = ${audience.clientId}
          AND i.status IN ('issued', 'paid')
        ORDER BY i.issue_date DESC
     `);
@@ -101,20 +115,20 @@ export class PortalProjection {
     return result.rows;
   }
 
-  async quotes(visitor: PortalVisitor) {
+  async quotes(audience: PortalAudience) {
     this.assertExposed('quote');
     const result = await this.db.execute(sql`
       SELECT q.id, q.number, q.title, q.status, q.issue_date, q.valid_until,
              q.subtotal_cents, q.vat_cents, q.total_cents, q.expired
         FROM sales.v_quotes q
-       WHERE q.client_id = ${visitor.clientId}
+       WHERE q.client_id = ${audience.clientId}
          AND q.status IN ('sent', 'accepted', 'rejected')
        ORDER BY q.issue_date DESC
     `);
     return result.rows;
   }
 
-  async quoteLines(visitor: PortalVisitor, quoteId: string) {
+  async quoteLines(audience: PortalAudience, quoteId: string) {
     this.assertExposed('quote');
     // The quote id comes from the client, so ownership is re-checked here rather than
     // assumed from the list they were shown.
@@ -123,7 +137,7 @@ export class PortalProjection {
         FROM sales.quote_lines l
         JOIN sales.v_quotes q ON q.id = l.quote_id
        WHERE l.quote_id = ${quoteId}
-         AND q.client_id = ${visitor.clientId}
+         AND q.client_id = ${audience.clientId}
          AND q.status IN ('sent', 'accepted', 'rejected')
        ORDER BY l.position
     `);
@@ -138,13 +152,13 @@ export class PortalProjection {
    * a negotiation — and "belongs to this client" is not the same as "may be shown to
    * them". Sharing is a deliberate act, recorded as a link.
    */
-  async documents(visitor: PortalVisitor) {
+  async documents(audience: PortalAudience) {
     this.assertExposed('document');
     const result = await this.db.execute(sql`
       SELECT d.id, d.title, d.category, d.created_at
         FROM docs.v_documents d
         JOIN core.links l ON l.from_id = d.id
-       WHERE l.to_id = ${visitor.clientId}
+       WHERE l.to_id = ${audience.clientId}
          AND l.link_kind = 'shared_with_client'
        ORDER BY d.created_at DESC
     `);
@@ -152,7 +166,7 @@ export class PortalProjection {
   }
 
   /**
-   * Where an invoice's archived PDF lives, if the visitor owns that invoice.
+   * Where an invoice's archived PDF lives, if this client owns that invoice.
    *
    * Note what this does not do: render one. `BillingService.getPdf` falls back to a live
    * render when the archive is missing, and the portal deliberately cannot — rendering
@@ -160,42 +174,42 @@ export class PortalProjection {
    * missing archive is therefore a 404 here, and an operational problem worth knowing
    * about rather than papering over.
    */
-  async invoiceFile(visitor: PortalVisitor, invoiceId: string) {
+  async invoiceFile(audience: PortalAudience, invoiceId: string) {
     this.assertExposed('invoice');
     const result = await this.db.execute(sql`
       SELECT d.filename, d.mime_type, d.storage_key
         FROM billing.v_invoices i
         JOIN docs.v_documents d ON d.id = i.pdf_document_id
        WHERE i.id = ${invoiceId}
-         AND i.client_id = ${visitor.clientId}
+         AND i.client_id = ${audience.clientId}
          AND i.status IN ('issued', 'paid')
        LIMIT 1
     `);
     return (result.rows[0] as FileRef | undefined) ?? null;
   }
 
-  /** Where a shared document's bytes live, if it is in fact shared with this visitor. */
-  async documentFile(visitor: PortalVisitor, documentId: string) {
+  /** Where a shared document's bytes live, if it is in fact shared with this client. */
+  async documentFile(audience: PortalAudience, documentId: string) {
     this.assertExposed('document');
     const result = await this.db.execute(sql`
       SELECT d.filename, d.mime_type, d.storage_key
         FROM docs.v_documents d
         JOIN core.links l ON l.from_id = d.id
        WHERE d.id = ${documentId}
-         AND l.to_id = ${visitor.clientId}
+         AND l.to_id = ${audience.clientId}
          AND l.link_kind = 'shared_with_client'
        LIMIT 1
     `);
     return (result.rows[0] as FileRef | undefined) ?? null;
   }
 
-  /** Whether one document is shared with this visitor — checked before serving bytes. */
-  async mayReadDocument(visitor: PortalVisitor, documentId: string): Promise<boolean> {
+  /** Whether one document is shared with this client — checked before serving bytes. */
+  async mayReadDocument(audience: PortalAudience, documentId: string): Promise<boolean> {
     const result = await this.db.execute(sql`
       SELECT 1
         FROM core.links l
        WHERE l.from_id = ${documentId}
-         AND l.to_id = ${visitor.clientId}
+         AND l.to_id = ${audience.clientId}
          AND l.link_kind = 'shared_with_client'
        LIMIT 1
     `);
