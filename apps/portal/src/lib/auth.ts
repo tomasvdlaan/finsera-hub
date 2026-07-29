@@ -28,5 +28,22 @@ export const userManager = new UserManager({
 });
 
 export const login = () => userManager.signinRedirect();
-export const logout = () => userManager.signoutRedirect();
 export const getUser = (): Promise<User | null> => userManager.getUser();
+
+/**
+ * Sign out at Zitadel, or failing that at least here.
+ *
+ * The redirect leg needs the post-logout URI registered on the application, and if it is
+ * not, `signoutRedirect` throws — leaving someone signed in with no way out, which is the
+ * one thing a logout button must never do. Dropping the local session is not a true
+ * single sign-out (the Zitadel session survives, so signing in again will not prompt),
+ * but it ends the session in this browser, which is what was asked for.
+ */
+export const logout = async (): Promise<void> => {
+  try {
+    await userManager.signoutRedirect();
+  } catch {
+    await userManager.removeUser();
+    window.location.replace('/');
+  }
+};

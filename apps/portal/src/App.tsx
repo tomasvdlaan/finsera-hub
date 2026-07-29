@@ -43,6 +43,9 @@ function Session() {
   const [email, setEmail] = useState<string | null>(null);
   const [state, setState] = useState<'loading' | 'in' | 'out'>('loading');
   const [error, setError] = useState<string>();
+  // Signed in at Zitadel but refused by us is a distinct situation from signed out, and
+  // it is the one where the only useful button is the one that lets you leave.
+  const [signedInElsewhere, setSignedInElsewhere] = useState(false);
 
   useEffect(() => {
     let live = true;
@@ -67,6 +70,7 @@ function Session() {
         // means the sign-in worked and this account is not entitled to the portal —
         // missing role, or an account that was never invited.
         const status = err instanceof PortalError ? err.status : 0;
+        setSignedInElsewhere(status === 401 || status === 403);
         setError(
           status === 401 && !user.expired
             ? 'U bent ingelogd, maar dit account heeft geen toegang tot het klantportaal. Neem contact met ons op.'
@@ -89,7 +93,14 @@ function Session() {
         <h1>Finsera</h1>
         <p className="tag">Klantportaal</p>
         {error && <p className="error">{error}</p>}
-        <button onClick={() => void login()}>Inloggen</button>
+        {signedInElsewhere ? (
+          // "Inloggen" here would reuse the Zitadel session that was just refused and
+          // land straight back on this screen — a loop with no exit. Signing out is the
+          // only move that changes anything, including switching to another account.
+          <button onClick={() => void logout()}>Uitloggen</button>
+        ) : (
+          <button onClick={() => void login()}>Inloggen</button>
+        )}
       </div>
     );
   }
