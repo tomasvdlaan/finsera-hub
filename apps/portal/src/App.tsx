@@ -93,6 +93,16 @@ function Session() {
         <h1>Finsera</h1>
         <p className="tag">Klantportaal</p>
         {error && <p className="error">{error}</p>}
+        {signedInElsewhere && (
+          // Internal accounts are refused here by design, and without saying so the
+          // refusal reads as a bug — the only button offers a sign-in that cannot ever
+          // succeed for them. Static copy rather than detection: the guard cannot tell an
+          // internal account from any other refused one, and should not learn to.
+          <p className="tag">
+            Bent u van Finsera? Het klantportaal is alleen voor klanten — bekijk het
+            portaal van een klant via het dashboard, bij de klant zelf.
+          </p>
+        )}
         {signedInElsewhere ? (
           // "Inloggen" here would reuse the Zitadel session that was just refused and
           // land straight back on this screen — a loop with no exit. Signing out is the
