@@ -1,10 +1,17 @@
-import { ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import type { Actor, Link } from '@platform/contracts';
 import { and, eq, inArray, isNull, or } from 'drizzle-orm';
 import { v7 as uuidv7 } from 'uuid';
 import { AuditService } from '../audit/audit.service.js';
 import { DB, type Database, type Executor, type Tx } from '../db/db.module.js';
 import { links } from '../db/core.schema.js';
+import { ManifestRegistry } from '../manifest/manifest.registry.js';
 import { PermissionService } from '../permissions/permission.service.js';
 import { RegistryService } from '../registry/registry.service.js';
 
@@ -30,6 +37,7 @@ export class LinkService {
     private readonly registry: RegistryService,
     private readonly permissions: PermissionService,
     private readonly audit: AuditService,
+    private readonly manifests: ManifestRegistry,
   ) {}
 
   /**
@@ -150,6 +158,21 @@ export class LinkService {
       this.permissions.canSee(actor, link.toId),
     ]);
     if (!canSeeFrom || !canSeeTo) throw new ForbiddenException('Cannot remove this link');
+
+    /*
+     * A required reference is structure, not annotation.
+     *
+     * The link row carries both entity types, and the manifests already declare which
+     * references are required — this is the first thing to read that declaration. Without
+     * it, removing a task's belongs_to dropped it from its project and its client silently,
+     * and nothing could restore it because the picker offers only optional kinds.
+     */
+    if (this.manifests.isRequiredRef(link.fromType, link.toType)) {
+      throw new BadRequestException(
+        `A ${link.fromType} must belong to a ${link.toType} — this link cannot be removed. ` +
+          `Move it to a different ${link.toType} instead.`,
+      );
+    }
 
     await this.db.transaction(async (tx) => {
       await tx.delete(links).where(eq(links.id, linkId));

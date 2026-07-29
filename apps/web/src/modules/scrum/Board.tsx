@@ -25,7 +25,11 @@ function Column({
   column: { key: string; label: string; isDone: boolean };
   tasks: Task[];
   columns: Array<{ key: string; label: string }>;
-  onMove: (taskId: string, status: string, afterTaskId?: string | null) => void;
+  onMove: (
+    taskId: string,
+    status: string,
+    neighbours?: { beforeTaskId?: string | null; afterTaskId?: string | null },
+  ) => void;
 }) {
   // Droppable on the column itself, so an empty column is still a valid target.
   const { setNodeRef, isOver } = useDroppable({ id: `column:${column.key}` });
@@ -124,11 +128,23 @@ export function Board() {
    * A card that snaps back for a moment while a request completes reads as a bug, and
    * this is the interaction people repeat dozens of times a day.
    */
-  const move = async (taskId: string, status: string, afterTaskId?: string | null) => {
+  /**
+   * `beforeTaskId` is the card ABOVE the dropped one, `afterTaskId` the card below.
+   *
+   * The names read backwards from the drag's point of view and that is exactly how this
+   * broke: the drop handler passed its target as `afterTaskId`, meaning "the target sits
+   * below me", so every card-onto-card drag landed above the card it was dropped on. The
+   * client now speaks the server's vocabulary rather than guessing at it.
+   */
+  const move = async (
+    taskId: string,
+    status: string,
+    neighbours: { beforeTaskId?: string | null; afterTaskId?: string | null } = {},
+  ) => {
     const previous = tasks;
     setTasks((current) => current.map((t) => (t.id === taskId ? { ...t, status } : t)));
     try {
-      await api.post(`/scrum/tasks/${taskId}/move`, { status, afterTaskId });
+      await api.post(`/scrum/tasks/${taskId}/move`, { status, ...neighbours });
       await load();
     } catch (e) {
       setTasks(previous); // the server refused; show the truth
@@ -148,10 +164,11 @@ export function Board() {
       return;
     }
 
-    // Dropped onto another card: take that card's column, and sit after it.
+    // Dropped onto another card: take that card's column, and sit after it — so the
+    // target is the card ABOVE, which the server calls beforeTaskId.
     const target = tasks.find((t) => t.id === over);
     if (!target || target.id === taskId) return;
-    void move(taskId, target.status, target.id);
+    void move(taskId, target.status, { beforeTaskId: target.id });
   };
 
   const addTask = async (e: FormEvent) => {

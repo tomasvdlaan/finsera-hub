@@ -4,15 +4,34 @@
     {
       "name": "portal",
       "runtimeExecutable": "/Users/tomasvanderlaan/.local/bin/pnpm",
-      "runtimeArgs": ["--filter", "@platform/portal", "dev"],
+      "runtimeArgs": [
+        "--filter",
+        "@platform/portal",
+        "dev"
+      ],
       "port": 5174,
       "autoPort": false
     },
     {
       "name": "api",
       "runtimeExecutable": "/Users/tomasvanderlaan/.local/bin/pnpm",
-      "runtimeArgs": ["--filter", "@platform/api", "dev"],
+      "runtimeArgs": [
+        "--filter",
+        "@platform/api",
+        "dev"
+      ],
       "port": 3001,
+      "autoPort": false
+    },
+    {
+      "name": "web",
+      "runtimeExecutable": "/Users/tomasvanderlaan/.local/bin/pnpm",
+      "runtimeArgs": [
+        "--filter",
+        "@platform/web",
+        "dev"
+      ],
+      "port": 5173,
       "autoPort": false
     }
   ]

@@ -27,7 +27,7 @@ function build() {
   const registry = new RegistryService(testDb, manifests);
   const permissions = new PermissionService(testDb, manifests);
   const audit = new AuditService();
-  const links = new LinkService(testDb, registry, permissions, audit);
+  const links = new LinkService(testDb, registry, permissions, audit, manifests);
   const bus = new EventBus(manifests);
   const crm = new CrmService(testDb, registry, permissions, audit, bus, links);
   const time = new TimeService(testDb, registry, permissions, audit, bus, links, crm);
@@ -370,7 +370,7 @@ describe('TimeService', () => {
       }
     })(testDb, manifests);
     const audit = new AuditService();
-    const links = new LinkService(testDb, registry, denied, audit);
+    const links = new LinkService(testDb, registry, denied, audit, manifests);
     const bus = new EventBus(manifests);
     const restricted = new TimeService(
       testDb,

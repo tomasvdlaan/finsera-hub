@@ -86,6 +86,20 @@ export class ManifestRegistry {
     return [...this.manifests.values()];
   }
 
+  /**
+   * Whether some module declares this reference as structurally required.
+   *
+   * Manifests already say `{ from: 'task', toType: 'project', required: true }`, and that
+   * declaration was enforced on nothing: a required link could be deleted from the UI, which
+   * silently dropped the task out of its project's and its client's timelines with no way to
+   * put it back — the link picker does not offer structural kinds.
+   */
+  isRequiredRef(fromType: string, toType: string): boolean {
+    return this.all().some((m) =>
+      m.structuralRefs.some((r) => r.required && r.from === fromType && r.toType === toType),
+    );
+  }
+
   ownerOfEntityType(type: string): string | undefined {
     return this.all().find((m) => m.entities.some((e) => e.type === type))?.name;
   }

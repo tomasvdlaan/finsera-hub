@@ -56,6 +56,7 @@ export function LivePanel({
   const [running, setRunning] = useState(false);
   const [lines, setLines] = useState<Line[]>([]);
   const [proposals, setProposals] = useState<Proposal[]>([]);
+  const [aiNotes, setAiNotes] = useState<string | null>(null);
   const [state, setState] = useState<RunningState | null>(null);
   const [costCents, setCostCents] = useState(0);
   const [chatty, setChatty] = useState(false);
@@ -294,6 +295,18 @@ export function LivePanel({
       case 'proposals':
         setProposals((current) => [...current, ...(message.proposals as Proposal[])]);
         break;
+      /*
+       * The note-taker revises its notes roughly every ninety seconds and the server has
+       * been broadcasting each revision since the behaviour shipped. There was no case for
+       * it here, so every one was dropped — the panel promised the AI was taking notes and
+       * showed no evidence of it for the whole meeting.
+       *
+       * Replaced wholesale rather than appended, because the behaviour owns the section and
+       * rewrites it: appending would show every draft.
+       */
+      case 'notes':
+        setAiNotes(message.markdown as string);
+        break;
       case 'state':
         setState(message.state as RunningState);
         break;
@@ -481,6 +494,18 @@ export function LivePanel({
                   </ul>
                 </>
               )}
+            </section>
+          )}
+
+          {aiNotes && (
+            <section>
+              <h3>Notes so far</h3>
+              {/* Pre-wrapped rather than rendered as markdown: this is a live draft that
+                  changes every ninety seconds, and the finished version is written to the
+                  note when the meeting ends. */}
+              <p className="muted" style={{ whiteSpace: 'pre-wrap' }}>
+                {aiNotes}
+              </p>
             </section>
           )}
 

@@ -23,7 +23,7 @@ function build() {
   const registry = new RegistryService(testDb, manifests);
   const permissions = new PermissionService(testDb, manifests);
   const audit = new AuditService();
-  const links = new LinkService(testDb, registry, permissions, audit);
+  const links = new LinkService(testDb, registry, permissions, audit, manifests);
   return new CrmService(testDb, registry, permissions, audit, new EventBus(manifests), links);
 }
 
@@ -33,7 +33,7 @@ function links() {
   manifests.seal();
   const registry = new RegistryService(testDb, manifests);
   const permissions = new PermissionService(testDb, manifests);
-  return new LinkService(testDb, registry, permissions, new AuditService());
+  return new LinkService(testDb, registry, permissions, new AuditService(), manifests);
 }
 
 describe('CrmService', () => {
@@ -325,7 +325,7 @@ describe('CrmService', () => {
       denied,
       audit,
       new EventBus(manifests),
-      new LinkService(testDb, registry, denied, audit),
+      new LinkService(testDb, registry, denied, audit, manifests),
     );
 
     await expect(restricted.createClient(actor, { name: 'Nope' })).rejects.toThrow(/capability/);

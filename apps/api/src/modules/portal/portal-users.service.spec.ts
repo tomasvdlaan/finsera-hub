@@ -38,7 +38,7 @@ describe('PortalUsersService', () => {
     const audit = new AuditService();
     crm = new CrmService(
       testDb, registry, permissions, audit,
-      new EventBus(manifests), new LinkService(testDb, registry, permissions, audit),
+      new EventBus(manifests), new LinkService(testDb, registry, permissions, audit, manifests),
     );
     service = new PortalUsersService(testDb, permissions, audit);
 

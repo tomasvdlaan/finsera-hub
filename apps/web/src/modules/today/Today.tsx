@@ -17,7 +17,10 @@ interface Overview {
   revenueYear?: { totalCents?: number };
   revenueMonth?: { totalCents?: number };
   outstanding?: { totalCents?: number; overdueCents?: number };
-  unbilled?: { totalCents?: number };
+  // `totalValueCents`, not `totalCents`. Reading the wrong name made this tile render
+  // €0 from the day it shipped, in the most prominent space on the front door — and a
+  // zero looks plausible, so nothing ever flagged it.
+  unbilled?: { totalValueCents?: number };
 }
 
 interface DayEntry {
@@ -151,7 +154,7 @@ export function Today() {
         <div className="stat">
           <Link to="/reporting">
             <div className="muted">Unbilled work</div>
-            <div className="stat-value">{euros(overview?.unbilled?.totalCents)}</div>
+            <div className="stat-value">{euros(overview?.unbilled?.totalValueCents)}</div>
           </Link>
         </div>
         <div className="stat">

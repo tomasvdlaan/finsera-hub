@@ -97,7 +97,7 @@ describe('PortalPreviewController behaviour', () => {
     const audit = new AuditService();
     crm = new CrmService(
       testDb, registry, permissions, audit,
-      new EventBus(manifests), new LinkService(testDb, registry, permissions, audit),
+      new EventBus(manifests), new LinkService(testDb, registry, permissions, audit, manifests),
     );
     controller = new PortalPreviewController(
       new PortalProjection(testDb, manifests),
