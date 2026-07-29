@@ -16,11 +16,12 @@ export class PortalError extends Error {
   }
 }
 
-async function request<T>(path: string): Promise<T> {
+async function request<T>(path: string, method: 'GET' | 'POST' = 'GET'): Promise<T> {
   const user = await getUser();
   if (!user) throw new PortalError('Not signed in', 0);
 
   const res = await fetch(`/api/portal${path}`, {
+    method,
     headers: { Authorization: `Bearer ${user.access_token}` },
   });
   if (!res.ok) throw new PortalError(await errorMessage(res), res.status);
@@ -91,6 +92,14 @@ export interface PortalQuote {
   expired: boolean;
 }
 
+export interface PortalQuoteLine {
+  description: string;
+  quantity: string;
+  unit: string | null;
+  unit_price_cents: number;
+  amount_cents: number;
+}
+
 export interface PortalDocument {
   id: string;
   title: string;
@@ -104,4 +113,7 @@ export const api = {
   invoices: () => request<PortalInvoice[]>('/invoices'),
   quotes: () => request<PortalQuote[]>('/quotes'),
   documents: () => request<PortalDocument[]>('/documents'),
+  quoteLines: (id: string) => request<PortalQuoteLine[]>(`/quotes/${id}/lines`),
+  acceptQuote: (id: string) =>
+    request<{ id: string; number: string; status: string }>(`/quotes/${id}/accept`, 'POST'),
 };

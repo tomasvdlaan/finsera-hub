@@ -1,6 +1,6 @@
 # Phase 7 — Client Portal
 
-**Status:** steps 1–3 built, plus internal preview; no invited client login yet
+**Status:** steps 1–4 built and exercised end to end by a real client login
 **Parent:** [build-roadmap.md](build-roadmap.md) §Phase 7
 
 ---
@@ -94,7 +94,7 @@ That also defers O8 (client DPA language for AI processing) rather than forcing 
 | 1 | ✅ Portal projection layer + `portalExposure` enforcement, with negative tests |
 | 2 | ✅ Token verification, role separation, invite/revoke |
 | 3 | ✅ Read-only portal: projects, quotes, invoices, documents |
-| 4 | Quote acceptance — the part that earns its keep |
+| 4 | ✅ Quote acceptance — the part that earns its keep |
 | 5 | Request form → internal task |
 | 6 | Security review before a single external user |
 
@@ -344,6 +344,52 @@ to mark the moment.
 - **`PORTAL_ROLE_CHECK=off`** (G6) means two gates rather than three.
 - The **`internal` role gate refuses everyone** while Zitadel emits no roles, so no new
   colleague can be provisioned.
+
+## 5g. Step 4 — quote acceptance
+
+The first thing a client can change, and the reason both controllers had a read-only
+assertion. Updating the portal's route inventory was the deliberate act those tests
+existed to force; the preview controller's GET-only assertion was left untouched, so
+previewing still cannot accept on a client's behalf.
+
+**The work happens in Sales, not the portal.** Accepting is a status transition with an
+audit entry and a published event; writing it against the tables here would create a
+second answer to "is this quote accepted" that diverges the first time either side
+changes. So `PortalModule` imports `SalesModule` — its only module import — and reads
+still import nothing.
+
+`SalesService.acceptByClient` **takes no `Actor`**. A portal visitor is not an internal
+identity, and a method that accepted one would have to be handed a fabricated Actor by the
+portal, which is the type confusion this module is built to prevent. The caller supplies a
+client id; the method proves the quote belongs to it, re-checking ownership the portal has
+already checked — because a second caller arriving later would otherwise inherit an
+unguarded write.
+
+**Refusals are uniform.** Someone else's quote, a quote never sent, and a quote that does
+not exist all return the same 404: a stranger probing ids must not be able to map which
+are real. The exception is a quote already decided, which gets a plain sentence — that
+client has demonstrably seen it.
+
+**Expiry is enforced server-side**, not just marked in the UI. An old browser tab or a
+crafted request must not be able to claim a price we withdrew.
+
+**No project is created.** Internally, accepting can spin one up with a budget from the
+quote. That is a decision about how we run the work, not one a client makes by clicking.
+
+**Attribution is honest.** `actor_id` is null — the column is a foreign key into
+`core.users` and a visitor is not one — with the portal user and email in `detail`, and
+`viaPortal: true`. The event is the same `quote.accepted` an internal acceptance
+publishes, so nothing downstream needs to know which door it came through.
+
+**Verified end to end**, not only by tests: Q2026-0001 (€1.694,00) created and sent
+internally, accepted from the portal by a real client login, and confirmed as `accepted`
+in the internal list with the audit and event rows above.
+
+**One bug caught in the browser.** The first version used `window.confirm`. Native dialogs
+are suppressed in embedded browsers, so the button would have silently done nothing —
+exactly how the meeting attendee button failed in Phase 6c. It is now a two-step inline
+confirmation that repeats the amount, so what is being agreed to is on screen at the
+moment of agreeing. Line units were also showing in English (`hours`) on a Dutch page.
 
 ## 6. Deliberately not in this phase
 

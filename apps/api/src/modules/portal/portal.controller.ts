@@ -1,6 +1,8 @@
 import {
   Controller,
   Get,
+  HttpCode,
+  Post,
   Inject,
   NotFoundException,
   Param,
@@ -13,6 +15,7 @@ import { AuditService } from '../../core/audit/audit.service.js';
 import { Public } from '../../core/auth/public.decorator.js';
 import { DB, type Database } from '../../core/db/db.module.js';
 import { StorageService } from '../../core/storage/storage.service.js';
+import { SalesService } from '../sales/sales.service.js';
 import { CurrentVisitor } from './current-visitor.decorator.js';
 import { PortalAuthGuard } from './portal-auth.guard.js';
 import { PortalProjection, type PortalVisitor } from './portal.projection.js';
@@ -38,6 +41,7 @@ export class PortalController {
     private readonly projection: PortalProjection,
     private readonly storage: StorageService,
     private readonly audit: AuditService,
+    private readonly sales: SalesService,
     @Inject(DB) private readonly db: Database,
   ) {}
 
@@ -141,6 +145,35 @@ export class PortalController {
     const file = await this.projection.documentFile(visitor, id);
     if (!file) throw new NotFoundException('Not found');
     await this.send(res, file, 'attachment');
+  }
+
+  /**
+   * The first thing a client can change, and the reason the read-only assertions in
+   * `portal.controller.spec.ts` and `portal-preview.controller.spec.ts` were written.
+   *
+   * The work happens in `SalesService`, not here. Accepting a quote is a status
+   * transition with an audit entry and a published event; reimplementing it against the
+   * tables would create a second answer to "is this quote accepted", and the two would
+   * diverge the first time either changed. The portal supplies who is asking and Sales
+   * decides whether they may.
+   *
+   * Note what is NOT sent: nothing from the request body. Which quote comes from the path,
+   * which client comes from the session. A body would be a place for a client id to
+   * arrive from outside, and there is no such place.
+   */
+  @Post('quotes/:id/accept')
+  @HttpCode(200)
+  async acceptQuote(
+    @CurrentVisitor() visitor: PortalVisitor,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    await this.recordRead(visitor, 'quote_accept', id);
+    return this.sales.acceptByClient({
+      quoteId: id,
+      clientId: visitor.clientId,
+      portalUserId: visitor.portalUserId,
+      email: visitor.email,
+    });
   }
 
   private async send(

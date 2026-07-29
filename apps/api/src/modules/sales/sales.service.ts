@@ -399,6 +399,94 @@ export class SalesService {
     return this.getQuote(actor, id);
   }
 
+  /**
+   * A client accepting their own quote, from the portal.
+   *
+   * Separate from `accept` rather than a flag on it, and the signature is the reason:
+   * there is no `Actor`. A portal visitor is not an internal identity, and a method that
+   * took one would have to be handed a fabricated Actor by the portal — which is exactly
+   * the type confusion the portal module is built to make impossible. Instead the caller
+   * supplies the client id, and this method proves the quote belongs to it.
+   *
+   * Ownership is re-checked here rather than trusted from the caller. The portal has
+   * already checked it, and that is precisely why this must too: a second caller arriving
+   * later would otherwise inherit an unguarded write.
+   *
+   * No project is created. Internally `accept` can spin one up with a budget taken from
+   * the quote, which is a decision about how we run the work — not one a client should
+   * make by clicking a button. The internal follow-up attaches a project when it is ready.
+   */
+  async acceptByClient(input: {
+    quoteId: string;
+    clientId: string;
+    portalUserId: string;
+    email: string;
+  }) {
+    const quote = await this.rawQuote(input.quoteId);
+
+    // One message for every refusal a stranger could probe with: whether a quote exists,
+    // belongs to someone else, or was already decided is not a distinction worth leaking.
+    const refuse = () => {
+      throw new NotFoundException('Not found');
+    };
+
+    if (quote.clientId !== input.clientId) refuse();
+    if (!quote.sentAt) refuse();
+    if (quote.decidedAt) {
+      // Except this one: a client re-clicking on a quote they already accepted deserves a
+      // sentence rather than a mystery, and they demonstrably already know it exists.
+      throw new BadRequestException(`This quote is already ${quote.status}`);
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    if (quote.validUntil && quote.validUntil < today) {
+      // The portal marks these expired, so this is the second line of defence rather than
+      // the first — but a price that has lapsed must not be claimable by an old browser
+      // tab or a crafted request.
+      throw new BadRequestException('This quote has expired — please ask us for a new one');
+    }
+
+    await this.db.transaction(async (tx) => {
+      await tx
+        .update(quotes)
+        .set({ status: 'accepted', decidedAt: new Date(), updatedAt: new Date() })
+        .where(eq(quotes.id, input.quoteId));
+
+      // actorId is null: the column is a foreign key into core.users and a portal visitor
+      // is not one. Who accepted is in the detail, and it is the whole point of the entry.
+      await this.audit.record(tx, {
+        actorId: null,
+        action: 'quote.accept',
+        entityType: 'quote',
+        entityId: input.quoteId,
+        detail: {
+          number: quote.number,
+          acceptedByPortalUser: input.portalUserId,
+          email: input.email,
+          viaPortal: true,
+        },
+      });
+
+      // The same event as an internal acceptance, so anything downstream sees one kind of
+      // "a quote was accepted" rather than having to know which door it came through.
+      await this.events.publish(tx, {
+        name: 'quote.accepted',
+        entityType: 'quote',
+        entityId: input.quoteId,
+        actorId: null,
+        payload: {
+          number: quote.number,
+          clientId: quote.clientId,
+          projectId: null,
+          totalCents: quote.totalCents,
+          viaPortal: true,
+        },
+      });
+    });
+
+    return { id: input.quoteId, number: quote.number, status: 'accepted' as const };
+  }
+
   async reject(actor: Actor, id: string, reason?: string) {
     await this.require(actor, 'sales.quotes.write');
     const quote = await this.rawQuote(id);

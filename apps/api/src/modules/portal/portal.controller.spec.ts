@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { GUARDS_METADATA, PATH_METADATA } from '@nestjs/common/constants.js';
+import { GUARDS_METADATA, METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants.js';
+import { RequestMethod } from '@nestjs/common';
 import { IS_PUBLIC } from '../../core/auth/public.decorator.js';
 import { PortalAuthGuard } from './portal-auth.guard.js';
 import { PortalController } from './portal.controller.js';
@@ -54,10 +55,11 @@ describe('PortalController wiring', () => {
     }
   });
 
-  it('exposes only read routes', () => {
-    // Step 3 is read-only. Quote acceptance (step 4) is the first write, and it should
-    // arrive as a deliberate change to this list rather than as an unnoticed addition.
+  it('exposes exactly these routes', () => {
+    // The list is the point. Anything added to the portal's surface fails here until
+    // somebody writes it down, which is the moment the addition gets looked at.
     expect([...routeNames].sort()).toEqual([
+      'acceptQuote',
       'documentDownload',
       'documents',
       'invoicePdf',
@@ -67,5 +69,16 @@ describe('PortalController wiring', () => {
       'quoteLines',
       'quotes',
     ]);
+  });
+
+  it('permits exactly one write, and names it', () => {
+    // Step 4 added the first thing a client can change. This is the assertion that was
+    // read-only until it was deliberately changed — a second write must be as deliberate.
+    const writes = routeNames.filter(
+      (name) =>
+        RequestMethod[Reflect.getMetadata(METHOD_METADATA, proto[name]) as RequestMethod] !==
+        'GET',
+    );
+    expect(writes).toEqual(['acceptQuote']);
   });
 });

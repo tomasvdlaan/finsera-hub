@@ -1,5 +1,6 @@
 import { Module, type OnModuleInit } from '@nestjs/common';
 import { ManifestRegistry } from '../../core/manifest/manifest.registry.js';
+import { SalesModule } from '../sales/sales.module.js';
 import { PortalAuthGuard } from './portal-auth.guard.js';
 import { PortalPreviewController } from './portal-preview.controller.js';
 import { PortalController } from './portal.controller.js';
@@ -8,15 +9,21 @@ import { portalManifest } from './portal.manifest.js';
 import { PortalProjection } from './portal.projection.js';
 
 /**
- * The portal imports no module, and that is a security property rather than tidiness.
+ * The portal imports one module, and everything it reads comes from somewhere else.
  *
- * Every other module reads its neighbours through their services. If this one did the
- * same, a portal request would hold a reference to `BillingService` — and the only thing
- * standing between a client and every invoice in the system would be remembering to pass
- * the right filter. Instead it reads the published views through SQL, where the client id
- * is a bound parameter of every query that exists.
+ * **Reads import nothing.** If this module held `BillingService`, the only thing between a
+ * client and every invoice in the system would be remembering to pass the right filter.
+ * Reads go through the published views instead, where the client id is a bound parameter
+ * of every query that exists.
+ *
+ * **The single write imports Sales**, because accepting a quote is a status transition
+ * with an audit entry and a published event, and writing it here would create a second
+ * answer to "is this quote accepted" that diverges the first time either side changes.
+ * `SalesService.acceptByClient` takes no `Actor` — it cannot be handed an internal
+ * identity, and it proves the quote belongs to the client id it was given.
  */
 @Module({
+  imports: [SalesModule],
   controllers: [PortalController, PortalPreviewController],
   providers: [PortalProjection, PortalUsersService, PortalAuthGuard],
   exports: [PortalProjection, PortalUsersService],
