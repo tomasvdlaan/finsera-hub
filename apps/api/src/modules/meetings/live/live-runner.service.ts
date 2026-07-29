@@ -321,6 +321,27 @@ export class LiveRunner {
     this.sessions.broadcast(noteId, { type: 'spoke', text });
   }
 
+  /**
+   * Run the utterance behaviours for a session this runner is not driving.
+   *
+   * The socket path transcribes its own audio — it has no capture provider to take
+   * segments from — but everything after a line exists is identical, and duplicating it
+   * is how the two paths drifted apart in the first place.
+   */
+  async onUtterance(
+    actor: Actor,
+    noteId: string,
+    live: LiveSession,
+    latest: { speaker?: string; text: string; at: number },
+  ): Promise<void> {
+    await this.runBehaviours('utterance', actor, noteId, live, latest);
+  }
+
+  /** Start the interval behaviours for a session started elsewhere, e.g. by the socket. */
+  startBehaviours(actor: Actor, noteId: string, live: LiveSession): void {
+    this.startBehaviourTimer(actor, noteId, live);
+  }
+
   /** The timer for interval-triggered behaviours, e.g. watching for agenda drift. */
   private startBehaviourTimer(actor: Actor, noteId: string, live: LiveSession): void {
     const timer = setInterval(() => {
@@ -366,8 +387,15 @@ export class LiveRunner {
       clearInterval(timer);
       this.timers.delete(noteId);
     }
-    const live = await this.sessions.end(noteId);
-    if (!live || live.lines.length === 0) return { saved: false };
+    const ended = await this.sessions.end(noteId);
+    if (!ended) return { saved: false };
+    const { live, watchers } = ended;
+    if (live.lines.length === 0) {
+      // Still tell the screen, or a recording that captured nothing looks like one that
+      // is somehow still going.
+      this.sessions.push(watchers, { type: 'stopped', costCents: 0, lines: 0 });
+      return { saved: false };
+    }
 
     const note = await this.meetings.get(actor, noteId);
 
@@ -389,7 +417,9 @@ export class LiveRunner {
       durationSeconds: live.durationSeconds,
     });
 
-    this.sessions.broadcast(noteId, { type: 'stopped', costCents, lines: live.lines.length });
+    // Pushed to the watchers handed back by end(), not broadcast by note id: the session
+    // is off the register by now, so a lookup would find nothing to send to.
+    this.sessions.push(watchers, { type: 'stopped', costCents, lines: live.lines.length });
     return { saved: true, costCents, lines: live.lines.length };
   }
 

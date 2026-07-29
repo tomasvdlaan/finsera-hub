@@ -66,28 +66,50 @@ export class LiveRegistry {
   broadcast(noteId: string, payload: Record<string, unknown>): void {
     const entry = this.sessions.get(noteId);
     if (!entry) return;
+    const sent = this.push(entry.watchers, payload);
+    if (payload.type === 'line') {
+      this.logger.log(`line → ${sent}/${entry.watchers.size} watcher(s) on ${noteId}`);
+    }
+  }
+
+  /**
+   * Push to a set of watchers held directly, rather than looked up by note.
+   *
+   * Needed for the last message of a session. Ending one removes it from the register, so
+   * a broadcast afterwards resolves to nothing and goes nowhere — which is exactly what
+   * used to happen to 'stopped': it was sent after `end()` and no browser ever received
+   * it. Handing the watchers back from `end()` makes the final message expressible.
+   */
+  push(watchers: Iterable<Watcher>, payload: Record<string, unknown>): number {
     const message = JSON.stringify(payload);
     let sent = 0;
-    for (const socket of entry.watchers) {
+    for (const socket of watchers) {
       // ws sets readyState 1 when open; OPEN is on the prototype but guard anyway.
       if (socket.readyState === 1) {
         socket.send(message);
         sent++;
       }
     }
-    if (payload.type === 'line') {
-      this.logger.log(`line → ${sent}/${entry.watchers.size} watcher(s) on ${noteId}`);
-    }
+    return sent;
   }
 
-  async end(noteId: string): Promise<LiveSession | undefined> {
+  /**
+   * Take a session off the register.
+   *
+   * Removal happens first and synchronously, before any awaiting: a half-ended session
+   * still listed is one a note can never recover from, because every path that starts a
+   * recording refuses while one is running.
+   */
+  async end(
+    noteId: string,
+  ): Promise<{ live: LiveSession; watchers: Set<Watcher> } | undefined> {
     const entry = this.sessions.get(noteId);
     if (!entry) return undefined;
     this.sessions.delete(noteId);
     await entry.capture?.leave().catch((error) =>
       this.logger.warn(`Could not stop capture: ${(error as Error).message}`),
     );
-    return entry.live;
+    return { live: entry.live, watchers: entry.watchers };
   }
 
   get active(): string[] {

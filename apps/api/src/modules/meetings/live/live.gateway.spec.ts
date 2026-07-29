@@ -21,6 +21,13 @@ import { UserService } from '../../../core/auth/user.service.js';
 import { MeetingsService } from '../meetings.service.js';
 import type { LiveSession } from './live-session.js';
 import { LiveRegistry } from './live-registry.service.js';
+import { LiveRunner } from './live-runner.service.js';
+import { BehaviourRegistry } from './behaviours/behaviour.registry.js';
+import type { AiToolRegistry } from '../../../core/llm/tool-registry.service.js';
+import type { LlmService } from '../../../core/llm/llm.service.js';
+import type { TtsService } from '../../../core/llm/tts.service.js';
+import type { ConversationService } from './conversation.service.js';
+import type { RecallProvider } from './capture/recall.provider.js';
 import { LiveGateway } from './live.gateway.js';
 import type { LiveService } from './live.service.js';
 
@@ -61,6 +68,9 @@ describe('LiveGateway', () => {
   let meetings: MeetingsService;
   let crm: CrmService;
   let gateway: LiveGateway;
+  let sessions: LiveRegistry;
+  let runner: LiveRunner;
+  let behaviourRuns: BehaviourRegistry;
   let live: { transcribeSegment: ReturnType<typeof vi.fn>; extract: ReturnType<typeof vi.fn>; costCents: ReturnType<typeof vi.fn> };
   let clientId: string;
   let projectId: string;
@@ -115,7 +125,47 @@ describe('LiveGateway', () => {
     };
 
     const auth = { verifyToken: vi.fn().mockResolvedValue(actor) } as unknown as AuthGuard;
-    gateway = new LiveGateway(auth, registry, meetings, live as unknown as LiveService, new LiveRegistry());
+    /*
+     * A real LiveRunner, because the gateway now ends meetings through it rather than
+     * writing the note itself — a stub here would assert the stub.
+     *
+     * Its behaviours are stubbed off (an empty enabled set makes runBehaviours return
+     * before it reaches a model) so these tests stay about the socket. That the socket
+     * runs behaviours at all is covered separately.
+     */
+    sessions = new LiveRegistry();
+    const noBehaviours = new BehaviourRegistry(
+      { name: 'a', description: '', trigger: 'utterance', canSpeak: false,
+        shouldRun: () => false, run: async () => null } as unknown as never,
+      { name: 'b', description: '', trigger: 'interval', canSpeak: false,
+        shouldRun: () => false, run: async () => null } as unknown as never,
+      { name: 'c', description: '', trigger: 'interval', canSpeak: false,
+        shouldRun: () => false, run: async () => null } as unknown as never,
+    );
+    noBehaviours.defaults = () => ({ enabled: new Set<string>(), maySpeak: false });
+    behaviourRuns = noBehaviours;
+
+    runner = new LiveRunner(
+      registry,
+      meetings,
+      live as unknown as LiveService,
+      sessions,
+      { isConfigured: () => false } as unknown as RecallProvider,
+      { forget: vi.fn() } as unknown as ConversationService,
+      noBehaviours,
+      { buildToolSet: vi.fn().mockResolvedValue({ tools: {}, invocations: [] }) } as unknown as AiToolRegistry,
+      {} as LlmService,
+      {} as unknown as TtsService,
+    );
+
+    gateway = new LiveGateway(
+      auth,
+      registry,
+      meetings,
+      live as unknown as LiveService,
+      sessions,
+      runner,
+    );
 
     const client = await crm.createClient(actor, { name: 'DocHorse', status: 'active' });
     clientId = client.id;
@@ -238,6 +288,106 @@ describe('LiveGateway', () => {
 
     await socket.deliver({ type: 'audio', data: Buffer.from('x').toString('base64') });
     expect(live.extract).not.toHaveBeenCalled();
+  });
+
+
+  // ── the session is on the register, and comes off it ──
+
+  it('registers the session, so the note counts as being captured', async () => {
+    const note = await noteWithConsent();
+    const socket = new FakeSocket();
+    await gateway.handleConnection(socket as never, request(`token=t&noteId=${note.id}`));
+
+    expect(sessions.active).toContain(note.id);
+  });
+
+  it('takes the session off the register when it stops', async () => {
+    const note = await noteWithConsent();
+    const socket = new FakeSocket();
+    await gateway.handleConnection(socket as never, request(`token=t&noteId=${note.id}`));
+    await socket.deliver({ type: 'audio', data: Buffer.from('x').toString('base64') });
+    await socket.deliver({ type: 'stop' });
+
+    // The whole risk of registering: a session left listed is a note that can never be
+    // recorded again, because every path that starts one refuses while one is running.
+    expect(sessions.active).not.toContain(note.id);
+  });
+
+  it('takes it off the register when the tab dies mid-meeting', async () => {
+    const note = await noteWithConsent();
+    const socket = new FakeSocket();
+    await gateway.handleConnection(socket as never, request(`token=t&noteId=${note.id}`));
+    await socket.deliver({ type: 'audio', data: Buffer.from('x').toString('base64') });
+
+    await gateway.handleDisconnect(socket as never);
+
+    expect(sessions.active).not.toContain(note.id);
+  });
+
+  it('frees the note even when saving what was said fails', async () => {
+    const note = await noteWithConsent();
+    const socket = new FakeSocket();
+    await gateway.handleConnection(socket as never, request(`token=t&noteId=${note.id}`));
+    await socket.deliver({ type: 'audio', data: Buffer.from('x').toString('base64') });
+
+    // A locked note is worse than a lost transcript: one is a bad meeting, the other is
+    // a meeting you can never record again without a restart.
+    vi.spyOn(meetings, 'update').mockRejectedValueOnce(new Error('database gone'));
+    await gateway.handleDisconnect(socket as never);
+
+    expect(sessions.active).not.toContain(note.id);
+  });
+
+  it('tells the screen it stopped', async () => {
+    const note = await noteWithConsent();
+    const socket = new FakeSocket();
+    await gateway.handleConnection(socket as never, request(`token=t&noteId=${note.id}`));
+    await socket.deliver({ type: 'audio', data: Buffer.from('x').toString('base64') });
+    await socket.deliver({ type: 'stop' });
+
+    // Sent to the watchers handed back by end(); a lookup by note id would find nothing,
+    // which is why this message used to go nowhere at all.
+    expect(socket.messagesOfType('stopped')).toHaveLength(1);
+  });
+
+  it('says so even when the recording caught nothing', async () => {
+    const note = await noteWithConsent();
+    const socket = new FakeSocket();
+    await gateway.handleConnection(socket as never, request(`token=t&noteId=${note.id}`));
+    await socket.deliver({ type: 'stop' });
+
+    expect(socket.messagesOfType('stopped')).toHaveLength(1);
+    expect(sessions.active).not.toContain(note.id);
+  });
+
+  // ── behaviours, which never ran here before ──
+
+  it('runs behaviours on what was said', async () => {
+    behaviourRuns.defaults = () => ({ enabled: new Set(['a', 'b', 'c']), maySpeak: false });
+    const note = await noteWithConsent();
+    const socket = new FakeSocket();
+    await gateway.handleConnection(socket as never, request(`token=t&noteId=${note.id}`));
+
+    const ran = vi.spyOn(behaviourRuns, 'run').mockResolvedValue([]);
+    await socket.deliver({ type: 'audio', data: Buffer.from('x').toString('base64') });
+    await new Promise((r) => setTimeout(r, 40));
+
+    expect(ran).toHaveBeenCalled();
+    expect(ran.mock.calls[0]![0]).toBe('utterance');
+  });
+
+  it('a second tab watches instead of opening a rival session', async () => {
+    const note = await noteWithConsent();
+    const first = new FakeSocket();
+    await gateway.handleConnection(first as never, request(`token=t&noteId=${note.id}`));
+
+    const second = new FakeSocket();
+    await gateway.handleConnection(second as never, request(`token=t&noteId=${note.id}`));
+
+    expect(second.messagesOfType('ready')[0]!.mode).toBe('watching');
+    // And it sees the same transcript as the tab holding the microphone.
+    await first.deliver({ type: 'audio', data: Buffer.from('x').toString('base64') });
+    expect(second.messagesOfType('line')).toHaveLength(1);
   });
 
   // ── what survives the meeting ──

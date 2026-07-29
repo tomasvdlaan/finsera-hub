@@ -11,9 +11,9 @@ import { AuthGuard } from '../../../core/auth/auth.guard.js';
 import { RegistryService } from '../../../core/registry/registry.service.js';
 import { MeetingsService } from '../meetings.service.js';
 import { LiveRegistry } from './live-registry.service.js';
+import { LiveRunner } from './live-runner.service.js';
 import { LiveService } from './live.service.js';
 import { LiveSession } from './live-session.js';
-import { assembleBody, bodyInput } from './session-body.js';
 
 interface Client {
   socket: WebSocket;
@@ -44,6 +44,7 @@ export class LiveGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private readonly meetings: MeetingsService,
     private readonly live: LiveService,
     private readonly sessions: LiveRegistry,
+    private readonly runner: LiveRunner,
   ) {}
 
   async handleConnection(socket: WebSocket, request: IncomingMessage): Promise<void> {
@@ -82,6 +83,21 @@ export class LiveGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       const session = new LiveSession(noteId, actor.userId);
       this.clients.set(socket, { socket, session, actor });
+
+      /*
+       * On the register, like a bot session.
+       *
+       * It was not, and that was the reason behaviours could not run here: they report
+       * what they did by broadcasting to a note's watchers, and an unregistered session
+       * has no watchers to reach. Registering also means this note now counts as being
+       * captured, so a bot cannot be sent into a meeting the microphone is already
+       * recording — which was previously allowed and produced two sessions writing the
+       * same note.
+       */
+      this.sessions.start(noteId, session);
+      this.sessions.watch(noteId, socket as never);
+      this.runner.startBehaviours(actor, noteId, session);
+
       this.send(socket, { type: 'ready', noteId, startedAt: session.startedAt.toISOString() });
       this.logger.log(`Live session started for note ${noteId}`);
 
@@ -98,7 +114,7 @@ export class LiveGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.clients.delete(socket);
     // A dropped connection still saves what was said — a meeting that crashed the tab
     // should not also lose its notes.
-    await this.persist(client).catch((error) =>
+    await this.finish(client).catch((error) =>
       this.logger.error(`Could not save live session: ${(error as Error).message}`),
     );
   }
@@ -115,13 +131,10 @@ export class LiveGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
 
     if (message.type === 'stop') {
-      await this.persist(client);
-      this.send(socket, {
-        type: 'stopped',
-        costCents: this.live.costCents(client.session),
-        lines: client.session.lines.length,
-      });
       this.clients.delete(socket);
+      // runner.stop pushes 'stopped' to this socket itself, as a watcher, so there is no
+      // second message from here that could disagree with it.
+      await this.finish(client);
       socket.close();
       return;
     }
@@ -138,10 +151,22 @@ export class LiveGateway implements OnGatewayConnection, OnGatewayDisconnect {
       // The buffer goes out of scope here and is never written anywhere.
 
       const line = client.session.addLine(text);
-      if (line) this.send(socket, { type: 'line', line });
-      this.send(socket, { type: 'cost', costCents: this.live.costCents(client.session) });
+      // Broadcast rather than sent: a second tab watching this note is a watcher now, and
+      // it should see the same transcript as the tab holding the microphone.
+      if (line) this.sessions.broadcast(client.session.noteId, { type: 'line', line });
+      this.sessions.broadcast(client.session.noteId, {
+        type: 'cost',
+        costCents: this.live.costCents(client.session),
+      });
 
       if (client.session.shouldExtract()) void this.tick(client);
+      if (line) {
+        void this.runner.onUtterance(client.actor, client.session.noteId, client.session, {
+          speaker: line.speaker,
+          text: line.text,
+          at: line.at,
+        });
+      }
     } catch (error) {
       // A failed segment loses a few seconds of transcript; it must not end the meeting.
       this.logger.warn(`Segment failed: ${(error as Error).message}`);
@@ -151,7 +176,7 @@ export class LiveGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   /** One extraction pass over the rolling window. Never blocks incoming audio. */
   private async tick(client: Client): Promise<void> {
-    const { session, socket, actor } = client;
+    const { session, actor } = client;
     session.extracting = true;
     try {
       const note = await this.meetings.get(actor, session.noteId);
@@ -160,9 +185,14 @@ export class LiveGateway implements OnGatewayConnection, OnGatewayDisconnect {
         note.agenda.map((a) => ({ id: a.id, title: a.title, covered: a.covered })),
         () => this.registry.newId(),
       );
-      if (added.length > 0) this.send(socket, { type: 'proposals', proposals: added });
-      this.send(socket, { type: 'state', state });
-      this.send(socket, { type: 'cost', costCents: this.live.costCents(session) });
+      if (added.length > 0) {
+        this.sessions.broadcast(session.noteId, { type: 'proposals', proposals: added });
+      }
+      this.sessions.broadcast(session.noteId, { type: 'state', state });
+      this.sessions.broadcast(session.noteId, {
+        type: 'cost',
+        costCents: this.live.costCents(session),
+      });
     } catch (error) {
       this.logger.warn(`Extraction failed: ${(error as Error).message}`);
     } finally {
@@ -171,38 +201,19 @@ export class LiveGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   /**
-   * Write what the meeting produced.
+   * End the meeting, through the one function that ends meetings.
    *
-   * The body is assembled by the same function the bot path uses, so a meeting recorded
-   * through the microphone produces the same record as one a bot sat in. Open action
-   * proposals become action points in the PROPOSED state — the same state a typed one
-   * starts in, so accepting them uses the path that already exists rather than a special
-   * one. The other proposal kinds are written into the body instead of being dropped.
+   * This used to be a second implementation of LiveRunner.stop — it wrote the body, made
+   * action points and recorded the cost, in its own slightly different way, and it knew
+   * nothing about behaviour timers or conversation state because the socket path had
+   * none. Now that the session is registered, there is nothing left for it to do
+   * differently, and the difference was never a feature.
+   *
+   * The registry removes the session synchronously before any awaiting, so a failure
+   * while writing cannot leave the note permanently marked as being captured.
    */
-  private async persist(client: Client): Promise<void> {
-    const { session, actor } = client;
-    if (session.lines.length === 0) return;
-
-    const note = await this.meetings.get(actor, session.noteId);
-
-    await this.meetings.update(actor, session.noteId, {
-      body: assembleBody(bodyInput(session, note.body)),
-    });
-
-    for (const proposal of session.openProposals) {
-      if (proposal.kind === 'action') {
-        await this.meetings.addActionItem(actor, session.noteId, {
-          text: proposal.text,
-          source: 'ai',
-        });
-      }
-    }
-
-    await this.meetings.recordTranscription(actor, session.noteId, {
-      tokens: session.tokensIn + session.tokensOut,
-      costCents: this.live.costCents(session),
-      durationSeconds: session.durationSeconds,
-    });
+  private async finish(client: Client): Promise<void> {
+    await this.runner.stop(client.actor, client.session.noteId);
   }
 
   private send(socket: WebSocket, payload: Record<string, unknown>): void {
