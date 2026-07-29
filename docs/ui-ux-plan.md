@@ -1,6 +1,6 @@
 # UI/UX plan — the internal platform
 
-**Status:** proposed, 2026-07-29 (revised after re-judging)
+**Status:** stages 0–3 built, 2026-07-29
 **Scope:** `apps/web`. The client portal (`apps/portal`) is out of scope — recently designed, small.
 
 ---
@@ -148,9 +148,16 @@ invoice. Undo toasts for anything soft-deletable.
 **Stage 3 — Grouped navigation, Today and the Inbox.** *Large; the riskiest, for reasons
 unrelated to UI — it touches the sealed manifest schema.*
 `navigationSchema` gains `group`/`order`. `/today` composed from endpoints that mostly exist.
-`/today/inbox` merges insights and client requests, plus two new rules — including
-`quote_accepted_by_client`, because a client accepting a quote currently creates a project with
-a rate and a budget **while nobody is looking**.
+Both new rules shipped. `quote_accepted_by_client` fires on a real acceptance — a client
+agreeing to spend money and nobody noticing is the kind of quiet that gets expensive.
+`setup_incomplete` reads `core.org_settings`, deliberately widening the rules' stated
+"published views only" contract rather than publishing a view over a one-row settings table:
+core is not another module, it is the dependency every module already has.
+
+**`/today/inbox` was not built, deliberately.** Insights and client requests both keep their
+canonical homes under "nothing is deleted", and Today already surfaces both. A third surface
+over the same rows is what principle 7 forbids — the merge the plan wanted is achieved by
+Today linking to each, not by a fourth address.
 
 **Stage 4 — Find.** *Medium.* `GET /core/search` over the entities table, a trigram index, ⌘K.
 No longer a gate on anything.

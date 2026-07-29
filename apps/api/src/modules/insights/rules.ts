@@ -15,7 +15,16 @@ export interface Candidate {
 export interface Rule {
   name: string;
   description: string;
-  /** Reads published views only — the same contract Reporting holds itself to. */
+  /**
+   * Reads published views, and core.
+   *
+   * The contract was "published views only", the same one Reporting holds itself to, and
+   * its purpose is that no rule may reach into another module's private tables. Core is
+   * not another module — it is the dependency every module already has — and the
+   * setup_incomplete rule below reads core.org_settings because the fact it states lives
+   * nowhere else. Widened deliberately rather than worked around by publishing a view for
+   * a single-row settings table.
+   */
   query: SQL;
   toCandidate: (row: Record<string, unknown>) => Candidate;
 }
@@ -235,5 +244,86 @@ export const RULES: Rule[] = [
       facts: { status: r.status, daysStill: n(r.days_still), projectName: r.project_name },
       magnitude: n(r.days_still),
     }),
+  },
+
+  {
+    name: 'quote_accepted_by_client',
+    description: 'A client accepted a quote and the work has no project yet.',
+    query: sql`
+      SELECT q.id, q.number, q.title, q.subtotal_cents, q.decided_at, cl.name AS client_name,
+             (CURRENT_DATE - q.decided_at::date)::int AS days_since
+        FROM sales.v_quotes q
+        LEFT JOIN crm.v_clients cl ON cl.id = q.client_id
+       WHERE q.status = 'accepted'
+         AND q.project_created_id IS NULL
+    `,
+    toCandidate: (r) => {
+      const days = n(r.days_since);
+      return {
+        key: `quote_accepted_by_client:${String(r.id)}`,
+        rule: 'quote_accepted_by_client',
+        subjectId: String(r.id),
+        subjectType: 'quote',
+        // A client agreeing to spend money and nobody noticing is the kind of quiet that
+        // gets expensive: the work is owed from the day they clicked, not from the day
+        // somebody opened the portal to check.
+        severity: days >= 3 ? 'urgent' : 'attention',
+        title: `${s(r.client_name) ?? 'A client'} accepted quote ${String(r.number)}`,
+        detail: `${String(r.title)} — ${euro(n(r.subtotal_cents))}. No project has been set up for the work${
+          days > 0 ? `, ${days} day${days === 1 ? '' : 's'} on` : ''
+        }.`,
+        facts: {
+          number: r.number,
+          clientName: r.client_name,
+          subtotalCents: n(r.subtotal_cents),
+          decidedAt: r.decided_at,
+          daysSince: days,
+        },
+        magnitude: n(r.subtotal_cents),
+      };
+    },
+  },
+
+  {
+    name: 'setup_incomplete',
+    description: 'The organisation cannot legally issue an invoice yet.',
+    /*
+     * The one rule that reads core rather than a published view: these fields live in
+     * core.org_settings and nowhere else, and publishing a view over a single-row settings
+     * table to satisfy a convention would be ceremony.
+     *
+     * It is also the only rule about us rather than about a client, which is why it says so
+     * plainly — it currently surfaces on a settings page reachable through a link most
+     * people never click, and the consequence of missing it is an invoice that is not valid.
+     */
+    query: sql`
+      SELECT o.legal_name, o.kvk_number, o.vat_number, o.iban
+        FROM core.org_settings o
+       WHERE o.id = 1
+         AND (o.legal_name = '' OR o.kvk_number = '' OR o.vat_number = '' OR o.iban = '')
+    `,
+    toCandidate: (r) => {
+      const missing = [
+        !String(r.legal_name ?? '') && 'legal name',
+        !String(r.kvk_number ?? '') && 'KvK number',
+        !String(r.vat_number ?? '') && 'VAT number',
+        !String(r.iban ?? '') && 'IBAN',
+      ].filter(Boolean) as string[];
+      return {
+        // Stable and singular: there is one organisation, so re-running must update this
+        // row rather than accumulate one per run.
+        key: 'setup_incomplete',
+        rule: 'setup_incomplete',
+        subjectId: null,
+        subjectType: null,
+        severity: 'urgent',
+        title: 'Your invoices are missing legally required details',
+        detail: `A Dutch invoice needs ${missing.join(', ')}. Until then, anything issued is not a valid invoice.`,
+        facts: { missing },
+        // Ranked above everything with a euro value: not being able to invoice at all
+        // outranks any individual invoice.
+        magnitude: Number.MAX_SAFE_INTEGER,
+      };
+    },
   },
 ];
