@@ -31,12 +31,13 @@ describe('PortalController wiring', () => {
   it('applies the guard at class level, so a new route cannot miss it', () => {
     // Per-route guards would mean the next endpoint someone adds is unprotected by
     // default. At class level, forgetting is not an available mistake.
-    const routes = Object.getOwnPropertyNames(PortalController.prototype).filter(
-      (name) => name !== 'constructor',
-    );
+    const proto = PortalController.prototype as unknown as Record<string, object>;
+    const routes = Object.getOwnPropertyNames(proto).filter((name) => name !== 'constructor');
     expect(routes.length).toBeGreaterThan(0);
     for (const route of routes) {
-      const own = Reflect.getMetadata(IS_PUBLIC, PortalController.prototype[route]);
+      const handler = proto[route];
+      if (!handler) continue;
+      const own = Reflect.getMetadata(IS_PUBLIC, handler);
       // A route re-declaring @Public() would waive the class guard for itself.
       expect(own, `${route} declares its own @Public()`).toBeUndefined();
     }

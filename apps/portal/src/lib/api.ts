@@ -7,14 +7,23 @@ import { getUser } from './auth.js';
  * caller: a typo pointing at `/api/billing` would otherwise produce a 401 in development
  * and a puzzled bug report, instead of failing immediately and obviously.
  */
+export class PortalError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
+}
+
 async function request<T>(path: string): Promise<T> {
   const user = await getUser();
-  if (!user) throw new Error('Not signed in');
+  if (!user) throw new PortalError('Not signed in', 0);
 
   const res = await fetch(`/api/portal${path}`, {
     headers: { Authorization: `Bearer ${user.access_token}` },
   });
-  if (!res.ok) throw new Error(await errorMessage(res));
+  if (!res.ok) throw new PortalError(await errorMessage(res), res.status);
   return res.json() as Promise<T>;
 }
 
@@ -33,12 +42,12 @@ async function errorMessage(res: Response): Promise<string> {
 /** A file URL the browser fetches itself, with the token attached as a blob download. */
 export async function openFile(path: string, filename?: string): Promise<void> {
   const user = await getUser();
-  if (!user) throw new Error('Not signed in');
+  if (!user) throw new PortalError('Not signed in', 0);
 
   const res = await fetch(`/api/portal${path}`, {
     headers: { Authorization: `Bearer ${user.access_token}` },
   });
-  if (!res.ok) throw new Error(await errorMessage(res));
+  if (!res.ok) throw new PortalError(await errorMessage(res), res.status);
 
   // Fetched rather than linked because the endpoint needs an Authorization header, which
   // a plain <a href> cannot carry. The object URL is revoked once the tab has it.
