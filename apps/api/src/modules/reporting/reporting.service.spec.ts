@@ -11,7 +11,7 @@ import { PermissionService } from '../../core/permissions/permission.service.js'
 import { RegistryService } from '../../core/registry/registry.service.js';
 import { SettingsService } from '../../core/settings/settings.service.js';
 import { StorageService } from '../../core/storage/storage.service.js';
-import { resetDb, seedUser, testDb } from '../../test/db.js';
+import { resetDb, seedUser, testDb, truncate } from '../../test/db.js';
 import { BillingService } from '../billing/billing.service.js';
 import { billingManifest } from '../billing/billing.manifest.js';
 import { crmManifest } from '../crm/crm.manifest.js';
@@ -40,12 +40,10 @@ describe('ReportingService', () => {
 
   beforeEach(async () => {
     await resetDb();
-    await testDb.execute(
-      sql`TRUNCATE billing.invoice_lines, billing.invoices, billing.invoice_counters,
+    await truncate(sql`TRUNCATE billing.invoice_lines, billing.invoices, billing.invoice_counters,
                    sales.quote_lines, sales.quotes, sales.quote_counters,
                    sales.rate_card_lines, sales.rate_cards, sales.contracts,
-                   time.entries, crm.projects, crm.contacts, crm.clients CASCADE`,
-    );
+                   time.entries, crm.projects, crm.contacts, crm.clients CASCADE`);
     await seedUser(actor.userId, 'admin');
 
     const manifests = new ManifestRegistry();

@@ -7,7 +7,7 @@ import { LinkService } from '../../core/links/link.service.js';
 import { ManifestRegistry } from '../../core/manifest/manifest.registry.js';
 import { PermissionService } from '../../core/permissions/permission.service.js';
 import { RegistryService } from '../../core/registry/registry.service.js';
-import { resetDb, seedUser, testDb } from '../../test/db.js';
+import { resetDb, seedUser, testDb, truncate } from '../../test/db.js';
 import { crmManifest } from '../crm/crm.manifest.js';
 import { timeManifest } from '../time/time.manifest.js';
 import { TimeService } from '../time/time.service.js';
@@ -29,10 +29,8 @@ describe('PortalRequestsService', () => {
 
   beforeEach(async () => {
     await resetDb();
-    await testDb.execute(
-      sql`TRUNCATE portal.requests, portal.users, scrum.tasks, time.entries,
-                   crm.projects, crm.clients CASCADE`,
-    );
+    await truncate(sql`TRUNCATE portal.requests, portal.users, scrum.tasks, time.entries,
+                   crm.projects, crm.clients CASCADE`);
     await seedUser(actor.userId, 'admin');
 
     const manifests = new ManifestRegistry();

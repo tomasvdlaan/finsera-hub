@@ -11,7 +11,7 @@ import { crmManifest } from '../../modules/crm/crm.manifest.js';
 import { CrmService } from '../../modules/crm/crm.service.js';
 import { timeManifest } from '../../modules/time/time.manifest.js';
 import { TimeService } from '../../modules/time/time.service.js';
-import { resetDb, seedUser, testDb } from '../../test/db.js';
+import { resetDb, seedUser, testDb, truncate } from '../../test/db.js';
 import { LlmService } from './llm.service.js';
 import { OrchestratorService } from './orchestrator.service.js';
 import { AiToolRegistry } from './tool-registry.service.js';
@@ -73,8 +73,8 @@ describe.skipIf(!LlmService.hasCredentials())('assistant evals [live]', () => {
 
   beforeEach(async () => {
     await resetDb();
-    await testDb.execute(sql`TRUNCATE time.entries CASCADE`);
-    await testDb.execute(sql`TRUNCATE crm.projects, crm.contacts, crm.clients CASCADE`);
+    await truncate(sql`TRUNCATE time.entries CASCADE`);
+    await truncate(sql`TRUNCATE crm.projects, crm.contacts, crm.clients CASCADE`);
     await seedUser(actor.userId, 'admin');
 
     const built = build();

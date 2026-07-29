@@ -8,7 +8,7 @@ import { EmbeddingService } from '../../core/llm/embedding.service.js';
 import { ManifestRegistry } from '../../core/manifest/manifest.registry.js';
 import { PermissionService } from '../../core/permissions/permission.service.js';
 import { RegistryService } from '../../core/registry/registry.service.js';
-import { resetDb, seedUser, testDb } from '../../test/db.js';
+import { resetDb, seedUser, testDb, truncate } from '../../test/db.js';
 import { crmManifest } from '../crm/crm.manifest.js';
 import { CrmService } from '../crm/crm.service.js';
 import { scrumManifest } from '../scrum/scrum.manifest.js';
@@ -29,11 +29,9 @@ describe('MeetingsService', () => {
 
   beforeEach(async () => {
     await resetDb();
-    await testDb.execute(
-      sql`TRUNCATE meetings.note_chunks, meetings.action_items, meetings.attendees,
+    await truncate(sql`TRUNCATE meetings.note_chunks, meetings.action_items, meetings.attendees,
                    meetings.agenda_items, meetings.notes, scrum.tasks,
-                   crm.projects, crm.contacts, crm.clients CASCADE`,
-    );
+                   crm.projects, crm.contacts, crm.clients CASCADE`);
     await seedUser(actor.userId, 'admin');
 
     const manifests = new ManifestRegistry();

@@ -311,6 +311,40 @@ is a decision someone makes rather than a thing nobody remembers.
 
 ---
 
+## Audit log is append-only (2026-07-29) · **Decided**
+
+Three triggers on `core.audit_log`: no UPDATE, no DELETE, no TRUNCATE. It brings the
+database guarantees the API verifies at boot from ten to thirteen.
+
+**Why it was missing.** Every other guarantee protects a record — an issued invoice, a sent
+quote, an invoiced hour. Nothing protected the account of what happened to them, which is
+what you reach for exactly when something has gone wrong and someone's version of events
+is in doubt. Noticed while clearing test data: 48 audit rows removed with plain SQL, and
+nothing objected.
+
+**UPDATE matters more than DELETE.** A deleted row leaves a gap in the timeline; an altered
+one leaves nothing at all and reads exactly like the truth. The edit worth worrying about
+is not erasing that something happened — it is changing who did it.
+
+**TRUNCATE needs its own trigger.** Row-level triggers do not fire for it, so without a
+statement-level guard the whole log could still be emptied in one command: the easiest way
+to destroy it, and the one the other two would not notice.
+
+**No exception for administrators**, because the entries most worth altering are the ones
+recording what an administrator did.
+
+**Tests keep the guard live.** `resetDb` needs a clean slate and `audit_log.actor_id`
+references `core.users`, so even `TRUNCATE core.users CASCADE` reaches the log. Rather than
+relax the trigger for the test database — which would mean the spec asserting it no longer
+tested the real thing — there is one `truncate()` helper that disables that single guard,
+truncates, and re-arms it in a `finally`. Eighteen specs were routed through it.
+
+**Retention is deliberately hard.** If entries ever need expiring — GDPR, or volume — it
+takes a migration that drops the triggers, prunes, and restores them, visible in the
+migration history rather than in somebody's psql session. The error message says so.
+
+---
+
 ## G0 — Walking skeleton (2026-07-27)
 
 **Verdict: passed.** All nine checklist criteria (spec §1) verified against the built

@@ -13,7 +13,7 @@ import { FileTypeRegistry } from '../../core/files/file-type.registry.js';
 import { EmbeddingService } from '../../core/llm/embedding.service.js';
 import { docsManifest } from '../docs/docs.manifest.js';
 import { DocsService } from '../docs/docs.service.js';
-import { resetDb, seedUser, testDb } from '../../test/db.js';
+import { resetDb, seedUser, testDb, truncate } from '../../test/db.js';
 import { crmManifest } from '../crm/crm.manifest.js';
 import { CrmService } from '../crm/crm.service.js';
 import { timeManifest } from '../time/time.manifest.js';
@@ -82,10 +82,8 @@ describe('BillingService', () => {
 
   beforeEach(async () => {
     await resetDb();
-    await testDb.execute(
-      sql`TRUNCATE billing.invoice_lines, billing.invoices, billing.invoice_counters,
-                   time.entries, crm.projects, crm.contacts, crm.clients CASCADE`,
-    );
+    await truncate(sql`TRUNCATE billing.invoice_lines, billing.invoices, billing.invoice_counters,
+                   time.entries, crm.projects, crm.contacts, crm.clients CASCADE`);
     await seedUser(actor.userId, 'admin');
     build();
 

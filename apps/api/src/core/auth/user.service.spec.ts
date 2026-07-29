@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { eq, sql } from 'drizzle-orm';
 import { users } from '../db/core.schema.js';
-import { resetDb, testDb } from '../../test/db.js';
+import { resetDb, testDb, truncate } from '../../test/db.js';
 import { UserService } from './user.service.js';
 
 /**
@@ -17,7 +17,7 @@ describe('UserService provisioning', () => {
 
   beforeEach(async () => {
     await resetDb();
-    await testDb.execute(sql`TRUNCATE core.users CASCADE`);
+    await truncate(sql`TRUNCATE core.users CASCADE`);
     service = new UserService(testDb);
   });
 

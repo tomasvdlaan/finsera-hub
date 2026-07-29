@@ -148,6 +148,13 @@
       "when": 1785326212464,
       "tag": "0020_married_amazoness",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1785327231312,
+      "tag": "0021_audit_log_append_only",
+      "breakpoints": true
     }
   ]
 }

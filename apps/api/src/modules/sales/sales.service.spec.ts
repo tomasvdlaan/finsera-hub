@@ -11,7 +11,7 @@ import { PermissionService } from '../../core/permissions/permission.service.js'
 import { RegistryService } from '../../core/registry/registry.service.js';
 import { SettingsService } from '../../core/settings/settings.service.js';
 import { StorageService } from '../../core/storage/storage.service.js';
-import { resetDb, seedUser, testDb } from '../../test/db.js';
+import { resetDb, seedUser, testDb, truncate } from '../../test/db.js';
 import { crmManifest } from '../crm/crm.manifest.js';
 import { CrmService } from '../crm/crm.service.js';
 import { docsManifest } from '../docs/docs.manifest.js';
@@ -42,10 +42,8 @@ describe('SalesService', () => {
 
   beforeEach(async () => {
     await resetDb();
-    await testDb.execute(
-      sql`TRUNCATE sales.quote_lines, sales.quotes, sales.quote_counters,
-                   crm.projects, crm.contacts, crm.clients CASCADE`,
-    );
+    await truncate(sql`TRUNCATE sales.quote_lines, sales.quotes, sales.quote_counters,
+                   crm.projects, crm.contacts, crm.clients CASCADE`);
     await seedUser(actor.userId, 'admin');
 
     const manifests = new ManifestRegistry();

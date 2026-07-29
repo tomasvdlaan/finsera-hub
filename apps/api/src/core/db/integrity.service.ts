@@ -13,6 +13,24 @@ import { DB, type Database } from './db.module.js';
 const REQUIRED_TRIGGERS: Array<{ schema: string; table: string; trigger: string; guards: string }> =
   [
     {
+      schema: 'core',
+      table: 'audit_log',
+      trigger: 'audit_log_no_update',
+      guards: 'audit entries cannot be altered',
+    },
+    {
+      schema: 'core',
+      table: 'audit_log',
+      trigger: 'audit_log_no_delete',
+      guards: 'audit entries cannot be deleted',
+    },
+    {
+      schema: 'core',
+      table: 'audit_log',
+      trigger: 'audit_log_no_truncate',
+      guards: 'the audit log cannot be emptied in one statement',
+    },
+    {
       schema: 'billing',
       table: 'invoices',
       trigger: 'invoices_immutable_after_issue',
