@@ -1,6 +1,7 @@
 import type { ChatWidgetProps, WebModule } from './types.js';
 import type { ComponentType } from 'react';
 import { crmWebModule } from './crm/index.js';
+import { todayWebModule } from './today/index.js';
 import { portalWebModule } from './portal/index.js';
 import { docsWebModule } from './docs/index.js';
 import { billingWebModule } from './billing/index.js';
@@ -16,6 +17,7 @@ import { timeWebModule } from './time/index.js';
  * is added. Everything else in the shell works off this list.
  */
 export const webModules: WebModule[] = [
+  todayWebModule,
   crmWebModule,
   portalWebModule,
   timeWebModule,

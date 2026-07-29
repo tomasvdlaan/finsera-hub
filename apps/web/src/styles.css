@@ -138,14 +138,28 @@ h2 {
   color: var(--accent);
   font-weight: 500;
 }
-.sidebar-secondary {
-  margin-top: 0.75rem;
-  padding-top: 0.5rem;
-  border-top: 1px solid var(--border);
+/* Sections give the rail a shape: a heading you skip past, not thirteen equal lines. */
+.nav-section + .nav-section {
+  margin-top: 0.6rem;
 }
-.sidebar-secondary a {
-  font-size: 0.85rem;
+.nav-section-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
   color: var(--muted);
+  padding: 0.35rem 0.5rem 0.15rem;
+}
+.sidebar nav a {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+.nav-icon {
+  flex-shrink: 0;
+  opacity: 0.75;
+}
+.sidebar nav a.active .nav-icon {
+  opacity: 1;
 }
 
 /* Ambient chrome: a running clock is visible from wherever you are when you remember it. */

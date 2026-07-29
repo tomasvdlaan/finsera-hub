@@ -40,8 +40,8 @@ export const crmManifest = defineManifest({
   ],
 
   navigation: [
-    { label: 'Clients', path: '/crm/clients', icon: 'users' },
-    { label: 'Projects', path: '/crm/projects', icon: 'folder' },
+    { label: 'Clients', path: '/crm/clients', icon: 'users', section: 'clients', order: 1 },
+    { label: 'Projects', path: '/crm/projects', icon: 'folder', section: 'clients', order: 2 },
   ],
   widgets: [],
 

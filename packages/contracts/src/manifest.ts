@@ -61,10 +61,29 @@ export const permissionSchema = z.object({
   adminOnly: z.boolean().default(false),
 });
 
+/**
+ * Which section of the rail an entry belongs to, and where in it.
+ *
+ * The sections are named by the shell rather than by any module, because they cross module
+ * boundaries: Money is billing plus two of sales plus reporting; Work is scrum plus
+ * meetings plus portal. A module says which section it belongs in; it does not get to
+ * invent one, or the rail goes back to being the module list in registration order.
+ *
+ * Both fields are optional. An entry that declares neither lands in 'more' at the end, so a
+ * module written before this existed — or one added later by someone who did not read this
+ * — still appears rather than disappearing.
+ */
+export const NAV_SECTIONS = ['today', 'time', 'money', 'clients', 'work', 'record', 'setup', 'more'] as const;
+
+export type NavSection = (typeof NAV_SECTIONS)[number];
+
 export const navigationSchema = z.object({
   label: z.string(),
   path: z.string(),
   icon: z.string().optional(),
+  section: z.enum(NAV_SECTIONS).optional(),
+  /** Lower sorts first within a section. Ties fall back to the declared label. */
+  order: z.number().optional(),
 });
 
 export const widgetSchema = z.object({

@@ -28,7 +28,7 @@ export const timeManifest = defineManifest({
     { capability: 'time.entries.manage', description: "Manage another person's hours." },
   ],
 
-  navigation: [{ label: 'Timesheet', path: '/time', icon: 'clock' }],
+  navigation: [{ label: 'Timesheet', path: '/time', icon: 'clock', section: 'time', order: 1 }],
 
   widgets: [{ slot: 'entity-page', component: 'time:project-burn' }],
 

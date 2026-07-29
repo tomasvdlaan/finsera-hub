@@ -12,6 +12,7 @@ import type { CurrentUser } from '@platform/contracts';
 import { api } from '../lib/api.js';
 import { webModules } from '../modules/index.js';
 import { Assistant } from './Assistant.js';
+import { Icon } from './Icon.js';
 import { Modules } from './Modules.js';
 import { Settings } from './Settings.js';
 import { StatusBar } from './StatusBar.js';
@@ -24,7 +25,42 @@ interface NavItem {
   label: string;
   path: string;
   module: string;
+  icon?: string;
+  section?: string;
 }
+
+/**
+ * The rail's sections, named here because they cross module boundaries.
+ *
+ * Money is billing plus two of sales plus reporting; Work is scrum plus meetings plus
+ * portal. No per-module declaration can express that, so the shell owns the vocabulary and
+ * a manifest only says which section it belongs in. `more` catches anything that declares
+ * no section, so a module written before this existed still appears.
+ */
+const SECTIONS: Array<{ key: string; label: string | null }> = [
+  { key: 'today', label: null },
+  { key: 'time', label: null },
+  { key: 'clients', label: 'Clients' },
+  { key: 'work', label: 'Work' },
+  { key: 'money', label: 'Money' },
+  { key: 'record', label: 'Record' },
+  { key: 'more', label: 'More' },
+  { key: 'setup', label: 'Setup' },
+];
+
+/**
+ * Destinations the shell owns outright.
+ *
+ * Today has no module behind it — it is composed from several — and the two settings pages
+ * are shell routes. Declaring them here rather than inventing a manifest for the shell
+ * keeps "a module self-registers" true, and keeps "the shell names no module" true too:
+ * these name no module either.
+ */
+const SHELL_ITEMS: NavItem[] = [
+  { label: 'Today', path: '/today', module: 'shell', icon: 'home', section: 'today' },
+  { label: 'Organisation', path: '/platform/settings', module: 'shell', icon: 'settings', section: 'setup' },
+  { label: 'Platform modules', path: '/platform/modules', module: 'shell', icon: 'columns', section: 'setup' },
+];
 
 export function App() {
   return (
@@ -114,11 +150,11 @@ function Shell() {
   /**
    * Where "/" goes.
    *
-   * Falls back to the first registered route rather than to "/", because `<Navigate to="/">`
-   * rendered at "/" is a redirect to itself — so a failed or empty `GET /core/navigation`
-   * did not merely leave the sidebar blank, it hung the app on its own front page.
+   * A destination that was chosen, rather than `nav[0].path` — which landed on the client
+   * list only because CrmModule is registered first in app.module.ts. Today is a shell
+   * route, so it resolves even when GET /core/navigation fails and the rail is empty.
    */
-  const home = nav[0]?.path ?? routes[0]?.path ?? null;
+  const home = '/today';
 
   return (
     <BrowserRouter>
@@ -127,33 +163,25 @@ function Shell() {
         <aside className="sidebar">
           <div className="brand">Finsera Platform</div>
           <nav>
-            {nav.map((item) => (
-              <NavLink
-                key={item.path}
-                to={item.path}
-                className={({ isActive }) => (isActive ? 'active' : '')}
-              >
-                {item.label}
-              </NavLink>
-            ))}
-
-            {/* Inside <nav>, finally. These two lived outside it, so `.sidebar nav a.active`
-                could never match them — their active-state className has been dead code
-                since it was written, and they rendered as loose blue anchors. */}
-            <div className="sidebar-secondary">
-              <NavLink
-                to="/platform/modules"
-                className={({ isActive }) => (isActive ? 'active' : '')}
-              >
-                Platform modules
-              </NavLink>
-              <NavLink
-                to="/platform/settings"
-                className={({ isActive }) => (isActive ? 'active' : '')}
-              >
-                Organisation
-              </NavLink>
-            </div>
+            {SECTIONS.map(({ key, label }) => {
+              const items = [...SHELL_ITEMS, ...nav].filter((i) => (i.section ?? 'more') === key);
+              if (items.length === 0) return null;
+              return (
+                <div key={key} className="nav-section">
+                  {label && <div className="nav-section-label">{label}</div>}
+                  {items.map((item) => (
+                    <NavLink
+                      key={item.path}
+                      to={item.path}
+                      className={({ isActive }) => (isActive ? 'active' : '')}
+                    >
+                      <Icon name={item.icon} />
+                      <span>{item.label}</span>
+                    </NavLink>
+                  ))}
+                </div>
+              );
+            })}
           </nav>
 
           <button onClick={() => setAssistantOpen((o) => !o)} style={{ marginTop: '0.75rem' }}>
@@ -182,13 +210,13 @@ function Shell() {
           )}
           <StatusBar />
           <Routes>
-            {home && <Route path="/" element={<Navigate to={home} replace />} />}
+            <Route path="/" element={<Navigate to={home} replace />} />
             {routes.map(({ path, Component }) => (
               <Route key={path} path={path} element={<Component />} />
             ))}
             <Route path="/platform/modules" element={<Modules />} />
             <Route path="/platform/settings" element={<Settings />} />
-            <Route path="*" element={<NotFound home={home ?? '/platform/settings'} />} />
+            <Route path="*" element={<NotFound home={home} />} />
           </Routes>
         </main>
 

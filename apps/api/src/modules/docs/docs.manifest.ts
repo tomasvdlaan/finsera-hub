@@ -33,7 +33,7 @@ export const docsManifest = defineManifest({
     { capability: 'docs.delete', description: 'Archive documents.' },
   ],
 
-  navigation: [{ label: 'Documents', path: '/docs', icon: 'file' }],
+  navigation: [{ label: 'Documents', path: '/docs', icon: 'file', section: 'record', order: 1 }],
 
   widgets: [{ slot: 'entity-page', component: 'docs:document-list' }],
 

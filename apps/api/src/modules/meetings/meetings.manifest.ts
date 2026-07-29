@@ -26,7 +26,7 @@ export const meetingsManifest = defineManifest({
     { capability: 'meetings.write', description: 'Write notes, agendas and action points.' },
   ],
 
-  navigation: [{ label: 'Meetings', path: '/meetings', icon: 'users' }],
+  navigation: [{ label: 'Meetings', path: '/meetings', icon: 'users', section: 'work', order: 2 }],
   widgets: [{ slot: 'entity-page', component: 'meetings:client-notes' }],
   chatWidgets: [{ entityType: 'meeting_note', component: 'meetings:note-card' }],
 

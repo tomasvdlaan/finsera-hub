@@ -1,4 +1,5 @@
 import { Body, Controller, Delete, ForbiddenException, Get, Param, Post, Put } from '@nestjs/common';
+import { NAV_SECTIONS } from '@platform/contracts';
 import type { Actor, CreateLinkInput } from '@platform/contracts';
 import { CurrentActor } from '../core/auth/current-actor.decorator.js';
 import { Public } from '../core/auth/public.decorator.js';
@@ -55,9 +56,25 @@ export class ShellController {
   }
 
   /** Navigation assembled from module manifests — the shell knows no module by name. */
+  /**
+   * Every navigation entry every module declares, sorted into shell-owned sections.
+   *
+   * Sorting happens here rather than in the browser so the rail's order is one answer
+   * rather than one per client. The shell still names no module: it reads `section` from
+   * the manifest and knows nothing about what is in it.
+   */
   @Get('navigation')
   navigation() {
-    return this.manifests.all().flatMap((m) => m.navigation.map((n) => ({ ...n, module: m.name })));
+    return this.manifests
+      .all()
+      .flatMap((m) => m.navigation.map((n) => ({ ...n, module: m.name })))
+      .map((n) => ({ ...n, section: n.section ?? 'more' }))
+      .sort((a, b) => {
+        const bySection = NAV_SECTIONS.indexOf(a.section) - NAV_SECTIONS.indexOf(b.section);
+        if (bySection !== 0) return bySection;
+        const byOrder = (a.order ?? 100) - (b.order ?? 100);
+        return byOrder !== 0 ? byOrder : a.label.localeCompare(b.label);
+      });
   }
 
   /** Contextual links for an entity, filtered by the both-endpoints rule. */

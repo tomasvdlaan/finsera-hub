@@ -25,7 +25,7 @@ export const billingManifest = defineManifest({
     { capability: 'billing.issue', description: 'Issue an invoice — allocate its legal number.' },
   ],
 
-  navigation: [{ label: 'Invoices', path: '/billing', icon: 'receipt' }],
+  navigation: [{ label: 'Invoices', path: '/billing', icon: 'receipt', section: 'money', order: 1 }],
   widgets: [{ slot: 'entity-page', component: 'billing:client-invoices' }],
   chatWidgets: [{ entityType: 'invoice', component: 'billing:invoice-card' }],
 
