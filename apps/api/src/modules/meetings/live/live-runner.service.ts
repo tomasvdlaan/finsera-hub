@@ -12,6 +12,7 @@ import { AiToolRegistry } from '../../../core/llm/tool-registry.service.js';
 import { LlmService } from '../../../core/llm/llm.service.js';
 import { TtsService } from '../../../core/llm/tts.service.js';
 import { BehaviourRegistry, type BehaviourSettings } from './behaviours/behaviour.registry.js';
+import { mergeAiNotes } from './behaviours/note-taker.behaviour.js';
 
 /**
  * Runs one live meeting, whatever is supplying the audio.
@@ -265,6 +266,11 @@ export class LiveRunner {
         }
         if (result.speak) await this.say(noteId, live, result.speak);
       }
+
+      // Push the assistant's notes to the screen as they are revised. The document is
+      // only written when the meeting ends, so a revision every ninety seconds does not
+      // fill the note's history with drafts.
+      if (live.aiNotes) this.sessions.broadcast(noteId, { type: 'notes', markdown: live.aiNotes });
     } catch (error) {
       this.logger.warn(`Behaviours failed on ${noteId}: ${(error as Error).message}`);
     }
@@ -336,8 +342,11 @@ export class LiveRunner {
       .map((l) => `${clock(l.at)} ${l.speaker ? `**${l.speaker}:** ` : ''}${l.text}`)
       .join('\n');
 
+    // The assistant's notes replace its own section and leave everything else alone.
+    const withNotes = live.aiNotes ? mergeAiNotes(note.body, live.aiNotes) : note.body;
+
     const body = [
-      note.body.trim(),
+      withNotes.trim(),
       live.state.summary ? `\n## Summary\n\n${live.state.summary}` : '',
       live.state.decisions.length > 0
         ? `\n## Decisions\n\n${live.state.decisions.map((d) => `- ${d}`).join('\n')}`

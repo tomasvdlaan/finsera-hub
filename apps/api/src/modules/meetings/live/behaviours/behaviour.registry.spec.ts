@@ -5,6 +5,7 @@ import { LiveSession } from '../live-session.js';
 import { AgendaDriftBehaviour } from './agenda-drift.behaviour.js';
 import { BehaviourRegistry } from './behaviour.registry.js';
 import { WakeWordBehaviour, stripWakeWord } from './wake-word.behaviour.js';
+import { AI_NOTES_HEADING, extractAiSection, mergeAiNotes } from './note-taker.behaviour.js';
 import type { BehaviourContext, MeetingBehaviour } from './behaviour.js';
 
 const actor: Actor = { userId: crypto.randomUUID(), role: 'admin' };
@@ -47,7 +48,11 @@ describe('BehaviourRegistry', () => {
   });
 
   const registryOf = (...behaviours: MeetingBehaviour[]) =>
-    new BehaviourRegistry(behaviours[0] as never, behaviours[1] as never);
+    new BehaviourRegistry(
+      behaviours[0] as never,
+      behaviours[1] as never,
+      (behaviours[2] ?? stub({ name: 'unused', trigger: 'interval', shouldRun: () => false })) as never,
+    );
 
   it('runs a behaviour whose trigger and gate both allow it', async () => {
     const registry = registryOf(stub(), stub({ name: 'other', trigger: 'interval' }));
@@ -139,13 +144,13 @@ describe('BehaviourRegistry', () => {
     const defaults = registry.defaults();
     // Everything on, speech off: the agent is useful from the first meeting and does not
     // surprise a client by talking.
-    expect(defaults.enabled.size).toBe(2);
+    expect(defaults.enabled.size).toBe(3);
     expect(defaults.maySpeak).toBe(false);
   });
 
   it('lists what it can do, for the UI and the docs page', () => {
     const registry = registryOf(stub(), stub({ name: 'other', trigger: 'interval' }));
-    expect(registry.list().map((b) => b.name)).toEqual(['stub', 'other']);
+    expect(registry.list().map((b) => b.name)).toEqual(['stub', 'other', 'unused']);
   });
 });
 
@@ -223,5 +228,54 @@ describe('AgendaDriftBehaviour', () => {
   it('is timer-driven, because drift is the absence of something being said', () => {
     expect(behaviour.trigger).toBe('interval');
     expect(behaviour.intervalMs).toBeGreaterThan(60_000);
+  });
+});
+
+describe('note merging', () => {
+  it('adds the assistant section when there is none', () => {
+    const merged = mergeAiNotes('# My own notes\n\nSomething I typed.', '- A decision');
+    expect(merged).toContain('# My own notes');
+    expect(merged).toContain(AI_NOTES_HEADING);
+    expect(merged).toContain('- A decision');
+  });
+
+  it('replaces only its own section, leaving what you wrote alone', () => {
+    // The whole reason for the ownership boundary: notes appearing must never eat
+    // something the operator typed.
+    const body = [
+      '# My own notes',
+      '',
+      'Something I typed.',
+      '',
+      AI_NOTES_HEADING,
+      '',
+      '- An old point',
+      '',
+      '## Transcript — 14:32',
+      '',
+      '[00:01] Someone said something.',
+    ].join('\n');
+
+    const merged = mergeAiNotes(body, '- A better point');
+
+    expect(merged).toContain('Something I typed.');
+    expect(merged).toContain('- A better point');
+    expect(merged).not.toContain('- An old point');
+    // And the section after it survives.
+    expect(merged).toContain('## Transcript — 14:32');
+    expect(merged).toContain('[00:01] Someone said something.');
+  });
+
+  it('reads its own section back for revision', () => {
+    const body = `${AI_NOTES_HEADING}\n\n- Point one\n- Point two\n\n## Transcript\n\nline`;
+    expect(extractAiSection(body)).toBe('- Point one\n- Point two');
+  });
+
+  it('returns nothing when the assistant has written nothing', () => {
+    expect(extractAiSection('# Just my notes')).toBe('');
+  });
+
+  it('handles an empty document', () => {
+    expect(mergeAiNotes('', '- First note')).toContain('- First note');
   });
 });

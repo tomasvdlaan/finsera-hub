@@ -55,6 +55,15 @@ export class LiveSession {
   readonly proposals: Proposal[] = [];
   state: RunningState = { ...EMPTY_STATE };
 
+  /**
+   * Notes the assistant is keeping, revised as the meeting goes.
+   *
+   * Held here rather than written straight to the document because it is rewritten
+   * wholesale every couple of minutes, and persisting each revision would fill the note's
+   * history with drafts nobody asked for.
+   */
+  aiNotes = '';
+
   /** Tokens spent, so the meeting can report what it actually cost. */
   tokensIn = 0;
   tokensOut = 0;

@@ -5,6 +5,7 @@ import { Timeline } from '../../shell/Timeline.js';
 import type { Client } from '../crm/types.js';
 import { LivePanel } from './LivePanel.js';
 import { Markdown } from './Markdown.js';
+import { RichEditor } from './RichEditor.js';
 import type { NoteDetail as Detail } from './types.js';
 
 /**
@@ -232,16 +233,10 @@ export function NoteDetail() {
         <h2>Notes</h2>
         {editing ? (
           <>
-            <textarea
-              value={body}
-              onChange={(e) => onBodyChange(e.target.value)}
-              aria-label="Note body"
-              rows={20}
-              style={{ width: '100%', fontFamily: 'ui-monospace, SFMono-Regular, monospace' }}
-            />
+            <RichEditor markdown={body} onChange={onBodyChange} />
             <p className="muted">
-              Markdown. Headings with <code>##</code>, lists with <code>-</code>, checkboxes
-              with <code>- [ ]</code>, and tables with pipes. Saves as you type.
+              Saves as you type. Markdown shortcuts work too — <code>##</code> for a
+              heading, <code>-</code> for a bullet, <code>- [ ]</code> for a checkbox.
             </p>
           </>
         ) : (

@@ -46,6 +46,13 @@ export const meetingsManifest = defineManifest({
       speaks: true,
     },
     {
+      name: 'note_taker',
+      description:
+        'Writes structured notes into the document as the meeting happens, revising them rather than appending.',
+      trigger: 'interval',
+      speaks: false,
+    },
+    {
       name: 'agenda_drift',
       description:
         'Watches whether the meeting is still on its agenda and proposes which items have been covered.',

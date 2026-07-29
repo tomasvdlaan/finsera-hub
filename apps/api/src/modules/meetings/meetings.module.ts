@@ -17,6 +17,7 @@ import { ConversationService } from './live/conversation.service.js';
 import { BehaviourRegistry } from './live/behaviours/behaviour.registry.js';
 import { WakeWordBehaviour } from './live/behaviours/wake-word.behaviour.js';
 import { AgendaDriftBehaviour } from './live/behaviours/agenda-drift.behaviour.js';
+import { NoteTakerBehaviour } from './live/behaviours/note-taker.behaviour.js';
 
 /**
  * Meeting Notes. Depends on CRM (the client a meeting is with) and SCRUM (where an
@@ -37,6 +38,7 @@ import { AgendaDriftBehaviour } from './live/behaviours/agenda-drift.behaviour.j
     BehaviourRegistry,
     WakeWordBehaviour,
     AgendaDriftBehaviour,
+    NoteTakerBehaviour,
   ],
   exports: [MeetingsService],
 })

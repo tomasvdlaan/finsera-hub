@@ -141,6 +141,8 @@ describe('LiveRunner', () => {
       testBehaviour as unknown as never,
       { name: 'unused', description: '', trigger: 'interval', canSpeak: false,
         shouldRun: () => false, run: async () => null } as unknown as never,
+      { name: 'unused2', description: '', trigger: 'interval', canSpeak: false,
+        shouldRun: () => false, run: async () => null } as unknown as never,
     );
 
     sessions = new LiveRegistry();

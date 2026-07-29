@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { AgendaDriftBehaviour } from './agenda-drift.behaviour.js';
+import { NoteTakerBehaviour } from './note-taker.behaviour.js';
 import { WakeWordBehaviour } from './wake-word.behaviour.js';
 import type { BehaviourContext, BehaviourResult, MeetingBehaviour } from './behaviour.js';
 
@@ -25,8 +26,12 @@ export class BehaviourRegistry {
   /** Last run per meeting per behaviour, for the interval-triggered ones. */
   private readonly lastRun = new Map<string, number>();
 
-  constructor(wakeWord: WakeWordBehaviour, agendaDrift: AgendaDriftBehaviour) {
-    this.behaviours = [wakeWord, agendaDrift];
+  constructor(
+    wakeWord: WakeWordBehaviour,
+    agendaDrift: AgendaDriftBehaviour,
+    noteTaker: NoteTakerBehaviour,
+  ) {
+    this.behaviours = [wakeWord, agendaDrift, noteTaker];
   }
 
   /** For the UI and the platform documentation page. */
