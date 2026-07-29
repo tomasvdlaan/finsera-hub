@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { GUARDS_METADATA } from '@nestjs/common/constants.js';
+import { GUARDS_METADATA, PATH_METADATA } from '@nestjs/common/constants.js';
 import { IS_PUBLIC } from '../../core/auth/public.decorator.js';
 import { PortalAuthGuard } from './portal-auth.guard.js';
 import { PortalController } from './portal.controller.js';
@@ -28,11 +28,22 @@ describe('PortalController wiring', () => {
     expect(guards).toContain(PortalAuthGuard);
   });
 
+  /**
+   * Actual routes, found by their route metadata rather than by excluding helper names.
+   * A blocklist of method names silently stops being right the moment a private helper is
+   * added — which is exactly what happened when read auditing landed.
+   */
+  const proto = PortalController.prototype as unknown as Record<string, object>;
+  const routeNames = Object.getOwnPropertyNames(proto).filter(
+    (name) =>
+      name !== 'constructor' &&
+      Reflect.getMetadata(PATH_METADATA, proto[name] as object) !== undefined,
+  );
+
   it('applies the guard at class level, so a new route cannot miss it', () => {
     // Per-route guards would mean the next endpoint someone adds is unprotected by
     // default. At class level, forgetting is not an available mistake.
-    const proto = PortalController.prototype as unknown as Record<string, object>;
-    const routes = Object.getOwnPropertyNames(proto).filter((name) => name !== 'constructor');
+    const routes = routeNames;
     expect(routes.length).toBeGreaterThan(0);
     for (const route of routes) {
       const handler = proto[route];
@@ -46,10 +57,7 @@ describe('PortalController wiring', () => {
   it('exposes only read routes', () => {
     // Step 3 is read-only. Quote acceptance (step 4) is the first write, and it should
     // arrive as a deliberate change to this list rather than as an unnoticed addition.
-    const routes = Object.getOwnPropertyNames(PortalController.prototype).filter(
-      (name) => name !== 'constructor' && name !== 'send',
-    );
-    expect(routes.sort()).toEqual([
+    expect([...routeNames].sort()).toEqual([
       'documentDownload',
       'documents',
       'invoicePdf',

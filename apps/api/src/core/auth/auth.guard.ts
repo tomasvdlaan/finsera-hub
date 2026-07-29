@@ -40,6 +40,17 @@ export class AuthGuard implements CanActivate, OnModuleInit {
     if (!this.issuer) {
       throw new Error('ZITADEL_ISSUER is not set — check .env (see .env.example).');
     }
+    // Required since the portal introduced a second audience into the same Zitadel
+    // instance. An empty audience was defensible when every token this issuer minted was
+    // an internal one; now it would mean this guard accepts a *client's* portal token,
+    // and the only thing left between that client and the internal API would be
+    // provisioning refusing to create them a user.
+    if (!this.audience) {
+      throw new Error(
+        'ZITADEL_CLIENT_ID is not set. It is what stops a client portal token from ' +
+          'authenticating against the internal API — see decision log G4.',
+      );
+    }
     this.logger.log(`Auth configured for issuer ${this.issuer}`);
   }
 
@@ -91,7 +102,10 @@ export class AuthGuard implements CanActivate, OnModuleInit {
       this.jwks ??= createRemoteJWKSet(new URL(`${this.issuer}/oauth/v2/keys`));
       ({ payload } = await jwtVerify(token, this.jwks, {
         issuer: this.issuer,
-        audience: this.audience || undefined,
+        // Never `|| undefined`: an unset audience would skip the check entirely, which
+        // is the failure that looks like everything working. onModuleInit refuses to boot
+        // without it, so by here it is always set.
+        audience: this.audience,
       }));
     } catch (err) {
       this.logger.warn(`Token rejected: ${(err as Error).message}`);

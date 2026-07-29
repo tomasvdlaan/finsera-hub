@@ -308,6 +308,43 @@ The UI lives in the internal app (`apps/web`), never in `apps/portal`, so the po
 bundle stays client-only. It carries a banner saying the visit is recorded, because
 someone should know that before rather than discover it after.
 
+## 5f. Security review (2026-07-29)
+
+The pass §4 demands, run before any external user. Not a re-read of the code: a session
+belonging to one client attempting, through every portal surface, to reach a second
+client whose data was deliberately rich — an issued invoice with a filed PDF, a sent quote
+with priced lines, a document actually shared. `portal-isolation.spec.ts`, and every
+assertion in it is that the attempt returned nothing.
+
+**Held.** Cross-client listing, quote lines by valid id, invoice PDF by valid id, document
+bytes by valid id. The document case is the sharp one: the target document *is* shared,
+just not with the attacker — "a share exists" must never be read as "a share exists for
+you". Verified by making exactly that mistake in the query; the right test went red.
+
+One test asserts the suite is not passing vacuously: the same calls, with the other
+client's own audience, return everything. Without it, a projection that returned nothing
+ever would look perfectly secure.
+
+**Three findings, all fixed:**
+
+| Finding | Severity | Fix |
+|---|---|---|
+| A malformed id reached Postgres and raised `invalid input syntax for type uuid` — a 500 with a database error on a client-facing surface | Low. No injection: the value was parameterised and rejected as a type, which is the proof the query is safe | The projection now refuses an implausible id without querying, quietly to the caller and logged |
+| **Portal reads were not audited**, though §4 requires it. Only *preview* reads were | Medium, and a stated requirement missed | Every portal read writes `portal.read`. `actorId` is null — a visitor is not an internal user and the column is a foreign key into `core.users` — with the visitor named in `detail` |
+| The internal guard tolerated an empty audience (`audience \|\| undefined`) | **High.** Defensible with one audience; with the portal there are two, so an unset variable would let a *client's* token authenticate against the internal API | Now required, and the API refuses to boot without it |
+
+That last one is the review earning its keep. It was written before the portal existed,
+was correct then, and became wrong when a second audience appeared — with nothing failing
+to mark the moment.
+
+**Not fixed, and open:**
+
+- **No rate limiting** on portal endpoints. Sign-in is Zitadel's problem, but enumeration
+  of our own read endpoints is not. Worth adding before an external user.
+- **`PORTAL_ROLE_CHECK=off`** (G6) means two gates rather than three.
+- The **`internal` role gate refuses everyone** while Zitadel emits no roles, so no new
+  colleague can be provisioned.
+
 ## 6. Deliberately not in this phase
 
 - **A portal assistant.** §3.

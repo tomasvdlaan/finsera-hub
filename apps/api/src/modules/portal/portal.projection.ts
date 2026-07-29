@@ -56,6 +56,15 @@ export interface FileRef {
  * decides HOW, and refuses to serve an entity type no module has declared — so adding a
  * module cannot accidentally expose anything, and removing a declaration takes it away.
  */
+/**
+ * Ids arrive from the client, and Postgres raises on a malformed uuid rather than
+ * returning nothing. Both controllers use `ParseUUIDPipe`, so this should be unreachable —
+ * but "unreachable" is a property of today's callers, and the failure it prevents is a
+ * 500 with a database error in it on a client-facing surface. Nothing, quietly, is the
+ * right answer to a question about a thing that cannot exist.
+ */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 @Injectable()
 export class PortalProjection {
   private readonly logger = new Logger(PortalProjection.name);
@@ -64,6 +73,13 @@ export class PortalProjection {
     @Inject(DB) private readonly db: Database,
     private readonly manifests: ManifestRegistry,
   ) {}
+
+  /** Quiet to the caller, loud in the log: a malformed id is a bug somewhere upstream. */
+  private plausibleId(id: string, what: string): boolean {
+    if (UUID.test(id)) return true;
+    this.logger.warn(`Portal read for a malformed ${what} id — refused without querying`);
+    return false;
+  }
 
   /** Fields a module has declared portal-visible for an entity type, or nothing. */
   exposedFields(entityType: string): string[] {
@@ -130,6 +146,7 @@ export class PortalProjection {
 
   async quoteLines(audience: PortalAudience, quoteId: string) {
     this.assertExposed('quote');
+    if (!this.plausibleId(quoteId, 'quote')) return [];
     // The quote id comes from the client, so ownership is re-checked here rather than
     // assumed from the list they were shown.
     const result = await this.db.execute(sql`
@@ -176,6 +193,7 @@ export class PortalProjection {
    */
   async invoiceFile(audience: PortalAudience, invoiceId: string) {
     this.assertExposed('invoice');
+    if (!this.plausibleId(invoiceId, 'invoice')) return null;
     const result = await this.db.execute(sql`
       SELECT d.filename, d.mime_type, d.storage_key
         FROM billing.v_invoices i
@@ -191,6 +209,7 @@ export class PortalProjection {
   /** Where a shared document's bytes live, if it is in fact shared with this client. */
   async documentFile(audience: PortalAudience, documentId: string) {
     this.assertExposed('document');
+    if (!this.plausibleId(documentId, 'document')) return null;
     const result = await this.db.execute(sql`
       SELECT d.filename, d.mime_type, d.storage_key
         FROM docs.v_documents d
@@ -205,6 +224,7 @@ export class PortalProjection {
 
   /** Whether one document is shared with this client — checked before serving bytes. */
   async mayReadDocument(audience: PortalAudience, documentId: string): Promise<boolean> {
+    if (!this.plausibleId(documentId, 'document')) return false;
     const result = await this.db.execute(sql`
       SELECT 1
         FROM core.links l
