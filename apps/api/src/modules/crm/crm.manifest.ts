@@ -56,7 +56,15 @@ export const crmManifest = defineManifest({
     { view: 'crm.v_projects', description: 'Projects with client, billing model, and budget.' },
   ],
 
-  portalExposure: [], // nothing is portal-visible by default
+  /**
+   * A client may see their own projects, and only the parts that describe the work.
+   * Not `default_rate_cents`, not `budget_amount_cents`, not the internal notes — what we
+   * charge and what we budgeted is our side of the arrangement, not theirs to watch.
+   * Clients themselves are not exposed at all: a portal visitor already knows who they are.
+   */
+  portalExposure: [
+    { entityType: 'project', fields: ['id', 'name', 'status', 'starts_on', 'ends_on'] },
+  ],
 
   aiTools: [
     {

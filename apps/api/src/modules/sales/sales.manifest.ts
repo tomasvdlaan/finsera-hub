@@ -63,7 +63,24 @@ export const salesManifest = defineManifest({
     },
   ],
 
-  portalExposure: [], // Phase 7 exposes sent quotes and adds click-to-accept
+  /**
+   * Sent quotes, with their lines — a quote a client cannot read the lines of is not a
+   * quote they can accept. Contracts are deliberately absent: signed terms belong in a
+   * conversation, not behind a login, until someone asks for them there.
+   */
+  portalExposure: [
+    {
+      entityType: 'quote',
+      fields: [
+        'id', 'number', 'title', 'status', 'issue_date', 'valid_until',
+        'subtotal_cents', 'vat_cents', 'total_cents', 'expired',
+      ],
+    },
+    {
+      entityType: 'quote_line',
+      fields: ['description', 'quantity', 'unit', 'unit_price_cents', 'amount_cents'],
+    },
+  ],
 
   aiTools: [
     {

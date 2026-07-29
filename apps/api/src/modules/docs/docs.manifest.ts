@@ -43,7 +43,14 @@ export const docsManifest = defineManifest({
     { view: 'docs.v_documents', description: 'Documents with their current version and index state.' },
   ],
 
-  portalExposure: [], // sharing is Phase 7; nothing is portal-visible by default
+  /**
+   * Only documents deliberately shared, never "every document filed under this client".
+   * The distinction is the projection's job (a `shared_with_client` link must exist); this
+   * list only says which fields such a document may show.
+   */
+  portalExposure: [
+    { entityType: 'document', fields: ['id', 'title', 'category', 'created_at'] },
+  ],
 
   aiTools: [
     {

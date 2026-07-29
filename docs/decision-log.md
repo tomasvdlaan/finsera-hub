@@ -214,6 +214,37 @@ free tier), so it carries no weight in the decision.
 ---
 
 
+## G4 — Portal authentication (2026-07-28) · **Decided**
+
+**Zitadel, in a separate project, with the sign-in method configured there rather than
+built here.** Password, passwordless email link, and federated SSO are all things Zitadel
+already does; which of them a client uses is a setting, not a deploy.
+
+**Why this and not a magic-link implementation.** Building one means owning single-use
+token generation, expiry, replay protection, rate limiting on the request endpoint, and
+the reset paths around it — a meaningful amount of security-critical code to write and
+then keep correct, for a login used a handful of times a year. D5 already said never
+hand-roll auth; that applies with more force externally than internally.
+
+It also keeps the options open in the way the question was actually asked: a client who
+wants a password gets one, a client who wants a link gets one, and a client with their own
+identity provider can federate later without any of it being a rewrite.
+
+**Separate project, not separate roles.** A portal account must not be able to become an
+internal account by acquiring a permission. Different project, different audience, and a
+token issued for one is rejected by the other — checked rather than assumed.
+
+**The mapping from a portal login to a client lives in our database**, not in identity
+provider metadata. A `portal.users` row ties an OIDC subject to exactly one CRM client, so
+"which client is this?" is answered by a foreign key rather than by trusting a claim.
+
+**Still required before any external user (G4 is not passed by this decision alone):**
+a security review of the portal specifically — an attempt to reach another client's data
+through every endpoint it exposes — plus tests that assert the negative, rate limiting,
+and portal reads in the audit log.
+
+---
+
 ---
 
 ## G0 — Walking skeleton (2026-07-27)

@@ -637,7 +637,7 @@ export class BillingService {
       CREATE VIEW billing.v_invoices AS
       SELECT i.id, i.kind, i.number, i.status, i.client_id, i.project_id,
              i.vat_treatment, i.subtotal_cents, i.vat_cents, i.total_cents,
-             i.issue_date, i.due_on, i.paid_at, i.created_at,
+             i.issue_date, i.due_on, i.paid_at, i.created_at, i.currency,
              (i.status = 'issued' AND i.due_on < CURRENT_DATE) AS overdue
         FROM billing.invoices i
        WHERE i.status <> 'void'

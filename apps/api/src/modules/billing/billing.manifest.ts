@@ -33,7 +33,20 @@ export const billingManifest = defineManifest({
     { view: 'billing.v_invoices', description: 'Invoices with totals, status and overdue flag.' },
   ],
 
-  portalExposure: [], // Phase 7 exposes issued invoices, read-only
+  /**
+   * Issued invoices only, read-only. A draft is not exposed at any field level — that is
+   * enforced by the projection's status predicate rather than by this list, because a
+   * field list cannot express "only some rows".
+   */
+  portalExposure: [
+    {
+      entityType: 'invoice',
+      fields: [
+        'id', 'number', 'status', 'issue_date', 'due_on',
+        'subtotal_cents', 'vat_cents', 'total_cents', 'currency', 'overdue',
+      ],
+    },
+  ],
 
   aiTools: [
     {
