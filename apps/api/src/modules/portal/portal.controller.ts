@@ -1,4 +1,5 @@
 import {
+  Body,
   Controller,
   Get,
   HttpCode,
@@ -16,6 +17,7 @@ import { Public } from '../../core/auth/public.decorator.js';
 import { DB, type Database } from '../../core/db/db.module.js';
 import { StorageService } from '../../core/storage/storage.service.js';
 import { SalesService } from '../sales/sales.service.js';
+import { PortalRequestsService } from './portal-requests.service.js';
 import { CurrentVisitor } from './current-visitor.decorator.js';
 import { PortalAuthGuard } from './portal-auth.guard.js';
 import { PortalProjection, type PortalVisitor } from './portal.projection.js';
@@ -42,6 +44,7 @@ export class PortalController {
     private readonly storage: StorageService,
     private readonly audit: AuditService,
     private readonly sales: SalesService,
+    private readonly requests: PortalRequestsService,
     @Inject(DB) private readonly db: Database,
   ) {}
 
@@ -174,6 +177,35 @@ export class PortalController {
       portalUserId: visitor.portalUserId,
       email: visitor.email,
     });
+  }
+
+  /**
+   * "Can you also…", which is the whole point of the form.
+   *
+   * The only free text the portal accepts, and the only place a client can put words into
+   * our systems. It becomes a `portal.requests` row rather than a task: see the schema for
+   * why text written outside the business should not land on a board the assistant reads
+   * without someone having looked at it first.
+   */
+  @Post('requests')
+  @HttpCode(201)
+  async submitRequest(
+    @CurrentVisitor() visitor: PortalVisitor,
+    @Body() body: { subject?: string; body?: string; projectId?: string },
+  ) {
+    await this.recordRead(visitor, 'request_submit');
+    return this.requests.submit(visitor, {
+      subject: body?.subject ?? '',
+      body: body?.body ?? '',
+      projectId: body?.projectId,
+    });
+  }
+
+  /** Their own requests, so submitting one is not shouting into a void. */
+  @Get('requests')
+  async listRequests(@CurrentVisitor() visitor: PortalVisitor) {
+    await this.recordRead(visitor, 'requests');
+    return this.requests.forClient(visitor);
   }
 
   private async send(

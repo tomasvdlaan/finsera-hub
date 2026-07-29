@@ -10,8 +10,12 @@ import { defineManifest } from '@platform/contracts';
  * Note what is absent. No `portalExposure` — the portal does not get to decide what it may
  * show itself; the owning module decides, and the projection refuses anything undeclared.
  * No `aiTools`, so no assistant can reach portal internals (the roadmap's portal assistant
- * is deliberately not in this cut). No `navigation`, because the portal is a separate front
- * end for a different audience, not a page in the internal shell.
+ * is deliberately not in this cut) — and, more pointedly, so nothing a client typed into a
+ * request form can be read by the assistant as though we had written it.
+ *
+ * The navigation entry is for the internal side only: triaging what clients have asked
+ * for. The portal itself remains a separate front end for a different audience, not a page
+ * in this shell.
  */
 export const portalManifest = defineManifest({
   name: 'portal',
@@ -38,7 +42,7 @@ export const portalManifest = defineManifest({
     },
   ],
 
-  navigation: [],
+  navigation: [{ label: 'Client requests', path: '/portal/requests', icon: 'inbox' }],
   widgets: [],
   chatWidgets: [],
   reportingViews: [],

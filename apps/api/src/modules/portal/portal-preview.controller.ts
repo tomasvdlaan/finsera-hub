@@ -1,7 +1,9 @@
 import {
+  Body,
   Controller,
   ForbiddenException,
   Get,
+  Post,
   Inject,
   Logger,
   NotFoundException,
@@ -17,6 +19,7 @@ import { CurrentActor } from '../../core/auth/current-actor.decorator.js';
 import { DB, type Database } from '../../core/db/db.module.js';
 import { PermissionService } from '../../core/permissions/permission.service.js';
 import { StorageService } from '../../core/storage/storage.service.js';
+import { PortalRequestsService } from './portal-requests.service.js';
 import { PortalProjection } from './portal.projection.js';
 
 /**
@@ -54,8 +57,46 @@ export class PortalPreviewController {
     private readonly permissions: PermissionService,
     private readonly storage: StorageService,
     private readonly audit: AuditService,
+    private readonly requests: PortalRequestsService,
     @Inject(DB) private readonly db: Database,
   ) {}
+
+  /**
+   * Client requests waiting to be dealt with, across every client.
+   *
+   * Not client-scoped like everything else on this controller, and so deliberately not
+   * under `:clientId` — a triage list is about our inbox rather than one client's portal.
+   * It still requires `portal.admin`, and it is why the "every route names a client" test
+   * checks the projection routes rather than the whole class.
+   */
+  @Get('requests')
+  async openRequests(@CurrentActor() actor: Actor) {
+    if (!(await this.permissions.can(actor, 'portal.admin'))) {
+      throw new ForbiddenException(`Missing capability 'portal.admin'`);
+    }
+    return this.requests.open();
+  }
+
+  /** Read it, then decide where it belongs. The project id is chosen here, by a person. */
+  @Post('requests/:id/convert')
+  async convertRequest(
+    @CurrentActor() actor: Actor,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: { projectId: string; title?: string },
+  ) {
+    if (!(await this.permissions.can(actor, 'portal.admin'))) {
+      throw new ForbiddenException(`Missing capability 'portal.admin'`);
+    }
+    return this.requests.convert(actor, id, body);
+  }
+
+  @Post('requests/:id/decline')
+  async declineRequest(@CurrentActor() actor: Actor, @Param('id', ParseUUIDPipe) id: string) {
+    if (!(await this.permissions.can(actor, 'portal.admin'))) {
+      throw new ForbiddenException(`Missing capability 'portal.admin'`);
+    }
+    return this.requests.decline(actor, id);
+  }
 
   @Get(':clientId/projects')
   async projects(@CurrentActor() actor: Actor, @Param('clientId', ParseUUIDPipe) clientId: string) {

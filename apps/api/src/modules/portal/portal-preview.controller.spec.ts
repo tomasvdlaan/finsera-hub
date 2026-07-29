@@ -15,6 +15,7 @@ import { resetDb, seedUser, testDb } from '../../test/db.js';
 import { crmManifest } from '../crm/crm.manifest.js';
 import { CrmService } from '../crm/crm.service.js';
 import { PortalPreviewController } from './portal-preview.controller.js';
+import type { PortalRequestsService } from './portal-requests.service.js';
 import { portalManifest } from './portal.manifest.js';
 import { PortalProjection } from './portal.projection.js';
 
@@ -22,9 +23,18 @@ const admin: Actor = { userId: crypto.randomUUID(), role: 'admin' };
 const member: Actor = { userId: crypto.randomUUID(), role: 'member' };
 
 describe('PortalPreviewController wiring', () => {
-  const routes = Object.getOwnPropertyNames(PortalPreviewController.prototype).filter(
-    (name) => name !== 'constructor' && name !== 'allow',
+  const proto = PortalPreviewController.prototype as unknown as Record<string, object>;
+  const routes = Object.getOwnPropertyNames(proto).filter(
+    (name) =>
+      name !== 'constructor' &&
+      Reflect.getMetadata(PATH_METADATA, proto[name] ?? {}) !== undefined,
   );
+
+  const pathOf = (name: string) =>
+    (Reflect.getMetadata(PATH_METADATA, proto[name] ?? {}) as string) ?? '';
+
+  /** The portal-preview routes proper: one client's view of their own portal. */
+  const clientScoped = routes.filter((name) => pathOf(name).startsWith(':clientId'));
 
   it('never leaves the internal guard', () => {
     // The opposite of PortalController, and the reason preview is a separate surface.
@@ -38,29 +48,31 @@ describe('PortalPreviewController wiring', () => {
     }
   });
 
-  it('is read-only, and stays that way', () => {
-    // Step 4 gives clients quote acceptance. Previewing must never be able to accept on
-    // a client's behalf, and that is a property of this list rather than of anyone's care.
-    const proto = PortalPreviewController.prototype as unknown as Record<string, object>;
-    for (const route of routes) {
-      const handler = proto[route];
-      if (!handler) continue;
-      const method = Reflect.getMetadata(METHOD_METADATA, handler) as RequestMethod;
+  it('never previews a client’s portal with anything but a GET', () => {
+    // Clients can accept quotes (step 4). Previewing must never be able to accept on
+    // their behalf, and that is a property of this list rather than of anyone's care.
+    for (const route of clientScoped) {
+      const method = Reflect.getMetadata(METHOD_METADATA, proto[route] ?? {}) as RequestMethod;
       expect(RequestMethod[method], `${route} is not a GET`).toBe('GET');
     }
-    expect(routes.length).toBeGreaterThan(0);
+    expect(clientScoped.length).toBeGreaterThan(0);
   });
 
-  it('scopes every route to one client id', () => {
-    // No route may return data without naming a client. A "list everything" endpoint here
-    // would be the cross-client read this module exists to make impossible.
-    const proto = PortalPreviewController.prototype as unknown as Record<string, object>;
-    for (const route of routes) {
-      const handler = proto[route];
-      if (!handler) continue;
-      const path = Reflect.getMetadata(PATH_METADATA, handler) as string;
-      expect(path, `${route} is not client-scoped`).toMatch(/^:clientId(\/|$)/);
+  it('scopes every preview route to one client id', () => {
+    // No preview route may return data without naming a client. A "list everything"
+    // endpoint here would be the cross-client read this module exists to prevent.
+    const previewRoutes = routes.filter((name) => !name.endsWith('Request') && name !== 'openRequests');
+    for (const route of previewRoutes) {
+      expect(pathOf(route), `${route} is not client-scoped`).toMatch(/^:clientId(\/|$)/);
     }
+    expect(previewRoutes).toEqual(clientScoped);
+  });
+
+  it('keeps request triage separate from previewing, and admin-only', () => {
+    // Triage is about our inbox rather than one client's portal, so it is not
+    // client-scoped — and every one of its routes still checks portal.admin.
+    const triage = routes.filter((name) => !clientScoped.includes(name));
+    expect(triage.sort()).toEqual(['convertRequest', 'declineRequest', 'openRequests']);
   });
 });
 
@@ -88,7 +100,13 @@ describe('PortalPreviewController behaviour', () => {
       new EventBus(manifests), new LinkService(testDb, registry, permissions, audit),
     );
     controller = new PortalPreviewController(
-      new PortalProjection(testDb, manifests), permissions, new StorageService(), audit, testDb,
+      new PortalProjection(testDb, manifests),
+      permissions,
+      new StorageService(),
+      audit,
+      // Request triage is exercised by its own spec; these tests are about previewing.
+      {} as unknown as PortalRequestsService,
+      testDb,
     );
     await crm.ensureReportingViews();
 

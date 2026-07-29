@@ -1,4 +1,5 @@
 import type { WebModule } from '../types.js';
+import { ClientRequests } from './ClientRequests.js';
 import { PortalPreview } from './PortalPreview.js';
 
 /**
@@ -10,5 +11,9 @@ import { PortalPreview } from './PortalPreview.js';
  */
 export const portalWebModule: WebModule = {
   name: 'portal',
-  routes: [{ path: '/crm/clients/:id/portal', Component: PortalPreview }],
+  routes: [
+    { path: '/crm/clients/:id/portal', Component: PortalPreview },
+    { path: '/portal/requests', Component: ClientRequests },
+  ],
+
 };

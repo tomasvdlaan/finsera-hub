@@ -64,21 +64,26 @@ describe('PortalController wiring', () => {
       'documents',
       'invoicePdf',
       'invoices',
+      'listRequests',
       'me',
       'projects',
       'quoteLines',
       'quotes',
+      'submitRequest',
     ]);
   });
 
   it('permits exactly one write, and names it', () => {
     // Step 4 added the first thing a client can change. This is the assertion that was
     // read-only until it was deliberately changed — a second write must be as deliberate.
-    const writes = routeNames.filter(
-      (name) =>
-        RequestMethod[Reflect.getMetadata(METHOD_METADATA, proto[name]) as RequestMethod] !==
-        'GET',
-    );
-    expect(writes).toEqual(['acceptQuote']);
+    const writes = routeNames.filter((name) => {
+      const handler = proto[name];
+      if (!handler) return false;
+      const method = Reflect.getMetadata(METHOD_METADATA, handler) as RequestMethod;
+      return RequestMethod[method] !== 'GET';
+    });
+    // Two now: accepting a quote, and asking for something. Both had to be added here
+    // deliberately, which is the only reason this assertion is worth having.
+    expect(writes.sort()).toEqual(['acceptQuote', 'submitRequest']);
   });
 });

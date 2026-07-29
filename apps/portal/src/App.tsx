@@ -6,6 +6,7 @@ import { Documents } from './pages/Documents.js';
 import { Invoices } from './pages/Invoices.js';
 import { Projects } from './pages/Projects.js';
 import { Quotes } from './pages/Quotes.js';
+import { Requests } from './pages/Requests.js';
 
 /**
  * Where Zitadel sends the browser back to. Nothing else routes here.
@@ -124,6 +125,7 @@ function Session() {
           <NavLink to="/offertes">Offertes</NavLink>
           <NavLink to="/facturen">Facturen</NavLink>
           <NavLink to="/documenten">Documenten</NavLink>
+          <NavLink to="/vragen">Vragen</NavLink>
         </nav>
         <span className="tag">
           {email} ·{' '}
@@ -139,6 +141,7 @@ function Session() {
         <Route path="/offertes" element={<Quotes />} />
         <Route path="/facturen" element={<Invoices />} />
         <Route path="/documenten" element={<Documents />} />
+        <Route path="/vragen" element={<Requests />} />
         <Route path="*" element={<Navigate to="/projecten" replace />} />
       </Routes>
     </div>
