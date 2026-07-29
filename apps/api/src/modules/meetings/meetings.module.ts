@@ -14,6 +14,9 @@ import { LiveRunner } from './live/live-runner.service.js';
 import { LiveRegistry } from './live/live-registry.service.js';
 import { RecallProvider } from './live/capture/recall.provider.js';
 import { ConversationService } from './live/conversation.service.js';
+import { BehaviourRegistry } from './live/behaviours/behaviour.registry.js';
+import { WakeWordBehaviour } from './live/behaviours/wake-word.behaviour.js';
+import { AgendaDriftBehaviour } from './live/behaviours/agenda-drift.behaviour.js';
 
 /**
  * Meeting Notes. Depends on CRM (the client a meeting is with) and SCRUM (where an
@@ -31,6 +34,9 @@ import { ConversationService } from './live/conversation.service.js';
     LiveRegistry,
     RecallProvider,
     ConversationService,
+    BehaviourRegistry,
+    WakeWordBehaviour,
+    AgendaDriftBehaviour,
   ],
   exports: [MeetingsService],
 })

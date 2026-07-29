@@ -59,6 +59,11 @@ export function LivePanel({
   const [state, setState] = useState<RunningState | null>(null);
   const [costCents, setCostCents] = useState(0);
   const [chatty, setChatty] = useState(false);
+  const [behaviours, setBehaviours] = useState<
+    Array<{ name: string; description: string; trigger: string; canSpeak: boolean }>
+  >([]);
+  const [enabled, setEnabled] = useState<string[]>([]);
+  const [maySpeak, setMaySpeak] = useState(false);
   const [spoken, setSpoken] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
 
@@ -97,6 +102,18 @@ export function LivePanel({
       .catch(() => undefined);
     // Only on mount: reconnecting on every render would open a socket per keystroke.
   }, [noteId]);
+
+  useEffect(() => {
+    api
+      .get<Array<{ name: string; description: string; trigger: string; canSpeak: boolean }>>(
+        '/meetings/behaviours',
+      )
+      .then((all) => {
+        setBehaviours(all);
+        setEnabled(all.map((b) => b.name)); // matches the server's default
+      })
+      .catch(() => setBehaviours([]));
+  }, []);
 
   useEffect(() => {
     // Labels are hidden until permission is granted, so this list is only useful after a
@@ -289,6 +306,12 @@ export function LivePanel({
     }
   };
 
+  const configure = (next: { enabled?: string[]; maySpeak?: boolean }) => {
+    if (next.enabled) setEnabled(next.enabled);
+    if (next.maySpeak !== undefined) setMaySpeak(next.maySpeak);
+    void api.post(`/meetings/${noteId}/live/behaviours`, next).catch(() => undefined);
+  };
+
   const stop = async () => {
     if (source === 'bot') {
       // The bot is stopped server-side; it has to be told to leave the call.
@@ -375,19 +398,59 @@ export function LivePanel({
             <label className="muted">
               <input
                 type="checkbox"
+                checked={maySpeak}
+                onChange={(e) => configure({ maySpeak: e.target.checked })}
+              />{' '}
+              may speak aloud
+            </label>
+            <label className="muted">
+              <input
+                type="checkbox"
                 checked={chatty}
                 onChange={(e) => {
                   setChatty(e.target.checked);
                   void api.post(`/meetings/${noteId}/live/chatty`, { on: e.target.checked });
                 }}
               />{' '}
-              let it talk back
+              chatty (testing)
             </label>
             <span className="muted">
               {lines.length} segment{lines.length === 1 ? '' : 's'} · {money(costCents)} so far
             </span>
             <button onClick={stop}>Stop</button>
           </div>
+
+          {behaviours.length > 0 && (
+            <section>
+              <h3>What it is doing</h3>
+              <ul className="agenda">
+                {behaviours.map((b) => (
+                  <li key={b.name}>
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={enabled.includes(b.name)}
+                        onChange={(e) =>
+                          configure({
+                            enabled: e.target.checked
+                              ? [...enabled, b.name]
+                              : enabled.filter((n) => n !== b.name),
+                          })
+                        }
+                      />{' '}
+                      <strong>{b.name.replace(/_/g, ' ')}</strong>{' '}
+                      <span className="muted">{b.description}</span>
+                    </label>
+                    {b.canSpeak && !maySpeak && <span className="badge">silent</span>}
+                  </li>
+                ))}
+              </ul>
+              <p className="muted">
+                Behaviours propose quietly by default. Nothing they suggest is applied
+                until you accept it, and none of them speaks unless you allow it above.
+              </p>
+            </section>
+          )}
 
           {chatty && (
             <p className="muted">

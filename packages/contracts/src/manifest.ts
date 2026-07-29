@@ -115,6 +115,16 @@ export const aiToolSchema = z.object({
   handler: z.string(), //      method key on this module's service
 });
 
+/** One thing the live meeting agent knows how to do. */
+const meetingBehaviourSchema = z.object({
+  name: z.string(),
+  description: z.string(),
+  /** `utterance` reacts to something said; `interval` runs on a timer. */
+  trigger: z.enum(['utterance', 'interval']),
+  /** Whether it can make the bot talk, as opposed to only proposing quietly. */
+  speaks: z.boolean(),
+});
+
 export const moduleManifestSchema = z.object({
   name: identifier,
   version: z.string(),
@@ -132,6 +142,14 @@ export const moduleManifestSchema = z.object({
   /** Cards the assistant can render for this module's entities. */
   chatWidgets: z.array(chatWidgetSchema).default([]),
 
+  /**
+   * What a module contributes to the live meeting agent.
+   *
+   * Declared like everything else so the platform page stays generated rather than
+   * maintained: a behaviour that exists is visible, and one that is removed disappears.
+   */
+  meetingBehaviours: z.array(meetingBehaviourSchema).default([]),
+
   reportingViews: z.array(reportingViewSchema).default([]),
   portalExposure: z.array(portalExposureSchema).default([]),
 
@@ -142,6 +160,7 @@ export type ModuleManifest = z.infer<typeof moduleManifestSchema>;
 export type EntityDeclaration = z.infer<typeof entityDeclarationSchema>;
 export type ChatWidget = z.infer<typeof chatWidgetSchema>;
 export type AiToolDeclaration = z.infer<typeof aiToolSchema>;
+export type MeetingBehaviourDeclaration = z.infer<typeof meetingBehaviourSchema>;
 export type PublishedEvent = z.infer<typeof publishedEventSchema>;
 export type Subscription = z.infer<typeof subscriptionSchema>;
 

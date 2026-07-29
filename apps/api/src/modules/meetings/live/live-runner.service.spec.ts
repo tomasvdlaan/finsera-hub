@@ -20,6 +20,10 @@ import { MeetingsService } from '../meetings.service.js';
 import type { AudioSegment, CaptureEvents, CaptureSession } from './capture/provider.js';
 import type { RecallProvider } from './capture/recall.provider.js';
 import type { ConversationService } from './conversation.service.js';
+import { BehaviourRegistry } from './behaviours/behaviour.registry.js';
+import type { AiToolRegistry } from '../../../core/llm/tool-registry.service.js';
+import type { LlmService } from '../../../core/llm/llm.service.js';
+import type { TtsService } from '../../../core/llm/tts.service.js';
 import { LiveRegistry } from './live-registry.service.js';
 import { LiveRunner } from './live-runner.service.js';
 import { LiveSession } from './live-session.js';
@@ -50,6 +54,15 @@ describe('LiveRunner', () => {
     mayReply: ReturnType<typeof vi.fn>;
     reply: ReturnType<typeof vi.fn>;
     forget: ReturnType<typeof vi.fn>;
+  };
+  let behaviours: BehaviourRegistry;
+  let testBehaviour: {
+    name: string;
+    description: string;
+    trigger: 'utterance';
+    canSpeak: boolean;
+    shouldRun: ReturnType<typeof vi.fn>;
+    run: ReturnType<typeof vi.fn>;
   };
   let joined: CaptureSession;
   let clientId: string;
@@ -114,6 +127,22 @@ describe('LiveRunner', () => {
       forget: vi.fn(),
     };
 
+    // A registry holding one controllable behaviour, so the runner's handling of
+    // behaviours is testable without exercising the real ones.
+    testBehaviour = {
+      name: 'test',
+      description: 'test behaviour',
+      trigger: 'utterance',
+      canSpeak: true,
+      shouldRun: vi.fn().mockReturnValue(false),
+      run: vi.fn().mockResolvedValue(null),
+    };
+    behaviours = new BehaviourRegistry(
+      testBehaviour as unknown as never,
+      { name: 'unused', description: '', trigger: 'interval', canSpeak: false,
+        shouldRun: () => false, run: async () => null } as unknown as never,
+    );
+
     sessions = new LiveRegistry();
     runner = new LiveRunner(
       registry,
@@ -122,6 +151,10 @@ describe('LiveRunner', () => {
       sessions,
       capture as unknown as RecallProvider,
       conversation as unknown as ConversationService,
+      behaviours,
+      { buildToolSet: vi.fn().mockResolvedValue({ tools: {}, invocations: [] }) } as unknown as AiToolRegistry,
+      {} as LlmService,
+      { speak: vi.fn().mockResolvedValue({ mp3: Buffer.from('mp3'), mimeType: 'audio/mp3' }) } as unknown as TtsService,
     );
 
     const client = await crm.createClient(actor, { name: 'DocHorse', status: 'active' });

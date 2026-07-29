@@ -35,6 +35,23 @@ export class MeetingsController {
     return this.live.status(id);
   }
 
+  /** What the meeting agent can do. Shown in the UI and the platform documentation. */
+  @Get('behaviours')
+  behaviours() {
+    return this.live.listBehaviours();
+  }
+
+  /** Turn behaviours on or off, and decide whether any of them may speak. */
+  @Post(':id/live/behaviours')
+  configureBehaviours(
+    @CurrentActor() actor: Actor,
+    @Param('id') id: string,
+    @Body() body: { enabled?: string[]; maySpeak?: boolean },
+  ) {
+    const settings = this.live.configure(id, body);
+    return { enabled: [...settings.enabled], maySpeak: settings.maySpeak };
+  }
+
   /** Let the bot talk back. Off by default; this is the testing switch. */
   @Post(':id/live/chatty')
   setChatty(

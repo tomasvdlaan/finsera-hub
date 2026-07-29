@@ -30,6 +30,30 @@ export const meetingsManifest = defineManifest({
   widgets: [{ slot: 'entity-page', component: 'meetings:client-notes' }],
   chatWidgets: [{ entityType: 'meeting_note', component: 'meetings:note-card' }],
 
+  /**
+   * What the live agent does during a meeting.
+   *
+   * Declared here for the same reason tools are: the platform page is generated from the
+   * manifests, so a behaviour that exists is visible without anyone maintaining a second
+   * list. Adding one means writing the class and adding a line here.
+   */
+  meetingBehaviours: [
+    {
+      name: 'wake_word',
+      description:
+        'Answers when addressed by name, using the same tools the chat assistant has — quotes, invoices, contracts, hours, past notes.',
+      trigger: 'utterance',
+      speaks: true,
+    },
+    {
+      name: 'agenda_drift',
+      description:
+        'Watches whether the meeting is still on its agenda and proposes which items have been covered.',
+      trigger: 'interval',
+      speaks: true,
+    },
+  ],
+
   reportingViews: [
     {
       view: 'meetings.v_notes',

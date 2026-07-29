@@ -8,6 +8,10 @@ import { LiveRegistry } from './live-registry.service.js';
 import { LiveService } from './live.service.js';
 import { LiveSession } from './live-session.js';
 import { ConversationService } from './conversation.service.js';
+import { AiToolRegistry } from '../../../core/llm/tool-registry.service.js';
+import { LlmService } from '../../../core/llm/llm.service.js';
+import { TtsService } from '../../../core/llm/tts.service.js';
+import { BehaviourRegistry, type BehaviourSettings } from './behaviours/behaviour.registry.js';
 
 /**
  * Runs one live meeting, whatever is supplying the audio.
@@ -30,7 +34,35 @@ export class LiveRunner {
     private readonly sessions: LiveRegistry,
     private readonly recall: RecallProvider,
     private readonly conversation: ConversationService,
+    private readonly behaviours: BehaviourRegistry,
+    private readonly toolRegistry: AiToolRegistry,
+    private readonly llm: LlmService,
+    private readonly tts: TtsService,
   ) {}
+
+  /** What each running meeting has switched on. */
+  private readonly settings = new Map<string, BehaviourSettings>();
+
+  behaviourSettings(noteId: string): BehaviourSettings {
+    let current = this.settings.get(noteId);
+    if (!current) {
+      current = this.behaviours.defaults();
+      this.settings.set(noteId, current);
+    }
+    return current;
+  }
+
+  configure(noteId: string, patch: { enabled?: string[]; maySpeak?: boolean }): BehaviourSettings {
+    const current = this.behaviourSettings(noteId);
+    if (patch.enabled) current.enabled = new Set(patch.enabled);
+    if (patch.maySpeak !== undefined) current.maySpeak = patch.maySpeak;
+    this.settings.set(noteId, current);
+    return current;
+  }
+
+  listBehaviours() {
+    return this.behaviours.list();
+  }
 
   /**
    * Meetings where the bot is allowed to talk back.
@@ -90,6 +122,7 @@ export class LiveRunner {
       });
 
     this.sessions.attachCapture(noteId, capture);
+    this.startBehaviourTimer(actor, noteId, live);
     return { noteId, provider: capture.providerName, sessionId: capture.id };
   }
 
@@ -141,6 +174,14 @@ export class LiveRunner {
       });
 
       if (live.shouldExtract()) void this.tick(actor, noteId, live);
+      void this.runBehaviours('utterance', actor, noteId, live, {
+        speaker: line.speaker,
+        text: line.text,
+        at: line.at,
+      });
+      // The freeform conversational mode is a testing aid that sits alongside the
+      // behaviours rather than inside them: it has no trigger and no purpose beyond
+      // proving the loop works.
       if (this.chatty.has(noteId)) void this.maybeSpeak(actor, noteId, live);
     } catch (error) {
       // A failed utterance loses a sentence. It must not end the meeting.
@@ -179,6 +220,80 @@ export class LiveRunner {
     }
   }
 
+  /**
+   * Run the behaviours that are due.
+   *
+   * They get the same tool set the chat assistant does — built from the manifests and
+   * filtered by the operator's own permissions, with restricted tools never offered. So
+   * "what did we quote them last time?" is answerable in a meeting for exactly the same
+   * reason it is answerable in the chat, with no second implementation to keep in step.
+   */
+  private async runBehaviours(
+    trigger: 'utterance' | 'interval',
+    actor: Actor,
+    noteId: string,
+    live: LiveSession,
+    latest?: { speaker?: string; text: string; at: number },
+  ): Promise<void> {
+    const settings = this.behaviourSettings(noteId);
+    if (settings.enabled.size === 0) return;
+
+    try {
+      const note = await this.meetings.get(actor, noteId);
+      const { tools } = await this.toolRegistry.buildToolSet(actor);
+
+      const results = await this.behaviours.run(trigger, {
+        actor,
+        session: live,
+        note: {
+          id: noteId,
+          title: note.title,
+          agenda: note.agenda.map((a) => ({ id: a.id, title: a.title, covered: a.covered })),
+        },
+        latest,
+        tools,
+        llm: this.llm,
+        newId: () => this.registry.newId(),
+      }, settings);
+
+      for (const result of results) {
+        if (result.proposals?.length) {
+          const added = live.mergeProposals(result.proposals, () => this.registry.newId());
+          if (added.length > 0) {
+            this.sessions.broadcast(noteId, { type: 'proposals', proposals: added });
+          }
+        }
+        if (result.speak) await this.say(noteId, live, result.speak);
+      }
+    } catch (error) {
+      this.logger.warn(`Behaviours failed on ${noteId}: ${(error as Error).message}`);
+    }
+  }
+
+  /** Say something aloud and record that it was said. */
+  private async say(noteId: string, live: LiveSession, text: string): Promise<void> {
+    const entry = this.sessions.get(noteId);
+    if (!entry?.capture || entry.capture.isSpeaking()) return;
+
+    const spoken = await this.tts.speak(text);
+    await entry.capture.speak(spoken.mp3, spoken.mimeType);
+
+    const line = live.addLine(text, { id: 'assistant', name: 'Assistant' });
+    if (line) this.sessions.broadcast(noteId, { type: 'line', line });
+    this.sessions.broadcast(noteId, { type: 'spoke', text });
+  }
+
+  /** The timer for interval-triggered behaviours, e.g. watching for agenda drift. */
+  private startBehaviourTimer(actor: Actor, noteId: string, live: LiveSession): void {
+    const timer = setInterval(() => {
+      if (!this.sessions.get(noteId)) return clearInterval(timer);
+      void this.runBehaviours('interval', actor, noteId, live);
+    }, 60_000);
+    this.timers.set(noteId, timer);
+  }
+
+  private readonly timers = new Map<string, NodeJS.Timeout>();
+
   private async tick(actor: Actor, noteId: string, live: LiveSession): Promise<void> {
     live.extracting = true;
     try {
@@ -206,6 +321,13 @@ export class LiveRunner {
   async stop(actor: Actor, noteId: string) {
     this.chatty.delete(noteId);
     this.conversation.forget(noteId);
+    this.behaviours.forget(noteId);
+    this.settings.delete(noteId);
+    const timer = this.timers.get(noteId);
+    if (timer) {
+      clearInterval(timer);
+      this.timers.delete(noteId);
+    }
     const live = await this.sessions.end(noteId);
     if (!live || live.lines.length === 0) return { saved: false };
 
