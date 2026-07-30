@@ -259,7 +259,23 @@ function ChromeLayout({
   return (
     <div className="layout">
       <aside className="sidebar">
-        <div className="brand">Finsera Platform</div>
+        {/*
+          A mark, not a line of bold text.
+          
+          Three ascending bars in the brand green: the shortest honest statement of what this
+          platform is for — hours, money and work going up and to the right. Inline SVG rather
+          than a file so it inherits the accent and needs no asset pipeline to recolour.
+        */}
+        <div className="brand">
+          <svg className="brand-mark" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <rect x="2" y="14" width="5" height="8" rx="1.5" />
+            <rect x="9.5" y="8" width="5" height="14" rx="1.5" />
+            <rect x="17" y="2" width="5" height="20" rx="1.5" />
+          </svg>
+          <span className="brand-name">
+            Finsera<span className="brand-suffix">Platform</span>
+          </span>
+        </div>
         <nav>
           {SECTIONS.map(({ key, label }) => {
             /*

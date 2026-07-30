@@ -178,19 +178,19 @@ export function Today() {
         <div className="stat">
           <Link to="/work">
             <div className="muted">In progress</div>
-            <div className="stat-value">{doing.length}</div>
+            <div className={`stat-value${doing.length === 0 ? ' is-zero' : ''}`}>{doing.length}</div>
           </Link>
         </div>
         <div className="stat">
           <Link to="/work">
             <div className="muted">Waiting on a client</div>
-            <div className="stat-value">{waiting.length}</div>
+            <div className={`stat-value${waiting.length === 0 ? ' is-zero' : ''}`}>{waiting.length}</div>
           </Link>
         </div>
         <div className="stat">
           <Link to="/work">
             <div className="muted">Overdue</div>
-            <div className={`stat-value${overdue.length > 0 ? ' urgent' : ''}`}>
+            <div className={`stat-value${overdue.length > 0 ? ' urgent' : ' is-zero'}`}>
               {overdue.length}
             </div>
           </Link>
@@ -198,7 +198,7 @@ export function Today() {
         <div className="stat">
           <Link to="/time">
             <div className="muted">Logged today</div>
-            <div className="stat-value">{hours(loggedToday)}</div>
+            <div className={`stat-value${loggedToday === 0 ? ' is-zero' : ''}`}>{hours(loggedToday)}</div>
           </Link>
         </div>
       </div>
