@@ -9,7 +9,7 @@ import {
   sectionRange,
 } from '@platform/note-doc';
 import type { Actor } from '@platform/contracts';
-import { NoteDocService, type Persistence } from './note-doc.service.js';
+import { NoteDocService, type Change, type Persistence } from './note-doc.service.js';
 import { appendMarkdown, replaceSectionMarkdown } from './note-edit.js';
 
 const actor: Actor = { userId: 'user-1', role: 'admin' };
@@ -272,6 +272,97 @@ describe('the assistant writing while somebody is typing', () => {
     expect(final).toContain('## Follow-up');
     expect(final).toContain('- Ask compliance');
     expect(final).not.toContain('Nothing yet.');
+  });
+});
+
+/**
+ * A body written straight to the table, reaching the people who have the note open.
+ *
+ * `MeetingsService.update` is still a legitimate way to set a body — a template, an import, a
+ * correction. Before this existed the write landed in the table and was reverted a second
+ * later by the authority's next flush, silently, which is the very failure the authority was
+ * built to end. It is the one operation allowed to produce a change covering the whole note.
+ */
+describe('replacing a body wholesale', () => {
+  let docs: NoteDocService;
+  let made: ReturnType<typeof persistenceFor>;
+
+  beforeEach(() => {
+    made = persistenceFor('# Note\n\nThe first body.');
+    docs = new NoteDocService();
+    docs.bind(made.persistence);
+  });
+
+  it('does nothing when nobody has the note open', async () => {
+    const heard: unknown[] = [];
+    docs.onChange((c) => heard.push(c));
+
+    await docs.replace(NOTE, actor, '# Different');
+
+    // The table is the record and the next reader will get exactly this; holding a document
+    // for a note nobody is looking at would be a cache with no one to serve.
+    expect(heard).toHaveLength(0);
+    expect(made.persistence.load).not.toHaveBeenCalled();
+  });
+
+  it('reaches an open document as a change like any other', async () => {
+    await docs.snapshot(NOTE);
+    const heard: Array<{ version: number }> = [];
+    docs.onChange((c) => heard.push({ version: c.version }));
+
+    await docs.replace(NOTE, actor, '# Note\n\nA replacement body.');
+
+    expect(heard).toHaveLength(1);
+    const after = await docs.snapshot(NOTE);
+    expect(after.markdown).toContain('A replacement body.');
+    expect(after.markdown).not.toContain('The first body.');
+    expect(after.version).toBe(1);
+  });
+
+  it('produces no change when the body is already what was written', async () => {
+    await docs.snapshot(NOTE);
+    const heard: unknown[] = [];
+    docs.onChange((c) => heard.push(c));
+
+    // The authority's own flush writes the body back through update(); without this the
+    // round trip would bump the version and wake every client for nothing.
+    await docs.replace(NOTE, actor, '# Note\n\nThe first body.');
+
+    expect(heard).toHaveLength(0);
+    expect((await docs.snapshot(NOTE)).version).toBe(0);
+  });
+
+  it('does not mark the document dirty, because the table already has it', async () => {
+    await docs.snapshot(NOTE);
+    await docs.replace(NOTE, actor, '# Note\n\nA replacement body.');
+    await docs.flush(NOTE);
+
+    // Writing it back would be a second write of text that came from the table in the first
+    // place, and would race whoever wrote it.
+    expect(made.persistence.save).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The steps it emits have to be usable by the browsers already holding the note.
+   *
+   * A whole-document replacement is the widest change the system can produce, so it is the
+   * one most likely to be rejected on arrival — and a client that cannot apply it stops
+   * receiving everything after it too.
+   */
+  it('emits steps another client at the same version can apply', async () => {
+    const start = await docs.snapshot(NOTE);
+    let sent: Change | null = null;
+    docs.onChange((c) => (sent = c));
+
+    await docs.replace(NOTE, actor, '# Note\n\nA replacement body.');
+    expect(sent).not.toBeNull();
+
+    // A second client, holding the document as it was, replays what arrived.
+    const theirs = new Transform(noteSchema.nodeFromJSON(start.doc));
+    for (const step of sent!.steps) theirs.step(Step.fromJSON(noteSchema, step.toJSON()));
+
+    expect(docToMarkdown(theirs.doc)).toContain('A replacement body.');
+    expect(docToMarkdown(theirs.doc)).toBe((await docs.snapshot(NOTE)).markdown);
   });
 });
 
