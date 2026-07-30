@@ -4,7 +4,7 @@ import { eq } from 'drizzle-orm';
 import { v7 as uuidv7 } from 'uuid';
 import { DB, type Database } from '../db/db.module.js';
 import { users } from '../db/core.schema.js';
-import { INTERNAL_ROLE } from './roles.js';
+import { INTERNAL_ROLE, rolesFrom } from './roles.js';
 
 interface OidcClaims {
   sub: string;
@@ -48,17 +48,29 @@ export class UserService {
       return { userId: existing.id, role: existing.role as Actor['role'] };
     }
 
-    if (!claims.roles?.includes(INTERNAL_ROLE)) {
+    /*
+     * The profile is fetched BEFORE the role gate, not after.
+     *
+     * On this instance the access token carries only the standard eight claims — no
+     * roles, no email — so a gate that reads the token alone rejects everyone regardless
+     * of what has been granted. Userinfo is a server-to-server call to the issuer
+     * authenticated with the access token, so a role it reports is as trustworthy as one
+     * inside the token; the token is merely cheaper. This costs one extra call for a user
+     * who is then refused, and this whole path runs once per person, not per request.
+     */
+    const profile = await this.fetchUserInfo(accessToken);
+    const roles = claims.roles?.length
+      ? claims.roles
+      : rolesFrom((profile ?? {}) as Record<string, unknown>);
+
+    if (!roles.includes(INTERNAL_ROLE)) {
       this.logger.warn(
-        `Refused to provision '${claims.email ?? claims.sub}': the token carries no ` +
-          `'${INTERNAL_ROLE}' role. Grant it in Zitadel if this is a colleague.`,
+        `Refused to provision '${profile?.email ?? claims.email ?? claims.sub}': no ` +
+          `'${INTERNAL_ROLE}' role. Roles seen: ${roles.length > 0 ? roles.join(', ') : 'none'}. ` +
+          'GET /core/auth/diagnostics shows which claims arrived.',
       );
       throw new ForbiddenException('No access to this platform');
     }
-
-    // The access token carries only `sub` — profile claims live at the userinfo
-    // endpoint. Fetched once, at provisioning, rather than on every request.
-    const profile = await this.fetchUserInfo(accessToken);
 
     const anyUser = await this.db.query.users.findFirst({ columns: { id: true } });
     const isFirstUser = anyUser === undefined;
@@ -92,7 +104,8 @@ export class UserService {
     return { userId: winner!.id, role: winner!.role as Actor['role'] };
   }
 
-  private async fetchUserInfo(accessToken: string): Promise<OidcClaims | null> {
+  /** Public for the diagnostics route, which needs to show what the issuer reports. */
+  async fetchUserInfo(accessToken: string): Promise<OidcClaims | null> {
     const issuer = process.env.ZITADEL_ISSUER;
     if (!issuer) return null;
     try {

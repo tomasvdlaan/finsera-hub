@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { JWTPayload } from 'jose';
-import { hasRole, rolesFrom } from './roles.js';
+import { hasRole, roleClaims, rolesFrom } from './roles.js';
 
 /**
  * Reading roles out of a token.
@@ -55,6 +55,52 @@ describe('rolesFrom', () => {
     // malformed claim must be rejected on shape rather than trusted to be well-formed.
     const payload = { sub: 'u', 'urn:zitadel:iam:org:project:roles': 'internal' } as JWTPayload;
     expect(rolesFrom(payload)).toEqual([]);
+  });
+
+  it('reads a scoped claim for an unknown project when no project id is configured', () => {
+    delete process.env.ZITADEL_PROJECT_ID;
+    // Zitadel Cloud emits the scoped form. Requiring ZITADEL_PROJECT_ID to read it meant
+    // an unconfigured instance found no roles and refused every colleague — which is
+    // exactly what was happening. One claim on a one-project instance is unambiguous.
+    const payload = claim('urn:zitadel:iam:org:project:383629286310952763:roles', {
+      internal: { orgId: 'finsera.nl' },
+    });
+    expect(rolesFrom(payload)).toEqual(['internal']);
+  });
+
+  it('refuses to choose between two projects rather than guessing', () => {
+    delete process.env.ZITADEL_PROJECT_ID;
+    const payload = {
+      sub: 'u',
+      'urn:zitadel:iam:org:project:1:roles': { internal: {} },
+      'urn:zitadel:iam:org:project:2:roles': { portal_client: {} },
+    } as JWTPayload;
+    // Ambiguous. Set ZITADEL_PROJECT_ID; being locked out is recoverable, being let in
+    // by the wrong project's grant is not.
+    expect(rolesFrom(payload)).toEqual([]);
+  });
+
+  it('reads roles out of a userinfo response, not just a token', () => {
+    delete process.env.ZITADEL_PROJECT_ID;
+    // The access token on this instance carries only the standard eight claims, so the
+    // gate had nothing to read and rejected everyone whatever had been granted.
+    const userinfo = {
+      sub: 'u',
+      email: 'colleague@finsera.nl',
+      'urn:zitadel:iam:org:project:777:roles': { internal: { orgId: 'finsera.nl' } },
+    };
+    expect(rolesFrom(userinfo)).toEqual(['internal']);
+  });
+
+  it('names every roles claim it can see, for the diagnostics route', () => {
+    const payload = {
+      sub: 'u',
+      email: 'a@b.nl',
+      'urn:zitadel:iam:org:project:5:roles': { internal: {} },
+    } as JWTPayload;
+    expect(roleClaims(payload)).toEqual({
+      'urn:zitadel:iam:org:project:5:roles': ['internal'],
+    });
   });
 
   it('does not confuse one role for another by prefix', () => {

@@ -4,17 +4,20 @@ import {
   Delete,
   ForbiddenException,
   Get,
+  Headers,
   Param,
   Patch,
   Post,
   Put,
 } from '@nestjs/common';
+import { decodeJwt } from 'jose';
 import { NAV_SECTIONS } from '@platform/contracts';
 import type { Actor, CreateLinkInput } from '@platform/contracts';
 import { CommentService } from '../core/comments/comment.service.js';
 import { CurrentActor } from '../core/auth/current-actor.decorator.js';
 import { Public } from '../core/auth/public.decorator.js';
 import { UserService } from '../core/auth/user.service.js';
+import { INTERNAL_ROLE, PORTAL_ROLE, roleClaims, rolesFrom } from '../core/auth/roles.js';
 import { EventDispatcher } from '../core/events/event-dispatcher.service.js';
 import { LinkService } from '../core/links/link.service.js';
 import { SettingsService, type OrgSettings } from '../core/settings/settings.service.js';
@@ -64,6 +67,62 @@ export class ShellController {
       email: user!.email,
       displayName: user!.displayName,
       role: user!.role,
+    };
+  }
+
+  /**
+   * What the identity provider is actually sending.
+   *
+   * Configuring Zitadel roles is otherwise blind: you change a switch in the console, log
+   * out, log in, and find out only whether it worked — never which of four settings was
+   * the missing one. This reports the claim names present in the access token, every roles
+   * claim found in either the token or userinfo, and whether the role the platform
+   * requires is among them.
+   *
+   * Claim NAMES and role KEYS only. No token, no signature, no profile values beyond the
+   * roles themselves, so it stays safe to paste when asking someone for help.
+   *
+   * Admin-only, because it describes how authentication is wired.
+   */
+  @Get('auth/diagnostics')
+  async authDiagnostics(@CurrentActor() actor: Actor, @Headers('authorization') header?: string) {
+    if (actor.role !== 'admin') throw new ForbiddenException();
+
+    const token = header?.replace(/^Bearer\s+/i, '') ?? '';
+    let tokenClaims: Record<string, unknown> = {};
+    try {
+      tokenClaims = decodeJwt(token) as Record<string, unknown>;
+    } catch {
+      /* Reported below as an unreadable token rather than thrown — the point is to say so. */
+    }
+
+    const profile = (await this.users.fetchUserInfo(token)) as Record<string, unknown> | null;
+    const inToken = roleClaims(tokenClaims);
+    const inUserinfo = roleClaims(profile ?? {});
+    const resolved = rolesFrom(
+      Object.keys(inToken).length > 0 ? tokenClaims : (profile ?? {}),
+    );
+
+    return {
+      issuer: process.env.ZITADEL_ISSUER ?? null,
+      projectIdConfigured: process.env.ZITADEL_PROJECT_ID ?? null,
+      requiredRole: INTERNAL_ROLE,
+      portalRole: PORTAL_ROLE,
+      accessToken: {
+        readable: Object.keys(tokenClaims).length > 0,
+        claimNames: Object.keys(tokenClaims).sort(),
+        /** Audience entries — one of these is usually the project id you need above. */
+        audience: tokenClaims.aud ?? null,
+        roleClaims: inToken,
+      },
+      userinfo: {
+        reachable: profile !== null,
+        claimNames: Object.keys(profile ?? {}).sort(),
+        roleClaims: inUserinfo,
+      },
+      resolvedRoles: resolved,
+      /** The single answer: can a new colleague be provisioned right now? */
+      wouldProvisionAColleague: resolved.includes(INTERNAL_ROLE),
     };
   }
 

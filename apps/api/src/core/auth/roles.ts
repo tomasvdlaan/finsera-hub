@@ -19,27 +19,56 @@ import type { JWTPayload } from 'jose';
 export const INTERNAL_ROLE = process.env.ZITADEL_INTERNAL_ROLE ?? 'internal';
 export const PORTAL_ROLE = process.env.ZITADEL_PORTAL_ROLE ?? 'portal_client';
 
-/**
- * Both claim spellings.
- *
- * Zitadel's newer, project-scoped claim replaces the legacy flat one, and which appears
- * depends on instance configuration. Reading both means a working setup is not mistaken
- * for an unauthorised one — a role check that silently finds nothing would lock out every
- * user, which is at least loud, but it would also mask a genuine misconfiguration.
- */
-export function rolesFrom(payload: JWTPayload): string[] {
-  const projectId = process.env.ZITADEL_PROJECT_ID;
-  const candidates = [
-    projectId ? `urn:zitadel:iam:org:project:${projectId}:roles` : undefined,
-    'urn:zitadel:iam:org:project:roles',
-  ].filter((c): c is string => c !== undefined);
+/** Any project-scoped roles claim: `urn:zitadel:iam:org:project:{projectId}:roles`. */
+const SCOPED = /^urn:zitadel:iam:org:project:([^:]+):roles$/;
+/** The legacy, unscoped spelling. */
+const FLAT = 'urn:zitadel:iam:org:project:roles';
 
-  for (const claim of candidates) {
-    const value = payload[claim];
-    if (value && typeof value === 'object') return Object.keys(value as object);
+/** Every roles claim in a claim bag, by claim name. Exported for the diagnostics route. */
+export function roleClaims(claims: Record<string, unknown>): Record<string, string[]> {
+  const found: Record<string, string[]> = {};
+  for (const [name, value] of Object.entries(claims)) {
+    if ((name === FLAT || SCOPED.test(name)) && value && typeof value === 'object') {
+      found[name] = Object.keys(value as object);
+    }
   }
-  return [];
+  return found;
 }
 
-export const hasRole = (payload: JWTPayload, role: string): boolean =>
-  rolesFrom(payload).includes(role);
+/**
+ * Project roles out of a claim bag.
+ *
+ * Reads a plain record rather than only a JWT, because on this instance the access token
+ * carries nothing but the standard eight claims — roles arrive from the userinfo endpoint
+ * instead, and that is a server-to-server call to the issuer authenticated with the access
+ * token, so its answer is exactly as trustworthy as a claim inside the token. One
+ * implementation for both, or the two checks drift.
+ *
+ * When ZITADEL_PROJECT_ID is set it is the only scoped claim that counts, and a scoped
+ * claim for a different project is ignored — importing another project's grants would be
+ * importing somebody else's authorisation decisions.
+ *
+ * When it is NOT set, a single scoped claim is accepted whatever project it names. Zitadel
+ * Cloud emits the scoped form, so the strict reading finds nothing and locks out every
+ * user, which is how this instance behaves today. One claim on a one-project instance is
+ * unambiguous; two are not, and are refused rather than guessed between. Setting
+ * ZITADEL_PROJECT_ID turns this from an inference into a check, and the diagnostics route
+ * reports which claim answered so it can be set correctly.
+ */
+export function rolesFrom(claims: JWTPayload | Record<string, unknown>): string[] {
+  const bag = claims as Record<string, unknown>;
+  const projectId = process.env.ZITADEL_PROJECT_ID;
+  const all = roleClaims(bag);
+
+  if (projectId) {
+    // Configured: the flat claim, or this project's. Nothing else, ever.
+    return all[`urn:zitadel:iam:org:project:${projectId}:roles`] ?? all[FLAT] ?? [];
+  }
+  if (all[FLAT]) return all[FLAT];
+
+  const scoped = Object.entries(all).filter(([name]) => name !== FLAT);
+  return scoped.length === 1 ? scoped[0]![1] : [];
+}
+
+export const hasRole = (claims: JWTPayload | Record<string, unknown>, role: string): boolean =>
+  rolesFrom(claims).includes(role);
