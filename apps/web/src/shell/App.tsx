@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import {
   BrowserRouter,
   Link,
-  NavLink,
   Navigate,
   Route,
   Routes,
@@ -13,9 +12,9 @@ import type { CurrentUser } from '@platform/contracts';
 import { api } from '../lib/api.js';
 import { webModules } from '../modules/index.js';
 import { Assistant } from './Assistant.js';
-import { Icon } from './Icon.js';
 import type { NavItem } from '../modules/types.js';
 import { CommandBar } from './CommandBar.js';
+import { Sidebar, type SidebarCounts } from './Sidebar.js';
 import { LiveMeetingProvider } from './LiveMeeting.js';
 import { LivePill } from './LivePill.js';
 import { MeetingChatProvider } from './MeetingChat.js';
@@ -36,19 +35,6 @@ import { AuthProvider, useAuth } from './AuthProvider.js';
  * a manifest only says which section it belongs in. `more` catches anything that declares
  * no section, so a module written before this existed still appears.
  */
-const SECTIONS: Array<{ key: string; label: string | null }> = [
-  // Ordered as a workday reads: what today needs, then the work, then the hours it took,
-  // then who it was for, then the money, then the record. Work sat below Clients when this
-  // was a finance tool; it is a productivity tool that also tracks time, so it moved up.
-  { key: 'today', label: null },
-  { key: 'work', label: 'Work' },
-  { key: 'time', label: null },
-  { key: 'clients', label: 'Clients' },
-  { key: 'money', label: 'Money' },
-  { key: 'record', label: 'Record' },
-  { key: 'setup', label: 'Setup' },
-  { key: 'more', label: 'More' },
-];
 
 /**
  * Destinations the shell owns outright.
@@ -127,6 +113,8 @@ function Shell() {
   const [nav, setNav] = useState<NavItem[]>([]);
   const [me, setMe] = useState<CurrentUser | null>(null);
   const [assistantOpen, setAssistantOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [counts, setCounts] = useState<SidebarCounts>({});
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -137,6 +125,17 @@ function Shell() {
         setMe(m);
       })
       .catch((e: Error) => setError(e.message));
+
+    /*
+     * Counts for the rail, and failing quietly on purpose.
+     *
+     * A badge is an ornament on navigation that has to work — so if the insights sweep is
+     * unavailable the rail renders without the number rather than not at all.
+     */
+    api
+      .get<Array<{ status?: string }>>('/insights?status=open')
+      .then((rows) => setCounts((c) => ({ ...c, attention: rows.length })))
+      .catch(() => undefined);
   }, [user]);
 
   if (loading) return <div className="centered">Loading…</div>;
@@ -181,7 +180,12 @@ function Shell() {
         reachable from the meeting room, which renders outside the ordinary chrome and is
         exactly where looking something up without losing your place matters most.
       */}
-      <CommandBar nav={[...SHELL_ITEMS, ...nav]} />
+      <CommandBar
+        nav={[...SHELL_ITEMS, ...nav]}
+        me={me}
+        open={searchOpen}
+        onOpenChange={setSearchOpen}
+      />
       <Routes>
         {/*
           Two layouts, one router.
@@ -198,6 +202,8 @@ function Shell() {
             <ChromeLayout
               nav={nav}
               me={me}
+              counts={counts}
+              onSearch={() => setSearchOpen(true)}
               error={error}
               assistantOpen={assistantOpen}
               onToggleAssistant={() => setAssistantOpen((o) => !o)}
@@ -239,91 +245,35 @@ function Shell() {
 function ChromeLayout({
   nav,
   me,
+  counts,
   error,
   assistantOpen,
+  onSearch,
   onToggleAssistant,
   onCloseAssistant,
   onLogout,
 }: {
   nav: NavItem[];
   me: CurrentUser | null;
+  counts: SidebarCounts;
   error: string | null;
   assistantOpen: boolean;
+  onSearch: () => void;
   onToggleAssistant: () => void;
   onCloseAssistant: () => void;
   onLogout: () => void;
 }) {
   return (
     <div className="layout">
-      <aside className="sidebar">
-        {/*
-          A mark, not a line of bold text.
-          
-          Three ascending bars in the brand green: the shortest honest statement of what this
-          platform is for — hours, money and work going up and to the right. Inline SVG rather
-          than a file so it inherits the accent and needs no asset pipeline to recolour.
-        */}
-        <div className="brand">
-          <svg className="brand-mark" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-            <rect x="2" y="14" width="5" height="8" rx="1.5" />
-            <rect x="9.5" y="8" width="5" height="14" rx="1.5" />
-            <rect x="17" y="2" width="5" height="20" rx="1.5" />
-          </svg>
-          <span className="brand-name">
-            Finsera<span className="brand-suffix">Platform</span>
-          </span>
-        </div>
-        <nav>
-          {SECTIONS.map(({ key, label }) => {
-            /*
-             * Sorted here as well as on the server.
-             *
-             * GET /core/navigation orders what the manifests declare, but the shell's own
-             * entries are merged in afterwards and knew nothing about that order — so a shell
-             * item always landed first in its section whatever it said. That is how "All work"
-             * ended up above Meetings after Meetings was deliberately promoted.
-             */
-            const items = [...SHELL_ITEMS, ...nav]
-              .filter((i) => (i.section ?? 'more') === key && !i.hidden)
-              .sort((a, b) => {
-                const byOrder = (a.order ?? 100) - (b.order ?? 100);
-                return byOrder !== 0 ? byOrder : a.label.localeCompare(b.label);
-              });
-            if (items.length === 0) return null;
-            return (
-              <div key={key} className="nav-section">
-                {label && <div className="nav-section-label">{label}</div>}
-                {items.map((item) => (
-                  <NavLink
-                    key={item.path}
-                    to={item.path}
-                    className={({ isActive }) => (isActive ? 'active' : '')}
-                  >
-                    <Icon name={item.icon} />
-                    <span>{item.label}</span>
-                  </NavLink>
-                ))}
-              </div>
-            );
-          })}
-        </nav>
-
-        <button onClick={onToggleAssistant} style={{ marginTop: 'var(--space-3)' }}>
-          {assistantOpen ? 'Hide assistant' : 'Ask assistant'}
-        </button>
-
-        <div className="sidebar-footer">
-          {me && (
-            <>
-              <div>{me.displayName}</div>
-              <div className="muted">{me.role}</div>
-            </>
-          )}
-          <button onClick={onLogout} style={{ marginTop: 'var(--space-2)' }}>
-            Sign out
-          </button>
-        </div>
-      </aside>
+      <Sidebar
+        nav={nav}
+        shellItems={SHELL_ITEMS}
+        counts={counts}
+        me={me}
+        onSearch={onSearch}
+        onOpenAssistant={onToggleAssistant}
+        onLogout={onLogout}
+      />
 
       <main>
         {error && (

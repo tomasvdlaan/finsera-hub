@@ -20,7 +20,39 @@ interface EntityHit {
 type Row =
   | { kind: 'page'; key: string; label: string; path: string; icon?: string }
   | { kind: 'record'; key: string; label: string; path: string; entityType: string }
+  | { kind: 'recent'; key: string; label: string; path: string; entityType: string }
+  | { kind: 'action'; key: string; label: string; run: () => Promise<string | null> }
   | { kind: 'ask'; key: string; label: string };
+
+/** What the box remembers between sessions. Small on purpose — this is a shortcut, not history. */
+const RECENTS_KEY = 'finsera.cmdk.recents';
+const RECENTS_MAX = 5;
+
+interface Recent {
+  id: string;
+  label: string;
+  path: string;
+  entityType: string;
+}
+
+function readRecents(): Recent[] {
+  try {
+    const raw = localStorage.getItem(RECENTS_KEY);
+    return raw ? (JSON.parse(raw) as Recent[]).slice(0, RECENTS_MAX) : [];
+  } catch {
+    // A corrupt entry must not take the command bar down with it.
+    return [];
+  }
+}
+
+function rememberRecent(entry: Recent): void {
+  try {
+    const kept = [entry, ...readRecents().filter((r) => r.id !== entry.id)].slice(0, RECENTS_MAX);
+    localStorage.setItem(RECENTS_KEY, JSON.stringify(kept));
+  } catch {
+    /* private browsing, a full quota — not worth failing a navigation over */
+  }
+}
 
 /**
  * One box that goes anywhere, finds anything, and answers questions.
@@ -40,9 +72,25 @@ type Row =
  * practical effect is that a note, an invoice and a contact all turn up in one list without
  * the shell knowing that any of those things exist.
  */
-export function CommandBar({ nav }: { nav: NavItem[] }) {
+export function CommandBar({
+  nav,
+  me,
+  open,
+  onOpenChange,
+}: {
+  nav: NavItem[];
+  /** Needed to start a ceremony with an attendee — see the standup action. */
+  me: { displayName: string } | null;
+  /*
+   * Owned by the shell rather than here, so the sidebar's Search button opens the same
+   * overlay ⌘K does. A shortcut nobody was told about is indistinguishable from no feature,
+   * and two ways in must not mean two states.
+   */
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
   const navigate = useNavigate();
-  const [open, setOpen] = useState(false);
+  const setOpen = onOpenChange;
   const [query, setQuery] = useState('');
   const [hits, setHits] = useState<EntityHit[]>([]);
   const [picked, setPicked] = useState(0);
@@ -51,6 +99,8 @@ export function CommandBar({ nav }: { nav: NavItem[] }) {
   /** The assistant's answer, shown in place rather than in another panel. */
   const [answer, setAnswer] = useState<{ text: string; tools: string[] } | null>(null);
   const [asking, setAsking] = useState(false);
+  const [recents, setRecents] = useState<Recent[]>([]);
+  const [running, setRunning] = useState<string | null>(null);
 
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -73,7 +123,7 @@ export function CommandBar({ nav }: { nav: NavItem[] }) {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
-        setOpen((was) => !was);
+        setOpen(!open);
         return;
       }
       if (e.key === 'Escape' && open) close();
@@ -83,7 +133,11 @@ export function CommandBar({ nav }: { nav: NavItem[] }) {
   }, [open, close]);
 
   useEffect(() => {
-    if (open) inputRef.current?.focus();
+    if (open) {
+      inputRef.current?.focus();
+      // Read on open rather than on mount, so a record opened in another tab is here too.
+      setRecents(readRecents());
+    }
   }, [open]);
 
   /** Ask the server what matches, once the typing settles. */
@@ -106,6 +160,43 @@ export function CommandBar({ nav }: { nav: NavItem[] }) {
     return () => clearTimeout(timer);
   }, [query, open]);
 
+  /**
+   * The things you can do from here, as opposed to go to.
+   *
+   * Deliberately few, and all of them things you would otherwise navigate somewhere to start.
+   * Each returns the path to land on, so an action and a destination behave the same from the
+   * outside: you press Enter and end up where the work is.
+   */
+  const actions = useMemo<Row[]>(
+    () => [
+      {
+        kind: 'action',
+        key: 'a:standup',
+        label: 'Start a daily stand-up',
+        run: async () => {
+          const note = await api.post<{ id: string }>('/meetings', {
+            title: `Daily stand-up — ${new Date().toISOString().slice(0, 10)}`,
+            template: 'daily_standup',
+            // Yourself, matching the hub: the per-person block needs a heading, and the
+            // consent gate needs somebody to have agreed or recording refuses to start.
+            attendees: [{ name: me?.displayName ?? 'Me' }],
+          });
+          return `/meetings/${note.id}/room`;
+        },
+      },
+      {
+        kind: 'action',
+        key: 'a:note',
+        label: 'New meeting note',
+        run: async () => {
+          const note = await api.post<{ id: string }>('/meetings', { title: 'Untitled meeting' });
+          return `/meetings/${note.id}`;
+        },
+      },
+    ],
+    [me],
+  );
+
   const rows = useMemo<Row[]>(() => {
     const q = query.trim().toLowerCase();
     const pages: Row[] = nav
@@ -121,19 +212,65 @@ export function CommandBar({ nav }: { nav: NavItem[] }) {
       entityType: h.entityType,
     }));
 
+    /*
+     * With nothing typed, the box opens on where you have just been.
+     *
+     * An empty command bar listing the same seven pages the rail already shows is a worse
+     * rail. What you actually want at that moment is the note you were in ten minutes ago.
+     */
+    if (!q) {
+      const recent: Row[] = recents.map((r) => ({
+        kind: 'recent',
+        key: `h:${r.id}`,
+        label: r.label,
+        path: r.path,
+        entityType: r.entityType,
+      }));
+      return [...recent, ...pages];
+    }
+
+    const doable: Row[] = actions.filter((a) => a.label.toLowerCase().includes(q));
+
     // Always last, and always offered: the question you could not have answered by
     // navigating is the whole reason the assistant is here.
-    const ask: Row[] = q ? [{ kind: 'ask', key: 'ask', label: query.trim() }] : [];
-    return [...pages, ...records, ...ask];
-  }, [nav, hits, query]);
+    const ask: Row[] = [{ kind: 'ask', key: 'ask', label: query.trim() }];
+    return [...doable, ...pages, ...records, ...ask];
+  }, [nav, hits, query, recents, actions]);
 
   useEffect(() => setPicked(0), [rows.length]);
 
   const run = useCallback(
     async (row: Row) => {
-      if (row.kind !== 'ask') {
+      if (row.kind === 'record' || row.kind === 'recent') {
+        // Remembered on the way out, so the next ⌘K opens on it.
+        rememberRecent({
+          id: row.key.slice(2),
+          label: row.label,
+          path: row.path,
+          entityType: row.entityType,
+        });
         navigate(row.path);
         close();
+        return;
+      }
+
+      if (row.kind === 'page') {
+        navigate(row.path);
+        close();
+        return;
+      }
+
+      if (row.kind === 'action') {
+        setRunning(row.key);
+        try {
+          const to = await row.run();
+          if (to) navigate(to);
+          close();
+        } catch (e) {
+          setAnswer({ text: (e as Error).message, tools: [] });
+        } finally {
+          setRunning(null);
+        }
         return;
       }
 
@@ -215,7 +352,15 @@ export function CommandBar({ nav }: { nav: NavItem[] }) {
                   onMouseEnter={() => setPicked(i)}
                   onClick={() => void run(row)}
                 >
-                  {row.kind === 'ask' ? (
+                  {row.kind === 'action' ? (
+                    <>
+                      <span className="cmdk-glyph" aria-hidden="true">
+                        {running === row.key ? '…' : '+'}
+                      </span>
+                      <span className="cmdk-label">{row.label}</span>
+                      <span className="tag">Action</span>
+                    </>
+                  ) : row.kind === 'ask' ? (
                     <>
                       <span className="cmdk-glyph" aria-hidden="true">
                         ✦
