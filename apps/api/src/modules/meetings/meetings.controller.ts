@@ -131,6 +131,18 @@ export class MeetingsController {
     return { chunks: await this.meetings.reindex(actor, id) };
   }
 
+  /** Every action point still waiting for a decision, across every meeting. */
+  @Get('open-actions')
+  openActions(@CurrentActor() actor: Actor) {
+    return this.meetings.openActions(actor);
+  }
+
+  /** What is being recorded right now, whichever tab or bot started it. */
+  @Get('live')
+  activeSessions() {
+    return this.live.active();
+  }
+
   /** What was said, per recording. Its own route because it is the largest thing here. */
   @Get(':id/transcripts')
   transcripts(@CurrentActor() actor: Actor, @Param('id') id: string) {

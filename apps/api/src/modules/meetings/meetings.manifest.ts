@@ -26,7 +26,9 @@ export const meetingsManifest = defineManifest({
     { capability: 'meetings.write', description: 'Write notes, agendas and action points.' },
   ],
 
-  navigation: [{ label: 'Meetings', path: '/meetings', icon: 'users', section: 'work', order: 2 }],
+  // First in Work. The platform's stated core is keeping track of SCRUM, and the
+  // ceremonies are where that starts; it used to sit below the board.
+  navigation: [{ label: 'Meetings', path: '/meetings', icon: 'users', section: 'work', order: 1 }],
   widgets: [{ slot: 'entity-page', component: 'meetings:client-notes' }],
   chatWidgets: [{ entityType: 'meeting_note', component: 'meetings:note-card' }],
 

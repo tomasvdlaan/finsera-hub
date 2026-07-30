@@ -58,4 +58,6 @@ export interface Template {
   label: string;
   description: string;
   agenda: string[];
+  /** How long the ceremony is meant to take. The room counts elapsed against it. */
+  timeboxMinutes: number;
 }

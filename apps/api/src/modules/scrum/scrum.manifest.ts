@@ -35,7 +35,7 @@ export const scrumManifest = defineManifest({
     { capability: 'scrum.board.manage', description: 'Configure columns and sprints.' },
   ],
 
-  navigation: [{ label: 'Board', path: '/scrum', icon: 'columns', section: 'work', order: 1 }],
+  navigation: [{ label: 'Board', path: '/scrum', icon: 'columns', section: 'work', order: 2 }],
 
   widgets: [{ slot: 'entity-page', component: 'scrum:open-tasks' }],
 

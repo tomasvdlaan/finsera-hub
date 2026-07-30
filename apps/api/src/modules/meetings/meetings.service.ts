@@ -12,7 +12,7 @@ import { RegistryService } from '../../core/registry/registry.service.js';
 import { chunkText } from '../../core/text/chunk.js';
 import { CrmService } from '../crm/crm.service.js';
 import { ScrumService } from '../scrum/scrum.service.js';
-import { TEMPLATES, type TemplateName } from './templates.js';
+import { TEMPLATES, bodyFor, type TemplateName } from './templates.js';
 import {
   actionItems,
   agendaItems,
@@ -72,7 +72,8 @@ export class MeetingsService {
     if (input.clientId) await this.crm.getClient(actor, input.clientId);
 
     const meetingDate = input.meetingDate ?? new Date().toISOString().slice(0, 10);
-    const body = input.body ?? template?.body ?? '';
+    // A stand-up gets a block per person, which needs the attendees the note is created with.
+    const body = input.body ?? (template ? bodyFor(template, input.attendees ?? []) : '');
     const agenda = input.agenda ?? template?.agenda ?? [];
 
     const id = this.registry.newId();
@@ -252,6 +253,39 @@ export class MeetingsService {
       .from(notes)
       .where(where.length ? and(...where) : undefined)
       .orderBy(desc(notes.meetingDate), desc(notes.createdAt));
+  }
+
+  /**
+   * Every action point still waiting for a decision, across every meeting.
+   *
+   * The thing a meetings page should open with and could not answer. A commitment made out
+   * loud and never accepted or dismissed is the most expensive kind of nothing in this
+   * platform: it is recorded, so it feels handled, and it is not on any board, so no screen
+   * has ever counted it. `action_item_undecided` notices the same rows and turns them into an
+   * insight after three days; this is the list itself, from the moment it exists.
+   *
+   * Oldest meeting first — the ones that have been waiting longest are the ones to answer.
+   */
+  async openActions(actor: Actor) {
+    await this.require(actor, 'meetings.read');
+    const rows = await this.db
+      .select({
+        id: actionItems.id,
+        text: actionItems.text,
+        source: actionItems.source,
+        assigneeId: actionItems.assigneeId,
+        dueOn: actionItems.dueOn,
+        noteId: notes.id,
+        noteTitle: notes.title,
+        meetingDate: notes.meetingDate,
+        clientId: notes.clientId,
+        projectId: notes.projectId,
+      })
+      .from(actionItems)
+      .innerJoin(notes, eq(actionItems.noteId, notes.id))
+      .where(eq(actionItems.status, 'proposed'))
+      .orderBy(asc(notes.meetingDate), asc(actionItems.createdAt));
+    return rows;
   }
 
   async get(actor: Actor, id: string) {

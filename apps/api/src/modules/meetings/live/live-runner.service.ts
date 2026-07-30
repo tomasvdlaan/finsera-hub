@@ -459,6 +459,24 @@ export class LiveRunner {
   }
 
   /**
+   * Which meetings are being recorded right now.
+   *
+   * The register already knows; nothing could ask it. A meeting started in another tab, or
+   * left running while you went to look at something else, was invisible to every page but
+   * the one that started it.
+   */
+  active(): Array<{ noteId: string; startedAt: string; provider: string }> {
+    return this.sessions.active.map((noteId) => {
+      const entry = this.sessions.get(noteId)!;
+      return {
+        noteId,
+        startedAt: entry.live.startedAt.toISOString(),
+        provider: entry.capture?.providerName ?? 'browser',
+      };
+    });
+  }
+
+  /**
    * Whether a session is running, and what it has produced so far.
    *
    * The browser holds its live state in memory, so a refresh loses it — but the meeting

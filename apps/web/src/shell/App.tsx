@@ -30,6 +30,8 @@ interface NavItem {
   module: string;
   icon?: string;
   section?: string;
+  /** Lower sorts first within a section. Ties fall back to the label. */
+  order?: number;
   /** Routed and reachable, but reached from a hub rather than from the rail. */
   hidden?: boolean;
 }
@@ -43,14 +45,17 @@ interface NavItem {
  * no section, so a module written before this existed still appears.
  */
 const SECTIONS: Array<{ key: string; label: string | null }> = [
+  // Ordered as a workday reads: what today needs, then the work, then the hours it took,
+  // then who it was for, then the money, then the record. Work sat below Clients when this
+  // was a finance tool; it is a productivity tool that also tracks time, so it moved up.
   { key: 'today', label: null },
+  { key: 'work', label: 'Work' },
   { key: 'time', label: null },
   { key: 'clients', label: 'Clients' },
-  { key: 'work', label: 'Work' },
   { key: 'money', label: 'Money' },
   { key: 'record', label: 'Record' },
-  { key: 'more', label: 'More' },
   { key: 'setup', label: 'Setup' },
+  { key: 'more', label: 'More' },
 ];
 
 /**
@@ -62,11 +67,13 @@ const SECTIONS: Array<{ key: string; label: string | null }> = [
  * these name no module either.
  */
 const SHELL_ITEMS: NavItem[] = [
-  { label: 'Today', path: '/today', module: 'shell', icon: 'home', section: 'today' },
-  { label: 'Work', path: '/work', module: 'shell', icon: 'columns', section: 'work' },
-  { label: 'Money', path: '/money', module: 'shell', icon: 'receipt', section: 'money' },
-  { label: 'Organisation', path: '/platform/settings', module: 'shell', icon: 'settings', section: 'setup' },
-  { label: 'Platform modules', path: '/platform/modules', module: 'shell', icon: 'columns', section: 'setup' },
+  { label: 'Today', path: '/today', module: 'shell', icon: 'home', section: 'today', order: 1 },
+  // "All work" rather than "Work": it sits in a section called Work, next to a page called
+  // Board, and three of the four things in there are work. The name has to say which one.
+  { label: 'All work', path: '/work', module: 'shell', icon: 'columns', section: 'work', order: 3 },
+  { label: 'Money', path: '/money', module: 'shell', icon: 'receipt', section: 'money', order: 1 },
+  { label: 'Organisation', path: '/platform/settings', module: 'shell', icon: 'settings', section: 'setup', order: 1 },
+  { label: 'Platform modules', path: '/platform/modules', module: 'shell', icon: 'columns', section: 'setup', order: 3 },
 ];
 
 export function App() {
@@ -252,9 +259,20 @@ function ChromeLayout({
         <div className="brand">Finsera Platform</div>
         <nav>
           {SECTIONS.map(({ key, label }) => {
-            const items = [...SHELL_ITEMS, ...nav].filter(
-              (i) => (i.section ?? 'more') === key && !i.hidden,
-            );
+            /*
+             * Sorted here as well as on the server.
+             *
+             * GET /core/navigation orders what the manifests declare, but the shell's own
+             * entries are merged in afterwards and knew nothing about that order — so a shell
+             * item always landed first in its section whatever it said. That is how "All work"
+             * ended up above Meetings after Meetings was deliberately promoted.
+             */
+            const items = [...SHELL_ITEMS, ...nav]
+              .filter((i) => (i.section ?? 'more') === key && !i.hidden)
+              .sort((a, b) => {
+                const byOrder = (a.order ?? 100) - (b.order ?? 100);
+                return byOrder !== 0 ? byOrder : a.label.localeCompare(b.label);
+              });
             if (items.length === 0) return null;
             return (
               <div key={key} className="nav-section">

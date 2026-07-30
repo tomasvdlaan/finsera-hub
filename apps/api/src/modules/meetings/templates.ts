@@ -24,6 +24,18 @@ export interface Template {
    * because a timer said so would be worse than one that overran.
    */
   timeboxMinutes: number;
+  /**
+   * A block repeated once per attendee, with `{name}` substituted.
+   *
+   * A stand-up is not one conversation, it is several short ones, and a note with no place for
+   * each person collapses into a paragraph nobody can find themselves in. The agenda cannot
+   * express this — an agenda item is a topic, and here the topic is a person — so the body
+   * carries the structure instead.
+   *
+   * Only the ceremonies that go round the table have one. Filled in when the note is created,
+   * from the attendees it is created with, and after that it is text like any other.
+   */
+  perAttendee?: string;
 }
 
 export const TEMPLATES = {
@@ -91,6 +103,62 @@ export const TEMPLATES = {
       '',
     ].join('\n'),
   },
+  /*
+   * The SCRUM ceremonies.
+   *
+   * Absent until now, which was a strange gap in a platform whose stated core is keeping
+   * track of SCRUM: you could record a client check-in or a kick-off but not a stand-up.
+   * Timeboxes are the conventional ones, and they are the reason the room can show elapsed
+   * against something — fifteen minutes is the whole point of a stand-up.
+   */
+  daily_standup: {
+    label: 'Daily stand-up',
+    description: 'Fifteen minutes, round the table, blockers first.',
+    timeboxMinutes: 15,
+    agenda: ['Round the table', 'Blockers', 'Anything that changes the sprint goal'],
+    body: ['## Sprint goal', '', '## Round the table', '', '## Blockers', '', '## Decisions', ''].join('\n'),
+    perAttendee: ['### {name}', '', '- Yesterday: ', '- Today: ', '- Blockers: ', ''].join('\n'),
+  },
+  sprint_planning: {
+    label: 'Sprint planning',
+    description: 'Agreeing what the next sprint is for and what fits in it.',
+    timeboxMinutes: 60,
+    agenda: [
+      'What is the goal',
+      'What comes in',
+      'Capacity and dates',
+      'What we are deliberately not doing',
+      'Risks',
+    ],
+    body: [
+      '## Goal',
+      '',
+      '## Coming in',
+      '',
+      '## Left out, on purpose',
+      '',
+      '## Capacity',
+      '',
+      '## Risks',
+      '',
+    ].join('\n'),
+  },
+  sprint_review: {
+    label: 'Sprint review',
+    description: 'Showing what was finished and hearing what people make of it.',
+    timeboxMinutes: 45,
+    agenda: ['What we finished', 'What we did not, and why', 'Feedback', 'What that changes'],
+    body: [
+      '## Finished',
+      '',
+      '## Not finished',
+      '',
+      '## Feedback',
+      '',
+      '## What changes',
+      '',
+    ].join('\n'),
+  },
   retrospective: {
     label: 'Retrospective',
     description: 'Looking back at a period of work.',
@@ -109,3 +177,14 @@ export const TEMPLATE_LIST = Object.entries(TEMPLATES).map(([name, t]) => ({
   agenda: t.agenda,
   timeboxMinutes: t.timeboxMinutes,
 }));
+
+/**
+ * The body a template starts a note with, with a block per person where it has one.
+ *
+ * Pure, so the shape of a stand-up note is testable without a database.
+ */
+export function bodyFor(template: Template, attendees: Array<{ name: string }> = []): string {
+  if (!template.perAttendee || attendees.length === 0) return template.body;
+  const blocks = attendees.map((a) => template.perAttendee!.replace(/\{name\}/g, a.name));
+  return [template.body.trimEnd(), '', ...blocks].join('\n');
+}

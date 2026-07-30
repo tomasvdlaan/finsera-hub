@@ -24,7 +24,9 @@ export const insightsManifest = defineManifest({
     { capability: 'insights.write', description: 'Dismiss and restore insights.' },
   ],
 
-  navigation: [{ label: 'Insights', path: '/insights', icon: 'bell', section: 'more', order: 1 }],
+  // Beside Today rather than in More. It is the page that says what needs attention, and
+  // Today shows a digest of exactly these rows — filing it under 'More' buried it.
+  navigation: [{ label: 'Needs attention', path: '/insights', icon: 'bell', section: 'today', order: 2 }],
   widgets: [],
   chatWidgets: [],
   reportingViews: [],

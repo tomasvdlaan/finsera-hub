@@ -42,7 +42,7 @@ export const portalManifest = defineManifest({
     },
   ],
 
-  navigation: [{ label: 'Client requests', path: '/portal/requests', icon: 'inbox', section: 'work', order: 3 }],
+  navigation: [{ label: 'Client requests', path: '/portal/requests', icon: 'inbox', section: 'work', order: 4 }],
   widgets: [],
   chatWidgets: [],
   reportingViews: [],
