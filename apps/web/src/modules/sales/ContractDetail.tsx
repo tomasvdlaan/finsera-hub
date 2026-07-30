@@ -8,6 +8,7 @@ import { EditableField } from '../crm/EditableField.js';
 import type { Client } from '../crm/types.js';
 import { contractUrgency } from './ContractList.js';
 import { TYPE_LABELS, type Contract } from './contractTypes.js';
+import { Status } from '../../shell/ui/primitives.js';
 
 export function ContractDetail() {
   const { confirm, ask } = useDialog();
@@ -69,7 +70,7 @@ export function ContractDetail() {
 
       <div className="row">
         <span className="badge">{TYPE_LABELS[contract.type]}</span>
-        <span className="badge">{contract.status}</span>
+        <Status value={contract.status} />
         {urgency && (
           <span className={`badge${urgency.urgent ? ' priority-urgent' : ''}`}>
             {urgency.label}

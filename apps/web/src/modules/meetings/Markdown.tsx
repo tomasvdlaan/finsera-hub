@@ -1,5 +1,6 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { Empty } from '../../shell/ui/primitives.js';
 
 /**
  * Rendered note body.
@@ -13,7 +14,7 @@ import remarkGfm from 'remark-gfm';
  * in meeting notes at all.
  */
 export function Markdown({ children }: { children: string }) {
-  if (!children.trim()) return <p className="muted">Nothing written yet.</p>;
+  if (!children.trim()) return <Empty>Nothing written yet.</Empty>;
   return (
     <div className="prose">
       <ReactMarkdown remarkPlugins={[remarkGfm]}>{children}</ReactMarkdown>

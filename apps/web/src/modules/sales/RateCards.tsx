@@ -5,6 +5,7 @@ import { useToast } from '../../shell/ui/Toast.js';
 import type { Client, Project } from '../crm/types.js';
 import { money } from './types.js';
 import type { RateCard } from './contractTypes.js';
+import { Empty } from '../../shell/ui/primitives.js';
 
 /**
  * Rate cards.
@@ -178,7 +179,7 @@ export function RateCards() {
       {error && <p className="error">{error}</p>}
 
       {cards.length === 0 ? (
-        <p className="muted">No rate cards yet.</p>
+        <Empty>No rate cards yet.</Empty>
       ) : (
         cards.map((card) => (
           <section key={card.id}>
@@ -192,7 +193,7 @@ export function RateCards() {
             </h2>
 
             {card.lines.length === 0 ? (
-              <p className="muted">No rates yet.</p>
+              <Empty>No rates yet.</Empty>
             ) : (
               <div className="grid-scroll">
                 <table className="grid">

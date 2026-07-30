@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { CLIENT_STATUSES, humanise, type Client, type ClientStatus } from './types.js';
+import { Empty } from '../../shell/ui/primitives.js';
 
 /**
  * Client list — and, grouped by status, the pipeline view. A prospect and a customer are
@@ -94,7 +95,7 @@ export function ClientList() {
       {error && <p className="error">{error}</p>}
 
       {clients.length === 0 ? (
-        <p className="muted">No clients yet.</p>
+        <Empty>No clients yet.</Empty>
       ) : (
         byStatus.map((group) => (
           <section key={group.status} style={{ marginTop: '1.25rem' }}>

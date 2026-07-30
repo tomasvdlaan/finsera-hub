@@ -9,6 +9,7 @@ import { LivePanel } from './LivePanel.js';
 import { RichEditor } from './RichEditor.js';
 import { Transcripts } from './Transcripts.js';
 import type { NoteDetail as Detail } from './types.js';
+import { Empty, Status } from '../../shell/ui/primitives.js';
 
 /**
  * A one-field inline form.
@@ -133,7 +134,7 @@ export function NoteDetail() {
       <h1>{note.title}</h1>
 
       <div className="row">
-        <span className="badge">{note.status}</span>
+        <Status value={note.status} />
         <span className="muted">{note.meetingDate}</span>
         {note.template && <span className="badge">{note.template.replace(/_/g, ' ')}</span>}
       </div>
@@ -177,7 +178,7 @@ export function NoteDetail() {
       <section>
         <h2>Agenda</h2>
         {note.agenda.length === 0 ? (
-          <p className="muted">No agenda.</p>
+          <Empty>No agenda.</Empty>
         ) : (
           <ul className="agenda">
             {note.agenda.map((item) => (
@@ -257,7 +258,7 @@ export function NoteDetail() {
       <section>
         <h2>Action points</h2>
         {proposed.length === 0 && settled.length === 0 && (
-          <p className="muted">None yet.</p>
+          <Empty>None yet.</Empty>
         )}
         {proposed.length > 0 && (
           <ul className="cards">
@@ -332,7 +333,7 @@ export function NoteDetail() {
           <ul className="cards">
             {settled.map((item) => (
               <li key={item.id} className="muted">
-                <span className="badge">{item.status}</span> {item.text}
+                <Status value={item.status} /> {item.text}
                 {item.taskId && (
                   <>
                     {' · '}
@@ -392,7 +393,7 @@ export function NoteDetail() {
           </p>
         )}
         {note.attendees.length === 0 ? (
-          <p className="muted">Nobody recorded.</p>
+          <Empty>Nobody recorded.</Empty>
         ) : (
           <ul className="cards">
             {note.attendees.map((person) => (

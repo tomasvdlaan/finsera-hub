@@ -8,6 +8,7 @@ import { Timeline } from '../../shell/Timeline.js';
 import type { Client } from '../crm/types.js';
 import { LineEditor } from './LineEditor.js';
 import { VAT_LABELS, money, type InvoiceDetail as Detail } from './types.js';
+import { Status } from '../../shell/ui/primitives.js';
 
 export function InvoiceDetail() {
   const { confirm } = useDialog();
@@ -99,7 +100,7 @@ export function InvoiceDetail() {
       <h1>{title}</h1>
 
       <div className="row">
-        <span className="badge">{invoice.status}</span>
+        <Status value={invoice.status} />
         {invoice.overdue && <span className="badge priority-urgent">overdue</span>}
         <span className="badge">{VAT_LABELS[invoice.vatTreatment]}</span>
         {invoice.creditsInvoiceId && (

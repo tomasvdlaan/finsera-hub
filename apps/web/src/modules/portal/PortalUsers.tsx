@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../lib/api.js';
+import { Empty } from '../../shell/ui/primitives.js';
 
 interface PortalUser {
   id: string;
@@ -110,7 +111,7 @@ export function PortalUsers({ clientId }: { clientId: string }) {
       )}
 
       {rows && rows.length === 0 && (
-        <p className="muted">Nobody from this client can sign in yet.</p>
+        <Empty>Nobody from this client can sign in yet.</Empty>
       )}
 
       <form onSubmit={invite} className="row" style={{ gap: '.5rem', marginTop: '.75rem' }}>

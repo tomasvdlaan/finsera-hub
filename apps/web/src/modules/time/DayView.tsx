@@ -5,6 +5,7 @@ import { TIME_CHANGED, notifyTimeChanged } from '../../shell/useDocumentTitle.js
 import { useToast } from '../../shell/ui/Toast.js';
 import { formatHours, parseDuration, resolveTimes, shiftDay, todayIso } from './duration.js';
 import { EntryRow, type Entry, type Project } from './EntryRow.js';
+import { Empty } from '../../shell/ui/primitives.js';
 
 interface Day {
   date: string;
@@ -200,7 +201,7 @@ export function DayView() {
       {error && <p className="error">{error}</p>}
 
       {day.entries.length === 0 ? (
-        <p className="muted">Nothing logged yet.</p>
+        <Empty>Nothing logged yet.</Empty>
       ) : (
         <ul className="entries">
           {day.entries.map((e) => (

@@ -4,6 +4,7 @@ import { api } from '../../lib/api.js';
 import type { Client, Project } from '../crm/types.js';
 import { UploadForm } from './UploadForm.js';
 import { formatBytes, type DocumentSummary, type SearchHit } from './types.js';
+import { Empty } from '../../shell/ui/primitives.js';
 
 /**
  * Documents, with search across their contents.
@@ -90,7 +91,7 @@ export function DocumentList() {
             {hits.length} result{hits.length === 1 ? '' : 's'}
           </h2>
           {hits.length === 0 ? (
-            <p className="muted">Nothing matched. Only readable formats are searchable inside.</p>
+            <Empty>Nothing matched. Only readable formats are searchable inside.</Empty>
           ) : (
             <ul className="cards">
               {hits.map((h) => (
@@ -114,7 +115,7 @@ export function DocumentList() {
       <section>
         <h2>All documents</h2>
         {documents.length === 0 ? (
-          <p className="muted">Nothing uploaded yet.</p>
+          <Empty>Nothing uploaded yet.</Empty>
         ) : (
           <ul className="cards">
             {documents.map((d) => (

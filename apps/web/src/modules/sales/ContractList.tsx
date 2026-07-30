@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import type { Client } from '../crm/types.js';
 import { CONTRACT_TYPES, TYPE_LABELS, type Contract, type ContractType } from './contractTypes.js';
+import { Empty, Status } from '../../shell/ui/primitives.js';
 
 /** The one line worth reading per contract: when does this need attention? */
 export function contractUrgency(c: Contract): { label: string; urgent: boolean } | null {
@@ -142,7 +143,7 @@ export function ContractList() {
       {error && <p className="error">{error}</p>}
 
       {contracts.length === 0 ? (
-        <p className="muted">No contracts recorded yet.</p>
+        <Empty>No contracts recorded yet.</Empty>
       ) : (
         <ul className="cards">
           {contracts.map((contract) => {
@@ -151,7 +152,7 @@ export function ContractList() {
               <li key={contract.id}>
                 <Link to={`/sales/contracts/${contract.id}`}>{contract.title}</Link>{' '}
                 <span className="badge">{TYPE_LABELS[contract.type]}</span>
-                <span className="badge">{contract.status}</span>
+                <Status value={contract.status} />
                 {urgency && (
                   <span className={`badge${urgency.urgent ? ' priority-urgent' : ''}`}>
                     {urgency.label}

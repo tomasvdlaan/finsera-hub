@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../lib/api.js';
 import { formatMoney } from '../crm/types.js';
+import { Empty } from '../../shell/ui/primitives.js';
 
 interface Burn {
   loggedHours: number;
@@ -32,7 +33,7 @@ export function ProjectBurn({ projectId }: { projectId: string }) {
       .catch(() => setBurn(null));
   }, [projectId]);
 
-  if (!burn) return <p className="muted">No hours logged yet.</p>;
+  if (!burn) return <Empty>No hours logged yet.</Empty>;
 
   const pct =
     burn.budgetedHours && burn.budgetedHours > 0

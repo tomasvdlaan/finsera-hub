@@ -4,6 +4,7 @@ import { api } from '../../lib/api.js';
 import { useDocumentTitle } from '../../shell/useDocumentTitle.js';
 import type { Client, Project } from '../crm/types.js';
 import type { Note, Template } from './types.js';
+import { Empty } from '../../shell/ui/primitives.js';
 
 interface OpenAction {
   id: string;
@@ -290,7 +291,7 @@ export function NoteList() {
       <section>
         <h2>Recent</h2>
         {recent.length === 0 ? (
-          <p className="muted">No earlier meetings.</p>
+          <Empty>No earlier meetings.</Empty>
         ) : (
           <table>
             <tbody>
@@ -331,7 +332,7 @@ export function NoteList() {
           Keyword and meaning, over what was written down. What was <em>said</em> lives in the
           transcript on each note and is deliberately not searched — it buried everything else.
         </p>
-        {hits && hits.length === 0 && <p className="muted">Nothing matched.</p>}
+        {hits && hits.length === 0 && <Empty>Nothing matched.</Empty>}
         {hits && hits.length > 0 && (
           <ul className="cards">
             {hits.map((h) => (

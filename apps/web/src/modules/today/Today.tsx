@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { useDocumentTitle } from '../../shell/useDocumentTitle.js';
+import { Empty } from '../../shell/ui/primitives.js';
 
 interface Insight {
   id: string;
@@ -206,7 +207,7 @@ export function Today() {
       {(workItems.length > 0 || moneyItems.length > 0) && (
         <section>
           <h2>Needs you</h2>
-          {workItems.length === 0 && <p className="muted">Nothing about the work itself.</p>}
+          {workItems.length === 0 && <Empty>Nothing about the work itself.</Empty>}
           {workItems.length > 0 && (
             <table>
               <tbody>

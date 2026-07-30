@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import type { Client } from '../crm/types.js';
 import { money, type Quote } from './types.js';
+import { Empty, Status } from '../../shell/ui/primitives.js';
 
 export function QuoteList() {
   const navigate = useNavigate();
@@ -122,13 +123,13 @@ export function QuoteList() {
       {error && <p className="error">{error}</p>}
 
       {quotes.length === 0 ? (
-        <p className="muted">No quotes yet.</p>
+        <Empty>No quotes yet.</Empty>
       ) : (
         <ul className="cards">
           {quotes.map((quote) => (
             <li key={quote.id}>
               <Link to={`/sales/quotes/${quote.id}`}>{quote.number ?? 'Draft'}</Link>{' '}
-              <span className="badge">{quote.status}</span>
+              <Status value={quote.status} />
               {quote.expired && <span className="badge priority-urgent">expired</span>}
               {quote.version > 1 && <span className="badge">v{quote.version}</span>}{' '}
               <span className="muted">

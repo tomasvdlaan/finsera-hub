@@ -53,6 +53,34 @@ export function Badge({
   );
 }
 
+/**
+ * What a status word means, in one place.
+ *
+ * Every module had its own vocabulary — draft/sent/accepted for quotes, draft/sent/paid for
+ * invoices, lead/active/lost for clients — and every one of them rendered in the same grey.
+ * A status that cannot say "this needs you" or "this is settled" is a label pretending to be
+ * information.
+ *
+ * The tones are deliberately conservative. `warning` means something is outstanding and
+ * waiting on somebody; `danger` means it went wrong or ran out. A draft is neither: it is
+ * unfinished, which is normal, and colouring it would make the whole screen shout.
+ */
+const STATUS_TONES: Record<string, 'neutral' | 'ok' | 'warning' | 'danger'> = {
+  accepted: 'ok', active: 'ok', paid: 'ok', done: 'ok', final: 'ok', signed: 'ok',
+  complete: 'ok', completed: 'ok', approved: 'ok', recorded: 'ok',
+  sent: 'warning', pending: 'warning', proposal: 'warning', review: 'warning',
+  waiting: 'warning', waiting_on_client: 'warning', submitted: 'warning', issued: 'warning',
+  rejected: 'danger', expired: 'danger', overdue: 'danger', lost: 'danger',
+  blocked: 'danger', cancelled: 'danger', failed: 'danger', void: 'danger',
+};
+
+/** A status, coloured by what it means rather than by which module it came from. */
+export function Status({ value }: { value: string | null | undefined }) {
+  if (!value) return null;
+  const key = value.toLowerCase().replace(/[\s-]+/g, '_');
+  return <Badge tone={STATUS_TONES[key] ?? 'neutral'}>{value.replace(/_/g, ' ')}</Badge>;
+}
+
 /** A count on a navigation row. Zero renders nothing rather than a confident "0". */
 export function Count({ value, tone = 'neutral' }: { value: number; tone?: 'neutral' | 'danger' }) {
   if (!value) return null;

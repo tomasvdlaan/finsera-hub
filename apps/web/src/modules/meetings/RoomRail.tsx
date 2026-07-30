@@ -6,6 +6,7 @@ import { useMeetingChat } from '../../shell/MeetingChat.js';
 import { LiveTab } from './LiveTab.js';
 import { TranscriptTicker } from './TranscriptTicker.js';
 import type { NoteDetail } from './types.js';
+import { Empty } from '../../shell/ui/primitives.js';
 
 type Tab = 'ai' | 'live' | 'board' | 'agenda' | 'people';
 
@@ -445,7 +446,7 @@ function BoardTab({
     );
   }
   if (tasks.length === 0) {
-    return <p className="muted">Nothing open on this project.</p>;
+    return <Empty>Nothing open on this project.</Empty>;
   }
 
   const today = new Date().toISOString().slice(0, 10);
@@ -525,7 +526,7 @@ function AgendaTab({
   onCovered: (itemId: string, covered: boolean) => void;
 }) {
   if (note.agenda.length === 0) {
-    return <p className="muted">No agenda. Add one on the note if this meeting needs a shape.</p>;
+    return <Empty>No agenda. Add one on the note if this meeting needs a shape.</Empty>;
   }
   return (
     <ul className="agenda">
@@ -571,7 +572,7 @@ function PeopleTab({ note }: { note: NoteDetail }) {
         ))}
       </ul>
       {note.attendees.length === 0 && (
-        <p className="muted">Nobody recorded yet. Add attendees on the note.</p>
+        <Empty>Nobody recorded yet. Add attendees on the note.</Empty>
       )}
       {note.unconsentedPresent.length > 0 && (
         <p className="error">

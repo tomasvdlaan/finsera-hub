@@ -11,6 +11,7 @@ import {
   type Client,
   type Project,
 } from './types.js';
+import { Empty } from '../../shell/ui/primitives.js';
 
 /** Euro input → integer cents. Money never becomes a float on the way to the API. */
 const toCents = (euros: string): number | null => {
@@ -203,7 +204,7 @@ export function ProjectList() {
       {error && <p className="error">{error}</p>}
 
       {projects.length === 0 ? (
-        <p className="muted">No projects yet.</p>
+        <Empty>No projects yet.</Empty>
       ) : (
         <ul className="cards">
           {projects.map((p) => (

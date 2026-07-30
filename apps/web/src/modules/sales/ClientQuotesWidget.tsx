@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { money, type Quote } from './types.js';
+import { Status } from '../../shell/ui/primitives.js';
 
 /** Quotes for one client — contributed to CRM's client page through the manifest. */
 export function ClientQuotesWidget({ clientId }: { clientId: string }) {
@@ -41,7 +42,7 @@ export function ClientQuotesWidget({ clientId }: { clientId: string }) {
         {quotes.slice(0, 6).map((quote) => (
           <li key={quote.id}>
             <Link to={`/sales/quotes/${quote.id}`}>{quote.number ?? 'Draft'}</Link>{' '}
-            <span className="badge">{quote.status}</span>
+            <Status value={quote.status} />
             {quote.expired && <span className="badge priority-urgent">expired</span>}{' '}
             <span className="muted">
               {quote.title} · {money(quote.totalCents)}

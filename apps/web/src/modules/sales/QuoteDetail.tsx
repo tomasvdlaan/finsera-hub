@@ -9,6 +9,7 @@ import { EditableField } from '../crm/EditableField.js';
 import type { Client, Project } from '../crm/types.js';
 import { QuoteLineEditor } from './QuoteLineEditor.js';
 import { UNIT_LABELS, money, type QuoteDetail as Detail } from './types.js';
+import { Status } from '../../shell/ui/primitives.js';
 
 export function QuoteDetail() {
   const { confirm, ask } = useDialog();
@@ -156,7 +157,7 @@ export function QuoteDetail() {
       <h1>{quote.number ?? 'Draft quote'}</h1>
 
       <div className="row">
-        <span className="badge">{quote.status}</span>
+        <Status value={quote.status} />
         {quote.expired && <span className="badge priority-urgent">past its validity date</span>}
         {quote.version > 1 && <span className="badge">version {quote.version}</span>}
         {quote.projectCreatedId && (

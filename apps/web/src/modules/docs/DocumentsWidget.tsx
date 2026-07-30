@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { UploadForm } from './UploadForm.js';
 import { formatBytes, type DocumentSummary } from './types.js';
+import { Empty } from '../../shell/ui/primitives.js';
 
 /**
  * Documents filed under one client or project — contributed by this module to CRM's
@@ -36,7 +37,7 @@ export function DocumentsWidget({
   return (
     <div>
       {documents.length === 0 ? (
-        <p className="muted">No documents filed here yet.</p>
+        <Empty>No documents filed here yet.</Empty>
       ) : (
         <ul className="cards">
           {documents.map((d) => (

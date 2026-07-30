@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import type { Client, Project } from '../crm/types.js';
 import { VAT_LABELS, money, type Invoice } from './types.js';
+import { Empty, Status } from '../../shell/ui/primitives.js';
 
 export function InvoiceList() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -100,7 +101,7 @@ export function InvoiceList() {
       {error && <p className="error">{error}</p>}
 
       {invoices.length === 0 ? (
-        <p className="muted">No invoices yet.</p>
+        <Empty>No invoices yet.</Empty>
       ) : (
         <ul className="cards">
           {invoices.map((invoice) => (
@@ -109,7 +110,7 @@ export function InvoiceList() {
                 {invoice.number ??
                   (invoice.kind === 'credit_note' ? 'Draft credit note' : 'Draft invoice')}
               </Link>{' '}
-              <span className="badge">{invoice.status}</span>
+              <Status value={invoice.status} />
               {invoice.overdue && <span className="badge priority-urgent">overdue</span>}{' '}
               <span className="muted">
                 {clientName[invoice.clientId] ?? '—'} · {money(invoice.totalCents)} ·{' '}

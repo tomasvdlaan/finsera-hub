@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api.js';
+import { Empty } from '../../shell/ui/primitives.js';
 
 interface OpenRequest {
   id: string;
@@ -61,7 +62,7 @@ export function ClientRequests() {
 
   if (error) return <p className="error">{error}</p>;
   if (!rows) return <p className="muted">Loading…</p>;
-  if (rows.length === 0) return <p className="muted">No open client requests.</p>;
+  if (rows.length === 0) return <Empty>No open client requests.</Empty>;
 
   return (
     <div>

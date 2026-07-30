@@ -2628,3 +2628,6 @@ ul.decl li > div {
   flex-shrink: 0;
   color: var(--brand);
 }
+
+/* A form of stacked fields wants a measure; past it the label and its input drift apart. */
+.form-narrow { max-width: 32rem; }

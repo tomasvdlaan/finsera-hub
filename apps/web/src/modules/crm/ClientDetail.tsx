@@ -22,6 +22,7 @@ import {
   type Contact,
   type Project,
 } from './types.js';
+import { Empty } from '../../shell/ui/primitives.js';
 
 interface Overview {
   client: Client;
@@ -244,7 +245,7 @@ export function ClientDetail() {
       <section>
         <h2>Contacts</h2>
         {contacts.length === 0 ? (
-          <p className="muted">No contacts yet.</p>
+          <Empty>No contacts yet.</Empty>
         ) : (
           <ul className="cards">
             {contacts.map((c) => (
@@ -280,7 +281,7 @@ export function ClientDetail() {
       <section>
         <h2>Projects</h2>
         {projects.length === 0 ? (
-          <p className="muted">No projects yet.</p>
+          <Empty>No projects yet.</Empty>
         ) : (
           <ul className="cards">
             {projects.map((p) => (

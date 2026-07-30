@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { money, type Invoice } from './types.js';
+import { Status } from '../../shell/ui/primitives.js';
 
 /** Invoices for one client — contributed to CRM's client page through the manifest. */
 export function ClientInvoicesWidget({ clientId }: { clientId: string }) {
@@ -39,7 +40,7 @@ export function ClientInvoicesWidget({ clientId }: { clientId: string }) {
             <Link to={`/billing/invoices/${invoice.id}`}>
               {invoice.number ?? 'Draft'}
             </Link>{' '}
-            <span className="badge">{invoice.status}</span>
+            <Status value={invoice.status} />
             {invoice.overdue && <span className="badge priority-urgent">overdue</span>}{' '}
             <span className="muted">{money(invoice.totalCents)}</span>
           </li>

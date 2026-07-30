@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { contractUrgency } from './ContractList.js';
 import { TYPE_LABELS, type Contract } from './contractTypes.js';
+import { Status } from '../../shell/ui/primitives.js';
 
 /** Contracts for one client — contributed to CRM's client page through the manifest. */
 export function ClientContractsWidget({ clientId }: { clientId: string }) {
@@ -40,7 +41,7 @@ export function ClientContractsWidget({ clientId }: { clientId: string }) {
             <li key={contract.id}>
               <Link to={`/sales/contracts/${contract.id}`}>{contract.title}</Link>{' '}
               <span className="badge">{TYPE_LABELS[contract.type]}</span>
-              <span className="badge">{contract.status}</span>
+              <Status value={contract.status} />
               {urgency && (
                 <span className={`badge${urgency.urgent ? ' priority-urgent' : ''}`}>
                   {urgency.label}

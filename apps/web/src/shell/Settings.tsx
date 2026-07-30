@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { api } from '../lib/api.js';
+import { Button, Field } from './ui/primitives.js';
 
 interface OrgSettings {
   legalName: string;
@@ -74,38 +75,39 @@ export function Settings() {
         </p>
       )}
 
-      <form onSubmit={(e) => void save(e)} style={{ maxWidth: '32rem' }}>
+      {/*
+        Fields rather than hand-wired labels.
+        
+        Each of these had its label as a sibling of the input and an `aria-label` on the input
+        itself — and an aria-label *replaces* the accessible name, so the hint sitting in the
+        visible label ("as registered with the KvK") was announced to nobody. Field attaches
+        the hint with aria-describedby, which is the thing that actually reads it out.
+      */}
+      <form onSubmit={(e) => void save(e)} className="form-narrow">
         {FIELDS.map(({ key, label, hint }) => (
-          <div key={key} style={{ marginBottom: '0.75rem' }}>
-            <label className="muted" style={{ display: 'block', marginBottom: '0.2rem' }}>
-              {label}
-              {hint && <span style={{ opacity: 0.7 }}> — {hint}</span>}
-            </label>
-            <input
-              value={String(settings[key] ?? '')}
-              onChange={(e) => setSettings({ ...settings, [key]: e.target.value })}
-              aria-label={label}
-              style={{ width: '100%' }}
-            />
-          </div>
+          <Field
+            key={key}
+            label={label}
+            hint={hint}
+            value={String(settings[key] ?? '')}
+            onChange={(e) => setSettings({ ...settings, [key]: e.target.value })}
+          />
         ))}
 
-        <div style={{ marginBottom: '0.75rem' }}>
-          <label className="muted" style={{ display: 'block', marginBottom: '0.2rem' }}>
-            Default payment terms (days)
-          </label>
-          <input
-            value={String(settings.defaultPaymentTermsDays)}
-            onChange={(e) =>
-              setSettings({ ...settings, defaultPaymentTermsDays: Number(e.target.value) || 30 })
-            }
-            aria-label="Default payment terms"
-            style={{ width: '6rem' }}
-          />
-        </div>
+        <Field
+          label="Default payment terms (days)"
+          hint="How long a client has to pay, unless the invoice says otherwise."
+          inputMode="numeric"
+          value={String(settings.defaultPaymentTermsDays)}
+          onChange={(e) =>
+            setSettings({ ...settings, defaultPaymentTermsDays: Number(e.target.value) || 30 })
+          }
+        />
 
         <div className="row">
-          <button type="submit">Save</button>
+          <Button type="submit" variant="primary">
+            Save
+          </Button>
           {saved && <span className="muted">saved</span>}
         </div>
       </form>
