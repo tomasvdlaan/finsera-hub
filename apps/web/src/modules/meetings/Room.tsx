@@ -39,7 +39,18 @@ export function Room() {
   const { ask } = useDialog();
   const { id = '' } = useParams();
   const navigate = useNavigate();
-  const { live, behaviours, enabled, maySpeak, resume, stop, configure } = useLiveMeeting();
+  const {
+    live,
+    behaviours,
+    enabled,
+    maySpeak,
+    resume,
+    startBot,
+    startCapture,
+    resumeAudio,
+    stop,
+    configure,
+  } = useLiveMeeting();
 
   const [note, setNote] = useState<NoteDetail | null>(null);
   const [projectName, setProjectName] = useState<string>();
@@ -311,6 +322,12 @@ export function Room() {
         onDismiss={(itemId) => void act(itemId, () => noteActions.dismiss(id, itemId))}
         onCovered={(itemId, covered) =>
           void act(itemId, () => noteActions.setCovered(id, itemId, covered))
+        }
+        onStartBot={(meetingUrl) => void startBot(id, meetingUrl)}
+        onStartCapture={(source, deviceId) => void startCapture(id, source, deviceId)}
+        onStop={() => void stop()}
+        onResumeAudio={() =>
+          void resumeAudio(id, live.source === 'tab' ? 'tab' : 'microphone')
         }
         busyId={busyId}
       />

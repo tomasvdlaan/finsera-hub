@@ -3,10 +3,11 @@ import { Link } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import type { Behaviour } from '../../shell/LiveMeeting.js';
 import type { LiveState } from '../../shell/liveMeetingReducer.js';
+import { LiveTab } from './LiveTab.js';
 import { TranscriptTicker } from './TranscriptTicker.js';
 import type { NoteDetail } from './types.js';
 
-type Tab = 'ai' | 'board' | 'agenda' | 'people';
+type Tab = 'ai' | 'live' | 'board' | 'agenda' | 'people';
 
 export interface BoardColumn {
   key: string;
@@ -59,6 +60,10 @@ export function RoomRail({
   onAccept,
   onDismiss,
   onCovered,
+  onStartBot,
+  onStartCapture,
+  onStop,
+  onResumeAudio,
   busyId,
 }: {
   note: NoteDetail;
@@ -73,6 +78,10 @@ export function RoomRail({
   onAccept: (itemId: string) => void;
   onDismiss: (itemId: string) => void;
   onCovered: (itemId: string, covered: boolean) => void;
+  onStartBot: (meetingUrl: string) => void;
+  onStartCapture: (source: 'microphone' | 'tab', deviceId?: string) => void;
+  onStop: () => void;
+  onResumeAudio: () => void;
   busyId: string | null;
 }) {
   const [tab, setTab] = useState<Tab>('ai');
@@ -80,6 +89,7 @@ export function RoomRail({
 
   const tabs: Array<{ key: Tab; label: string; count?: number }> = [
     { key: 'ai', label: 'Assistant' },
+    { key: 'live', label: 'Live' },
     { key: 'board', label: 'Board', count: tasks.length || undefined },
     { key: 'agenda', label: 'Agenda', count: openAgenda.length || undefined },
     { key: 'people', label: 'People', count: note.attendees.length || undefined },
@@ -116,6 +126,17 @@ export function RoomRail({
             onDismiss={onDismiss}
             onCovered={onCovered}
             busyId={busyId}
+          />
+        )}
+        {tab === 'live' && (
+          <LiveTab
+            live={live}
+            running={running}
+            canRecord={note.everyoneConsented}
+            onStartBot={onStartBot}
+            onStartCapture={onStartCapture}
+            onStop={onStop}
+            onResumeAudio={onResumeAudio}
           />
         )}
         {tab === 'board' && <BoardTab note={note} columns={columns} tasks={tasks} />}

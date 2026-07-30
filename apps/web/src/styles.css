@@ -1931,3 +1931,39 @@ ul.decl li > div {
 /* Keeps the selection visible while the bubble menu has focus. */
 .rich-editor .tiptap .selection,
 .rich-editor .tiptap ::selection { background: var(--accent-bg); }
+
+/*
+ * The capture's own state.
+ *
+ * A microphone is a boolean — the tab has audio or it does not. A bot is a process elsewhere
+ * that has to travel to a call, be admitted from a lobby and stay there, and any of those can
+ * fail while the screen shows a running clock. So the phase is shown, not a light.
+ */
+.live-state {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+.live-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--danger);
+  flex-shrink: 0;
+  animation: statusbar-pulse 2s ease-in-out infinite;
+}
+/* Amber and slower: sent, not arrived. Red would claim it is recording. */
+.live-dot-waiting {
+  background: var(--warning);
+  animation-duration: 1.2s;
+}
+.live-state .room-elapsed {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+.live-terms {
+  margin: var(--space-2) 0 var(--space-3);
+  font-size: var(--text-sm);
+}
+.live-terms dt { color: var(--muted); }

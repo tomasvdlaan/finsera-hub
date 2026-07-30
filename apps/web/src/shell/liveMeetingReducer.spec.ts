@@ -152,11 +152,55 @@ describe('liveReducer', () => {
     expect(liveReducer(before, msg({ type: 'something_new', data: 1 }))).toBe(before);
   });
 
-  it('ignores speaker events, which the transcript already shows', () => {
-    const before = run([msg({ type: 'ready' })]);
-    expect(liveReducer(before, msg({ type: 'speaker', speaker: 'Anna', event: 'joined' }))).toBe(
-      before,
-    );
+  // ── the bot's own state ──
+
+  it('keeps track of who the bot can hear', () => {
+    const state = run([
+      msg({ type: 'ready' }),
+      msg({ type: 'speaker', speaker: { id: '1', name: 'Anna' }, event: 'joined' }),
+      msg({ type: 'speaker', speaker: { id: '2', name: 'Tomas' }, event: 'joined' }),
+      msg({ type: 'speaker', speaker: { id: '1', name: 'Anna' }, event: 'left' }),
+    ]);
+
+    // This was discarded, on the reasoning that the roster is visible in the transcript. That
+    // is true of somebody who has spoken and useless for somebody who has not — and "is it
+    // hearing everyone" is a question asked before anybody has said anything.
+    expect(state.present).toEqual(['Tomas']);
+  });
+
+  it('does not list the same person twice when an event repeats', () => {
+    const state = run([
+      msg({ type: 'speaker', speaker: { name: 'Anna' }, event: 'joined' }),
+      msg({ type: 'speaker', speaker: { name: 'Anna' }, event: 'joined' }),
+    ]);
+    expect(state.present).toEqual(['Anna']);
+  });
+
+  it('separates a bot that has been sent from one that is in the call', () => {
+    const sent = run([{ type: 'connecting', noteId: 'n' }]);
+    expect(sent.connecting).toBe(true);
+    expect(sent.running).toBe(false);
+    expect(sent.joinedAt).toBeNull();
+
+    // The runner's ready carries joinedAt; the gateway's carries startedAt. A bot can sit in a
+    // lobby for a minute, and showing it as live on dispatch makes those look identical.
+    const admitted = liveReducer(sent, msg({ type: 'ready', joinedAt: '2026-07-30T09:00:00.000Z' }));
+    expect(admitted.connecting).toBe(false);
+    expect(admitted.running).toBe(true);
+    expect(admitted.joinedAt).toBe('2026-07-30T09:00:00.000Z');
+  });
+
+  it('keeps why the capture stopped by itself', () => {
+    const state = run([
+      msg({ type: 'ready' }),
+      msg({ type: 'ended', reason: 'The bot was removed from the call' }),
+    ]);
+
+    // 'ended' is the provider dropping rather than anybody pressing stop, and the reason is the
+    // only explanation offered for a meeting that stopped on its own.
+    expect(state.endedReason).toMatch(/removed/);
+    expect(state.running).toBe(false);
+    expect(state.present).toEqual([]);
   });
 
   it('does not treat a reconnected socket as having audio', () => {

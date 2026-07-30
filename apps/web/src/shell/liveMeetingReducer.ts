@@ -60,6 +60,22 @@ export interface LiveState {
   /** What the assistant has said out loud, when it is allowed to speak. */
   spoken: string[];
   /**
+   * When the bot actually got into the call, as opposed to when it was sent.
+   *
+   * Two different `ready` messages arrive on this socket and they mean different things: the
+   * gateway's says the socket is up, the runner's carries `joinedAt` and says the capture
+   * provider is in the meeting. A bot can sit in a lobby for a minute waiting to be admitted,
+   * and the difference between "sent" and "in the call" is the single thing you most want to
+   * know while staring at a screen wondering whether it worked.
+   */
+  joinedAt: string | null;
+  /** Who the capture provider can currently hear. Only a bot knows this. */
+  present: string[];
+  /** Why the capture stopped, when it stopped on its own. */
+  endedReason: string | null;
+  /** A bot is on its way to the call and has not arrived. */
+  connecting: boolean;
+  /**
    * What it found, keyed by the proposal that prompted the search.
    *
    * Not persisted anywhere — it is context for the conversation happening now, and the note
@@ -94,6 +110,10 @@ export const EMPTY: LiveState = {
   extraction: null,
   costCents: 0,
   spoken: [],
+  joinedAt: null,
+  present: [],
+  endedReason: null,
+  connecting: false,
   context: {},
   error: null,
   needsAudio: false,
@@ -117,6 +137,8 @@ export interface LiveStatus {
 export type LiveAction =
   /** A meeting is being started from this tab. */
   | { type: 'starting'; noteId: string; source: Source }
+  /** A bot has been dispatched and has not reported in. */
+  | { type: 'connecting'; noteId: string }
   /** A meeting was found still running and is being picked back up. */
   | { type: 'resumed'; noteId: string; status: LiveStatus }
   /** One message off the socket, exactly as it arrived. */
@@ -139,6 +161,11 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
       // A fresh session replaces whatever was here; carrying lines over from a previous
       // meeting would attribute one meeting's words to another.
       return { ...EMPTY, noteId: action.noteId, source: action.source };
+
+    case 'connecting':
+      // Told the bot to go, nothing back from it yet. Distinct from running, because a bot
+      // that never gets admitted would otherwise look identical to one that is listening.
+      return { ...EMPTY, noteId: action.noteId, source: 'bot', connecting: true };
 
     case 'resumed':
       return {
@@ -166,7 +193,7 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
     case 'closed':
       // The socket going away stops the recording but leaves everything gathered on screen:
       // the meeting just ended and its contents are the last thing you want cleared.
-      return { ...state, running: false };
+      return { ...state, running: false, connecting: false, present: [] };
 
     case 'message':
       return applyMessage(state, action.message);
@@ -188,7 +215,11 @@ function applyMessage(state: LiveState, message: Record<string, unknown>): LiveS
       return {
         ...state,
         running: true,
+        connecting: false,
         error: null,
+        // Only the runner's ready carries this, and only for a bot: it is the moment the
+        // provider got into the call rather than the moment the socket opened.
+        joinedAt: (message.joinedAt as string) ?? state.joinedAt,
         startedAt: (message.startedAt as string) ?? state.startedAt,
       };
 
@@ -241,6 +272,10 @@ function applyMessage(state: LiveState, message: Record<string, unknown>): LiveS
         ...state,
         running: false,
         needsAudio: false,
+        present: [],
+        // 'ended' means the capture dropped rather than somebody pressing stop, and the reason
+        // is the only explanation anyone gets for a meeting that stopped by itself.
+        endedReason: (message.reason as string) ?? state.endedReason,
         costCents: (message.costCents as number) ?? state.costCents,
         noteStaleAt: state.noteStaleAt + 1,
       };
@@ -248,8 +283,26 @@ function applyMessage(state: LiveState, message: Record<string, unknown>): LiveS
     case 'error':
       return { ...state, error: String(message.message) };
 
-    // Roster changes are visible in the transcript itself, so 'speaker' needs no state.
-    case 'speaker':
+    /*
+     * Who is in the call.
+     *
+     * This used to be discarded — "roster changes are visible in the transcript itself" — which
+     * is true of somebody who has spoken and useless for somebody who has not. A person sitting
+     * silently in a meeting appears nowhere in a transcript, and "is the bot hearing everyone"
+     * is a question you ask before anybody has said anything.
+     */
+    case 'speaker': {
+      const who = String((message.speaker as { name?: string } | string) instanceof Object
+        ? ((message.speaker as { name?: string }).name ?? '')
+        : message.speaker);
+      if (!who) return state;
+      const others = state.present.filter((p) => p !== who);
+      return {
+        ...state,
+        present: message.event === 'left' ? others : [...others, who],
+      };
+    }
+
     default:
       return state;
   }

@@ -278,12 +278,16 @@ export function LiveMeetingProvider({ children }: { children: ReactNode }) {
 
   const startBot = useCallback(
     async (noteId: string, meetingUrl: string) => {
-      dispatch({ type: 'starting', noteId, source: 'bot' });
+      // 'connecting', not 'starting': the bot has been sent and may sit in a lobby for a
+      // minute. Showing it as running the moment the request returns is how a bot that never
+      // got admitted looks exactly like one that is listening.
+      dispatch({ type: 'connecting', noteId });
       try {
         await api.post(`/meetings/${noteId}/live/start`, { meetingUrl: meetingUrl.trim() });
         capturing.current = false; // Recall streams the audio; this socket only watches
         await openSocket(noteId);
       } catch (e) {
+        dispatch({ type: 'closed' });
         dispatch({ type: 'failed', message: (e as Error).message });
       }
     },
@@ -332,28 +336,32 @@ export function LiveMeetingProvider({ children }: { children: ReactNode }) {
     [acquire, openSocket, releaseLocal],
   );
 
+  /**
+   * Stop the meeting, from whichever tab asked.
+   *
+   * Always over REST, never by sending `stop` on the socket. The socket route only works from
+   * the tab the server has registered as the audio source: `onMessage` looks the socket up in
+   * its client map, and a watcher is not in it, so the message is read and dropped. Which meant
+   * Stop did nothing at all from a second tab — and did nothing for a bot meeting from any tab,
+   * because with a bot the browser is only ever a watcher.
+   *
+   * The endpoint calls the same `LiveRunner.stop`, so this is the same ending by a route that
+   * does not depend on who is holding the microphone. The server then broadcasts `stopped`,
+   * which is what releases the recorder here.
+   */
   const stop = useCallback(async () => {
     const noteId = live.noteId;
     if (!noteId) return;
-
-    if (live.source === 'bot') {
-      // The bot is stopped server-side; it has to be told to leave the call.
-      await api.post(`/meetings/${noteId}/live/stop`, {}).catch(() => undefined);
+    try {
+      await api.post(`/meetings/${noteId}/live/stop`, {});
+    } catch (e) {
+      dispatch({ type: 'failed', message: (e as Error).message });
+    } finally {
       socket.current?.close();
       releaseLocal();
       dispatch({ type: 'closed' });
-      return;
     }
-
-    if (socket.current?.readyState === WebSocket.OPEN) {
-      // Asking the server to stop, rather than just closing: it replies with 'stopped' once
-      // the note is written, which is the signal a consumer needs to refetch.
-      socket.current.send(JSON.stringify({ type: 'stop' }));
-    } else {
-      releaseLocal();
-      dispatch({ type: 'closed' });
-    }
-  }, [live.noteId, live.source, releaseLocal]);
+  }, [live.noteId, releaseLocal]);
 
   /*
    * Behaviour settings are per meeting, so they are addressed by note id — read from a ref
