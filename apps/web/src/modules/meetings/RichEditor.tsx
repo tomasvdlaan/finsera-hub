@@ -1,59 +1,103 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight';
 import { DragHandle } from '@tiptap/extension-drag-handle-react';
-import Image from '@tiptap/extension-image';
-// v3 ships all four table nodes from one package, with named exports only.
-import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table';
-import TaskItem from '@tiptap/extension-task-item';
-import TaskList from '@tiptap/extension-task-list';
 import { CharacterCount, Placeholder, Selection } from '@tiptap/extensions';
 import { EditorContent, useEditor, useEditorState, type Editor } from '@tiptap/react';
 // v3 moved the menus to their own entry point.
 import { BubbleMenu } from '@tiptap/react/menus';
-import StarterKit from '@tiptap/starter-kit';
 import { createLowlight, common } from 'lowlight';
-import { Markdown } from 'tiptap-markdown';
+import { replacing } from '@platform/note-doc';
 import { api } from '../../lib/api.js';
 import { useDialog } from '../../shell/ui/Dialog.js';
-import { MarkdownBlockquote, MarkdownHighlight } from './markdownMark.js';
 import { SLASH, matching, type NodeJson, type SlashCommand } from './slashCommands.js';
+import { CollabExtension } from './collabExtension.js';
+import { useNoteDoc } from './useNoteDoc.js';
 
 /** Syntax highlighting for fenced code. `common` is ~35 languages rather than all 190. */
 const lowlight = createLowlight(common);
 
-/** tiptap-markdown adds this to storage at runtime; it is not in TipTap's own types. */
-type MarkdownStorage = { markdown: { getMarkdown(): string } };
-const markdownOf = (editor: Editor) =>
-  (editor.storage as unknown as MarkdownStorage).markdown.getMarkdown();
+/**
+ * The extensions the editor runs with.
+ *
+ * The schema-defining half comes from @platform/note-doc and is shared, byte for byte, with
+ * the API — that is what makes a step this editor produces applicable on the server. The rest
+ * is chrome: none of it adds a node or a mark, so none of it can change the document's shape.
+ *
+ * CodeBlock is swapped for the lowlight version, which extends it and registers the same node
+ * with the same attributes. See `replacing` for why that is the only substitution allowed.
+ */
+const documentExtensions = replacing('codeBlock', CodeBlockLowlight.configure({ lowlight }));
 
 /**
  * The note editor.
  *
- * WYSIWYG on the surface, Markdown underneath. That combination is deliberate: the model
- * writes notes into the same document during a meeting, and a model produces correct
- * Markdown far more reliably than it produces editor JSON. It also keeps the document
- * greppable, diffable and indexable by the knowledge layer, and means nothing already
- * written needs converting.
+ * WYSIWYG on the surface, Markdown at rest. That combination is deliberate: the model writes
+ * into the same document during a meeting, and a model produces correct Markdown far more
+ * reliably than it produces editor JSON. It also keeps the document greppable, diffable and
+ * indexable by the knowledge layer, and means nothing already written needs converting.
  *
- * Content is parsed into TipTap's schema rather than injected as HTML, so anything the
- * schema does not recognise is dropped. That matters here more than in a normal editor:
- * note bodies are partly written from meeting transcripts, which the AI plan treats as
- * untrusted input.
+ * What changed is the middle. The editor used to hold the body as a Markdown string and
+ * autosave the whole thing; now it holds a ProseMirror document and exchanges changes with
+ * the server, which is the only arrangement in which two people — or a person and the
+ * assistant — can write in the same note without one of them silently losing their work. The
+ * Markdown is derived on the server from the same shared code that runs here.
+ *
+ * The editor is not built until the first snapshot arrives, because the collaboration plugin
+ * has to be told which version it is starting from. Hence the wrapper: `EditorSurface` below
+ * is only ever mounted with a document in hand.
  */
 export function RichEditor({
-  markdown,
-  onChange,
+  noteId,
   editable = true,
   slashCommands = [],
 }: {
-  markdown: string;
-  onChange?: (markdown: string) => void;
+  /** The note being edited. The document is fetched and kept in sync for this id. */
+  noteId: string;
   editable?: boolean;
   /** Typed as `/name`. See slashCommands.ts for why they return nodes and not Markdown. */
   slashCommands?: SlashCommand[];
 }) {
-  /** Set while writing external content in, so the change handler does not echo it back. */
-  const applying = useRef(false);
+  const { ready, connected, error, attach } = useNoteDoc(noteId);
+
+  if (!ready) {
+    return (
+      <div className="rich-editor">
+        <p className="muted">{error ?? 'Opening the note…'}</p>
+      </div>
+    );
+  }
+
+  return (
+    <EditorSurface
+      // Remounted for a different note or a fresh snapshot: the collab plugin's starting
+      // version is fixed at creation, so reusing the editor would leave it counting from
+      // somebody else's document.
+      key={`${noteId}:${ready.version}`}
+      start={ready}
+      attach={attach}
+      connected={connected}
+      error={error}
+      editable={editable}
+      slashCommands={slashCommands}
+    />
+  );
+}
+
+function EditorSurface({
+  start,
+  attach,
+  connected,
+  error,
+  editable,
+  slashCommands,
+}: {
+  start: { version: number; doc: unknown; clientId: string };
+  attach: (editor: Editor) => () => void;
+  connected: boolean;
+  error: string | null;
+  editable: boolean;
+  slashCommands: SlashCommand[];
+}) {
   /** Paste and drop handlers are created before the editor exists, so they read it here. */
   const editorRef = useRef<Editor | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -81,41 +125,9 @@ export function RichEditor({
   const editor = useEditor({
     editable,
     extensions: [
-      StarterKit.configure({
-        heading: { levels: [1, 2, 3] },
-        /*
-         * Two of StarterKit's own extensions are switched off, both for the same reason.
-         *
-         * `underline` has no Markdown representation — tiptap-markdown ships specs for bold,
-         * italic, strike, code and link, and nothing else — so with `html: false` the mark is
-         * deleted on the next autosave. It was on by default and bound to Cmd+U, which meant
-         * the keyboard shortcut every writer has in their fingers produced text that looked
-         * underlined and lost it on save. There is no `__underline__` in Markdown to map it
-         * to; the honest move is not to offer it.
-         *
-         * `codeBlock` is replaced below by the lowlight version, which serialises identically
-         * (```lang) and syntax-highlights what is inside.
-         */
-        underline: false,
-        codeBlock: false,
-        // Replaced below by a version that does not corrupt over an empty line.
-        blockquote: false,
-        // StarterKit v3 includes Link. Registering the separate package as well made it a
-        // duplicate extension, which TipTap resolves by warning and using one of them.
-        link: { openOnClick: false },
-      }),
-      // Both of these exist to keep the Markdown honest. See markdownMark.ts.
-      MarkdownHighlight,
-      MarkdownBlockquote,
-      // Markdown carries images as ![alt](url), so they survive the round trip.
-      Image.configure({ inline: false, allowBase64: false }),
-      TaskList,
-      TaskItem.configure({ nested: true }),
-      Table.configure({ resizable: true }),
-      TableRow,
-      TableHeader,
-      TableCell,
-      CodeBlockLowlight.configure({ lowlight }),
+      // The shared half. Everything that defines a node or a mark comes from here, so this
+      // editor and the API agree on what a note is. See @platform/note-doc.
+      ...documentExtensions,
 
       /*
        * Chrome, none of which touches what is stored.
@@ -132,12 +144,13 @@ export function RichEditor({
       Selection,
       CharacterCount,
 
-      Markdown.configure({ html: false, transformPastedText: true }),
+      // What turns local typing into steps the server can accept.
+      CollabExtension.configure({ version: start.version, clientId: start.clientId }),
     ],
-    content: markdown,
+    // The document as the server has it, not a Markdown string. Parsing is the server's job
+    // now, which is what stops the two sides disagreeing about what the text meant.
+    content: start.doc as never,
     onUpdate: ({ editor: instance }) => {
-      if (applying.current) return;
-      onChange?.(markdownOf(instance));
 
       /*
        * Look for `/query` at the start of the block the cursor is in.
@@ -302,33 +315,45 @@ export function RichEditor({
     [],
   );
 
-  /**
-   * Take in content written elsewhere — by the note-taking behaviour, mid-meeting.
+  /*
+   * There is no effect here that writes external content in.
    *
-   * Only applied when it genuinely differs from what is on screen, or every keystroke
-   * would rewrite the document and put the cursor back at the start.
+   * There used to be: it compared the incoming Markdown with the editor's, and on any
+   * difference called `setContent` and then tried to put the cursor back where it had been.
+   * That was the best available answer while the body was a string, and it was still wrong —
+   * it discarded anything typed in the moment between the server's copy being read and the
+   * replacement landing, and the cursor restoration was a guess that failed whenever the
+   * document had shortened above it.
+   *
+   * Changes from elsewhere — another person, the assistant, the note-taking behaviour — now
+   * arrive as steps and are applied by `receiveTransaction` in useNoteDoc, which maps the
+   * selection through them properly. Nothing needs to be reconciled here.
    */
-  useEffect(() => {
-    if (!editor) return;
-    const current = markdownOf(editor);
-    if (current.trim() === markdown.trim()) return;
-
-    applying.current = true;
-    const { from, to } = editor.state.selection;
-    editor.commands.setContent(markdown, { emitUpdate: false });
-    // Put the cursor back where it was, so notes appearing does not interrupt typing.
-    try {
-      editor.commands.setTextSelection({ from, to });
-    } catch {
-      /* the document shrank past the old position; leaving the cursor is fine */
-    }
-    applying.current = false;
-  }, [markdown, editor]);
 
   useEffect(() => {
     editorRef.current = editor;
   }, [editor]);
 
+  /*
+   * Hand the editor to the connection, and take it back when this component goes.
+   *
+   * In an effect rather than in `onCreate`, so that it re-registers whenever either side is
+   * replaced. Registering once at creation left the hook holding a stale or empty reference
+   * after any remount, and the symptom was silent: everything connected, nothing arrived.
+   */
+  useEffect(() => {
+    if (!editor) return;
+    return attach(editor);
+  }, [editor, attach]);
+
+  /*
+   * Typing is allowed while disconnected, and that is deliberate.
+   *
+   * Unsent steps sit in the collaboration plugin and go out the moment the socket returns, so
+   * nothing written during a blip is lost. Locking the editor would protect nothing and would
+   * interrupt the one situation where somebody is most likely mid-sentence — a laptop waking
+   * up in a meeting room. What is not acceptable is looking fine while offline, so it says so.
+   */
   useEffect(() => {
     editor?.setEditable(editable);
   }, [editable, editor]);
@@ -337,6 +362,11 @@ export function RichEditor({
 
   return (
     <div className="rich-editor">
+      {!connected && (
+        <p className="muted" role="status">
+          {error ?? 'Reconnecting… what you write now will be saved when it comes back.'}
+        </p>
+      )}
       {editable && (
         <Toolbar
           editor={editor}

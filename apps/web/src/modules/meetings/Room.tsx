@@ -12,7 +12,6 @@ import { RoomRail, type BoardColumn, type BoardTask } from './RoomRail.js';
 import type { Sprint } from '../scrum/types.js';
 import { calloutNode, taskNode, type SlashCommand } from './slashCommands.js';
 import type { NoteDetail } from './types.js';
-import { useNoteBody } from './useNoteBody.js';
 
 interface Template {
   name: string;
@@ -64,7 +63,6 @@ export function Room() {
   const [ending, setEnding] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const { body, dirty, onChange, adopt, flush } = useNoteBody(id);
 
   useDocumentTitle(note ? `${note.title} — room` : 'Meeting room');
 
@@ -72,14 +70,14 @@ export function Room() {
     try {
       const fresh = await api.get<NoteDetail>(`/meetings/${id}`);
       setNote(fresh);
-      // Refuses while there are unsaved keystrokes — see useNoteBody.
-      adopt(fresh.body);
+      // The body is deliberately not read from here — the editor holds the document over its
+      // own connection, so reloading the note for its proposals cannot disturb the text.
       return fresh;
     } catch (e) {
       setError((e as Error).message);
       return null;
     }
-  }, [id, adopt]);
+  }, [id]);
 
   useEffect(() => {
     void load();
@@ -121,16 +119,19 @@ export function Room() {
   }, [live.noteStaleAt, load]);
 
   /*
-   * The assistant wrote into the note, so what is on screen is behind.
+   * The assistant wrote into the note.
    *
-   * Flushing first is what makes this safe: the editor may be holding unsaved keystrokes, and
-   * useNoteBody refuses to adopt the server's copy while it is dirty — so without the flush
-   * the reload would be ignored and the next autosave would overwrite what the assistant wrote.
+   * Only the surrounding data is reloaded — action points, agenda, attendees. The text itself
+   * needs nothing: the assistant's write went through the same document authority the editor
+   * is connected to, so the paragraph is already on screen before this runs.
+   *
+   * This used to flush the editor and refetch the body, because the assistant's write and the
+   * editor's autosave were two clients overwriting one string and whoever went last won.
    */
   useEffect(() => {
     if (wroteAt === 0) return;
-    void flush().then(load);
-  }, [wroteAt, flush, load]);
+    void load();
+  }, [wroteAt, load]);
 
   const running = live.running && live.noteId === id;
 
@@ -222,9 +223,6 @@ export function Room() {
     setBusyId(itemId);
     setError(null);
     try {
-      // Anything that reloads the note has to be preceded by a write, or the reload adopts a
-      // body older than what is on screen.
-      await flush();
       await fn();
       await load();
     } catch (e) {
@@ -244,7 +242,6 @@ export function Room() {
   const end = async () => {
     setEnding(true);
     try {
-      await flush();
       if (running) await stop();
       else await noteActions.finalise(id).catch(() => undefined);
       await load();
@@ -309,7 +306,6 @@ export function Room() {
           <span className="muted">
             <code>/ticket</code> <code>/blocker</code> <code>/decision</code>
           </span>
-          {dirty && <span className="muted">saving…</span>}
           {running && live.aiNotes && (
             <span className="tag" title="The assistant is writing into its own section">
               ✦ assistant writing
@@ -319,7 +315,7 @@ export function Room() {
         </div>
         {/* The whole middle. Nothing above it but the bar, which is the requirement:
             the notes are the meeting, everything else is context. */}
-        <RichEditor markdown={body} onChange={onChange} slashCommands={slashCommands} />
+        <RichEditor noteId={id} slashCommands={slashCommands} />
       </main>
 
       <RoomRail

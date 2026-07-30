@@ -8,7 +8,6 @@ import type { Client } from '../crm/types.js';
 import { LivePanel } from './LivePanel.js';
 import { RichEditor } from './RichEditor.js';
 import { Transcripts } from './Transcripts.js';
-import { useNoteBody } from './useNoteBody.js';
 import type { NoteDetail as Detail } from './types.js';
 
 /**
@@ -70,20 +69,24 @@ export function NoteDetail() {
   const [projects, setProjects] = useState<Array<{ id: string; name: string }>>([]);
   const [people, setPeople] = useState<Array<{ id: string; displayName: string }>>([]);
   const [error, setError] = useState<string | null>(null);
-  const { body, dirty, onChange: onBodyChange, adopt, flush } = useNoteBody(id);
 
   const load = useCallback(async () => {
     try {
       const n = await api.get<Detail>(`/meetings/${id}`);
       setNote(n);
-      // Refuses while there are unsaved keystrokes, so a reload triggered by accepting an
-      // action point cannot replace what you are in the middle of typing.
-      adopt(n.body);
+      /*
+       * The body is not taken from here any more.
+       *
+       * This used to hand `n.body` to the editor, guarded by a dirty check, because a reload
+       * triggered by accepting an action point would otherwise replace what you were typing.
+       * The editor now holds the document over its own connection, so a note refetched for
+       * its action points and attendees cannot touch the text at all.
+       */
       if (n.clientId) setClient(await api.get<Client>(`/crm/clients/${n.clientId}`));
     } catch (e) {
       setError((e as Error).message);
     }
-  }, [id, adopt]);
+  }, [id]);
 
   useEffect(() => {
     void load();
@@ -102,8 +105,8 @@ export function NoteDetail() {
   const act = async (fn: () => Promise<unknown>) => {
     setError(null);
     try {
-      // Write first: everything here reloads the note, and a reload adopts the server's copy.
-      await flush();
+      // No flush first any more: reloading the note no longer touches the editor, so there
+      // is nothing racing the refetch.
       await fn();
       await load();
     } catch (e) {
@@ -133,7 +136,6 @@ export function NoteDetail() {
         <span className="badge">{note.status}</span>
         <span className="muted">{note.meetingDate}</span>
         {note.template && <span className="badge">{note.template.replace(/_/g, ' ')}</span>}
-        {dirty && <span className="muted">saving…</span>}
       </div>
 
       <div className="row">
@@ -240,11 +242,11 @@ export function NoteDetail() {
           write in it, and a click between reading and writing is a click before every
           thought. Autosave makes the mode meaningless anyway.
         */}
-        <RichEditor markdown={body} onChange={onBodyChange} />
+        <RichEditor noteId={id} />
         <p className="muted">
-          Saves as you type. Paste or drop an image straight in. Markdown shortcuts work
-          too — <code>##</code> for a heading, <code>-</code> for a bullet,{' '}
-          <code>- [ ]</code> for a checkbox.
+          Saves as you type, and shows what anyone else is writing as they write it. Paste or
+          drop an image straight in. Markdown shortcuts work too — <code>##</code> for a
+          heading, <code>-</code> for a bullet, <code>- [ ]</code> for a checkbox.
         </p>
       </section>
 
