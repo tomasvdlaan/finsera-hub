@@ -30,6 +30,15 @@ export interface Proposal {
 }
 
 /** What the extraction pass has gathered so far. Replaced wholesale each pass. */
+/** A document the assistant went and found, bearing on something proposed out loud. */
+export interface FoundContext {
+  entityId: string;
+  entityType: string;
+  title: string;
+  snippet: string;
+  via: string;
+}
+
 export interface Extraction {
   summary: string;
   decisions: string[];
@@ -50,6 +59,13 @@ export interface LiveState {
   costCents: number;
   /** What the assistant has said out loud, when it is allowed to speak. */
   spoken: string[];
+  /**
+   * What it found, keyed by the proposal that prompted the search.
+   *
+   * Not persisted anywhere — it is context for the conversation happening now, and the note
+   * keeps what the conversation concluded rather than what the assistant happened to read.
+   */
+  context: Record<string, FoundContext[]>;
   error: string | null;
   /**
    * Running, but this tab is not sending any audio and cannot start on its own.
@@ -78,6 +94,7 @@ export const EMPTY: LiveState = {
   extraction: null,
   costCents: 0,
   spoken: [],
+  context: {},
   error: null,
   needsAudio: false,
   noteStaleAt: 0,
@@ -203,6 +220,15 @@ function applyMessage(state: LiveState, message: Record<string, unknown>): LiveS
 
     case 'spoke':
       return { ...state, spoken: [...state.spoken, String(message.text)] };
+
+    // Sent by context_finder, which searches unasked. Keyed by proposal so it renders next to
+    // the thing it is about rather than in a pile of its own.
+    case 'context': {
+      const forId = String(message.forProposalId);
+      const hits = (message.hits as FoundContext[]) ?? [];
+      if (hits.length === 0) return state;
+      return { ...state, context: { ...state.context, [forId]: hits } };
+    }
 
     // Somebody joined the call, so the persisted attendee list and any consent warning are
     // now behind. Nothing about the session itself changed.

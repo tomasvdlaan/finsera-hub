@@ -11,6 +11,7 @@ import StarterKit from '@tiptap/starter-kit';
 import { Markdown } from 'tiptap-markdown';
 import { api } from '../../lib/api.js';
 import { useDialog } from '../../shell/ui/Dialog.js';
+import { SLASH, matching, type NodeJson, type SlashCommand } from './slashCommands.js';
 
 /** tiptap-markdown adds this to storage at runtime; it is not in TipTap's own types. */
 type MarkdownStorage = { markdown: { getMarkdown(): string } };
@@ -35,16 +36,38 @@ export function RichEditor({
   markdown,
   onChange,
   editable = true,
+  slashCommands = [],
 }: {
   markdown: string;
   onChange?: (markdown: string) => void;
   editable?: boolean;
+  /** Typed as `/name`. See slashCommands.ts for why they return nodes and not Markdown. */
+  slashCommands?: SlashCommand[];
 }) {
   /** Set while writing external content in, so the change handler does not echo it back. */
   const applying = useRef(false);
   /** Paste and drop handlers are created before the editor exists, so they read it here. */
   const editorRef = useRef<Editor | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
+
+  /*
+   * The open slash menu, if any.
+   *
+   * `from` is where the slash sits, so selecting a command can delete what was typed. The
+   * commands themselves are read through a ref because useEditor captures its options once —
+   * a handler closing over the prop would keep calling the first render's version, which for
+   * commands closing over a note id means acting on the wrong meeting.
+   */
+  const [slash, setSlash] = useState<{ query: string; from: number; to: number } | null>(null);
+  const [picked, setPicked] = useState(0);
+  const commandsRef = useRef(slashCommands);
+  commandsRef.current = slashCommands;
+  const slashRef = useRef(slash);
+  slashRef.current = slash;
+
+  const options = slash ? matching(commandsRef.current, slash.query) : [];
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
 
   const editor = useEditor({
     editable,
@@ -66,8 +89,52 @@ export function RichEditor({
     onUpdate: ({ editor: instance }) => {
       if (applying.current) return;
       onChange?.(markdownOf(instance));
+
+      /*
+       * Look for `/query` at the start of the block the cursor is in.
+       *
+       * Recomputed from the document rather than tracked as the user types, so it stays right
+       * through undo, paste and clicking elsewhere — the three things that make a
+       * keystroke-counting trigger drift out of step with the text on screen.
+       */
+      if (commandsRef.current.length === 0) return;
+      const { $from, empty } = instance.state.selection;
+      if (!empty) return setSlash(null);
+      const blockStart = $from.start();
+      const before = instance.state.doc.textBetween(blockStart, $from.pos, '\n', '\0');
+      const found = SLASH.exec(before);
+      if (!found) return setSlash(null);
+      setSlash({ query: found[1] ?? '', from: blockStart, to: $from.pos });
+      setPicked(0);
     },
     editorProps: {
+      /**
+       * The slash menu's keys, taken before the editor sees them.
+       *
+       * Only while the menu is open, so arrows and Enter behave normally the rest of the time.
+       */
+      handleKeyDown: (_view, event) => {
+        const open = slashRef.current;
+        const choices = optionsRef.current;
+        if (!open || choices.length === 0) return false;
+
+        if (event.key === 'Escape') {
+          setSlash(null);
+          return true;
+        }
+        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+          const step = event.key === 'ArrowDown' ? 1 : -1;
+          setPicked((i) => (i + step + choices.length) % choices.length);
+          return true;
+        }
+        if (event.key === 'Enter' || event.key === 'Tab') {
+          const chosen = choices[Math.min(picked, choices.length - 1)];
+          if (chosen) void pick(chosen);
+          return true;
+        }
+        return false;
+      },
+
       /**
        * Paste an image straight into the note.
        *
@@ -91,6 +158,52 @@ export function RichEditor({
       },
     },
   });
+
+  /**
+   * Run a command and put what it returns in the document.
+   *
+   * The typed `/query` is deleted first, and only then is the command run — so a dialog opens
+   * over a note that already looks finished, and cancelling leaves no debris. If the command
+   * returns null nothing is inserted, which is the cancel path.
+   */
+  const pick = useCallback(async (command: SlashCommand) => {
+    const open = slashRef.current;
+    const instance = editorRef.current;
+    setSlash(null);
+    if (!open || !instance) return;
+
+    instance.chain().focus().deleteRange({ from: open.from, to: open.to }).run();
+
+    let node: NodeJson | null;
+    try {
+      node = await command.run();
+    } catch (error) {
+      setUploadError((error as Error).message);
+      return;
+    }
+    if (!node) return;
+
+    /*
+     * Always at the top level, never at the caret's depth.
+     *
+     * Pressing Enter at the end of a quote continues the quote, so a caret can easily be two
+     * or three levels down — and inserting a block node there nests it. A task list inside a
+     * blockquote serialises to nested Markdown that does not survive being read back: the
+     * observed damage was a neighbouring `**Decision:**` coming out as `****Decision:**`,
+     * which is silent, permanent, and lands in the note body rather than anywhere visible.
+     *
+     * So the insertion point is after whichever top-level block the caret is inside. A
+     * callout or a task written during a meeting is its own paragraph anyway.
+     */
+    const { $from } = instance.state.selection;
+    const at = $from.depth > 1 ? $from.after(1) : undefined;
+
+    // `insertContent`, not `insertContentAt`: the Markdown extension overrides the latter to
+    // parse its argument as a Markdown string, which is no use for node JSON.
+    const chain = instance.chain().focus();
+    if (at !== undefined) chain.setTextSelection(at);
+    chain.insertContent(node).run();
+  }, []);
 
   /** Upload, then insert — sequentially, so several pasted images keep their order. */
   const uploadAll = useCallback(
@@ -144,6 +257,35 @@ export function RichEditor({
     <div className="rich-editor">
       {editable && <Toolbar editor={editor} onUpload={uploadAll} />}
       <EditorContent editor={editor} />
+
+      {/*
+        In the flow rather than floating over the caret.
+
+        A popover positioned from coordsAtPos is the usual approach and needs scroll listeners,
+        a resize observer and clamping to the viewport to stop it hanging off the bottom of the
+        room. This sits under the editor: less clever, always in the right place, and it cannot
+        cover the sentence you are writing.
+      */}
+      {options.length > 0 && (
+        <div className="slash-menu" role="listbox" aria-label="Insert">
+          {options.map((c, i) => (
+            <button
+              key={c.name}
+              role="option"
+              aria-selected={i === Math.min(picked, options.length - 1)}
+              className={
+                i === Math.min(picked, options.length - 1) ? 'slash-item slash-on' : 'slash-item'
+              }
+              onMouseEnter={() => setPicked(i)}
+              onClick={() => void pick(c)}
+            >
+              <strong>/{c.name}</strong> <span className="muted">{c.hint}</span>
+            </button>
+          ))}
+          <span className="muted slash-help">↑↓ to choose · Enter to insert · Esc to cancel</span>
+        </div>
+      )}
+
       {uploadError && <p className="error">{uploadError}</p>}
     </div>
   );

@@ -40,6 +40,18 @@ export interface BehaviourResult {
   proposals?: Array<Omit<Proposal, 'id' | 'status'>>;
   /** Recorded in the log, so it is visible why a behaviour did nothing. */
   reason?: string;
+  /**
+   * Pushed straight to the screens watching this meeting.
+   *
+   * The third thing a behaviour can do, after proposing and speaking. Some findings are
+   * neither: they are not a commitment somebody has to accept or dismiss, and they are
+   * certainly not worth saying out loud — a policy document that turns out to be relevant is
+   * useful on screen and an interruption in the room.
+   *
+   * Nothing here is persisted. It is context for the conversation happening now, and the
+   * note keeps what the conversation produced.
+   */
+  broadcast?: Array<{ type: string } & Record<string, unknown>>;
 }
 
 /**
@@ -73,6 +85,14 @@ export interface MeetingBehaviour {
    * and that is exactly the intended shape.
    */
   shouldRun(ctx: BehaviourContext): boolean;
+  /**
+   * Drop whatever this behaviour remembers about a meeting that has ended.
+   *
+   * Optional, because most behaviours keep nothing. A behaviour that does — which proposals it
+   * has already looked up, how much transcript it had last time — would otherwise hold a
+   * little state per meeting for the life of the process.
+   */
+  forget?(noteId: string): void;
 
   run(ctx: BehaviourContext): Promise<BehaviourResult | null>;
 }

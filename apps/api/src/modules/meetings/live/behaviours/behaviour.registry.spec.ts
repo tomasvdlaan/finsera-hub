@@ -52,6 +52,8 @@ describe('BehaviourRegistry', () => {
       behaviours[0] as never,
       behaviours[1] as never,
       (behaviours[2] ?? stub({ name: 'unused', trigger: 'interval', shouldRun: () => false })) as never,
+      (behaviours[3] ??
+        stub({ name: 'unused-4', trigger: 'interval', shouldRun: () => false })) as never,
     );
 
   it('runs a behaviour whose trigger and gate both allow it', async () => {
@@ -144,13 +146,13 @@ describe('BehaviourRegistry', () => {
     const defaults = registry.defaults();
     // Everything on, speech off: the agent is useful from the first meeting and does not
     // surprise a client by talking.
-    expect(defaults.enabled.size).toBe(3);
+    expect(defaults.enabled.size).toBe(4);
     expect(defaults.maySpeak).toBe(false);
   });
 
   it('lists what it can do, for the UI and the docs page', () => {
     const registry = registryOf(stub(), stub({ name: 'other', trigger: 'interval' }));
-    expect(registry.list().map((b) => b.name)).toEqual(['stub', 'other', 'unused']);
+    expect(registry.list().map((b) => b.name)).toEqual(['stub', 'other', 'unused', 'unused-4']);
   });
 });
 

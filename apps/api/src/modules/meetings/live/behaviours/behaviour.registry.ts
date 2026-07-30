@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { AgendaDriftBehaviour } from './agenda-drift.behaviour.js';
+import { ContextFinderBehaviour } from './context-finder.behaviour.js';
 import { NoteTakerBehaviour } from './note-taker.behaviour.js';
 import { WakeWordBehaviour } from './wake-word.behaviour.js';
 import type { BehaviourContext, BehaviourResult, MeetingBehaviour } from './behaviour.js';
@@ -30,8 +31,9 @@ export class BehaviourRegistry {
     wakeWord: WakeWordBehaviour,
     agendaDrift: AgendaDriftBehaviour,
     noteTaker: NoteTakerBehaviour,
+    contextFinder: ContextFinderBehaviour,
   ) {
-    this.behaviours = [wakeWord, agendaDrift, noteTaker];
+    this.behaviours = [wakeWord, agendaDrift, noteTaker, contextFinder];
   }
 
   /** For the UI and the platform documentation page. */
@@ -113,5 +115,13 @@ export class BehaviourRegistry {
     for (const key of [...this.lastRun.keys()]) {
       if (key.startsWith(`${noteId}:`)) this.lastRun.delete(key);
     }
+    /*
+     * And anything a behaviour remembers itself.
+     *
+     * Asked of all of them rather than of one by name. Reaching into a specific behaviour
+     * would make the registry — which exists so that adding a behaviour touches nothing else
+     * — the one place that has to change every time a behaviour starts keeping state.
+     */
+    for (const behaviour of this.behaviours) behaviour.forget?.(noteId);
   }
 }

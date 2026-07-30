@@ -1744,3 +1744,48 @@ ul.decl li > div {
   padding: var(--space-3);
   margin: var(--space-4) 0;
 }
+
+/*
+ * The slash-command menu.
+ *
+ * Under the editor rather than over the caret. A popover anchored to the cursor needs scroll
+ * and resize handling and clamping to keep it on screen, and in a room where the editor fills
+ * the viewport it would sit over the text being written. This is always in the same place.
+ */
+.slash-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-top: var(--space-1);
+  padding: var(--space-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-2);
+}
+.slash-item {
+  border: none;
+  background: none;
+  text-align: left;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--text);
+}
+.slash-on {
+  background: var(--accent-bg);
+}
+.slash-help {
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-xs);
+}
+
+/* Something the assistant looked up on its own, under the thing it is about. */
+.room-found {
+  margin-top: var(--space-2);
+  padding: var(--space-2);
+  border-left: 3px solid var(--accent);
+  background: var(--accent-bg);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+}

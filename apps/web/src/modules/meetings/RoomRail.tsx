@@ -27,6 +27,16 @@ export interface BoardTask {
 const hours = (minutes: number) => `${Math.round((minutes / 60) * 10) / 10}h`;
 
 /**
+ * A search snippet as text.
+ *
+ * Postgres wraps the matched words in `<b>`. Rendering that as HTML would mean anything in a
+ * document's extracted text executes when it appears in this rail, which is a high price for a
+ * bold word — and these documents are uploaded files, so the text is even less ours than a
+ * note body is.
+ */
+const stripTags = (snippet: string) => snippet.replace(/<\/?b>/g, '');
+
+/**
  * The rail beside the notes.
  *
  * Four things a meeting needs at hand and none of which should be on top of the notes: what
@@ -244,9 +254,30 @@ function AiTab({
           <ul className="cards">
             {liveOnly.map((p) => {
               const item = p.agendaItemId ? uncoveredById.get(p.agendaItemId) : undefined;
+              const found = live.context[p.id] ?? [];
               return (
                 <li key={p.id}>
                   <span className="tag">{p.kind.replace('_', ' ')}</span> {p.text}
+
+                  {/*
+                    A document the assistant went and looked up, unasked.
+                    
+                    The one thing here that nobody had to think of. The chat assistant can
+                    search documents and can be asked to mid-meeting; the point is that in a
+                    meeting about audit logging, nobody thinks "I should check the retention
+                    policy" until three days later.
+                  */}
+                  {found.length > 0 && (
+                    <div className="room-found">
+                      <span className="muted">On file about this</span>
+                      {found.map((hit) => (
+                        <div key={hit.entityId}>
+                          <Link to={`/docs/${hit.entityId}`}>{hit.title}</Link>
+                          {hit.snippet && <div className="muted">{stripTags(hit.snippet)}</div>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   {/* Agenda coverage is the one proposal that can be acted on now, and until
                       the room there was nowhere to act on it — the model's belief was written
                       into the note as prose and could only be read, never applied. */}

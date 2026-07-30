@@ -1,12 +1,14 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { useLiveMeeting } from '../../shell/LiveMeeting.js';
+import { useDialog } from '../../shell/ui/Dialog.js';
 import { useDocumentTitle } from '../../shell/useDocumentTitle.js';
 import { noteActions } from './actions.js';
 import { RichEditor } from './RichEditor.js';
 import { RoomBar } from './RoomBar.js';
 import { RoomRail, type BoardColumn, type BoardTask } from './RoomRail.js';
+import { calloutNode, taskNode, type SlashCommand } from './slashCommands.js';
 import type { NoteDetail } from './types.js';
 import { useNoteBody } from './useNoteBody.js';
 
@@ -33,6 +35,7 @@ interface Template {
  * not end the meeting — which it used to, and see LiveMeeting.tsx for what that cost.
  */
 export function Room() {
+  const { ask } = useDialog();
   const { id = '' } = useParams();
   const navigate = useNavigate();
   const { live, behaviours, enabled, maySpeak, resume, stop, configure } = useLiveMeeting();
@@ -99,6 +102,90 @@ export function Room() {
   }, [live.noteStaleAt, load]);
 
   const running = live.running && live.noteId === id;
+
+  /**
+   * What `/` offers, in a meeting.
+   *
+   * Each one does something real and then writes a line about it, which is the point: saying
+   * "Mike is blocked on the compliance sign-off" out loud in a stand-up should put a blocker on
+   * the card, not only in a paragraph nobody re-reads.
+   *
+   * Memoised on what they close over rather than recreated every render, because the editor
+   * reads them through a ref and a new array on every keystroke is churn for nothing.
+   */
+  const slashCommands = useMemo<SlashCommand[]>(
+    () => [
+      {
+        name: 'ticket',
+        label: 'Ticket',
+        hint: 'an action point, decided later',
+        run: async () => {
+          const answer = await ask({
+            title: 'What needs doing?',
+            confirmLabel: 'Add it',
+            fields: [{ name: 'text', label: 'Action', required: true }],
+          });
+          if (!answer?.text) return null;
+          // Proposed, never a task. Accepting one stays a decision made in the rail — the
+          // same rule whether it was typed or a model suggested it.
+          await noteActions.add(id, answer.text);
+          await load();
+          return taskNode(answer.text);
+        },
+      },
+      {
+        name: 'blocker',
+        label: 'Blocker',
+        hint: 'and block the card it is about',
+        run: async () => {
+          const open = tasks.filter((t) => !t.blockedReason);
+          const answer = await ask({
+            title: 'What is in the way?',
+            confirmLabel: 'Record it',
+            fields: [
+              {
+                name: 'reason',
+                label: 'Blocked on',
+                required: true,
+                placeholder: 'Compliance sign-off on the retention policy',
+              },
+              {
+                name: 'taskId',
+                label: 'Which card',
+                type: 'select',
+                hint: 'Optional. Choosing one marks it blocked on the board too.',
+                options: [
+                  { value: '', label: 'Just note it' },
+                  ...open.map((t) => ({ value: t.id, label: t.title })),
+                ],
+              },
+            ],
+          });
+          if (!answer?.reason) return null;
+          if (answer.taskId) {
+            await api
+              .post(`/scrum/tasks/${answer.taskId}/block`, { reason: answer.reason })
+              .catch((e: Error) => setError(e.message));
+          }
+          return calloutNode('Blocker', answer.reason);
+        },
+      },
+      {
+        name: 'decision',
+        label: 'Decision',
+        hint: 'something the meeting settled',
+        run: async () => {
+          const answer = await ask({
+            title: 'What was decided?',
+            confirmLabel: 'Write it down',
+            fields: [{ name: 'text', label: 'Decision', required: true }],
+          });
+          return answer?.text ? calloutNode('Decision', answer.text) : null;
+        },
+      },
+    ],
+    [ask, id, load, tasks],
+  );
 
   const act = async (itemId: string, fn: () => Promise<unknown>) => {
     setBusyId(itemId);
@@ -187,6 +274,9 @@ export function Room() {
       <main className="room-notes">
         <div className="room-notes-head">
           <span className="muted">Notes</span>
+          <span className="muted">
+            <code>/ticket</code> <code>/blocker</code> <code>/decision</code>
+          </span>
           {dirty && <span className="muted">saving…</span>}
           {running && live.aiNotes && (
             <span className="tag" title="The assistant is writing into its own section">
@@ -197,7 +287,7 @@ export function Room() {
         </div>
         {/* The whole middle. Nothing above it but the bar, which is the requirement:
             the notes are the meeting, everything else is context. */}
-        <RichEditor markdown={body} onChange={onChange} />
+        <RichEditor markdown={body} onChange={onChange} slashCommands={slashCommands} />
       </main>
 
       <RoomRail

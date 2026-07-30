@@ -143,6 +143,8 @@ describe('LiveGateway', () => {
         shouldRun: () => false, run: async () => null } as unknown as never,
       { name: 'c', description: '', trigger: 'interval', canSpeak: false,
         shouldRun: () => false, run: async () => null } as unknown as never,
+      { name: 'd', description: '', trigger: 'interval', canSpeak: false,
+        shouldRun: () => false, run: async () => null } as unknown as never,
     );
     noBehaviours.defaults = () => ({ enabled: new Set<string>(), maySpeak: false });
     behaviourRuns = noBehaviours;

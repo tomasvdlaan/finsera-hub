@@ -197,6 +197,28 @@ describe('liveReducer', () => {
     expect(state.source).toBe('tab');
   });
 
+  it('files found context under the proposal that prompted it', () => {
+    const state = run([
+      msg({ type: 'proposals', proposals: [{ id: 'p1', kind: 'decision', text: 'Keep logs 7 years' }] }),
+      msg({
+        type: 'context',
+        forProposalId: 'p1',
+        hits: [{ entityId: 'd1', entityType: 'document', title: 'Data Retention Policy', snippet: 'seven years', via: 'semantic' }],
+      }),
+    ]);
+
+    // Keyed by proposal so it renders beside the thing it is about, rather than as a pile of
+    // documents nobody can attribute to anything.
+    expect(state.context.p1?.[0]?.title).toBe('Data Retention Policy');
+  });
+
+  it('ignores a context message that found nothing', () => {
+    const before = run([msg({ type: 'ready' })]);
+    const after = liveReducer(before, msg({ type: 'context', forProposalId: 'p1', hits: [] }));
+    // An empty "on file about this" panel is worse than no panel.
+    expect(after).toBe(before);
+  });
+
   it('surfaces an error without ending the meeting', () => {
     const state = run([
       msg({ type: 'ready' }),

@@ -61,6 +61,14 @@ export const meetingsManifest = defineManifest({
       trigger: 'interval',
       speaks: true,
     },
+    {
+      name: 'context_finder',
+      description:
+        'Looks up documents that bear on what was just proposed, without being asked — the ' +
+        'assistant can already be asked to search, but nobody thinks to ask mid-meeting.',
+      trigger: 'interval',
+      speaks: false,
+    },
   ],
 
   reportingViews: [

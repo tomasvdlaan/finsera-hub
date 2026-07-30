@@ -299,6 +299,10 @@ export class LiveRunner {
           }
         }
         if (result.speak) await this.say(noteId, live, result.speak);
+        // Straight to the screens watching, unpersisted. See BehaviourResult.broadcast.
+        for (const message of result.broadcast ?? []) {
+          this.sessions.broadcast(noteId, message);
+        }
       }
 
       // Push the assistant's notes to the screen as they are revised. The document is
