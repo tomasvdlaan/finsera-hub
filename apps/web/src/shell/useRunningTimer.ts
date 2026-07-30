@@ -1,0 +1,125 @@
+import { useCallback, useEffect, useState } from 'react';
+import { api } from '../lib/api.js';
+import { TIME_CHANGED, notifyTimeChanged } from './useDocumentTitle.js';
+
+export interface Running {
+  id: string;
+  projectId: string;
+  projectName: string;
+  workedOn: string;
+  startedAt: string;
+  description: string | null;
+}
+
+/** More than a working day means the clock was almost certainly left running. */
+export const LOOKS_FORGOTTEN_AFTER_HOURS = 10;
+
+/** hh:mm:ss, because a clock that has been running for two days should look alarming. */
+export function elapsed(since: string): string {
+  const seconds = Math.max(0, Math.floor((Date.now() - new Date(since).getTime()) / 1000));
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+/**
+ * The running timer, wherever it is shown.
+ *
+ * Extracted from the status bar the moment a second place needed it. Two components polling
+ * one clock and each deciding for itself when to refresh is how they end up disagreeing —
+ * which for a timer is not cosmetic: the number on screen is what somebody bills.
+ *
+ * `GET /time/running` had existed since the time module was built and nothing called it.
+ * Running state used to be derived by scanning the entries of the day being viewed, so a
+ * timer started on Friday was invisible on Monday while its minutes kept accruing.
+ */
+export function useRunningTimer() {
+  const [running, setRunning] = useState<Running | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  /*
+   * The value is never read: setTick re-renders, and the re-render is what recomputes
+   * elapsed(). An earlier version rendered `tick` into a hidden span to "use" it, which did
+   * nothing except append the counter to the bar's text.
+   */
+  const [, setTick] = useState(0);
+
+  const load = useCallback(() => {
+    api
+      .get<{ running: Running | null }>('/time/running')
+      .then((r) => setRunning(r.running))
+      // Silent on failure: this is ambient chrome on every page, and an API blip must not
+      // paint an error across a screen somebody is trying to work on.
+      .catch(() => setRunning(null));
+  }, []);
+
+  useEffect(() => {
+    load();
+    /*
+     * Polled rather than pushed. A websocket for one number would be the wrong trade, and 30s
+     * is well inside the window where a stale timer misleads anyone. But polling alone leaves
+     * it blank for half a minute after you start one, which reads as broken — so pages that
+     * mutate a clock say so, and focus covers a timer started in another tab.
+     */
+    const poll = setInterval(load, 30_000);
+    window.addEventListener(TIME_CHANGED, load);
+    window.addEventListener('focus', load);
+    return () => {
+      clearInterval(poll);
+      window.removeEventListener(TIME_CHANGED, load);
+      window.removeEventListener('focus', load);
+    };
+  }, [load]);
+
+  useEffect(() => {
+    if (!running) return;
+    const clock = setInterval(() => setTick((t) => t + 1), 1000);
+    return () => clearInterval(clock);
+  }, [running]);
+
+  const start = useCallback(
+    async (projectId: string, description?: string) => {
+      setBusy(true);
+      setError(null);
+      try {
+        await api.post('/time/entries', {
+          projectId,
+          workedOn: new Date().toISOString().slice(0, 10),
+          // A start with no end *is* the running entry — there is no separate timer record.
+          startedAt: new Date().toISOString(),
+          description: description?.trim() || null,
+        });
+        notifyTimeChanged();
+        load();
+      } catch (e) {
+        setError((e as Error).message);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [load],
+  );
+
+  const stop = useCallback(async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.post('/time/stop', {});
+      setRunning(null);
+      // So an open timesheet reflects a stop it did not initiate.
+      notifyTimeChanged();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
+  const forgotten = running
+    ? (Date.now() - new Date(running.startedAt).getTime()) / 3_600_000 >=
+      LOOKS_FORGOTTEN_AFTER_HOURS
+    : false;
+
+  return { running, forgotten, busy, error, start, stop, reload: load };
+}

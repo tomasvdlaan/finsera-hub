@@ -20,7 +20,6 @@ import { LivePill } from './LivePill.js';
 import { MeetingChatProvider } from './MeetingChat.js';
 import { Modules } from './Modules.js';
 import { Settings } from './Settings.js';
-import { StatusBar } from './StatusBar.js';
 import { DialogProvider } from './ui/Dialog.js';
 import { ToastProvider } from './ui/Toast.js';
 import { useDocumentTitle } from './useDocumentTitle.js';
@@ -282,7 +281,6 @@ function ChromeLayout({
             {nav.length === 0 && ' — navigation could not be loaded, so the sidebar is empty.'}
           </p>
         )}
-        <StatusBar />
         <LivePill />
         <Outlet />
       </main>

@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import { Icon } from './Icon.js';
 import { Count } from './ui/primitives.js';
+import { TimerWidget } from './TimerWidget.js';
 import type { NavItem } from '../modules/types.js';
 
 /**
@@ -60,6 +61,30 @@ export function Sidebar({
   onLogout: () => void;
 }) {
   const [openSettings, setOpenSettings] = useState(false);
+  const [openMenu, setOpenMenu] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  /*
+   * Close on a click anywhere else, and on Escape.
+   *
+   * A menu that only closes by clicking the thing that opened it is a menu people leave open
+   * and then click through by accident — which for the one item in here is signing out.
+   */
+  useEffect(() => {
+    if (!openMenu) return;
+    const away = (e: MouseEvent) => {
+      if (!menuRef.current?.contains(e.target as Node)) setOpenMenu(false);
+    };
+    const key = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpenMenu(false);
+    };
+    document.addEventListener('mousedown', away);
+    document.addEventListener('keydown', key);
+    return () => {
+      document.removeEventListener('mousedown', away);
+      document.removeEventListener('keydown', key);
+    };
+  }, [openMenu]);
 
   /*
    * Sorted here as well as on the server.
@@ -183,6 +208,17 @@ export function Sidebar({
         left the panel mounted and unreachable, which is worse than either keeping or deleting
         it. In the footer rather than the navigation: it is a tool, not a destination.
       */}
+      {/*
+        The clock lives with the navigation, not above the page.
+        
+        It was a banner that could stop a timer and never start one — so starting meant going
+        to the timesheet, picking a project and finding the button. For a business that bills
+        by the hour that gap is where hours go missing.
+      */}
+      <div className="sidebar-timer">
+        <TimerWidget />
+      </div>
+
       <div className="sidebar-footer">
         <button type="button" className="nav-row nav-assistant" onClick={onOpenAssistant}>
           <span className="nav-glyph" aria-hidden="true">
@@ -190,20 +226,43 @@ export function Sidebar({
           </span>
           <span className="nav-label">Assistant</span>
         </button>
+        {/*
+          Signing out is behind the name rather than beside it.
+          
+          It was a button of its own in the footer, which gave the least frequent action in
+          the whole application the same standing as the navigation above it — and put it one
+          stray click from whoever is working. It is where every other product keeps it now:
+          under your own name, which is the only thing you would click looking for it.
+        */}
         {me && (
-          <div className="nav-me">
-            <span className="nav-avatar" aria-hidden="true">
-              {me.displayName.slice(0, 1).toUpperCase()}
-            </span>
-            <span className="nav-me-text">
-              <span className="nav-me-name">{me.displayName}</span>
-              <span className="nav-me-role">{me.role}</span>
-            </span>
+          <div className="nav-me-menu" ref={menuRef}>
+            <button
+              type="button"
+              className="nav-me"
+              aria-haspopup="menu"
+              aria-expanded={openMenu}
+              onClick={() => setOpenMenu((o) => !o)}
+            >
+              <span className="nav-avatar" aria-hidden="true">
+                {me.displayName.slice(0, 1).toUpperCase()}
+              </span>
+              <span className="nav-me-text">
+                <span className="nav-me-name">{me.displayName}</span>
+                <span className="nav-me-role">{me.role}</span>
+              </span>
+              <span className="nav-chevron" aria-hidden="true">
+                ⌄
+              </span>
+            </button>
+            {openMenu && (
+              <div className="nav-menu" role="menu">
+                <button type="button" role="menuitem" className="nav-menu-item" onClick={onLogout}>
+                  Sign out
+                </button>
+              </div>
+            )}
           </div>
         )}
-        <button type="button" className="btn btn-ghost btn-sm" onClick={onLogout}>
-          Sign out
-        </button>
       </div>
     </aside>
   );
