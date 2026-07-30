@@ -175,6 +175,7 @@ export function Room() {
         note={note}
         projectName={projectName}
         running={running}
+        needsAudio={live.needsAudio}
         startedAt={live.startedAt}
         costCents={live.costCents}
         timeboxMinutes={timebox}

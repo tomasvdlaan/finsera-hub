@@ -38,6 +38,7 @@ export function RoomBar({
   note,
   projectName,
   running,
+  needsAudio,
   startedAt,
   costCents,
   timeboxMinutes,
@@ -48,6 +49,8 @@ export function RoomBar({
   note: NoteDetail;
   projectName?: string;
   running: boolean;
+  /** Running but unfed — after a reload a shared tab has to be shared again. */
+  needsAudio: boolean;
   startedAt: string | null;
   costCents: number;
   timeboxMinutes?: number;
@@ -84,6 +87,12 @@ export function RoomBar({
       </div>
 
       <div className="room-bar-side">
+        {running && needsAudio && (
+          <span className="tag overdue" title="Nothing is reaching the meeting — share again">
+            no audio
+          </span>
+        )}
+
         {running && (
           <div className={over ? 'room-clock room-clock-over' : 'room-clock'}>
             <span className="statusbar-dot" />

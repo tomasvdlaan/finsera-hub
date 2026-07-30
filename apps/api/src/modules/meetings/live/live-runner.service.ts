@@ -471,6 +471,16 @@ export class LiveRunner {
     return {
       running: true as const,
       provider: entry.capture?.providerName ?? 'browser',
+      /**
+       * Nobody is feeding this meeting audio at the moment.
+       *
+       * True between a recording tab going away and one coming back — the window that makes
+       * a page reload survivable. A browser that sees this knows to take the session over
+       * rather than watch it, and `source` says whether it can pick the audio back up on its
+       * own: a microphone it can, a shared tab always needs a fresh gesture.
+       */
+      awaitingAudio: this.sessions.isOrphaned(noteId),
+      source: entry.live.source,
       startedAt: entry.live.startedAt.toISOString(),
       lines: entry.live.lines,
       proposals: entry.live.openProposals,

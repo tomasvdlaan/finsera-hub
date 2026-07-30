@@ -76,6 +76,8 @@ describe('LiveGateway', () => {
   let projectId: string;
 
   beforeEach(async () => {
+    // The real window is 45s. These tests are about what happens at each end of it.
+    process.env.LIVE_RECONNECT_GRACE_MS = '40';
     await resetDb();
     await truncate(sql`TRUNCATE meetings.note_chunks, meetings.action_items, meetings.attendees,
                    meetings.agenda_items, meetings.notes, scrum.tasks,
@@ -313,15 +315,20 @@ describe('LiveGateway', () => {
     expect(sessions.active).not.toContain(note.id);
   });
 
-  it('takes it off the register when the tab dies mid-meeting', async () => {
+  it('writes the meeting down when nobody comes back', async () => {
     const note = await noteWithConsent();
     const socket = new FakeSocket();
     await gateway.handleConnection(socket as never, request(`token=t&noteId=${note.id}`));
     await socket.deliver({ type: 'audio', data: Buffer.from('x').toString('base64') });
 
     await gateway.handleDisconnect(socket as never);
+    await new Promise((r) => setTimeout(r, 120));
 
+    // The grace window is what makes a reload survivable, and the timer at the end of it is
+    // now the only thing that will ever write an abandoned meeting down. A session left on
+    // the register is a note that can never be recorded again.
     expect(sessions.active).not.toContain(note.id);
+    expect((await meetings.get(actor, note.id)).endedAt).not.toBeNull();
   });
 
   it('frees the note even when saving what was said fails', async () => {
@@ -334,6 +341,7 @@ describe('LiveGateway', () => {
     // a meeting you can never record again without a restart.
     vi.spyOn(meetings, 'update').mockRejectedValueOnce(new Error('database gone'));
     await gateway.handleDisconnect(socket as never);
+    await new Promise((r) => setTimeout(r, 120));
 
     expect(sessions.active).not.toContain(note.id);
   });
@@ -408,6 +416,89 @@ describe('LiveGateway', () => {
     // A note recorded twice spans from the first recording to the last, which is the honest
     // reading of "when was this meeting".
     expect((await meetings.get(actor, note.id)).startedAt).toEqual(startedAt);
+  });
+
+  // ── surviving a reload ──
+
+  it('holds the meeting open when the recording tab goes away', async () => {
+    const note = await noteWithConsent();
+    const socket = new FakeSocket();
+    await gateway.handleConnection(socket as never, request(`token=t&noteId=${note.id}`));
+    await socket.deliver({ type: 'audio', data: Buffer.from('x').toString('base64') });
+
+    await gateway.handleDisconnect(socket as never);
+
+    // A reload closes the socket and reopens it a second later; closing the tab never reopens
+    // it, and nothing on the wire tells them apart. So the session waits.
+    expect(sessions.active).toContain(note.id);
+    expect(sessions.isOrphaned(note.id)).toBe(true);
+    expect((await meetings.get(actor, note.id)).endedAt).toBeNull();
+  });
+
+  it('gives the meeting back to a tab that comes straight back', async () => {
+    const note = await noteWithConsent();
+    const first = new FakeSocket();
+    await gateway.handleConnection(first as never, request(`token=t&noteId=${note.id}`));
+    live.transcribeSegment.mockResolvedValueOnce('Said before the reload');
+    await first.deliver({ type: 'audio', data: Buffer.from('x').toString('base64') });
+    await gateway.handleDisconnect(first as never);
+
+    const reloaded = new FakeSocket();
+    await gateway.handleConnection(reloaded as never, request(`token=t&noteId=${note.id}`));
+
+    // Told it is the source, not a watcher — otherwise it would sit there recording nothing.
+    expect(reloaded.messagesOfType('ready')[0]!.mode).toBe('source');
+    expect(sessions.isOrphaned(note.id)).toBe(false);
+
+    // And it is the same meeting: what was said before the reload is still there.
+    live.transcribeSegment.mockResolvedValueOnce('Said after the reload');
+    await reloaded.deliver({ type: 'audio', data: Buffer.from('y').toString('base64') });
+    await reloaded.deliver({ type: 'stop' });
+
+    const [transcript] = await meetings.listTranscripts(actor, note.id);
+    const said = JSON.stringify(transcript!.lines);
+    expect(said).toContain('Said before the reload');
+    expect(said).toContain('Said after the reload');
+  });
+
+  it('still watches, rather than taking over, while a source is live', async () => {
+    const note = await noteWithConsent();
+    const holder = new FakeSocket();
+    await gateway.handleConnection(holder as never, request(`token=t&noteId=${note.id}`));
+
+    const second = new FakeSocket();
+    await gateway.handleConnection(second as never, request(`token=t&noteId=${note.id}`));
+
+    // Two tabs both sending audio would double every line and the cost with it.
+    expect(second.messagesOfType('ready')[0]!.mode).toBe('watching');
+  });
+
+  it('stopping on purpose ends it now, with nothing left armed', async () => {
+    const note = await noteWithConsent();
+    const socket = new FakeSocket();
+    await gateway.handleConnection(socket as never, request(`token=t&noteId=${note.id}`));
+    await socket.deliver({ type: 'audio', data: Buffer.from('x').toString('base64') });
+    await socket.deliver({ type: 'stop' });
+
+    // No grace window: you said stop. And nothing left that could finish it a second time.
+    expect(sessions.active).not.toContain(note.id);
+    expect((await meetings.get(actor, note.id)).endedAt).not.toBeNull();
+  });
+
+  it('records whether the audio was a microphone or a shared tab', async () => {
+    const note = await noteWithConsent();
+    const socket = new FakeSocket();
+    await gateway.handleConnection(
+      socket as never,
+      request(`token=t&noteId=${note.id}&source=tab`),
+    );
+
+    // Needed on reconnect: a microphone can be reacquired silently, a shared tab never can.
+    expect(socket.messagesOfType('ready')[0]!.source).toBe('tab');
+    await gateway.handleDisconnect(socket as never);
+    const status = runner.status(note.id) as { awaitingAudio: boolean; source: string };
+    expect(status.awaitingAudio).toBe(true);
+    expect(status.source).toBe('tab');
   });
 
   // ── behaviours, which never ran here before ──
@@ -492,8 +583,9 @@ describe('LiveGateway', () => {
     await gateway.handleConnection(socket as never, request(`token=t&noteId=${note.id}`));
     await socket.deliver({ type: 'audio', data: Buffer.from('x').toString('base64') });
 
-    // A crashed tab should not also lose the meeting.
+    // A crashed tab should not also lose the meeting — it costs the grace window, no more.
     await gateway.handleDisconnect(socket as never);
+    await new Promise((r) => setTimeout(r, 120));
 
     const [transcript] = await meetings.listTranscripts(actor, note.id);
     expect(JSON.stringify(transcript!.lines)).toContain('We should add supplier drill-down.');

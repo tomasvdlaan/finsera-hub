@@ -14,6 +14,17 @@ interface Registered {
   capture?: CaptureSession;
   /** Screens watching this meeting — normally one, the operator's. */
   watchers: Set<Watcher>;
+  /**
+   * Set when the tab supplying the audio has gone and has not come back yet.
+   *
+   * A browser-capture session has exactly one source, and the browser closes its socket on
+   * unload — so a page refresh is indistinguishable, at the moment it happens, from closing
+   * the tab for good. Waiting a little before finalising is the only way to tell them apart,
+   * and a reload mid-meeting is common enough to be worth waiting for.
+   *
+   * A bot session never gets this: Recall keeps sending audio whatever the browser does.
+   */
+  orphanedAt?: Date;
 }
 
 /**
@@ -49,6 +60,32 @@ export class LiveRegistry {
   attachCapture(noteId: string, capture: CaptureSession): void {
     const entry = this.sessions.get(noteId);
     if (entry) entry.capture = capture;
+  }
+
+  /**
+   * The audio source has gone. Keep the meeting, and note when it went quiet.
+   *
+   * Not the same as ending it — see `orphanedAt`. The caller decides how long to wait.
+   */
+  orphan(noteId: string, at = new Date()): void {
+    const entry = this.sessions.get(noteId);
+    if (!entry || entry.orphanedAt) return;
+    entry.orphanedAt = at;
+    this.logger.log(`Audio source left ${noteId}; holding the session open`);
+  }
+
+  /** A source has come back. Returns false if there was nothing waiting for one. */
+  adopt(noteId: string): boolean {
+    const entry = this.sessions.get(noteId);
+    if (!entry?.orphanedAt) return false;
+    entry.orphanedAt = undefined;
+    this.logger.log(`Audio source returned to ${noteId}`);
+    return true;
+  }
+
+  /** A session running without anyone feeding it audio. */
+  isOrphaned(noteId: string): boolean {
+    return this.sessions.get(noteId)?.orphanedAt !== undefined;
   }
 
   watch(noteId: string, socket: Watcher): void {

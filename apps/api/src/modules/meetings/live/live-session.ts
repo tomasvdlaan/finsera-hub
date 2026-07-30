@@ -77,6 +77,15 @@ export class LiveSession {
     readonly noteId: string,
     readonly actorId: string,
     readonly startedAt = new Date(),
+    /**
+     * Where the audio comes from.
+     *
+     * Recorded because a returning tab needs to know whether it can pick the audio back up
+     * on its own. A microphone can: browsers remember that permission per origin, so
+     * getUserMedia resolves without asking again. A shared tab cannot — getDisplayMedia
+     * always needs a fresh gesture and a picker, by design — so that case has to ask.
+     */
+    readonly source: 'bot' | 'microphone' | 'tab' = 'microphone',
   ) {}
 
   addLine(

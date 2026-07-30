@@ -22,6 +22,19 @@ interface Client {
 }
 
 /**
+ * How long a meeting waits for its audio source to come back.
+ *
+ * A page reload closes the socket and reopens it about a second later; closing the tab never
+ * reopens it. Nothing on the wire tells the two apart, so the difference is time. Long enough
+ * to cover a slow reload, short enough that a genuinely abandoned meeting is written down
+ * while anyone still remembers it.
+ */
+const RECONNECT_GRACE_MS = 45_000;
+
+/** Read per call so a test can shorten it, and so it can be tuned without a rebuild. */
+const graceMs = (): number => Number(process.env.LIVE_RECONNECT_GRACE_MS ?? RECONNECT_GRACE_MS);
+
+/**
  * The live meeting socket.
  *
  * The platform's first WebSocket, and the first place audio enters it. What that audio
@@ -33,7 +46,9 @@ interface Client {
  *   client → { type: 'audio', mimeType, data }  base64 segment, ~25s, self-contained
  *   client → { type: 'stop' }
  *
- *   server → ready      { noteId, startedAt } — or { mode: 'watching' } for a second tab
+ *   server → ready      { noteId, startedAt, mode: 'source' | 'watching', source? }
+ *                       'source' means this socket is expected to send audio; a second tab
+ *                       on the same meeting, or any tab watching a bot, gets 'watching'.
  *   server → line       { line: TranscriptLine }
  *   server → proposals  { proposals: Proposal[] }
  *   server → state      { state: { summary, decisions, openQuestions } }
@@ -54,6 +69,8 @@ interface Client {
 export class LiveGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private readonly logger = new Logger(LiveGateway.name);
   private readonly clients = new Map<WebSocket, Client>();
+  /** Sessions waiting for their source to return, by note id. */
+  private readonly pendingFinish = new Map<string, ReturnType<typeof setTimeout>>();
 
   constructor(
     private readonly auth: AuthGuard,
@@ -83,9 +100,35 @@ export class LiveGateway implements OnGatewayConnection, OnGatewayDisconnect {
         );
       }
 
-      // A bot session may already be running for this note — started over REST, with
-      // audio arriving from Recall. In that case the browser is a watcher, not a source.
       const running = this.sessions.get(noteId);
+
+      /*
+       * A session waiting for its audio source: take it over rather than watch it.
+       *
+       * This is the reload case. The tab that was recording closed its socket on unload, the
+       * session was held open instead of finalised, and this is the same tab coming back a
+       * second later. It becomes the source again and the meeting continues, rather than the
+       * page reporting a meeting that its own refresh ended.
+       */
+      if (running && this.sessions.isOrphaned(noteId)) {
+        this.cancelFinish(noteId);
+        this.sessions.adopt(noteId);
+        this.clients.set(socket, { socket, session: running.live, actor });
+        this.sessions.watch(noteId, socket as never);
+        this.send(socket, {
+          type: 'ready',
+          noteId,
+          mode: 'source',
+          source: running.live.source,
+          startedAt: running.live.startedAt.toISOString(),
+        });
+        socket.on('message', (raw: Buffer) => void this.onMessage(socket, raw));
+        this.logger.log(`Live session for ${noteId} picked back up`);
+        return;
+      }
+
+      // Otherwise a session that is already being fed — a bot, or another tab holding the
+      // microphone. This browser is a watcher, not a source.
       if (running) {
         this.sessions.watch(noteId, socket as never);
         socket.on('close', () => this.sessions.unwatch(noteId, socket as never));
@@ -98,7 +141,8 @@ export class LiveGateway implements OnGatewayConnection, OnGatewayDisconnect {
         return;
       }
 
-      const session = new LiveSession(noteId, actor.userId);
+      const kind = url.searchParams.get('source') === 'tab' ? 'tab' : 'microphone';
+      const session = new LiveSession(noteId, actor.userId, new Date(), kind);
       this.clients.set(socket, { socket, session, actor });
 
       /*
@@ -116,7 +160,13 @@ export class LiveGateway implements OnGatewayConnection, OnGatewayDisconnect {
       await this.meetings.stampSession(actor, noteId, { startedAt: session.startedAt });
       this.runner.startBehaviours(actor, noteId, session);
 
-      this.send(socket, { type: 'ready', noteId, startedAt: session.startedAt.toISOString() });
+      this.send(socket, {
+        type: 'ready',
+        noteId,
+        mode: 'source',
+        source: session.source,
+        startedAt: session.startedAt.toISOString(),
+      });
       this.logger.log(`Live session started for note ${noteId}`);
 
       socket.on('message', (raw: Buffer) => void this.onMessage(socket, raw));
@@ -126,15 +176,42 @@ export class LiveGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
   }
 
+  /**
+   * The audio source went away. Wait for it before writing the meeting off.
+   *
+   * This used to finalise immediately, which made a page refresh end the meeting: the browser
+   * closes its socket on unload, and to the server that was indistinguishable from the tab
+   * closing for good. The session is held open for a moment instead, and a socket returning
+   * within the window takes it back over.
+   *
+   * Still safe if nothing returns — the timer finalises exactly what the immediate call used
+   * to, so a crashed tab loses at most the grace window rather than the meeting.
+   */
   async handleDisconnect(socket: WebSocket): Promise<void> {
     const client = this.clients.get(socket);
     if (!client) return;
+    const { noteId } = client.session;
     this.clients.delete(socket);
-    // A dropped connection still saves what was said — a meeting that crashed the tab
-    // should not also lose its notes.
-    await this.finish(client).catch((error) =>
-      this.logger.error(`Could not save live session: ${(error as Error).message}`),
-    );
+    this.sessions.unwatch(noteId, socket as never);
+
+    this.sessions.orphan(noteId);
+    const timer = setTimeout(() => {
+      this.pendingFinish.delete(noteId);
+      // Only if nobody came back. A returning socket clears both the timer and the orphan.
+      if (!this.sessions.isOrphaned(noteId)) return;
+      void this.finish(client).catch((error) =>
+        this.logger.error(`Could not save live session: ${(error as Error).message}`),
+      );
+    }, graceMs());
+    // Not unref'd: this timer is the only thing that will ever write the meeting down.
+    this.pendingFinish.set(noteId, timer);
+  }
+
+  private cancelFinish(noteId: string): void {
+    const timer = this.pendingFinish.get(noteId);
+    if (!timer) return;
+    clearTimeout(timer);
+    this.pendingFinish.delete(noteId);
   }
 
   private async onMessage(socket: WebSocket, raw: Buffer): Promise<void> {
@@ -149,6 +226,8 @@ export class LiveGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
 
     if (message.type === 'stop') {
+      // Explicit: no grace window, and nothing left armed that could finish it twice.
+      this.cancelFinish(client.session.noteId);
       this.clients.delete(socket);
       // runner.stop pushes 'stopped' to this socket itself, as a watcher, so there is no
       // second message from here that could disagree with it.

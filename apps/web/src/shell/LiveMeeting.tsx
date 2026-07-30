@@ -34,15 +34,19 @@ interface LiveMeeting {
   maySpeak: boolean;
   chatty: boolean;
   /**
-   * Pick a running session back up.
+   * Pick a running session back up, and start feeding it again if nothing else is.
    *
-   * Works for a bot meeting, where the browser was only ever a watcher and the capture keeps
-   * going without it. It does NOT rescue a microphone recording from a page reload: the
-   * browser closes the socket on unload, and the server reads a closed socket from the audio
-   * source as the end of the meeting, so by the time this runs there is nothing to resume.
-   * Fixing that needs a grace period server-side before a dropped source is finalised.
+   * Covers both halves of a reload: the server holds a meeting open for a moment after its
+   * audio source disappears, and this reconnects into that window. A microphone resumes
+   * silently; a shared tab sets `needsAudio`, because it cannot be reacquired without a
+   * gesture, and then `resumeAudio` is what the button calls.
    */
   resume: (noteId: string) => Promise<void>;
+  resumeAudio: (
+    noteId: string,
+    source: 'microphone' | 'tab',
+    deviceId?: string,
+  ) => Promise<void>;
   startBot: (noteId: string, meetingUrl: string) => Promise<void>;
   startCapture: (noteId: string, source: 'microphone' | 'tab', deviceId?: string) => Promise<void>;
   stop: () => Promise<void>;
@@ -156,7 +160,7 @@ export function LiveMeetingProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const openSocket = useCallback(
-    async (noteId: string) => {
+    async (noteId: string, source?: 'microphone' | 'tab') => {
       // StrictMode invokes mount effects twice in development, which opened two sockets —
       // and every broadcast then arrived twice, duplicating the transcript. One provider is
       // one connection however often this runs.
@@ -173,6 +177,9 @@ export function LiveMeetingProvider({ children }: { children: ReactNode }) {
       url.protocol = url.protocol.replace('http', 'ws');
       url.searchParams.set('noteId', noteId);
       url.searchParams.set('token', user?.access_token ?? '');
+      // Told to the server so it can say, on reconnect, whether the audio can be picked back
+      // up without asking — a microphone can, a shared tab cannot.
+      if (source) url.searchParams.set('source', source);
 
       const ws = new WebSocket(url);
       socket.current = ws;
@@ -195,6 +202,34 @@ export function LiveMeetingProvider({ children }: { children: ReactNode }) {
     [recordSegment, releaseLocal],
   );
 
+  /** Get hold of some audio. Shared by starting a meeting and by taking one back over. */
+  const acquire = useCallback(async (source: 'microphone' | 'tab', deviceId?: string) => {
+    const captured =
+      source === 'tab'
+        ? await navigator.mediaDevices.getDisplayMedia({
+            video: true, // required by the API; the video track is dropped below
+            audio: { echoCancellation: false, noiseSuppression: false },
+          })
+        : await navigator.mediaDevices.getUserMedia({
+            audio: deviceId ? { deviceId: { exact: deviceId } } : true,
+          });
+
+    if (source === 'tab') {
+      captured.getVideoTracks().forEach((t) => {
+        t.stop();
+        captured.removeTrack(t);
+      });
+      if (captured.getAudioTracks().length === 0) {
+        captured.getTracks().forEach((t) => t.stop());
+        throw new Error(
+          'That share had no audio. Re-share and tick "Share tab audio" — and note that ' +
+            'macOS does not let a browser capture audio from a desktop app.',
+        );
+      }
+    }
+    return captured;
+  }, []);
+
   const resume = useCallback(
     async (noteId: string) => {
       if (live.noteId === noteId && live.running) return;
@@ -204,15 +239,41 @@ export function LiveMeetingProvider({ children }: { children: ReactNode }) {
         const status = await api.get<LiveStatus>(`/meetings/${noteId}/live`);
         if (!status.running) return;
         dispatch({ type: 'resumed', noteId, status });
-        capturing.current = false; // a resumed session is already being fed from elsewhere
-        await openSocket(noteId);
+
+        /*
+         * A meeting running with nobody feeding it is this tab, a moment ago, before it
+         * reloaded. Take it back over.
+         *
+         * A microphone is reacquired without asking: browsers remember that permission per
+         * origin, so getUserMedia resolves silently and the recording simply continues. A
+         * shared tab cannot be — getDisplayMedia always needs a fresh gesture and a picker, by
+         * design — so that case asks, via needsAudio.
+         */
+        if (status.awaitingAudio && status.source === 'microphone') {
+          try {
+            stream.current = await acquire('microphone');
+            capturing.current = true;
+            dispatch({ type: 'audioOk' });
+          } catch {
+            // Permission was revoked, or another tab holds the device.
+            capturing.current = false;
+            dispatch({ type: 'needsAudio' });
+          }
+        } else if (status.awaitingAudio) {
+          capturing.current = false;
+          dispatch({ type: 'needsAudio' });
+        } else {
+          capturing.current = false; // already being fed from elsewhere — a bot, or another tab
+        }
+
+        await openSocket(noteId, status.source === 'tab' ? 'tab' : 'microphone');
       } catch {
         /* Nothing running, or the note is gone. Either way there is nothing to resume. */
       } finally {
         resuming.current = null;
       }
     },
-    [live.noteId, live.running, openSocket],
+    [acquire, live.noteId, live.running, openSocket],
   );
 
   const startBot = useCallback(
@@ -233,39 +294,42 @@ export function LiveMeetingProvider({ children }: { children: ReactNode }) {
     async (noteId: string, source: 'microphone' | 'tab', deviceId?: string) => {
       dispatch({ type: 'starting', noteId, source });
       try {
-        const captured =
-          source === 'tab'
-            ? await navigator.mediaDevices.getDisplayMedia({
-                video: true, // required by the API; the video track is dropped below
-                audio: { echoCancellation: false, noiseSuppression: false },
-              })
-            : await navigator.mediaDevices.getUserMedia({
-                audio: deviceId ? { deviceId: { exact: deviceId } } : true,
-              });
-
-        if (source === 'tab') {
-          captured.getVideoTracks().forEach((t) => {
-            t.stop();
-            captured.removeTrack(t);
-          });
-          if (captured.getAudioTracks().length === 0) {
-            captured.getTracks().forEach((t) => t.stop());
-            throw new Error(
-              'That share had no audio. Re-share and tick "Share tab audio" — and note that ' +
-                'macOS does not let a browser capture audio from a desktop app.',
-            );
-          }
-        }
-
-        stream.current = captured;
+        stream.current = await acquire(source, deviceId);
         capturing.current = true;
-        await openSocket(noteId);
+        dispatch({ type: 'audioOk' });
+        await openSocket(noteId, source);
       } catch (e) {
         releaseLocal();
         dispatch({ type: 'failed', message: (e as Error).message });
       }
     },
-    [openSocket, releaseLocal],
+    [acquire, openSocket, releaseLocal],
+  );
+
+  /**
+   * Start feeding a meeting that is running but has nobody sending it audio.
+   *
+   * The other half of surviving a reload. `resume` handles a microphone on its own, because
+   * browsers remember that permission per origin; a shared tab cannot be reacquired without a
+   * gesture, so this is what the button calls. It does not reset the session — the lines and
+   * proposals already gathered are the meeting.
+   */
+  const resumeAudio = useCallback(
+    async (noteId: string, source: 'microphone' | 'tab', deviceId?: string) => {
+      try {
+        stream.current = await acquire(source, deviceId);
+        capturing.current = true;
+        dispatch({ type: 'audioOk' });
+        await openSocket(noteId, source);
+      } catch (e) {
+        // Still unfed, and still saying so — this is the button that failed, so the state it
+        // was offered to fix has to survive the failure.
+        releaseLocal();
+        dispatch({ type: 'needsAudio' });
+        dispatch({ type: 'failed', message: (e as Error).message });
+      }
+    },
+    [acquire, openSocket, releaseLocal],
   );
 
   const stop = useCallback(async () => {
@@ -322,6 +386,7 @@ export function LiveMeetingProvider({ children }: { children: ReactNode }) {
         maySpeak,
         chatty,
         resume,
+        resumeAudio,
         startBot,
         startCapture,
         stop,

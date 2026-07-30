@@ -159,6 +159,44 @@ describe('liveReducer', () => {
     );
   });
 
+  it('does not treat a reconnected socket as having audio', () => {
+    const state = run([
+      { type: 'resumed', noteId: 'n', status: { running: true, awaitingAudio: true, source: 'microphone' } },
+      { type: 'needsAudio' },
+      msg({ type: 'ready', mode: 'source' }),
+    ]);
+
+    // `ready` means the server accepted the socket, not that this tab holds a microphone.
+    // Clearing the flag here produced a room with a running clock, recording silence.
+    expect(state.needsAudio).toBe(true);
+    expect(state.running).toBe(true);
+  });
+
+  it('clears the warning only once audio is actually in hand', () => {
+    const state = run([{ type: 'needsAudio' }, { type: 'audioOk' }]);
+    expect(state.needsAudio).toBe(false);
+  });
+
+  it('starting a fresh capture is never in the unfed state', () => {
+    const state = run([
+      { type: 'needsAudio' },
+      { type: 'starting', noteId: 'n', source: 'microphone' },
+    ]);
+    expect(state.needsAudio).toBe(false);
+  });
+
+  it('takes the source back from the status when resuming', () => {
+    const state = liveReducer(EMPTY, {
+      type: 'resumed',
+      noteId: 'n',
+      status: { running: true, provider: 'browser', source: 'tab', awaitingAudio: true },
+    });
+
+    // A shared tab can never be reacquired silently, so which kind it was decides whether the
+    // reload heals itself or has to ask.
+    expect(state.source).toBe('tab');
+  });
+
   it('surfaces an error without ending the meeting', () => {
     const state = run([
       msg({ type: 'ready' }),

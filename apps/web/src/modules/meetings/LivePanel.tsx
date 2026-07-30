@@ -34,6 +34,7 @@ export function LivePanel({
     maySpeak,
     chatty,
     resume,
+    resumeAudio,
     startBot,
     startCapture,
     stop,
@@ -147,8 +148,26 @@ export function LivePanel({
         </>
       ) : (
         <>
+          {/*
+            Running, but nothing is feeding it.
+            
+            A shared tab cannot be reacquired without a gesture — getDisplayMedia always asks —
+            so after a reload this is the one case the meeting cannot heal on its own. Shown
+            rather than silently letting the grace window expire.
+          */}
+          {live.needsAudio && (
+            <div className="row">
+              <span className="tag overdue">no audio reaching the meeting</span>
+              <button onClick={() => void resumeAudio(noteId, live.source === 'tab' ? 'tab' : 'microphone', deviceId || undefined)}>
+                Share {live.source === 'tab' ? 'the tab' : 'the microphone'} again
+              </button>
+            </div>
+          )}
+
           <div className="row">
-            <span className="badge priority-urgent">● listening</span>
+            <span className="badge priority-urgent">
+              {live.needsAudio ? '● paused' : '● listening'}
+            </span>
             <label className="muted">
               <input
                 type="checkbox"
