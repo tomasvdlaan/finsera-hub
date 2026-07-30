@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { api } from '../../lib/api.js';
 import type { Behaviour } from '../../shell/LiveMeeting.js';
 import type { LiveState } from '../../shell/liveMeetingReducer.js';
+import { useMeetingChat } from '../../shell/MeetingChat.js';
 import { LiveTab } from './LiveTab.js';
 import { TranscriptTicker } from './TranscriptTicker.js';
 import type { NoteDetail } from './types.js';
@@ -84,7 +84,16 @@ export function RoomRail({
   onResumeAudio: () => void;
   busyId: string | null;
 }) {
-  const [tab, setTab] = useState<Tab>('ai');
+  /*
+   * Which tab you land on.
+   *
+   * Live when something is being recorded, because that is what you came back to check — and
+   * the complaint that prompted this was not being able to find the bot after switching pages.
+   * Assistant otherwise, which is what the room is for the rest of the time.
+   */
+  const [chosen, setChosen] = useState<Tab | null>(null);
+  const tab = chosen ?? (running ? 'live' : 'ai');
+  const setTab = setChosen;
   const openAgenda = note.agenda.filter((a) => !a.covered);
 
   const tabs: Array<{ key: Tab; label: string; count?: number }> = [
@@ -130,6 +139,7 @@ export function RoomRail({
         )}
         {tab === 'live' && (
           <LiveTab
+            noteId={note.id}
             live={live}
             running={running}
             canRecord={note.everyoneConsented}
@@ -361,65 +371,49 @@ function AiTab({
  * Ask about this meeting.
  *
  * The same assistant as the sidebar, with the note as its context, so "what did we quote them
- * last time" is answerable without leaving the room. It is a single request and a single
- * answer — not a stream — so it says how long it has been waiting rather than pretending to
- * be alive; several silent seconds mid-meeting reads as broken.
+ * last time" is answerable without leaving the room. The thread lives in MeetingChatProvider
+ * above the router — this panel unmounts every time the rail changes tab, and used to take the
+ * answer with it.
+ *
+ * One request, one answer, no streaming, so it says how long it has been waiting: several
+ * silent seconds mid-meeting reads as broken.
  */
 function AskBox({ noteId }: { noteId: string }) {
+  const { noteId: threadFor, turns, asking, waited, ask } = useMeetingChat();
   const [question, setQuestion] = useState('');
-  const [answer, setAnswer] = useState<string | null>(null);
-  const [tools, setTools] = useState<string[]>([]);
-  const [asking, setAsking] = useState(false);
-  const [waited, setWaited] = useState(0);
 
-  const ask = async () => {
-    const q = question.trim();
-    if (!q) return;
-    setAsking(true);
-    setAnswer(null);
-    setTools([]);
-    setWaited(0);
-    const ticker = setInterval(() => setWaited((n) => n + 1), 1000);
-    try {
-      const res = await api.post<{
-        answer: string;
-        toolCalls?: Array<{ toolName: string }>;
-      }>('/assistant/ask', { message: q, context: { entityId: noteId } });
-      setAnswer(res.answer);
-      setTools((res.toolCalls ?? []).map((t) => t.toolName));
-      setQuestion('');
-    } catch (e) {
-      setAnswer((e as Error).message);
-    } finally {
-      clearInterval(ticker);
-      setAsking(false);
-    }
-  };
+  // A thread from a different meeting is not this meeting's history.
+  const mine = threadFor === noteId ? turns : [];
 
   return (
     <section className="room-block room-ask">
       <h3>Ask about this meeting</h3>
-      {answer && (
-        <div className="room-answer">
-          <p>{answer}</p>
-          {tools.length > 0 && (
-            <p className="muted">
-              Looked at: {tools.map((t) => t.replace(/_/g, ' ')).join(', ')}
-            </p>
+
+      {mine.map((turn, i) => (
+        <div
+          key={`${i}-${turn.text.slice(0, 12)}`}
+          className={turn.role === 'user' ? 'room-asked' : 'room-answer'}
+        >
+          <p>{turn.text}</p>
+          {turn.tools && turn.tools.length > 0 && (
+            <p className="muted">Looked at: {turn.tools.map((x) => x.replace(/_/g, ' ')).join(', ')}</p>
           )}
         </div>
-      )}
+      ))}
+
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          void ask();
+          const q = question;
+          setQuestion('');
+          void ask(noteId, q);
         }}
       >
         <div className="row">
           <input
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
-            placeholder="What did we agree last time?"
+            placeholder={mine.length > 0 ? 'Ask a follow-up…' : 'What did we agree last time?'}
             aria-label="Ask the assistant about this meeting"
             style={{ flex: 1, minWidth: 0 }}
           />

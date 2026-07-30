@@ -91,6 +91,8 @@ export function LiveMeetingProvider({ children }: { children: ReactNode }) {
   const capturing = useRef(false);
   /** Guards the resume effect against StrictMode's double invocation. */
   const resuming = useRef<string | null>(null);
+  /** So the discovery effect above can call resume, which is declared below it. */
+  const resumeRef = useRef<((noteId: string) => Promise<void>) | null>(null);
 
   useEffect(() => {
     api
@@ -100,6 +102,34 @@ export function LiveMeetingProvider({ children }: { children: ReactNode }) {
         setEnabled(all.map((b) => b.name)); // matches the server's default
       })
       .catch(() => setBehaviours([]));
+  }, []);
+
+  /**
+   * Find a meeting that is already being recorded, wherever it was started.
+   *
+   * Until this, the only way the browser learned about a session was a room mounting and
+   * calling resume(noteId) — so a meeting was invisible unless you happened to be looking at
+   * the note it belonged to. A bot recording a call showed nothing on Today, nothing in the
+   * rail, and nothing in a second tab, and opening the room was the only way to discover it
+   * was still going.
+   *
+   * The register has always known. `GET /meetings/live` asks it once, at startup, which is the
+   * moment a fresh tab has no idea what is happening.
+   */
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .get<Array<{ noteId: string }>>('/meetings/live')
+      .then((active) => {
+        // One at a time: a session is per note and the panel shows one meeting. If there were
+        // ever two, the first is as good a choice as any and the pill links to it.
+        const first = active[0];
+        if (!cancelled && first) void resumeRef.current?.(first.noteId);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   /**
@@ -275,6 +305,7 @@ export function LiveMeetingProvider({ children }: { children: ReactNode }) {
     },
     [acquire, live.noteId, live.running, openSocket],
   );
+  resumeRef.current = resume;
 
   const startBot = useCallback(
     async (noteId: string, meetingUrl: string) => {

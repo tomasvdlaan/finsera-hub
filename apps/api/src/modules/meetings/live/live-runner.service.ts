@@ -132,8 +132,11 @@ export class LiveRunner {
   /** The provider-agnostic handlers. Any capture provider drives the same pipeline. */
   eventsFor(actor: Actor, noteId: string, live: LiveSession): CaptureEvents {
     return {
-      onReady: ({ joinedAt }) =>
-        this.sessions.broadcast(noteId, { type: 'ready', joinedAt: joinedAt.toISOString() }),
+      onReady: ({ joinedAt }) => {
+        // Kept as well as broadcast, so a tab that arrives later still learns it.
+        live.joinedAt = joinedAt;
+        this.sessions.broadcast(noteId, { type: 'ready', joinedAt: joinedAt.toISOString() });
+      },
 
       onSpeaker: (speaker, event) => {
         this.sessions.broadcast(noteId, { type: 'speaker', speaker, event });
@@ -504,6 +507,8 @@ export class LiveRunner {
       awaitingAudio: this.sessions.isOrphaned(noteId),
       source: entry.live.source,
       startedAt: entry.live.startedAt.toISOString(),
+      /** Null until a bot is admitted; absent entirely for browser capture. */
+      joinedAt: entry.live.joinedAt?.toISOString() ?? null,
       lines: entry.live.lines,
       proposals: entry.live.openProposals,
       state: entry.live.state,

@@ -68,6 +68,15 @@ export class LiveSession {
   tokensIn = 0;
   tokensOut = 0;
 
+  /**
+   * When the capture provider actually got into the call.
+   *
+   * Only a bot has one, and it is later than `startedAt` by however long the bot spent in a
+   * lobby. It was broadcast and never kept, so a page reload could not tell you whether the
+   * bot ever got in — the one fact you most want after coming back to a meeting.
+   */
+  joinedAt: Date | null = null;
+
   /** Set while an extraction is in flight, so ticks cannot overlap. */
   extracting = false;
   /** Characters transcribed at the last extraction, to detect whether it is worth another. */

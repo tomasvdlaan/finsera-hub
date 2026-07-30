@@ -128,6 +128,9 @@ export interface LiveStatus {
   awaitingAudio?: boolean;
   source?: Source;
   startedAt?: string;
+  joinedAt?: string | null;
+  /** Names the capture provider can hear. Only a bot reports any. */
+  speakers?: string[];
   lines?: Line[];
   proposals?: Proposal[];
   state?: Extraction;
@@ -175,6 +178,10 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
         source:
           action.status.provider === 'recall' ? 'bot' : (action.status.source ?? 'microphone'),
         startedAt: action.status.startedAt ?? null,
+        // Restored, not rebuilt from the socket: these arrive once, as events, and a tab that
+        // joins afterwards would otherwise never learn them.
+        joinedAt: action.status.joinedAt ?? null,
+        present: action.status.speakers ?? [],
         lines: action.status.lines ?? [],
         proposals: action.status.proposals ?? [],
         extraction: action.status.state ?? null,

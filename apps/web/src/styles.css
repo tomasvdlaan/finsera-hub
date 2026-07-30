@@ -1967,3 +1967,12 @@ ul.decl li > div {
   font-size: var(--text-sm);
 }
 .live-terms dt { color: var(--muted); }
+/* A question you asked, above the answer to it. */
+.room-asked {
+  padding: var(--space-2) var(--space-3);
+  border-left: 3px solid var(--border-strong);
+  margin-bottom: var(--space-1);
+  font-size: var(--text-sm);
+}
+.room-asked p, .room-answer p { margin: 0 0 var(--space-1); }
+.room-ask .room-answer { margin-bottom: var(--space-3); }

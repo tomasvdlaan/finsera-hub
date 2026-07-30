@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { LiveState, Source } from '../../shell/liveMeetingReducer.js';
 import { elapsedSeconds } from '../../shell/liveMeetingReducer.js';
+import { Transcripts } from './Transcripts.js';
 
 const money = (cents: number) =>
   new Intl.NumberFormat('nl-NL', { style: 'currency', currency: 'EUR' }).format(cents / 100);
@@ -22,6 +23,7 @@ const at = (iso: string) => new Date(iso).toTimeString().slice(0, 5);
  * while the screen shows a running clock. So this reports the phase rather than a boolean.
  */
 export function LiveTab({
+  noteId,
   live,
   running,
   canRecord,
@@ -30,6 +32,7 @@ export function LiveTab({
   onStop,
   onResumeAudio,
 }: {
+  noteId: string;
   live: LiveState;
   running: boolean;
   /** Consent, which the server enforces — the socket closes without it. */
@@ -141,6 +144,15 @@ export function LiveTab({
             <p className="muted">Stopped: {live.endedReason}</p>
           </section>
         )}
+
+        {/*
+          What was said, kept beside the thing that captured it.
+          
+          It was only on the note page, behind a collapsed section, which is a reasonable place
+          to read an hour of speech and a poor place to find it from — the question "where is
+          the transcript" gets asked in the room.
+        */}
+        <Transcripts noteId={noteId} />
       </>
     );
   }
@@ -246,6 +258,9 @@ export function LiveTab({
       </section>
 
       {live.error && <p className="error">{live.error}</p>}
+
+      {/* Earlier recordings of this same meeting, while a new one is running. */}
+      <Transcripts noteId={noteId} />
     </>
   );
 }

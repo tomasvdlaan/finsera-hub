@@ -16,6 +16,7 @@ import { Assistant } from './Assistant.js';
 import { Icon } from './Icon.js';
 import { LiveMeetingProvider } from './LiveMeeting.js';
 import { LivePill } from './LivePill.js';
+import { MeetingChatProvider } from './MeetingChat.js';
 import { Modules } from './Modules.js';
 import { Settings } from './Settings.js';
 import { StatusBar } from './StatusBar.js';
@@ -183,6 +184,7 @@ function Shell() {
         meeting is over — so navigating away ended and finalised it. See LiveMeeting.tsx.
       */}
       <LiveMeetingProvider>
+      <MeetingChatProvider>
       <Routes>
         {/*
           Two layouts, one router.
@@ -220,6 +222,7 @@ function Shell() {
           <Route key={path} path={path} element={<Component />} />
         ))}
       </Routes>
+      </MeetingChatProvider>
       </LiveMeetingProvider>
     </BrowserRouter>
   );
