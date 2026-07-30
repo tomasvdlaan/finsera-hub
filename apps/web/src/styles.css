@@ -577,6 +577,57 @@ ol {
   background: var(--border);
   margin: 0 0.25rem;
 }
+/*
+ * A colour control: a letter, the colour under it, and a way back to no colour.
+ *
+ * The native input is the picker; it is laid over the swatch at zero opacity so the control
+ * looks like the rest of the toolbar rather than like a form field, while still opening the
+ * operating system's own picker and still being reachable from the keyboard.
+ */
+.toolbar-colour {
+  display: inline-flex;
+  align-items: center;
+}
+.toolbar-colour > label {
+  display: grid;
+  justify-items: center;
+  gap: 1px;
+  padding: 0.1rem 0.3rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 0.85rem;
+  line-height: 1;
+  position: relative;
+}
+.toolbar-colour > label:hover {
+  border-color: var(--border);
+}
+.toolbar-colour-bar {
+  width: 1.1rem;
+  height: 3px;
+  border-radius: 1px;
+  /* Visible as "no colour" rather than as nothing at all. */
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+.toolbar-colour input[type='color'] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+  border: none;
+  padding: 0;
+}
+.toolbar-colour-clear {
+  border: none;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0 0.15rem;
+  line-height: 1;
+}
+.toolbar-colour-clear:hover { color: var(--text); }
+
 /* The actions that do something as well as insert something — see noteCommands.ts. */
 .toolbar-command {
   padding: 0.2rem 0.5rem;
@@ -602,7 +653,7 @@ ol {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: var(--space-4) var(--space-3);
+  padding: var(--space-3);
   /*
    * Flex rather than `margin: 0 auto` plus a percentage height on the page.
    *
@@ -617,15 +668,15 @@ ol {
   align-items: center;
 }
 /*
- * The sheet: a measure, and margins around it.
+ * The sheet fills the space it is given.
  *
- * ~72 characters is the width prose has been set at for a very long time, for the good reason
- * that the eye loses the start of the next line beyond it. The sheet is centred by the page,
- * so a wide window gives margins rather than a longer line.
+ * It was capped at a ~72 character measure, which is the right call for a printed page and
+ * the wrong one here: these notes are read on the screen they were written on, next to a
+ * board and a transcript, and a column of writing in a field of empty space wastes the room
+ * that layout works hard to provide. Long lines are the trade, and it is the owner's call.
  */
 .editor-sheet {
   width: 100%;
-  max-width: 72ch;
   flex: 1;
   display: flex;
   flex-direction: column;

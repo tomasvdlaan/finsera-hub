@@ -510,17 +510,39 @@ describe('MeetingsService', () => {
      * alternative is the only outcome the model can act on; keeping the tags is a note that
      * looks broken, and dropping them silently is worse.
      */
-    it('refuses HTML and says what to use instead', async () => {
+    it('accepts colour in the one shape the note can store', async () => {
+      const created = await note();
+      await meetings.writeIntoNote(actor, {
+        noteId: created.id,
+        markdown: 'Needs <span style="color:#d33">urgent review</span>.',
+      });
+      await docs.flush(created.id);
+      expect((await meetings.get(actor, created.id)).body).toContain(
+        '<span style="color:#d33">urgent review</span>',
+      );
+    });
+
+    it('refuses a colour spelling the parser would not read back', async () => {
+      // `red` is valid CSS and is still refused — the note stores one closed shape, and
+      // anything else would come back as literal angle brackets in the sentence.
       const created = await note();
       await expect(
         meetings.writeIntoNote(actor, {
           noteId: created.id,
           markdown: 'Needs <span style="color:red">urgent review</span>.',
         }),
-      ).rejects.toThrow(/HTML is not rendered/);
+      ).rejects.toThrow(/only two HTML tags/);
+      expect((await meetings.get(actor, created.id)).body).not.toContain('<span');
+    });
 
-      const after = await meetings.get(actor, created.id);
-      expect(after.body).not.toContain('<span');
+    it('refuses anything smuggled in beside a valid colour', async () => {
+      const created = await note();
+      await expect(
+        meetings.writeIntoNote(actor, {
+          noteId: created.id,
+          markdown: '<span style="color:#d33">ok</span> then <img src=x onerror=alert(1)>',
+        }),
+      ).rejects.toThrow(/only two HTML tags/);
     });
 
     it('accepts the formatting the note can actually carry', async () => {

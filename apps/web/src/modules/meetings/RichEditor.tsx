@@ -1,4 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+/*
+ * Imported for its types, not its value.
+ *
+ * The extension itself arrives with the shared schema; this makes TipTap's `Commands`
+ * augmentation part of the program so `setColor` type-checks. Without it the command exists
+ * at runtime and does not exist to the compiler, which is a confusing way to be told that a
+ * package is only a transitive dependency.
+ */
+import '@tiptap/extension-color';
 import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight';
 import { CharacterCount, Placeholder, Selection } from '@tiptap/extensions';
 import { EditorContent, useEditor, useEditorState, type Editor } from '@tiptap/react';
@@ -386,6 +395,8 @@ function useActiveMarks(editor: Editor | null) {
         orderedList: e.isActive('orderedList'),
         taskList: e.isActive('taskList'),
         codeBlock: e.isActive('codeBlock'),
+        textColour: (e.getAttributes('textStyle').color as string | undefined) ?? '',
+        highlightColour: (e.getAttributes('highlight').color as string | undefined) ?? '',
         h1: e.isActive('heading', { level: 1 }),
         h2: e.isActive('heading', { level: 2 }),
         h3: e.isActive('heading', { level: 3 }),
@@ -393,7 +404,7 @@ function useActiveMarks(editor: Editor | null) {
     }) ?? {
       bold: false, italic: false, strike: false, highlight: false, code: false, link: false,
       blockquote: false, bulletList: false, orderedList: false, taskList: false,
-      codeBlock: false, h1: false, h2: false, h3: false,
+      codeBlock: false, textColour: '', highlightColour: '', h1: false, h2: false, h3: false,
     }
   );
 }
@@ -445,6 +456,54 @@ function Button({
  * same reason a word processor puts them under Insert — you can see what is available without
  * having to know it exists.
  */
+/**
+ * A colour swatch that opens the operating system's picker.
+ *
+ * The swatch shows what is currently applied, so the button says what the selection is rather
+ * than only what it would become. Right-click — or the small × — removes the colour, because
+ * a picker has no way to express "none" and text you cannot get back to the default is worse
+ * than text you could never colour.
+ */
+function ColourButton({
+  label,
+  title,
+  value,
+  onPick,
+  onClear,
+}: {
+  label: string;
+  title: string;
+  value: string;
+  onPick: (colour: string) => void;
+  onClear: () => void;
+}) {
+  return (
+    <span className="toolbar-colour" title={title}>
+      <label>
+        <span aria-hidden="true">{label}</span>
+        <span className="toolbar-colour-bar" style={{ background: value || 'transparent' }} />
+        <input
+          type="color"
+          aria-label={title}
+          value={value || '#888888'}
+          onChange={(e) => onPick(e.target.value)}
+        />
+      </label>
+      {value && (
+        <button
+          type="button"
+          className="toolbar-colour-clear"
+          title={`Remove ${title.toLowerCase()}`}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={onClear}
+        >
+          ×
+        </button>
+      )}
+    </span>
+  );
+}
+
 function Toolbar({
   editor,
   active,
@@ -492,6 +551,36 @@ function Toolbar({
       <Button label="❝" title="Quote" active={active.blockquote}
         onClick={() => chain().toggleBlockquote().run()} />
       <span className="toolbar-sep" />
+      {/*
+        Colour, through a native picker.
+        
+        It always yields `#rrggbb`, which is exactly and only what the note format accepts —
+        so the control cannot produce a colour the document would refuse to store. A bespoke
+        swatch popover would look more like Word and would have to be kept in step with the
+        parser by hand.
+      */}
+      <ColourButton
+        label="A"
+        title="Text colour"
+        value={active.textColour}
+        onPick={(c) => chain().setColor(c).run()}
+        onClear={() => chain().unsetColor().run()}
+      />
+      <ColourButton
+        label="▮"
+        title="Highlight colour"
+        value={active.highlightColour}
+        onPick={(c) => chain().setHighlight({ color: c }).run()}
+        onClear={() => chain().unsetHighlight().run()}
+      />
+      <Button
+        label="⌫"
+        title="Clear formatting"
+        onClick={() => chain().unsetAllMarks().run()}
+      />
+      <span className="toolbar-sep" />
+      <Button label="―" title="Horizontal rule"
+        onClick={() => chain().setHorizontalRule().run()} />
       <Button label="▦" title="Insert table"
         onClick={() => chain().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()} />
       <Button label="🔗" title="Link" active={active.link} onClick={onLink} />

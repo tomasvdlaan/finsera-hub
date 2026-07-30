@@ -25,6 +25,15 @@ import {
   transcripts,
 } from './meetings.schema.js';
 
+/**
+ * The only HTML a note body renders — see @platform/note-doc's parser, which is the authority.
+ *
+ * Kept in step with it by the round-trip tests there and the write tests here: a shape this
+ * allows but the parser refuses would be stored as visible angle brackets.
+ */
+const COLOUR_TAGS =
+  /<span style="color:#[0-9a-f]{3}(?:[0-9a-f]{3})?">|<mark style="background-color:#[0-9a-f]{3}(?:[0-9a-f]{3})?">|<\/span>|<\/mark>/gi;
+
 export interface CreateNoteInput {
   title: string;
   clientId?: string | null;
@@ -706,23 +715,24 @@ export class MeetingsService {
     if (!markdown) throw new BadRequestException('There is nothing to write');
 
     /*
-     * Refuse HTML rather than store it as visible text.
+     * Refuse the HTML the note cannot render, and only that.
      *
-     * The note is parsed with `html: false`, deliberately — bodies are partly written from
-     * meeting transcripts, and raw HTML in a document a model helped write is a hole nobody
-     * needs. But that meant a tag arrived as literal angle brackets in the middle of a
-     * sentence, which is what happened the first time somebody asked the assistant for
-     * coloured text: it reached for `<span style="color:red">`, and the note ended up reading
-     * `Needs <span style="color:red">urgent review</span>.`
+     * The parser accepts exactly two tags, both carrying a hex colour, because Markdown has
+     * no colour of its own — see @platform/note-doc. Everything else arrives as literal angle
+     * brackets in the middle of a sentence, which is what happened the first time somebody
+     * asked the assistant for coloured text: it reached for `<span style="color:red">`, and
+     * the note ended up reading `Needs <span style="color:red">urgent review</span>.`
      *
-     * Saying so is better than silently keeping it. The model gets one clear error naming
-     * what to use instead, which it can act on; the alternative is a note that looks broken
-     * and no indication anywhere of why.
+     * Telling the model is better than silently keeping it. It gets one clear error naming
+     * the shape that works, which it can act on; the alternative is a note that looks broken
+     * with no indication anywhere of why.
      */
-    if (/<\/?[a-z][^>]*>/i.test(markdown)) {
+    const rejected = markdown.replace(COLOUR_TAGS, '');
+    if (/<\/?[a-z][^>]*>/i.test(rejected)) {
       throw new BadRequestException(
-        'Notes are Markdown and HTML is not rendered — it would appear as literal tags. ' +
-          'Markdown has no colour or underline; use ==highlight== or **bold** for emphasis.',
+        'Notes are Markdown and only two HTML tags are rendered: ' +
+          '<span style="color:#rrggbb"> and <mark style="background-color:#rrggbb">. ' +
+          'Anything else would appear as literal angle brackets. Markdown has no underline.',
       );
     }
 

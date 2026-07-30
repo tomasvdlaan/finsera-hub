@@ -18,7 +18,8 @@ import { noteSchema } from '../schema.js';
  */
 const tokenizer = MarkdownIt('default', { html: false })
   .use(markdownItMark)
-  .use(wrapTableCells);
+  .use(wrapTableCells)
+  .use(colourTags);
 
 const parser = new MarkdownParser(noteSchema, tokenizer, {
   blockquote: { block: 'blockquote' },
@@ -57,6 +58,10 @@ const parser = new MarkdownParser(noteSchema, tokenizer, {
   tr: { block: 'tableRow' },
   th: { block: 'tableHeader' },
   td: { block: 'tableCell' },
+
+  // The two colour carriers. Emitted only by `colourTags`, which accepts nothing else.
+  colouredText: { mark: 'textStyle', getAttrs: (tok) => ({ color: tok.attrGet('color') }) },
+  colouredMark: { mark: 'highlight', getAttrs: (tok) => ({ color: tok.attrGet('color') }) },
 
   em: { mark: 'italic' },
   strong: { mark: 'bold' },
@@ -98,6 +103,69 @@ function wrapTableCells(md: MarkdownIt): void {
     }
     state.tokens = out;
     return true;
+  });
+}
+
+/**
+ * The only HTML this parser will look at.
+ *
+ * `html: false` stays on, and everything that looks like a tag is still literal text — with
+ * two exceptions, matched here by hand: `<span style="color:#hex">` and
+ * `<mark style="background-color:#hex">`. They exist because Markdown cannot express colour
+ * and those are the tags every editor that supports it emits, so a note stays readable in
+ * other tools.
+ *
+ * The narrowness is the safety. The colour must be a hex literal, the attribute must be
+ * exactly this one, and anything else — a class, an event handler, a `url()`, a second
+ * declaration — fails to match and is left as text for the reader to see. Note bodies are
+ * partly written from meeting transcripts and partly by a model, so "accept one closed shape"
+ * is a very different proposition from "allow HTML".
+ *
+ * A closing tag is only consumed when one is open, so a stray `</span>` in prose stays prose.
+ */
+function colourTags(md: MarkdownIt): void {
+  const OPEN: Array<[RegExp, string]> = [
+    [/^<span\s+style="color:\s*(#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?)\s*;?\s*"\s*>/, 'colouredText'],
+    [
+      /^<mark\s+style="background-color:\s*(#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?)\s*;?\s*"\s*>/,
+      'colouredMark',
+    ],
+  ];
+  const CLOSE: Array<[RegExp, string]> = [
+    [/^<\/span>/, 'colouredText'],
+    [/^<\/mark>/, 'colouredMark'],
+  ];
+
+  md.inline.ruler.before('html_inline', 'note_colour', (state, silent) => {
+    if (state.src.charCodeAt(state.pos) !== 0x3c /* < */) return false;
+    const rest = state.src.slice(state.pos);
+    const open = (state.env.noteColourOpen ??= {}) as Record<string, number>;
+
+    for (const [pattern, name] of OPEN) {
+      const m = pattern.exec(rest);
+      if (!m) continue;
+      if (!silent) {
+        const token = state.push(`${name}_open`, 'span', 1);
+        token.attrSet('color', m[1]!.toLowerCase());
+        open[name] = (open[name] ?? 0) + 1;
+      }
+      state.pos += m[0].length;
+      return true;
+    }
+
+    for (const [pattern, name] of CLOSE) {
+      const m = pattern.exec(rest);
+      // Nothing to close means this is somebody's prose, not our tag.
+      if (!m || !open[name]) continue;
+      if (!silent) {
+        state.push(`${name}_close`, 'span', -1);
+        open[name] -= 1;
+      }
+      state.pos += m[0].length;
+      return true;
+    }
+
+    return false;
   });
 }
 

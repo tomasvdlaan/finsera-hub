@@ -1,10 +1,12 @@
 import { getSchema, type AnyExtension } from '@tiptap/core';
 import CodeBlock from '@tiptap/extension-code-block';
+import { Color } from '@tiptap/extension-color';
 import Highlight from '@tiptap/extension-highlight';
 import Image from '@tiptap/extension-image';
 import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table';
 import TaskItem from '@tiptap/extension-task-item';
 import TaskList from '@tiptap/extension-task-list';
+import { TextStyle } from '@tiptap/extension-text-style';
 import StarterKit from '@tiptap/starter-kit';
 import type { Schema } from '@tiptap/pm/model';
 
@@ -50,7 +52,24 @@ export const noteExtensions = [
     underline: false,
     link: { openOnClick: false },
   }),
-  Highlight,
+  /*
+   * Colour, and the syntax that carries it.
+   *
+   * Markdown has no colour of its own, which is why it was refused for a long time — a button
+   * whose formatting the format cannot express produces text that looks right until it is
+   * reloaded, and that is how underline was lost. It is offered now because there *is* a
+   * carrier that survives the round trip and renders in other Markdown tools: an HTML span,
+   * which is what every editor that supports colour in Markdown emits.
+   *
+   * TextStyle provides the mark and Color the command. What makes it safe is not the
+   * extension but the parser: see markdown/parse.ts, which accepts only a hex colour in
+   * exactly this shape and treats every other tag as literal text.
+   */
+  TextStyle,
+  Color,
+  // Multicolour, so highlight matches: `==text==` when it is the default, a <mark> with a
+  // background when a colour was chosen.
+  Highlight.configure({ multicolor: true }),
   /*
    * Images are inline, and the round-trip test is why.
    *

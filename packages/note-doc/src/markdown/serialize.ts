@@ -154,7 +154,35 @@ const marks: Marks = {
   bold: { open: '**', close: '**', mixable: true, expelEnclosingWhitespace: true },
   italic: { open: '*', close: '*', mixable: true, expelEnclosingWhitespace: true },
   strike: { open: '~~', close: '~~', mixable: true, expelEnclosingWhitespace: true },
-  highlight: { open: '==', close: '==', mixable: true, expelEnclosingWhitespace: true },
+
+  /*
+   * Colour, written as the HTML that every Markdown editor writes it as.
+   *
+   * There is no colour in Markdown itself, so this is the carrier — and it is the reason the
+   * parser has a rule for exactly this shape. A `textStyle` mark carrying no colour writes
+   * nothing at all: TipTap creates it for other purposes, and an empty `<span>` around a word
+   * would be noise that accumulates on every save.
+   */
+  textStyle: {
+    open: (_state, mark) => (isColour(mark.attrs.color) ? `<span style="color:${mark.attrs.color}">` : ''),
+    close: (_state, mark) => (isColour(mark.attrs.color) ? '</span>' : ''),
+    mixable: true,
+    expelEnclosingWhitespace: true,
+  },
+
+  /*
+   * Highlight keeps `==text==` for the default and grows a tag only when a colour was picked.
+   *
+   * The plain form is by far the common one and is real Markdown; falling back to HTML for
+   * every highlight would make ordinary notes worse to read in any other tool.
+   */
+  highlight: {
+    open: (_state, mark) =>
+      isColour(mark.attrs.color) ? `<mark style="background-color:${mark.attrs.color}">` : '==',
+    close: (_state, mark) => (isColour(mark.attrs.color) ? '</mark>' : '=='),
+    mixable: true,
+    expelEnclosingWhitespace: true,
+  },
   // Both reused: `code` counts backticks so that a span containing one still fences
   // correctly, and `link` handles the autolink shorthand. Neither has a TipTap-specific
   // attribute, so there is nothing to adapt.
@@ -188,3 +216,14 @@ function cellText(cell: ProsemirrorNode): string {
 function skip(): void {
   /* rendered by the enclosing table */
 }
+
+/**
+ * A colour this package is willing to write into a document.
+ *
+ * Hex only, and checked on the way out as well as on the way in. The value lands inside a
+ * `style` attribute that the editor renders, so anything accepted here is something a note —
+ * partly written from meeting transcripts, partly by a model — can put into the page. A
+ * closed shape is the difference between a colour and an injection point.
+ */
+export const isColour = (value: unknown): value is string =>
+  typeof value === 'string' && /^#[0-9a-f]{3}(?:[0-9a-f]{3})?$/i.test(value.trim());

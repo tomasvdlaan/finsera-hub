@@ -133,6 +133,9 @@ describe('the browser and the server agree on the schema', () => {
       'italic',
       'link',
       'strike',
+      // Carries the colour. Markdown cannot express one, so it travels as a narrowly
+      // restricted <span> — see markdown/parse.ts for what is and is not accepted back.
+      'textStyle',
     ]);
   });
 });

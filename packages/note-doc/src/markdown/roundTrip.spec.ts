@@ -104,6 +104,64 @@ describe('the blockquote corruption that Markdown cannot express', () => {
   });
 });
 
+describe('colour', () => {
+  /*
+   * Markdown has no colour, so it travels as the HTML tag every editor uses for it. These
+   * are the only two tags this parser will look at, and the point of the tests is as much
+   * what is refused as what is kept.
+   */
+  it('round-trips coloured text', () => {
+    const md = 'The <span style="color:#d33">retention period</span> is seven years.';
+    expect(roundTrip(md)).toBe(md);
+  });
+
+  it('round-trips a coloured highlight', () => {
+    const md = 'Watch <mark style="background-color:#ffd400">this number</mark> closely.';
+    expect(roundTrip(md)).toBe(md);
+  });
+
+  it('keeps a plain highlight as Markdown rather than a tag', () => {
+    // The common case must stay readable in any other tool.
+    expect(roundTrip('A ==highlighted== word.')).toBe('A ==highlighted== word.');
+  });
+
+  it('keeps other formatting inside a colour', () => {
+    const md = 'A <span style="color:#0a0">**bold green**</span> word.';
+    expect(roundTrip(md)).toBe(md);
+  });
+
+  it('normalises the colour to lower case', () => {
+    expect(roundTrip('<span style="color:#D33">red</span>')).toBe('<span style="color:#d33">red</span>');
+  });
+
+  it('refuses a colour that is not a hex literal', () => {
+    // `red` is a perfectly good CSS colour and is still refused: one closed shape is what
+    // makes this safe to accept at all.
+    const md = '<span style="color:red">nope</span>';
+    expect(roundTrip(md)).toBe('<span style="color:red">nope</span>');
+    expect(markdownToDoc(md).firstChild!.firstChild!.marks).toHaveLength(0);
+  });
+
+  it('refuses anything smuggled alongside the colour', () => {
+    for (const attack of [
+      '<span style="color:#d33" onclick="steal()">x</span>',
+      '<span style="color:#d33;background:url(http://evil)">x</span>',
+      '<span class="x" style="color:#d33">x</span>',
+      '<script>alert(1)</script>',
+      '<img src=x onerror=alert(1)>',
+    ]) {
+      const doc = markdownToDoc(attack);
+      // Nothing is marked and nothing becomes a node: it is all just text on the page.
+      expect(doc.textContent).toContain('<');
+      expect(doc.firstChild!.firstChild!.marks).toHaveLength(0);
+    }
+  });
+
+  it('leaves a stray closing tag as prose', () => {
+    expect(roundTrip('He wrote </span> on the whiteboard.')).toContain('</span>');
+  });
+});
+
 describe('tables', () => {
   it('escapes a pipe inside a cell', () => {
     const markdown = '| a | b |\n| --- | --- |\n| c \\| d | e |';
