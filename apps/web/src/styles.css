@@ -34,6 +34,54 @@
 
   --radius: 8px;
   --radius-sm: 4px;
+  --radius-lg: 12px;
+
+  /*
+   * Spacing scale.
+   *
+   * Every gap and padding in this file used to be a literal rem chosen in the moment, which
+   * is most of why the app read as unrefined rather than badly designed: 0.6rem here and
+   * 0.75rem there is invisible individually and reads as noise in aggregate. New work uses
+   * these; the existing literals are converted where the layout rules live rather than in
+   * one sweep, because a 1200-line find-and-replace would be a change nobody can review.
+   */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 3rem;
+  --space-8: 4rem;
+
+  /*
+   * Type scale.
+   *
+   * There was no rhythm at all — h1 1.5rem, h2 1.05rem, .muted 0.9rem, .badge 0.75rem, all
+   * unrelated. A scale is what makes a dense screen like the meeting room legible: the eye
+   * needs to be able to tell a heading from a label from a whisper.
+   */
+  --text-xs: 0.8125rem;
+  --text-sm: 0.9rem;
+  --text-base: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.375rem;
+  --text-2xl: 1.75rem;
+  --leading-tight: 1.25;
+  --leading-norm: 1.5;
+
+  /*
+   * Elevation.
+   *
+   * Defined per theme, and that is the whole point rather than a detail: a shadow tuned on
+   * white is invisible on near-black, so the dark theme below trades most of the shadow for
+   * a lighter surface and a brighter border. Panels that need to read as layers — the room
+   * bar over the notes, cards in the AI rail — use these instead of inventing a border.
+   */
+  --shadow-1: 0 1px 2px rgb(0 0 0 / 0.06);
+  --shadow-2: 0 2px 8px rgb(0 0 0 / 0.08);
+  --shadow-3: 0 8px 24px rgb(0 0 0 / 0.12);
+
   color-scheme: light dark;
 }
 
@@ -59,6 +107,18 @@
     --warning-bg: #2a2113;
     --ok: #4ade80;
     --ok-bg: #12251a;
+
+    /*
+     * Depth by light, not by shadow.
+     *
+     * A drop shadow on a near-black surface is a slightly darker black — it does nothing. On
+     * dark, a raised panel reads as raised because it is *lighter* than what is behind it, so
+     * these keep a faint shadow for the edge and lean on --surface-raised and a brighter
+     * border to do the actual work.
+     */
+    --shadow-1: 0 1px 2px rgb(0 0 0 / 0.4);
+    --shadow-2: 0 2px 8px rgb(0 0 0 / 0.45);
+    --shadow-3: 0 8px 24px rgb(0 0 0 / 0.55);
   }
 }
 
@@ -87,21 +147,54 @@ a.deleted {
 }
 
 h1 {
-  font-size: 1.5rem;
-  margin: 0 0 0.5rem;
+  font-size: var(--text-2xl);
+  line-height: var(--leading-tight);
+  letter-spacing: -0.01em;
+  margin: 0 0 var(--space-2);
 }
 h2 {
-  font-size: 1.05rem;
-  margin: 0 0 0.25rem;
+  font-size: var(--text-lg);
+  line-height: var(--leading-tight);
+  margin: 0 0 var(--space-1);
+}
+h3 {
+  font-size: var(--text-base);
+  line-height: var(--leading-tight);
+  margin: 0 0 var(--space-1);
 }
 
 .muted {
   color: var(--muted);
-  font-size: 0.9rem;
+  font-size: var(--text-sm);
 }
 .error {
   color: var(--error);
-  font-size: 0.9rem;
+  font-size: var(--text-sm);
+}
+
+/*
+ * A small inline label.
+ *
+ * .tag was used at five sites and defined nowhere, so every one of them rendered as plain
+ * text — including the "overdue" marker on Today, which was the one that most needed to be
+ * noticeable. Distinct from .badge: a badge is monospaced metadata, a tag is a human word.
+ */
+.tag {
+  display: inline-block;
+  font-size: var(--text-xs);
+  line-height: var(--leading-tight);
+  padding: 0.05rem 0.4rem;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.tag.overdue,
+.overdue {
+  background: var(--danger-bg);
+  border-color: var(--danger);
+  color: var(--danger);
 }
 
 /* layout */
@@ -227,7 +320,7 @@ h2 {
 }
 main {
   flex: 1;
-  padding: 2rem;
+  padding: var(--space-6);
   /* A flex item defaults to min-width:auto and refuses to shrink below its content, so
      a wide table pushed the whole page sideways and scrolled the sidebar off-screen.
      This lets .grid-scroll do its job instead. */
@@ -250,8 +343,8 @@ main > h1 + p {
   max-width: 72ch;
 }
 section {
-  margin-top: 2rem;
-  padding-top: 1rem;
+  margin-top: var(--space-6);
+  padding-top: var(--space-4);
   border-top: 1px solid var(--border);
 }
 
@@ -350,10 +443,10 @@ button.destructive:hover:not(:disabled) {
 }
 .row {
   display: flex;
-  gap: 0.5rem;
+  gap: var(--space-2);
   align-items: center;
   flex-wrap: wrap;
-  margin: 0.75rem 0;
+  margin: var(--space-3) 0;
 }
 
 /* lists */
@@ -364,10 +457,10 @@ ol {
   margin: 0.5rem 0;
 }
 .cards li {
-  padding: 0.6rem 0.8rem;
+  padding: var(--space-2) var(--space-3);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  margin-bottom: 0.4rem;
+  margin-bottom: var(--space-1);
   background: var(--surface);
 }
 .links li,
@@ -385,7 +478,7 @@ ol {
 }
 .badge,
 .timeline-event {
-  font-size: 0.75rem;
+  font-size: var(--text-xs);
   padding: 0.1rem 0.4rem;
   border-radius: 4px;
   background: var(--surface);

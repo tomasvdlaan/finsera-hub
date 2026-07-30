@@ -6,6 +6,7 @@ import {
   Navigate,
   Route,
   Routes,
+  Outlet,
   useLocation,
 } from 'react-router-dom';
 import type { CurrentUser } from '@platform/contracts';
@@ -150,6 +151,8 @@ function Shell() {
   }
 
   const routes = webModules.flatMap((m) => m.routes);
+  const chromed = routes.filter((r) => r.chrome !== 'bare');
+  const bare = routes.filter((r) => r.chrome === 'bare');
 
   /**
    * Where "/" goes.
@@ -163,80 +166,141 @@ function Shell() {
   return (
     <BrowserRouter>
       <RouteTitle nav={nav} />
-      <div className="layout">
-        <aside className="sidebar">
-          <div className="brand">Finsera Platform</div>
-          <nav>
-            {SECTIONS.map(({ key, label }) => {
-              const items = [...SHELL_ITEMS, ...nav].filter(
-                (i) => (i.section ?? 'more') === key && !i.hidden,
-              );
-              if (items.length === 0) return null;
-              return (
-                <div key={key} className="nav-section">
-                  {label && <div className="nav-section-label">{label}</div>}
-                  {items.map((item) => (
-                    <NavLink
-                      key={item.path}
-                      to={item.path}
-                      className={({ isActive }) => (isActive ? 'active' : '')}
-                    >
-                      <Icon name={item.icon} />
-                      <span>{item.label}</span>
-                    </NavLink>
-                  ))}
-                </div>
-              );
-            })}
-          </nav>
-
-          <button onClick={() => setAssistantOpen((o) => !o)} style={{ marginTop: '0.75rem' }}>
-            {assistantOpen ? 'Hide assistant' : 'Ask assistant'}
-          </button>
-
-          <div className="sidebar-footer">
-            {me && (
-              <>
-                <div>{me.displayName}</div>
-                <div className="muted">{me.role}</div>
-              </>
-            )}
-            <button onClick={logout} style={{ marginTop: '0.5rem' }}>
-              Sign out
-            </button>
-          </div>
-        </aside>
-
-        <main>
-          {error && (
-            <p className="error">
-              API error: {error}
-              {nav.length === 0 && ' — navigation could not be loaded, so the sidebar is empty.'}
-            </p>
-          )}
-          <StatusBar />
-          <Routes>
-            <Route path="/" element={<Navigate to={home} replace />} />
-            {routes.map(({ path, Component }) => (
-              <Route key={path} path={path} element={<Component />} />
-            ))}
-            <Route path="/platform/modules" element={<Modules />} />
-            <Route path="/platform/settings" element={<Settings />} />
-            <Route path="*" element={<NotFound home={home} />} />
-          </Routes>
-        </main>
-
+      <Routes>
         {/*
-          Mounted always, hidden when closed.
+          Two layouts, one router.
 
-          It used to be `{assistantOpen && <Assistant/>}`, which unmounts the component on
-          close and takes the turns and the conversationId with it — so "hide" was
-          indistinguishable from "discard", and reopening started a new conversation with no
-          way back to the old one. Keeping it mounted is the smallest fix that makes the
-          panel behave like a panel.
+          Almost every page wants the rail, the status bar and the assistant. The meeting
+          room wants the viewport: it puts notes, an AI rail and a live transcript on screen
+          at once and needs the full height to do it, which is impossible inside a padded,
+          max-width `<main>`. Layout routes are how react-router expresses that, and they
+          cost less than the alternative — a page that hides the rail with CSS leaves it
+          mounted and still consuming layout.
         */}
-        <Assistant hidden={!assistantOpen} onClose={() => setAssistantOpen(false)} />
-      </div>
+        <Route
+          element={
+            <ChromeLayout
+              nav={nav}
+              me={me}
+              error={error}
+              assistantOpen={assistantOpen}
+              onToggleAssistant={() => setAssistantOpen((o) => !o)}
+              onCloseAssistant={() => setAssistantOpen(false)}
+              onLogout={logout}
+            />
+          }
+        >
+          <Route path="/" element={<Navigate to={home} replace />} />
+          {chromed.map(({ path, Component }) => (
+            <Route key={path} path={path} element={<Component />} />
+          ))}
+          <Route path="/platform/modules" element={<Modules />} />
+          <Route path="/platform/settings" element={<Settings />} />
+          <Route path="*" element={<NotFound home={home} />} />
+        </Route>
+
+        {bare.map(({ path, Component }) => (
+          <Route key={path} path={path} element={<Component />} />
+        ))}
+      </Routes>
     </BrowserRouter>
+  );
+}
+
+/**
+ * The ordinary chrome: rail, status bar, page, assistant.
+ *
+ * Declared at module level rather than inside Shell, because a component defined during
+ * render is a new type on every render and React would remount its whole subtree — which
+ * would take the assistant's conversation with it on every keystroke of shell state.
+ *
+ * The assistant is mounted here, so entering the meeting room does end the conversation.
+ * That is the trade: the room has an AI rail of its own with the meeting as its context, and
+ * carrying a second assistant into it would be two AI panels arguing over the same screen.
+ */
+function ChromeLayout({
+  nav,
+  me,
+  error,
+  assistantOpen,
+  onToggleAssistant,
+  onCloseAssistant,
+  onLogout,
+}: {
+  nav: NavItem[];
+  me: CurrentUser | null;
+  error: string | null;
+  assistantOpen: boolean;
+  onToggleAssistant: () => void;
+  onCloseAssistant: () => void;
+  onLogout: () => void;
+}) {
+  return (
+    <div className="layout">
+      <aside className="sidebar">
+        <div className="brand">Finsera Platform</div>
+        <nav>
+          {SECTIONS.map(({ key, label }) => {
+            const items = [...SHELL_ITEMS, ...nav].filter(
+              (i) => (i.section ?? 'more') === key && !i.hidden,
+            );
+            if (items.length === 0) return null;
+            return (
+              <div key={key} className="nav-section">
+                {label && <div className="nav-section-label">{label}</div>}
+                {items.map((item) => (
+                  <NavLink
+                    key={item.path}
+                    to={item.path}
+                    className={({ isActive }) => (isActive ? 'active' : '')}
+                  >
+                    <Icon name={item.icon} />
+                    <span>{item.label}</span>
+                  </NavLink>
+                ))}
+              </div>
+            );
+          })}
+        </nav>
+
+        <button onClick={onToggleAssistant} style={{ marginTop: 'var(--space-3)' }}>
+          {assistantOpen ? 'Hide assistant' : 'Ask assistant'}
+        </button>
+
+        <div className="sidebar-footer">
+          {me && (
+            <>
+              <div>{me.displayName}</div>
+              <div className="muted">{me.role}</div>
+            </>
+          )}
+          <button onClick={onLogout} style={{ marginTop: 'var(--space-2)' }}>
+            Sign out
+          </button>
+        </div>
+      </aside>
+
+      <main>
+        {error && (
+          <p className="error">
+            API error: {error}
+            {nav.length === 0 && ' — navigation could not be loaded, so the sidebar is empty.'}
+          </p>
+        )}
+        <StatusBar />
+        <Outlet />
+      </main>
+
+      {/*
+        Mounted always, hidden when closed.
+
+        It used to be `{assistantOpen && <Assistant/>}`, which unmounts the component on
+        close and takes the turns and the conversationId with it — so "hide" was
+        indistinguishable from "discard", and reopening started a new conversation with no
+        way back to the old one. Keeping it mounted is the smallest fix that makes the
+        panel behave like a panel.
+      */}
+      <Assistant hidden={!assistantOpen} onClose={onCloseAssistant} />
+    </div>
   );
 }
