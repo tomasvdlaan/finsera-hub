@@ -196,6 +196,14 @@ export function TaskDetail() {
         value={estimate?.toString() ?? null}
         onSave={(v) => patch({ estimateMinutes: v ? toMinutes(v) : null })}
       />
+      {/* Beside the hours, not instead of them. Hours are what the budget and the invoice
+          read; points are what the sprint reads. Neither converts to the other. */}
+      <EditableField
+        label="Story points"
+        value={task.storyPoints?.toString() ?? null}
+        placeholder="How big, relative to the others"
+        onSave={(v) => patch({ storyPoints: v ? Number(v) : null })}
+      />
       <EditableField
         label="Due"
         value={task.dueOn}

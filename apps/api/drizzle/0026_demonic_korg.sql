@@ -1,0 +1,2 @@
+ALTER TABLE "scrum"."tasks" ADD COLUMN "story_points" integer;--> statement-breakpoint
+ALTER TABLE "scrum"."tasks" ADD CONSTRAINT "tasks_points_sane" CHECK ("scrum"."tasks"."story_points" IS NULL OR ("scrum"."tasks"."story_points" >= 0 AND "scrum"."tasks"."story_points" <= 100));

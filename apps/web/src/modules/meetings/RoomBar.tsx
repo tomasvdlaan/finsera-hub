@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { elapsedSeconds } from '../../shell/liveMeetingReducer.js';
+import { sprintFraction, sprintProgressLabel, type Sprint } from '../scrum/types.js';
 import type { NoteDetail } from './types.js';
 
 const money = (cents: number) =>
@@ -10,6 +11,31 @@ const clock = (seconds: number) => {
   const s = seconds % 60;
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 };
+
+/**
+ * How far through the sprint is, and in which unit.
+ *
+ * The unit is chosen by the server so every screen agrees, and it is named here rather than
+ * implied — "12 of 28" means nothing without it, and a bar with no number beside it means
+ * less. An unmeasurable sprint gets the words and no bar, because a bar at zero reads as no
+ * progress rather than as nothing to measure.
+ */
+function SprintMeter({ sprint }: { sprint: Sprint }) {
+  const fraction = sprintFraction(sprint.progress);
+  return (
+    <>
+      <span>· {sprintProgressLabel(sprint.progress)}</span>
+      {fraction !== null && (
+        <span className="meter room-sprint-meter" role="progressbar" aria-valuenow={Math.round(fraction * 100)}>
+          <span className="meter-fill" style={{ width: `${Math.round(fraction * 100)}%` }} />
+        </span>
+      )}
+      {sprint.progress.blocked > 0 && (
+        <span className="tag overdue">{sprint.progress.blocked} blocked</span>
+      )}
+    </>
+  );
+}
 
 /** Initials for an avatar, from however much of a name we have. */
 const initials = (name: string) =>
@@ -30,13 +56,15 @@ const initials = (name: string) =>
  * The timebox comes from the template rather than a column, because it is a property of the
  * ceremony: a stand-up is fifteen minutes whoever runs it.
  *
- * What this bar does NOT show is a sprint. There is no sprint in this platform yet — the
- * table exists and nothing has ever written to it — so "day 4 of 10" would be invention. It
- * shows what is true instead: the project, and a count of what is open on it.
+ * The sprint line appears only when the project has a sprint running. Before sprints existed
+ * this bar showed the project and a count of open cards instead, and it still does when a
+ * project runs a flow board — which is most of them. Inventing a cadence for a project that
+ * does not work in sprints would be worse than not having one.
  */
 export function RoomBar({
   note,
   projectName,
+  sprint,
   running,
   needsAudio,
   startedAt,
@@ -48,6 +76,8 @@ export function RoomBar({
 }: {
   note: NoteDetail;
   projectName?: string;
+  /** The project's running sprint, when it has one. */
+  sprint?: Sprint | null;
   running: boolean;
   /** Running but unfed — after a reload a shared tab has to be shared again. */
   needsAudio: boolean;
@@ -82,7 +112,22 @@ export function RoomBar({
           ) : (
             <span className="tag overdue">no project linked</span>
           )}
-          {workLine && <span>· {workLine}</span>}
+
+          {sprint ? (
+            <>
+              <span>· {sprint.name}</span>
+              <span>
+                ·{' '}
+                {sprint.progress.days.overrun
+                  ? `ended ${sprint.endsOn}, not closed`
+                  : `day ${sprint.progress.days.elapsed} of ${sprint.progress.days.total}`}
+              </span>
+              {sprint.goal && <span className="room-goal">· {sprint.goal}</span>}
+              <SprintMeter sprint={sprint} />
+            </>
+          ) : (
+            workLine && <span>· {workLine}</span>
+          )}
         </div>
       </div>
 

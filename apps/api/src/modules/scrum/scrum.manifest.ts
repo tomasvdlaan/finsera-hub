@@ -24,7 +24,10 @@ export const scrumManifest = defineManifest({
     { name: 'task.blocked', description: 'A task cannot move, and said why.' },
     { name: 'task.unblocked', description: 'A task stopped being blocked.' },
     { name: 'sprint.started', description: 'A sprint became active.' },
-    { name: 'sprint.completed', description: 'A sprint was closed.' },
+    {
+      name: 'sprint.completed',
+      description: 'A sprint was closed; unfinished cards returned to the backlog.',
+    },
   ],
 
   // Phase 6c's Meeting Agent will publish meeting.action_points_suggested, and this
@@ -47,9 +50,13 @@ export const scrumManifest = defineManifest({
     {
       view: 'scrum.v_tasks',
       description:
-        'Tasks with status, estimate, completion, and whether and for how long they are blocked.',
+        'Tasks with status, estimate in minutes and points, completion, and whether and for ' +
+        'how long they are blocked.',
     },
-    { view: 'scrum.v_sprints', description: 'Sprints with their task counts.' },
+    {
+      view: 'scrum.v_sprints',
+      description: 'Sprints with their goal, dates, state, and cards and points done vs total.',
+    },
   ],
 
   portalExposure: [], // Phase 7 exposes task status in reduced form

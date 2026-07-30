@@ -1789,3 +1789,17 @@ ul.decl li > div {
   border-radius: var(--radius-sm);
   font-size: var(--text-xs);
 }
+/* The sprint's progress bar, sized for a top bar rather than a page. */
+.room-sprint-meter {
+  width: 4rem;
+  height: 5px;
+  display: inline-block;
+  vertical-align: middle;
+}
+/* The goal is the one thing on this line worth truncating rather than wrapping. */
+.room-goal {
+  max-width: 22rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

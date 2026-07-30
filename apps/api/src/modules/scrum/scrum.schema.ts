@@ -85,8 +85,25 @@ export const tasks = scrum.table(
     /** The board column this sits in; validated against the project's board in the service. */
     status: text('status').notNull().default('to_do'),
     assigneeId: uuid('assignee_id'), // core.users id, no cross-schema FK
-    /** Minutes, not story points — comparable to hours logged and to the project budget. */
+    /**
+     * Minutes. Directly comparable to hours logged and to the project budget, which is why
+     * this remains the estimate the money side of the platform reads.
+     */
     estimateMinutes: integer('estimate_minutes'),
+    /**
+     * Story points, added beside minutes rather than instead of them.
+     *
+     * The two answer different questions and neither converts to the other: minutes say what
+     * a card will cost, points say how big it feels relative to the others. Points exist to
+     * launder estimation bias across several estimators and converge through velocity, so for
+     * one person they are a unit with a sample size of one — kept because sprint progress in
+     * points is what a SCRUM team reads, and because a half-pointed backlog still reports
+     * something true through minutes.
+     *
+     * If a sprint or two goes by with these never set, the honest move is to drop the column
+     * rather than keep a field the UI has to apologise for.
+     */
+    storyPoints: integer('story_points'),
     priority: text('priority').notNull().default('normal'),
     labels: text('labels').array().notNull().default(sql`ARRAY[]::text[]`),
     dueOn: date('due_on'),
@@ -131,6 +148,12 @@ export const tasks = scrum.table(
     check(
       'tasks_estimate_sane',
       sql`${t.estimateMinutes} IS NULL OR (${t.estimateMinutes} > 0 AND ${t.estimateMinutes} <= 100000)`,
+    ),
+    // Zero is a real answer — a card that turns out to be nothing — but a hundred is not an
+    // estimate, it is a card that should have been split.
+    check(
+      'tasks_points_sane',
+      sql`${t.storyPoints} IS NULL OR (${t.storyPoints} >= 0 AND ${t.storyPoints} <= 100)`,
     ),
     // A task cannot be its own parent; deeper cycles are checked in the service.
     check('tasks_not_own_parent', sql`${t.parentId} IS NULL OR ${t.parentId} <> ${t.id}`),

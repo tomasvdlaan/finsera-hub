@@ -24,6 +24,211 @@ const actor: Actor = { userId: crypto.randomUUID(), role: 'admin' };
  * kind of thing that fails at 3am in a migration rather than in review. Every case here is a
  * way the board could end up lying about what is stuck.
  */
+describe('ScrumService sprints', () => {
+  let scrum: ScrumService;
+  let projectId: string;
+
+  beforeEach(async () => {
+    await resetDb();
+    await truncate(
+      sql`TRUNCATE scrum.tasks, scrum.sprints, scrum.boards, crm.projects, crm.contacts, crm.clients CASCADE`,
+    );
+    await seedUser(actor.userId, 'admin');
+
+    const manifests = new ManifestRegistry();
+    for (const m of [crmManifest, timeManifest, scrumManifest]) manifests.register(m);
+    manifests.seal();
+
+    const registry = new RegistryService(testDb, manifests);
+    const permissions = new PermissionService(testDb, manifests);
+    const audit = new AuditService();
+    const links = new LinkService(testDb, registry, permissions, audit, manifests);
+    const bus = new EventBus(manifests);
+    const crm = new CrmService(testDb, registry, permissions, audit, bus, links);
+    const time = new TimeService(testDb, registry, permissions, audit, bus, links, crm);
+    scrum = new ScrumService(testDb, registry, permissions, audit, bus, links, crm, time);
+
+    const client = await crm.createClient(actor, { name: 'DocHorse', status: 'active' });
+    const project = await crm.createProject(actor, {
+      clientId: client.id,
+      name: 'Power BI',
+      billingModel: 'time_and_materials',
+    });
+    projectId = project.id;
+    await scrum.getBoard(actor, projectId); // the board exists on first read
+  });
+
+  const sprint = (over: Record<string, unknown> = {}) =>
+    scrum.createSprint(actor, {
+      projectId,
+      name: 'Sprint 1',
+      goal: 'Ship the spend model',
+      startsOn: '2026-07-27',
+      endsOn: '2026-08-07',
+      ...over,
+    });
+
+  it('creates a sprint and opts the board into sprints', async () => {
+    const created = await sprint();
+    expect(created.state).toBe('planned');
+    expect(created.goal).toBe('Ship the spend model');
+
+    // boards.uses_sprints defaulted false and nothing had ever set it, so no board in the
+    // database had said it works in sprints.
+    const board = await scrum.getBoard(actor, projectId);
+    expect(board.usesSprints).toBe(true);
+  });
+
+  it('refuses a sprint that ends before it starts', async () => {
+    await expect(sprint({ startsOn: '2026-08-07', endsOn: '2026-07-27' })).rejects.toThrow(
+      /cannot end before/i,
+    );
+  });
+
+  it('refuses a second active sprint with a sentence, not a constraint name', async () => {
+    const first = await sprint();
+    await scrum.startSprint(actor, first.id);
+    const second = await sprint({ name: 'Sprint 2' });
+
+    // The partial unique index is the guarantee. Untranslated it surfaces as a 500 and
+    // 'sprints_one_active_per_project', which tells the operator nothing.
+    await expect(scrum.startSprint(actor, second.id)).rejects.toThrow(/still running/i);
+  });
+
+  it('publishes sprint.started, declared since the module was written', async () => {
+    const created = await sprint();
+    await scrum.startSprint(actor, created.id);
+
+    const events = await testDb.execute(
+      sql`SELECT event_name FROM core.events WHERE entity_id = ${created.id}`,
+    );
+    expect(events.rows.map((r) => (r as { event_name: string }).event_name)).toContain(
+      'sprint.started',
+    );
+  });
+
+  it('hands unfinished work back to the backlog when it closes', async () => {
+    const created = await sprint();
+    await scrum.startSprint(actor, created.id);
+    const unfinished = await scrum.createTask(actor, {
+      projectId,
+      title: 'Not going to happen',
+      sprintId: created.id,
+    });
+    const finished = await scrum.createTask(actor, {
+      projectId,
+      title: 'Did happen',
+      sprintId: created.id,
+    });
+    await scrum.moveTask(actor, finished.id, { status: 'done' });
+
+    await scrum.completeSprint(actor, created.id);
+
+    // A sprint records what a fortnight actually contained. Dragging its failures into the
+    // next one makes both of them lies, so the work returns to the backlog to be argued for.
+    expect((await scrum.getTask(actor, unfinished.id)).sprintId).toBeNull();
+    expect((await scrum.getTask(actor, finished.id)).sprintId).toBe(created.id);
+  });
+
+  it('refuses to restart a finished sprint', async () => {
+    const created = await sprint();
+    await scrum.startSprint(actor, created.id);
+    await scrum.completeSprint(actor, created.id);
+    await expect(scrum.startSprint(actor, created.id)).rejects.toThrow(/finished/i);
+  });
+
+  // ── the unit, which is the part that can quietly lie ──
+
+  it('reports points only when every card has them', async () => {
+    const created = await sprint();
+    await scrum.createTask(actor, { projectId, title: 'A', sprintId: created.id, storyPoints: 3 });
+    const b = await scrum.createTask(actor, {
+      projectId,
+      title: 'B',
+      sprintId: created.id,
+      storyPoints: 5,
+    });
+    await scrum.moveTask(actor, b.id, { status: 'done' });
+
+    const { progress } = await scrum.getSprint(actor, created.id);
+    expect(progress.unit).toBe('points');
+    expect(progress.points).toEqual({ done: 5, total: 8 });
+  });
+
+  it('falls back to hours when nothing is pointed', async () => {
+    const created = await sprint();
+    await scrum.createTask(actor, {
+      projectId,
+      title: 'A',
+      sprintId: created.id,
+      estimateMinutes: 120,
+    });
+    const { progress } = await scrum.getSprint(actor, created.id);
+    expect(progress.unit).toBe('minutes');
+    expect(progress.minutes.total).toBe(120);
+  });
+
+  it('counts cards rather than mixing units on a half-pointed sprint', async () => {
+    const created = await sprint();
+    await scrum.createTask(actor, { projectId, title: 'A', sprintId: created.id, storyPoints: 3 });
+    await scrum.createTask(actor, {
+      projectId,
+      title: 'B',
+      sprintId: created.id,
+      estimateMinutes: 60,
+    });
+
+    // A percentage computed from a partly-estimated backlog is a chart that quietly lies, and
+    // it lies in the flattering direction. Counting cards is the honest answer.
+    const { progress } = await scrum.getSprint(actor, created.id);
+    expect(progress.unit).toBe('count');
+    expect(progress.cards).toEqual({ done: 0, total: 2 });
+  });
+
+  it('counts cards for an empty sprint rather than claiming a full one', async () => {
+    const created = await sprint();
+    const { progress } = await scrum.getSprint(actor, created.id);
+    // 0 of 0 points would render as 100% complete on any progress bar.
+    expect(progress.unit).toBe('count');
+    expect(progress.cards).toEqual({ done: 0, total: 0 });
+  });
+
+  it('counts blocked cards that are not done', async () => {
+    const created = await sprint();
+    const a = await scrum.createTask(actor, { projectId, title: 'A', sprintId: created.id });
+    await scrum.blockTask(actor, a.id, { reason: 'Waiting on IT' });
+
+    const { progress } = await scrum.getSprint(actor, created.id);
+    expect(progress.blocked).toBe(1);
+  });
+
+  it('says a sprint has overrun rather than counting past its length', async () => {
+    const created = await sprint({ startsOn: '2026-07-01', endsOn: '2026-07-10' });
+    const { progress } = await scrum.getSprint(actor, created.id);
+
+    // "Day 14 of 10" on a top bar forever is how a sprint that nobody closed starts lying.
+    expect(progress.days.total).toBe(10);
+    expect(progress.days.elapsed).toBe(10);
+    expect(progress.days.overrun).toBe(true);
+  });
+
+  it('ignores archived cards, which used to inflate a sprint as it was tidied', async () => {
+    await scrum.ensureReportingViews();
+    const created = await sprint();
+    const a = await scrum.createTask(actor, { projectId, title: 'A', sprintId: created.id });
+    await scrum.createTask(actor, { projectId, title: 'B', sprintId: created.id });
+    await scrum.archiveTask(actor, a.id);
+
+    const { progress } = await scrum.getSprint(actor, created.id);
+    expect(progress.cards.total).toBe(1);
+
+    const rows = await testDb.execute(
+      sql`SELECT task_count FROM scrum.v_sprints WHERE id = ${created.id}`,
+    );
+    expect(Number((rows.rows[0] as { task_count: string }).task_count)).toBe(1);
+  });
+});
+
 describe('ScrumService blockers', () => {
   let scrum: ScrumService;
   let projectId: string;

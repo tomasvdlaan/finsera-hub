@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { Actor } from '@platform/contracts';
-import { and, asc, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, lte, notInArray, or, sql } from 'drizzle-orm';
 import { AuditService } from '../../core/audit/audit.service.js';
 import { users } from '../../core/db/core.schema.js';
 import { DB, type Database } from '../../core/db/db.module.js';
@@ -16,7 +16,14 @@ import { PermissionService } from '../../core/permissions/permission.service.js'
 import { RegistryService } from '../../core/registry/registry.service.js';
 import { CrmService } from '../crm/crm.service.js';
 import { TimeService } from '../time/time.service.js';
-import { DEFAULT_COLUMNS, PRIORITIES, boards, tasks, type BoardColumn } from './scrum.schema.js';
+import {
+  DEFAULT_COLUMNS,
+  PRIORITIES,
+  boards,
+  sprints,
+  tasks,
+  type BoardColumn,
+} from './scrum.schema.js';
 
 export interface CreateTaskInput {
   projectId: string;
@@ -25,6 +32,7 @@ export interface CreateTaskInput {
   status?: string;
   assigneeId?: string | null;
   estimateMinutes?: number | null;
+  storyPoints?: number | null;
   priority?: string;
   labels?: string[];
   dueOn?: string | null;
@@ -113,6 +121,272 @@ export class ScrumService {
     return this.getBoard(actor, projectId);
   }
 
+  // ── sprints ────────────────────────────────────────────────
+
+  /*
+   * The sprints table, its foreign key, its one-active-per-project unique index, its state
+   * and date checks and its published view have all existed since migration 0006. Nothing
+   * ever created a sprint, so `tasks.sprint_id` was null on every row in the database and
+   * `boards.uses_sprints` was false on every board. This is the code that was missing.
+   */
+
+  async listSprints(actor: Actor, projectId: string) {
+    await this.require(actor, 'scrum.tasks.read');
+    await this.crm.getProject(actor, projectId);
+    return this.db
+      .select()
+      .from(sprints)
+      .where(eq(sprints.projectId, projectId))
+      .orderBy(desc(sprints.startsOn));
+  }
+
+  /** The one that is running, if any. At most one, guaranteed by the database. */
+  async activeSprint(projectId: string) {
+    const [found] = await this.db
+      .select()
+      .from(sprints)
+      .where(and(eq(sprints.projectId, projectId), eq(sprints.state, 'active')))
+      .limit(1);
+    return found ?? null;
+  }
+
+  async createSprint(
+    actor: Actor,
+    input: { projectId: string; name: string; goal?: string | null; startsOn: string; endsOn: string },
+  ) {
+    await this.require(actor, 'scrum.board.manage');
+    await this.crm.getProject(actor, input.projectId);
+
+    const name = input.name?.trim();
+    if (!name) throw new BadRequestException('A sprint needs a name');
+    if (!input.startsOn || !input.endsOn) throw new BadRequestException('A sprint needs dates');
+    if (input.endsOn < input.startsOn) {
+      throw new BadRequestException('A sprint cannot end before it starts');
+    }
+
+    const id = this.registry.newId();
+    await this.db.transaction(async (tx) => {
+      await tx.insert(sprints).values({
+        id,
+        projectId: input.projectId,
+        name,
+        goal: input.goal?.trim() || null,
+        startsOn: input.startsOn,
+        endsOn: input.endsOn,
+      });
+
+      // The board opts in the moment a project has a sprint. It defaulted false and nothing
+      // ever set it, so no board has ever said it works in sprints.
+      await tx
+        .update(boards)
+        .set({ usesSprints: true, updatedAt: new Date() })
+        .where(eq(boards.projectId, input.projectId));
+
+      await this.audit.record(tx, {
+        actorId: actor.userId,
+        action: 'sprint.create',
+        entityType: 'sprint',
+        entityId: id,
+        detail: { projectId: input.projectId, name, startsOn: input.startsOn, endsOn: input.endsOn },
+      });
+    });
+
+    return this.getSprint(actor, id);
+  }
+
+  /**
+   * Start it. At most one sprint per project may be active, and the database is what says so.
+   *
+   * The partial unique index is the guarantee; this translates its violation into a sentence.
+   * Without that translation a second start surfaces as a 500 and a Postgres constraint name.
+   */
+  async startSprint(actor: Actor, id: string) {
+    await this.require(actor, 'scrum.board.manage');
+    const sprint = await this.rawSprint(id);
+    if (sprint.state === 'active') return this.getSprint(actor, id);
+    if (sprint.state === 'completed') {
+      throw new BadRequestException('That sprint is finished. Create the next one.');
+    }
+
+    const running = await this.activeSprint(sprint.projectId);
+    if (running) {
+      throw new BadRequestException(
+        `"${running.name}" is still running. Finish it before starting another.`,
+      );
+    }
+
+    await this.db.transaction(async (tx) => {
+      await tx
+        .update(sprints)
+        .set({ state: 'active', updatedAt: new Date() })
+        .where(eq(sprints.id, id));
+      await this.audit.record(tx, {
+        actorId: actor.userId,
+        action: 'sprint.start',
+        entityType: 'sprint',
+        entityId: id,
+      });
+      // Declared in the manifest since the module was written and never fired.
+      await this.events.publish(tx, {
+        name: 'sprint.started',
+        entityType: 'sprint',
+        entityId: id,
+        actorId: actor.userId,
+        payload: { projectId: sprint.projectId, name: sprint.name },
+      });
+    });
+
+    return this.getSprint(actor, id);
+  }
+
+  /**
+   * Close it, and hand back whatever did not get done.
+   *
+   * Unfinished cards leave the sprint rather than travelling with it. A sprint is a record of
+   * what a fortnight actually contained, and dragging its failures into the next one makes
+   * both of them lies — the work returns to the backlog, where the next planning session has
+   * to argue for it again.
+   */
+  async completeSprint(actor: Actor, id: string) {
+    await this.require(actor, 'scrum.board.manage');
+    const sprint = await this.rawSprint(id);
+    if (sprint.state === 'completed') return this.getSprint(actor, id);
+
+    const board = await this.getBoard(actor, sprint.projectId);
+    const doneKeys = board.columns.filter((c) => c.isDone).map((c) => c.key);
+
+    const returned = await this.db
+      .select({ id: tasks.id })
+      .from(tasks)
+      .where(
+        and(
+          eq(tasks.sprintId, id),
+          isNull(tasks.archivedAt),
+          isNull(tasks.completedAt),
+          // notInArray, not a sql template with ALL(): drizzle binds a JS array as one
+          // parameter, so Postgres tried to read the string 'done' as an array literal.
+          doneKeys.length > 0 ? notInArray(tasks.status, doneKeys) : undefined,
+        ),
+      );
+
+    await this.db.transaction(async (tx) => {
+      if (returned.length > 0) {
+        await tx
+          .update(tasks)
+          .set({ sprintId: null, updatedAt: new Date() })
+          .where(
+            inArray(
+              tasks.id,
+              returned.map((t) => t.id),
+            ),
+          );
+      }
+
+      await tx
+        .update(sprints)
+        .set({ state: 'completed', updatedAt: new Date() })
+        .where(eq(sprints.id, id));
+
+      await this.audit.record(tx, {
+        actorId: actor.userId,
+        action: 'sprint.complete',
+        entityType: 'sprint',
+        entityId: id,
+        detail: { returnedToBacklog: returned.length },
+      });
+
+      await this.events.publish(tx, {
+        name: 'sprint.completed',
+        entityType: 'sprint',
+        entityId: id,
+        actorId: actor.userId,
+        payload: { projectId: sprint.projectId, returnedToBacklog: returned.length },
+      });
+    });
+
+    return this.getSprint(actor, id);
+  }
+
+  async getSprint(actor: Actor, id: string) {
+    await this.require(actor, 'scrum.tasks.read');
+    const sprint = await this.rawSprint(id);
+    return { ...sprint, progress: await this.sprintProgress(sprint) };
+  }
+
+  /**
+   * How far through, in whichever unit the sprint can honestly report.
+   *
+   * The unit is decided here rather than in the browser, so every screen agrees. The rule
+   * matters more than the unit: a percentage computed from a partly-estimated backlog is a
+   * chart that quietly lies, and it lies in the flattering direction. So points are used only
+   * when every card has them, minutes only when every card has those, and otherwise it counts
+   * cards and says so.
+   */
+  async sprintProgress(sprint: { id: string; projectId: string; startsOn: string; endsOn: string }) {
+    const board = await this.getBoardRaw(sprint.projectId);
+    const doneKeys = (board?.columns ?? DEFAULT_COLUMNS).filter((c) => c.isDone).map((c) => c.key);
+
+    const rows = await this.db
+      .select({
+        storyPoints: tasks.storyPoints,
+        estimateMinutes: tasks.estimateMinutes,
+        status: tasks.status,
+        completedAt: tasks.completedAt,
+        blockedSince: tasks.blockedSince,
+      })
+      .from(tasks)
+      .where(and(eq(tasks.sprintId, sprint.id), isNull(tasks.archivedAt)));
+
+    const isDone = (t: (typeof rows)[number]) =>
+      t.completedAt !== null || doneKeys.includes(t.status);
+
+    const sum = (pick: (t: (typeof rows)[number]) => number | null, only?: boolean) =>
+      rows.reduce((n, t) => (only && !isDone(t) ? n : n + (pick(t) ?? 0)), 0);
+
+    const allPointed = rows.length > 0 && rows.every((t) => t.storyPoints !== null);
+    const allEstimated = rows.length > 0 && rows.every((t) => t.estimateMinutes !== null);
+
+    const today = new Date().toISOString().slice(0, 10);
+    const day = 86_400_000;
+    const totalDays =
+      Math.round((Date.parse(sprint.endsOn) - Date.parse(sprint.startsOn)) / day) + 1;
+    const elapsedDays = Math.min(
+      totalDays,
+      Math.max(0, Math.round((Date.parse(today) - Date.parse(sprint.startsOn)) / day) + 1),
+    );
+
+    return {
+      /** Which of the three below a screen should show. Never a mixture. */
+      unit: allPointed ? ('points' as const) : allEstimated ? ('minutes' as const) : ('count' as const),
+      points: { done: sum((t) => t.storyPoints, true), total: sum((t) => t.storyPoints) },
+      minutes: { done: sum((t) => t.estimateMinutes, true), total: sum((t) => t.estimateMinutes) },
+      cards: { done: rows.filter(isDone).length, total: rows.length },
+      blocked: rows.filter((t) => t.blockedSince !== null && !isDone(t)).length,
+      days: {
+        elapsed: elapsedDays,
+        total: totalDays,
+        /** Past its end date and still open, so "day 14 of 10" is never shown. */
+        overrun: today > sprint.endsOn,
+      },
+    };
+  }
+
+  private async rawSprint(id: string) {
+    const [found] = await this.db.select().from(sprints).where(eq(sprints.id, id)).limit(1);
+    if (!found) throw new NotFoundException('Sprint not found');
+    return found;
+  }
+
+  /** The board row without the permission check, for internal aggregates. */
+  private async getBoardRaw(projectId: string) {
+    const [found] = await this.db
+      .select()
+      .from(boards)
+      .where(eq(boards.projectId, projectId))
+      .limit(1);
+    return found ?? null;
+  }
+
   // ── tasks ──────────────────────────────────────────────────
 
   async createTask(actor: Actor, input: CreateTaskInput, origin: { aiInitiated?: boolean } = {}) {
@@ -145,6 +419,7 @@ export class ScrumService {
         status,
         assigneeId,
         estimateMinutes: input.estimateMinutes ?? null,
+        storyPoints: input.storyPoints ?? null,
         priority: this.validPriority(input.priority),
         labels: input.labels ?? [],
         dueOn: input.dueOn ?? null,
@@ -211,6 +486,7 @@ export class ScrumService {
           assigneeId,
           estimateMinutes:
             patch.estimateMinutes === undefined ? before.estimateMinutes : patch.estimateMinutes,
+          storyPoints: patch.storyPoints === undefined ? before.storyPoints : patch.storyPoints,
           priority: patch.priority ? this.validPriority(patch.priority) : before.priority,
           labels: patch.labels ?? before.labels,
           dueOn: patch.dueOn === undefined ? before.dueOn : patch.dueOn,
@@ -664,6 +940,7 @@ export class ScrumService {
       CREATE VIEW scrum.v_tasks AS
       SELECT t.id, t.project_id, t.title, t.status, t.priority, t.assignee_id,
              t.estimate_minutes, t.estimate_minutes / 60.0 AS estimate_hours,
+             t.story_points,
              t.due_on, t.parent_id, t.sprint_id,
              (t.completed_at IS NOT NULL) AS completed, t.completed_at,
              -- Blocked, and for how long. The duration is what an insight rule can act on;
@@ -681,8 +958,19 @@ export class ScrumService {
     await this.db.execute(sql`DROP VIEW IF EXISTS scrum.v_sprints CASCADE`);
     await this.db.execute(sql`
       CREATE VIEW scrum.v_sprints AS
-      SELECT s.id, s.project_id, s.name, s.starts_on, s.ends_on, s.state,
-             (SELECT count(*) FROM scrum.tasks t WHERE t.sprint_id = s.id) AS task_count
+      SELECT s.id, s.project_id, s.name, s.goal, s.starts_on, s.ends_on, s.state,
+             -- Was a bare count that included archived cards, so a sprint's size grew every
+             -- time somebody tidied up. Done vs total, and points, are what a review reads.
+             (SELECT count(*) FROM scrum.tasks t
+               WHERE t.sprint_id = s.id AND t.archived_at IS NULL) AS task_count,
+             (SELECT count(*) FROM scrum.tasks t
+               WHERE t.sprint_id = s.id AND t.archived_at IS NULL
+                 AND t.completed_at IS NOT NULL) AS done_count,
+             (SELECT coalesce(sum(t.story_points), 0) FROM scrum.tasks t
+               WHERE t.sprint_id = s.id AND t.archived_at IS NULL) AS points_total,
+             (SELECT coalesce(sum(t.story_points), 0) FROM scrum.tasks t
+               WHERE t.sprint_id = s.id AND t.archived_at IS NULL
+                 AND t.completed_at IS NOT NULL) AS points_done
         FROM scrum.sprints s
     `);
   }

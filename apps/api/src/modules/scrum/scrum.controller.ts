@@ -90,6 +90,47 @@ export class ScrumController {
     return this.scrum.startTimer(actor, id);
   }
 
+  // ── sprints ──
+  //
+  // The table has existed since migration 0006 with nothing to create a row in it.
+
+  @Get('sprints')
+  sprints(@CurrentActor() actor: Actor, @Query('projectId') projectId: string) {
+    return this.scrum.listSprints(actor, projectId);
+  }
+
+  /** The one running on a project, with its progress. Null when a project runs a flow board. */
+  @Get('projects/:projectId/sprint')
+  async currentSprint(@CurrentActor() actor: Actor, @Param('projectId') projectId: string) {
+    const sprint = await this.scrum.activeSprint(projectId);
+    return sprint ? this.scrum.getSprint(actor, sprint.id) : null;
+  }
+
+  @Get('sprints/:id')
+  sprint(@CurrentActor() actor: Actor, @Param('id') id: string) {
+    return this.scrum.getSprint(actor, id);
+  }
+
+  @Post('sprints')
+  createSprint(
+    @CurrentActor() actor: Actor,
+    @Body()
+    body: { projectId: string; name: string; goal?: string | null; startsOn: string; endsOn: string },
+  ) {
+    return this.scrum.createSprint(actor, body);
+  }
+
+  @Post('sprints/:id/start')
+  startSprint(@CurrentActor() actor: Actor, @Param('id') id: string) {
+    return this.scrum.startSprint(actor, id);
+  }
+
+  /** Closes it and returns whatever did not get finished to the backlog. */
+  @Post('sprints/:id/complete')
+  completeSprint(@CurrentActor() actor: Actor, @Param('id') id: string) {
+    return this.scrum.completeSprint(actor, id);
+  }
+
   /**
    * This card cannot move, and why.
    *

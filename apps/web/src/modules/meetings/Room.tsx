@@ -8,6 +8,7 @@ import { noteActions } from './actions.js';
 import { RichEditor } from './RichEditor.js';
 import { RoomBar } from './RoomBar.js';
 import { RoomRail, type BoardColumn, type BoardTask } from './RoomRail.js';
+import type { Sprint } from '../scrum/types.js';
 import { calloutNode, taskNode, type SlashCommand } from './slashCommands.js';
 import type { NoteDetail } from './types.js';
 import { useNoteBody } from './useNoteBody.js';
@@ -45,6 +46,7 @@ export function Room() {
   const [columns, setColumns] = useState<BoardColumn[]>([]);
   const [tasks, setTasks] = useState<BoardTask[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
+  const [sprint, setSprint] = useState<Sprint | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [ending, setEnding] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -82,16 +84,20 @@ export function Room() {
       setColumns([]);
       setTasks([]);
       setProjectName(undefined);
+      setSprint(null);
       return;
     }
     void Promise.allSettled([
       api.get<{ columns: BoardColumn[] }>(`/scrum/boards/${projectId}`),
       api.get<BoardTask[]>(`/scrum/tasks?projectId=${projectId}`),
       api.get<{ name: string }>(`/crm/projects/${projectId}`),
-    ]).then(([board, open, project]) => {
+      // Null for a project that runs a flow board, which is most of them.
+      api.get<Sprint | null>(`/scrum/projects/${projectId}/sprint`),
+    ]).then(([board, open, project, running]) => {
       if (board.status === 'fulfilled') setColumns(board.value.columns);
       if (open.status === 'fulfilled') setTasks(open.value);
       if (project.status === 'fulfilled') setProjectName(project.value.name);
+      setSprint(running.status === 'fulfilled' ? running.value : null);
     });
   }, [note?.projectId]);
 
@@ -261,6 +267,7 @@ export function Room() {
       <RoomBar
         note={note}
         projectName={projectName}
+        sprint={sprint}
         running={running}
         needsAudio={live.needsAudio}
         startedAt={live.startedAt}

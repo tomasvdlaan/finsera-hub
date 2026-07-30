@@ -18,6 +18,8 @@ export interface Task {
   status: string;
   assigneeId: string | null;
   estimateMinutes: number | null;
+  /** Beside minutes, not instead of them. See the column comment in scrum.schema.ts. */
+  storyPoints: number | null;
   priority: 'low' | 'normal' | 'high' | 'urgent';
   labels: string[];
   dueOn: string | null;
@@ -32,6 +34,49 @@ export interface Task {
   blockedReason: string | null;
   blockedSince: string | null;
   blockedOnUserId: string | null;
+}
+
+export interface SprintProgress {
+  /** Which of the three a screen should show. Decided server-side so every screen agrees. */
+  unit: 'points' | 'minutes' | 'count';
+  points: { done: number; total: number };
+  minutes: { done: number; total: number };
+  cards: { done: number; total: number };
+  blocked: number;
+  days: { elapsed: number; total: number; overrun: boolean };
+}
+
+export interface Sprint {
+  id: string;
+  projectId: string;
+  name: string;
+  goal: string | null;
+  startsOn: string;
+  endsOn: string;
+  state: 'planned' | 'active' | 'completed';
+  progress: SprintProgress;
+}
+
+/**
+ * How far through, as a fraction, in whatever unit the sprint can honestly report.
+ *
+ * Returns null rather than zero when there is nothing to measure. An empty sprint has done
+ * 0 of 0, which every naive percentage renders as complete.
+ */
+export function sprintFraction(p: SprintProgress): number | null {
+  const { done, total } =
+    p.unit === 'points' ? p.points : p.unit === 'minutes' ? p.minutes : p.cards;
+  return total > 0 ? Math.min(1, done / total) : null;
+}
+
+/** What the progress says, in words, naming its unit so nobody has to guess. */
+export function sprintProgressLabel(p: SprintProgress): string {
+  if (p.unit === 'points') return `${p.points.done} of ${p.points.total} pts`;
+  if (p.unit === 'minutes') {
+    const h = (m: number) => Math.round((m / 60) * 10) / 10;
+    return `${h(p.minutes.done)}h of ${h(p.minutes.total)}h`;
+  }
+  return `${p.cards.done} of ${p.cards.total} cards`;
 }
 
 /** How long a card has been stuck, in whole days. */
