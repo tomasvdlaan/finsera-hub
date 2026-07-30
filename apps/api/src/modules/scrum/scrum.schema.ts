@@ -96,6 +96,27 @@ export const tasks = scrum.table(
     /** Fractional so moving a card writes one row, not the whole column. */
     rank: numeric('rank', { precision: 20, scale: 10 }).notNull(),
     completedAt: timestamp('completed_at', { withTimezone: true }),
+
+    /**
+     * Blocked, and why.
+     *
+     * Orthogonal to `status` rather than a column on the board, because a card is normally
+     * blocked *while* being somewhere: in progress and waiting on a credential, in review and
+     * waiting on a sign-off. A "blocked" column would force it to stop being where it is to
+     * say it is stuck, and would lose the more useful fact of the two.
+     *
+     * `waiting_on_client` stays exactly as it is. That is about the client specifically and it
+     * earned its place; this is the internal case — a dependency, a person, a decision — which
+     * had nowhere to live at all. Where they coincide, both are true.
+     *
+     * The reason is not optional. "Blocked" with no reason is a red badge nobody can act on,
+     * and by the time anyone asks, the answer has been forgotten.
+     */
+    blockedReason: text('blocked_reason'),
+    blockedSince: timestamp('blocked_since', { withTimezone: true }),
+    /** Who we are waiting on, when it is a person. A core.users id, no cross-schema FK. */
+    blockedOnUserId: uuid('blocked_on_user_id'),
+
     createdBy: uuid('created_by').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -113,5 +134,12 @@ export const tasks = scrum.table(
     ),
     // A task cannot be its own parent; deeper cycles are checked in the service.
     check('tasks_not_own_parent', sql`${t.parentId} IS NULL OR ${t.parentId} <> ${t.id}`),
+    // Blocked means blocked for a reason since a moment. Neither half is meaningful alone:
+    // a reason with no start cannot age, and a start with no reason cannot be acted on.
+    check(
+      'tasks_blocked_is_complete',
+      sql`(${t.blockedReason} IS NULL) = (${t.blockedSince} IS NULL)`,
+    ),
+    index('tasks_blocked_idx').on(t.blockedSince),
   ],
 );

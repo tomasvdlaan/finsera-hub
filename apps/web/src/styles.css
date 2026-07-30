@@ -1721,3 +1721,26 @@ ul.decl li > div {
 .ceremony-label {
   font-weight: 600;
 }
+
+/*
+ * A blocker on a card.
+ *
+ * Loud on purpose, and above the metadata rather than in it. A blocker is the reason the card
+ * is not moving, which makes it more important than the estimate or the labels beside it — and
+ * both reference designs put it front and centre for the same reason.
+ */
+.task-blocked {
+  margin: var(--space-1) 0;
+  padding: var(--space-1) var(--space-2);
+  border-left: 3px solid var(--danger);
+  background: var(--danger-bg);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  line-height: var(--leading-norm);
+}
+/* The same blocker, given room to breathe on a page rather than a card. */
+.task-blocked-detail {
+  font-size: var(--text-base);
+  padding: var(--space-3);
+  margin: var(--space-4) 0;
+}

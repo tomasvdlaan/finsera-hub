@@ -27,6 +27,34 @@ describe('insight severities', () => {
     expect(fortnight.severity).toBe('attention');
   });
 
+  it('lets a blocker reach the attention queue quickly', () => {
+    const candidate = rule('task_blocked').toCandidate({
+      id: crypto.randomUUID(),
+      title: 'Ship the SOC2 endpoint',
+      status: 'in_progress',
+      days_blocked: 3,
+      project_name: 'Power BI',
+    });
+
+    // Faster than task_stalled's fortnight on purpose. A stalled task might have been quietly
+    // dropped; a blocker is a thing somebody wrote down as being in the way, so somebody
+    // already knows what needs to happen.
+    expect(candidate.severity).toBe('attention');
+    expect(candidate.subjectType).toBe('task');
+    expect(candidate.title).toMatch(/blocked for 3 days/);
+  });
+
+  it('escalates a blocker nobody cleared in a week', () => {
+    const candidate = rule('task_blocked').toCandidate({
+      id: crypto.randomUUID(),
+      title: 'Ship the SOC2 endpoint',
+      status: 'review',
+      days_blocked: 9,
+      project_name: null,
+    });
+    expect(candidate.severity).toBe('urgent');
+  });
+
   it('escalates work that has been stuck a month', () => {
     const month = rule('task_stalled').toCandidate({
       id: crypto.randomUUID(),

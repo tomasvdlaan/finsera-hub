@@ -3,13 +3,22 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import type { EntityRef } from '@platform/contracts';
 import { api } from '../../lib/api.js';
 import { Comments } from '../../shell/Comments.js';
+import { useDialog } from '../../shell/ui/Dialog.js';
 import { Links } from '../../shell/Links.js';
 import { Timeline } from '../../shell/Timeline.js';
 import { EditableField } from '../crm/EditableField.js';
 import type { Project } from '../crm/types.js';
-import { PRIORITIES, hours, toMinutes, type Board, type TaskDetail as Detail } from './types.js';
+import {
+  PRIORITIES,
+  daysBlocked,
+  hours,
+  toMinutes,
+  type Board,
+  type TaskDetail as Detail,
+} from './types.js';
 
 export function TaskDetail() {
+  const { ask } = useDialog();
   const { id = '' } = useParams();
   const navigate = useNavigate();
   const [task, setTask] = useState<Detail | null>(null);
@@ -52,6 +61,47 @@ export function TaskDetail() {
   const patch = async (body: Record<string, unknown>) => {
     try {
       await api.patch(`/scrum/tasks/${id}`, body);
+      await load();
+      setRefreshKey((k) => k + 1);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  /**
+   * Say what is in the way.
+   *
+   * The reason is required, so this asks for it rather than offering a bare toggle. A card
+   * marked blocked with no reason is a red badge nobody can act on, and by the time somebody
+   * asks, the answer has been forgotten — which is the failure the whole feature exists for.
+   */
+  const block = async () => {
+    const answer = await ask({
+      title: 'What is this blocked on?',
+      confirmLabel: 'Mark blocked',
+      fields: [
+        {
+          name: 'reason',
+          label: 'Blocked on',
+          required: true,
+          placeholder: 'Waiting on the Snowflake credentials from IT',
+          hint: 'One line. Whoever reads the board in a week should know what to chase.',
+        },
+      ],
+    });
+    if (!answer?.reason) return;
+    try {
+      await api.post(`/scrum/tasks/${id}/block`, { reason: answer.reason });
+      await load();
+      setRefreshKey((k) => k + 1);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  const unblock = async () => {
+    try {
+      await api.post(`/scrum/tasks/${id}/unblock`, {});
       await load();
       setRefreshKey((k) => k + 1);
     } catch (e) {
@@ -109,6 +159,11 @@ export function TaskDetail() {
             </option>
           ))}
         </select>
+        {task.blockedReason ? (
+          <button onClick={() => void unblock()}>Unblock</button>
+        ) : (
+          <button onClick={() => void block()}>Blocked?</button>
+        )}
         <button onClick={() => void startTimer()}>Start timer</button>
         <button className="link-button destructive" onClick={() => void archive()}>
           archive
@@ -116,6 +171,17 @@ export function TaskDetail() {
       </div>
 
       {error && <p className="error">{error}</p>}
+
+      {/* Before the fields, because it is the reason nothing is happening to this card. */}
+      {task.blockedReason && (
+        <div className="task-blocked task-blocked-detail">
+          <span className="tag overdue">blocked</span> {task.blockedReason}{' '}
+          <span className="muted">
+            — for {daysBlocked(task.blockedSince)}{' '}
+            {daysBlocked(task.blockedSince) === 1 ? 'day' : 'days'}
+          </span>
+        </div>
+      )}
 
       <EditableField label="Title" value={task.title} onSave={(v) => patch({ title: v })} />
       <EditableField

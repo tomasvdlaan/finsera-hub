@@ -428,6 +428,112 @@ export class ScrumService {
     return { ...task, children, loggedMinutes, assignee };
   }
 
+  /**
+   * This card cannot move, and here is why.
+   *
+   * A flag beside the status rather than a column on the board. A card is normally blocked
+   * *while* being somewhere — in progress waiting on a credential, in review waiting on a
+   * sign-off — and a "blocked" column would make it stop being where it is in order to say
+   * it is stuck, losing the more useful of the two facts.
+   *
+   * The reason is required. A red badge with no reason cannot be acted on, and by the time
+   * somebody asks, the answer has been forgotten — which is the entire failure this is for.
+   */
+  async blockTask(
+    actor: Actor,
+    id: string,
+    input: { reason: string; blockedOnUserId?: string | null },
+  ) {
+    await this.require(actor, 'scrum.tasks.write');
+    const task = await this.rawTask(id);
+
+    const reason = input.reason?.trim();
+    if (!reason) throw new BadRequestException('Say what it is blocked on');
+
+    // Same validation the assignee gets — waiting on somebody who does not exist is a
+    // blocker nobody will ever clear.
+    const blockedOnUserId = await this.resolveUser(input.blockedOnUserId);
+
+    // Re-blocking an already-blocked card keeps the original date: the clock should measure
+    // how long the work has been stuck, not how long ago somebody last rephrased it.
+    const since = task.blockedSince ?? new Date();
+
+    await this.db.transaction(async (tx) => {
+      await tx
+        .update(tasks)
+        .set({
+          blockedReason: reason,
+          blockedSince: since,
+          blockedOnUserId,
+          updatedAt: new Date(),
+        })
+        .where(eq(tasks.id, id));
+
+      await this.audit.record(tx, {
+        actorId: actor.userId,
+        action: 'task.block',
+        entityType: 'task',
+        entityId: id,
+        detail: { reason, blockedOnUserId },
+      });
+
+      if (!task.blockedSince) {
+        await this.events.publish(tx, {
+          name: 'task.blocked',
+          entityType: 'task',
+          entityId: id,
+          actorId: actor.userId,
+          payload: { reason, status: task.status },
+        });
+      }
+    });
+
+    return this.getTask(actor, id);
+  }
+
+  /** Unstuck. Clears all three columns together, because the CHECK requires it. */
+  async unblockTask(actor: Actor, id: string) {
+    await this.require(actor, 'scrum.tasks.write');
+    const task = await this.rawTask(id);
+    const since = task.blockedSince;
+    if (!since) return this.getTask(actor, id);
+
+    await this.db.transaction(async (tx) => {
+      await tx
+        .update(tasks)
+        .set({
+          blockedReason: null,
+          blockedSince: null,
+          blockedOnUserId: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(tasks.id, id));
+
+      await this.audit.record(tx, {
+        actorId: actor.userId,
+        action: 'task.unblock',
+        entityType: 'task',
+        entityId: id,
+        // Kept in the audit trail, because the row no longer holds it and how long things sit
+        // blocked is the interesting question a month later.
+        detail: {
+          reason: task.blockedReason,
+          blockedForDays: Math.floor((Date.now() - since.getTime()) / 86_400_000),
+        },
+      });
+
+      await this.events.publish(tx, {
+        name: 'task.unblocked',
+        entityType: 'task',
+        entityId: id,
+        actorId: actor.userId,
+        payload: { reason: task.blockedReason },
+      });
+    });
+
+    return this.getTask(actor, id);
+  }
+
   async archiveTask(actor: Actor, id: string) {
     await this.require(actor, 'scrum.tasks.write');
     await this.rawTask(id);
@@ -560,6 +666,14 @@ export class ScrumService {
              t.estimate_minutes, t.estimate_minutes / 60.0 AS estimate_hours,
              t.due_on, t.parent_id, t.sprint_id,
              (t.completed_at IS NOT NULL) AS completed, t.completed_at,
+             -- Blocked, and for how long. The duration is what an insight rule can act on;
+             -- the reason is deliberately not published, because it is free text somebody
+             -- typed about a client and a reporting view is the wrong place for that.
+             (t.blocked_since IS NOT NULL) AS blocked,
+             t.blocked_since,
+             t.blocked_on_user_id,
+             CASE WHEN t.blocked_since IS NULL THEN NULL
+                  ELSE (CURRENT_DATE - t.blocked_since::date) END AS days_blocked,
              t.created_at, t.updated_at
         FROM scrum.tasks t
        WHERE t.archived_at IS NULL

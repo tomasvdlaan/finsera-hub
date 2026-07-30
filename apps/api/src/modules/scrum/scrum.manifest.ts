@@ -21,6 +21,8 @@ export const scrumManifest = defineManifest({
     { name: 'task.moved', description: 'A task changed column.' },
     { name: 'task.completed', description: 'A task reached a done column.' },
     { name: 'task.assigned', description: 'A task was assigned to someone.' },
+    { name: 'task.blocked', description: 'A task cannot move, and said why.' },
+    { name: 'task.unblocked', description: 'A task stopped being blocked.' },
     { name: 'sprint.started', description: 'A sprint became active.' },
     { name: 'sprint.completed', description: 'A sprint was closed.' },
   ],
@@ -42,7 +44,11 @@ export const scrumManifest = defineManifest({
   chatWidgets: [{ entityType: 'task', component: 'scrum:task-card' }],
 
   reportingViews: [
-    { view: 'scrum.v_tasks', description: 'Tasks with status, estimate and completion.' },
+    {
+      view: 'scrum.v_tasks',
+      description:
+        'Tasks with status, estimate, completion, and whether and for how long they are blocked.',
+    },
     { view: 'scrum.v_sprints', description: 'Sprints with their task counts.' },
   ],
 

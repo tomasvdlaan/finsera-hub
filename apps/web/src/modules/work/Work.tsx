@@ -12,6 +12,7 @@ interface Task {
   dueOn: string | null;
   estimateMinutes: number | null;
   labels: string[];
+  blockedReason: string | null;
 }
 
 interface Project {
@@ -130,6 +131,12 @@ export function Work() {
                 {cards.map((t) => (
                   <Link key={t.id} to={`/scrum/tasks/${t.id}`} className="work-card">
                     <div>{t.title}</div>
+                    {/* The reason a card is not moving outranks everything else about it. */}
+                    {t.blockedReason && (
+                      <div className="task-blocked">
+                        <span className="tag overdue">blocked</span> {t.blockedReason}
+                      </div>
+                    )}
                     <div className="muted work-card-meta">
                       {projectName.get(t.projectId) ?? 'Project'}
                       {t.dueOn && ` · due ${t.dueOn}`}

@@ -256,6 +256,44 @@ export const RULES: Rule[] = [
   },
 
   {
+    name: 'task_blocked',
+    description: 'A task is blocked and nobody has cleared it.',
+    query: sql`
+      SELECT t.id, t.title, t.status, t.days_blocked, p.name AS project_name
+        FROM scrum.v_tasks t
+        LEFT JOIN crm.v_projects p ON p.id = t.project_id
+       WHERE t.blocked
+         AND NOT t.completed
+         AND t.days_blocked >= 3
+    `,
+    toCandidate: (r) => ({
+      key: `task_blocked:${String(r.id)}`,
+      rule: 'task_blocked',
+      subjectId: String(r.id),
+      subjectType: 'task',
+      /*
+       * Three days before it is worth mentioning, a week before it is worth interrupting for.
+       *
+       * A blocker is different in kind from a stalled task: `task_stalled` infers that nothing
+       * has happened, which might mean the work was quietly dropped, while this one is a thing
+       * somebody wrote down as being in the way. Somebody already knows what needs to happen,
+       * which is exactly why it is embarrassing for it to sit for a week.
+       */
+      severity: n(r.days_blocked) >= 7 ? 'urgent' : 'attention',
+      title: `"${String(r.title)}" has been blocked for ${n(r.days_blocked)} days`,
+      detail: `${r.project_name ? `${String(r.project_name)} — ` : ''}still in ${String(
+        r.status,
+      ).replace(/_/g, ' ')}. Whatever it is waiting on has not moved.`,
+      facts: {
+        status: r.status,
+        daysBlocked: n(r.days_blocked),
+        projectName: r.project_name,
+      },
+      magnitude: n(r.days_blocked),
+    }),
+  },
+
+  {
     name: 'quote_accepted_by_client',
     description: 'A client accepted a quote and the work has no project yet.',
     query: sql`

@@ -90,6 +90,26 @@ export class ScrumController {
     return this.scrum.startTimer(actor, id);
   }
 
+  /**
+   * This card cannot move, and why.
+   *
+   * Not a column change: a card is usually blocked while being somewhere, and the board
+   * position is the more useful of the two facts.
+   */
+  @Post('tasks/:id/block')
+  block(
+    @CurrentActor() actor: Actor,
+    @Param('id') id: string,
+    @Body() body: { reason: string; blockedOnUserId?: string | null },
+  ) {
+    return this.scrum.blockTask(actor, id, body);
+  }
+
+  @Post('tasks/:id/unblock')
+  unblock(@CurrentActor() actor: Actor, @Param('id') id: string) {
+    return this.scrum.unblockTask(actor, id);
+  }
+
   @Delete('tasks/:id')
   async archive(@CurrentActor() actor: Actor, @Param('id') id: string) {
     await this.scrum.archiveTask(actor, id);

@@ -21,6 +21,7 @@ export interface BoardTask {
   priority: string;
   dueOn: string | null;
   estimateMinutes: number | null;
+  blockedReason: string | null;
 }
 
 const hours = (minutes: number) => `${Math.round((minutes / 60) * 10) / 10}h`;
@@ -402,9 +403,33 @@ function BoardTab({
   }
 
   const today = new Date().toISOString().slice(0, 10);
+  const blocked = tasks.filter((t) => t.blockedReason);
 
   return (
     <>
+      {/*
+        Blocked cards first, out of their columns.
+
+        In a stand-up the blockers are the agenda — the rest of the board is context. Leaving
+        them scattered through the columns means reading the whole board to find the three
+        things anybody needs to talk about.
+      */}
+      {blocked.length > 0 && (
+        <section className="room-block">
+          <h3>Blocked {blocked.length}</h3>
+          <ul className="cards">
+            {blocked.map((t) => (
+              <li key={t.id}>
+                <Link to={`/scrum/tasks/${t.id}`}>{t.title}</Link>
+                <div className="task-blocked">
+                  <span className="tag overdue">blocked</span> {t.blockedReason}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       {columns
         .filter((c) => !c.isDone)
         .map((column) => {
@@ -429,6 +454,12 @@ function BoardTab({
                         {' '}
                         {t.dueOn < today ? 'overdue' : 'due'} {t.dueOn}
                       </span>
+                    )}
+                    {t.blockedReason && (
+                      <>
+                        {' '}
+                        <span className="tag overdue">blocked</span>
+                      </>
                     )}
                   </li>
                 ))}

@@ -23,7 +23,20 @@ export interface Task {
   dueOn: string | null;
   parentId: string | null;
   completedAt: string | null;
+  /**
+   * Blocked, and why — beside the status rather than instead of it.
+   *
+   * A card is usually blocked while being somewhere: in progress waiting on a credential, in
+   * review waiting on a sign-off. Both facts matter, so both are carried.
+   */
+  blockedReason: string | null;
+  blockedSince: string | null;
+  blockedOnUserId: string | null;
 }
+
+/** How long a card has been stuck, in whole days. */
+export const daysBlocked = (blockedSince: string | null): number =>
+  blockedSince ? Math.floor((Date.now() - new Date(blockedSince).getTime()) / 86_400_000) : 0;
 
 export interface TaskDetail extends Task {
   children: Task[];

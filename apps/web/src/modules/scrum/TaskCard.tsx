@@ -1,7 +1,7 @@
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Link } from 'react-router-dom';
-import { hours, isOverdue, type Task } from './types.js';
+import { daysBlocked, hours, isOverdue, type Task } from './types.js';
 
 /**
  * A card on the board.
@@ -38,6 +38,19 @@ export function TaskCard({
 
       <div className="task-card-body">
         <Link to={`/scrum/tasks/${task.id}`}>{task.title}</Link>
+
+        {/*
+          Above the metadata, not among it.
+
+          A blocker is the reason this card is not moving, which makes it the most important
+          thing about it — more than its estimate, its labels or when it is due. Buried in the
+          meta row it would read as one more attribute.
+        */}
+        {task.blockedReason && (
+          <div className="task-blocked" title={`Blocked for ${daysBlocked(task.blockedSince)} days`}>
+            <span className="tag overdue">blocked</span> {task.blockedReason}
+          </div>
+        )}
 
         {/* Controls sit below the title rather than beside it: a card is narrow, and a
             title squeezed to four lines is harder to scan than an extra row. */}

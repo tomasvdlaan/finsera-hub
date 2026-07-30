@@ -176,6 +176,13 @@
       "when": 1785409878284,
       "tag": "0024_solid_fabian_cortez",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1785417038094,
+      "tag": "0025_sudden_lily_hollister",
+      "breakpoints": true
     }
   ]
 }
