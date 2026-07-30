@@ -396,6 +396,17 @@ export class LiveRunner {
     const ended = await this.sessions.end(noteId);
     if (!ended) return { saved: false };
     const { live, watchers } = ended;
+
+    /*
+     * The end time is stamped here, before anything is written.
+     *
+     * It used to sit below the empty-session return, so a recording that captured nothing
+     * left the note with a start and no end — which reads as still running, forever, and
+     * there is no way to tell it apart from a meeting that never stopped. The session has
+     * ended by this line whatever it produced, so this is where the fact belongs.
+     */
+    await this.meetings.stampSession(actor, noteId, { endedAt: new Date() });
+
     if (live.lines.length === 0) {
       // Still tell the screen, or a recording that captured nothing looks like one that
       // is somehow still going.
@@ -405,7 +416,6 @@ export class LiveRunner {
 
     const note = await this.meetings.get(actor, noteId);
     const costCents = this.live.costCents(live);
-    await this.meetings.stampSession(actor, noteId, { endedAt: new Date() });
 
     // The transcript first, and as its own record. If the body write fails after this, what
     // was said is still saved — the other order loses the speech to keep the summary.

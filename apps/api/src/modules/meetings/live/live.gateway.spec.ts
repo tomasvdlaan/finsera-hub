@@ -382,6 +382,19 @@ describe('LiveGateway', () => {
     );
   });
 
+  it('stamps the end time even when the recording caught nothing', async () => {
+    const note = await noteWithConsent();
+    const socket = new FakeSocket();
+    await gateway.handleConnection(socket as never, request(`token=t&noteId=${note.id}`));
+    await socket.deliver({ type: 'stop' });
+
+    // A start with no end reads as still running, forever, and cannot be told apart from a
+    // meeting that genuinely never stopped.
+    const saved = await meetings.get(actor, note.id);
+    expect(saved.startedAt).not.toBeNull();
+    expect(saved.endedAt).not.toBeNull();
+  });
+
   it('keeps the first start time when the same note is recorded twice', async () => {
     const note = await noteWithConsent();
     const first = new FakeSocket();

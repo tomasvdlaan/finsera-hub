@@ -13,12 +13,24 @@ export interface Template {
   description: string;
   agenda: string[];
   body: string;
+  /**
+   * How long this ceremony is supposed to take.
+   *
+   * A property of the ceremony rather than of the note, which is why it lives here and needs
+   * no column: a stand-up is fifteen minutes whoever runs it. The room shows elapsed against
+   * it, because the whole value of a timebox is seeing it while you can still act on it.
+   *
+   * Advisory. Nothing stops a recording at the limit — a meeting that ends mid-sentence
+   * because a timer said so would be worse than one that overran.
+   */
+  timeboxMinutes: number;
 }
 
 export const TEMPLATES = {
   client_check_in: {
     label: 'Client check-in',
     description: 'A recurring conversation about how the work is going.',
+    timeboxMinutes: 30,
     agenda: ['How is the current work landing?', 'Blockers on their side', 'What is next', 'Anything commercial'],
     body: [
       '## Context',
@@ -34,6 +46,7 @@ export const TEMPLATES = {
   kick_off: {
     label: 'Project kick-off',
     description: 'Starting a piece of work: scope, people, and how it will run.',
+    timeboxMinutes: 60,
     agenda: [
       'What are we actually delivering',
       'Who does what',
@@ -57,6 +70,7 @@ export const TEMPLATES = {
   discovery: {
     label: 'Discovery / intake',
     description: 'A first conversation with a prospect or about a new problem.',
+    timeboxMinutes: 60,
     agenda: [
       'What problem are they trying to solve',
       'What they have tried',
@@ -80,6 +94,7 @@ export const TEMPLATES = {
   retrospective: {
     label: 'Retrospective',
     description: 'Looking back at a period of work.',
+    timeboxMinutes: 45,
     agenda: ['What went well', 'What did not', 'What we change next'],
     body: ['## Went well', '', '## Did not go well', '', '## Changing', ''].join('\n'),
   },
@@ -92,4 +107,5 @@ export const TEMPLATE_LIST = Object.entries(TEMPLATES).map(([name, t]) => ({
   label: t.label,
   description: t.description,
   agenda: t.agenda,
+  timeboxMinutes: t.timeboxMinutes,
 }));

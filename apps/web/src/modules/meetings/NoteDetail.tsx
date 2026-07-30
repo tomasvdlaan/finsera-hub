@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { Comments } from '../../shell/Comments.js';
@@ -8,6 +8,7 @@ import type { Client } from '../crm/types.js';
 import { LivePanel } from './LivePanel.js';
 import { RichEditor } from './RichEditor.js';
 import { Transcripts } from './Transcripts.js';
+import { useNoteBody } from './useNoteBody.js';
 import type { NoteDetail as Detail } from './types.js';
 
 /**
@@ -68,22 +69,21 @@ export function NoteDetail() {
   const [client, setClient] = useState<Client | null>(null);
   const [projects, setProjects] = useState<Array<{ id: string; name: string }>>([]);
   const [people, setPeople] = useState<Array<{ id: string; displayName: string }>>([]);
-  const [body, setBody] = useState('');
-  const [dirty, setDirty] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { body, dirty, onChange: onBodyChange, adopt, flush } = useNoteBody(id);
 
   const load = useCallback(async () => {
     try {
       const n = await api.get<Detail>(`/meetings/${id}`);
       setNote(n);
-      setBody(n.body);
-      setDirty(false);
+      // Refuses while there are unsaved keystrokes, so a reload triggered by accepting an
+      // action point cannot replace what you are in the middle of typing.
+      adopt(n.body);
       if (n.clientId) setClient(await api.get<Client>(`/crm/clients/${n.clientId}`));
     } catch (e) {
       setError((e as Error).message);
     }
-  }, [id]);
+  }, [id, adopt]);
 
   useEffect(() => {
     void load();
@@ -102,35 +102,14 @@ export function NoteDetail() {
   const act = async (fn: () => Promise<unknown>) => {
     setError(null);
     try {
+      // Write first: everything here reloads the note, and a reload adopts the server's copy.
+      await flush();
       await fn();
       await load();
     } catch (e) {
       setError((e as Error).message);
     }
   };
-
-  const saveBody = useCallback(
-    async (next: string) => {
-      await api.patch(`/meetings/${id}`, { body: next });
-      setDirty(false);
-    },
-    [id],
-  );
-
-  /**
-   * Autosave while typing.
-   *
-   * Notes are taken during a meeting, where remembering to press save is exactly the
-   * attention you do not have. Debounced so a burst of typing is one write.
-   */
-  const onBodyChange = (next: string) => {
-    setBody(next);
-    setDirty(true);
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => void saveBody(next).catch(() => undefined), 1200);
-  };
-
-  useEffect(() => () => (saveTimer.current ? clearTimeout(saveTimer.current) : undefined), []);
 
   if (!note) return error ? <p className="error">{error}</p> : <p className="muted">Loading…</p>;
 
@@ -158,6 +137,14 @@ export function NoteDetail() {
       </div>
 
       <div className="row">
+        {/*
+          The way into the room, and the primary action while a meeting is happening. This
+          page is for reading and correcting a note afterwards; the room is for running the
+          meeting, which needs the whole screen.
+        */}
+        <Link to={`/meetings/${id}/room`} className="button-link">
+          Open the room
+        </Link>
         {note.status === 'draft' && (
           <button onClick={() => void act(() => api.post(`/meetings/${id}/finalise`, {}))}>
             Mark done

@@ -33,7 +33,15 @@ interface LiveMeeting {
   enabled: string[];
   maySpeak: boolean;
   chatty: boolean;
-  /** Pick a session back up — a refresh loses the panel, not the meeting. */
+  /**
+   * Pick a running session back up.
+   *
+   * Works for a bot meeting, where the browser was only ever a watcher and the capture keeps
+   * going without it. It does NOT rescue a microphone recording from a page reload: the
+   * browser closes the socket on unload, and the server reads a closed socket from the audio
+   * source as the end of the meeting, so by the time this runs there is nothing to resume.
+   * Fixing that needs a grace period server-side before a dropped source is finalised.
+   */
   resume: (noteId: string) => Promise<void>;
   startBot: (noteId: string, meetingUrl: string) => Promise<void>;
   startCapture: (noteId: string, source: 'microphone' | 'tab', deviceId?: string) => Promise<void>;
