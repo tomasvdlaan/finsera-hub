@@ -104,6 +104,37 @@ export const meetingsManifest = defineManifest({
       handler: 'list',
     },
     {
+      name: 'meetings_write_note',
+      description:
+        'Write Markdown into a meeting note. Appends to the end by default. Pass `section` to ' +
+        'replace everything under that heading instead — use it only for a section you are ' +
+        'maintaining, never to rewrite something the user wrote. Prefer appending: a note has ' +
+        'no version history, so replacing text destroys it permanently. Use meetings_note_outline ' +
+        'first if you need to know which headings exist.',
+      inputSchema: z.object({
+        noteId: z.string().uuid(),
+        markdown: z.string().describe('Markdown. Headings, lists, task items and quotes all work.'),
+        section: z
+          .string()
+          .optional()
+          .describe('A heading to replace the contents of, e.g. "Decisions". Omit to append.'),
+      }),
+      outputSchema: z.object({}),
+      permission: 'meetings.write',
+      riskClass: 'write:draft',
+      handler: 'writeIntoNoteTool',
+    },
+    {
+      name: 'meetings_note_outline',
+      description:
+        "A note's title, its headings and its current text — what to read before writing into it.",
+      inputSchema: z.object({ noteId: z.string().uuid() }),
+      outputSchema: z.object({}),
+      permission: 'meetings.read',
+      riskClass: 'read',
+      handler: 'noteOutline',
+    },
+    {
       name: 'meetings_propose_action_items',
       description:
         'Propose action points from a meeting note. They are recorded as PROPOSED and become tasks only when the user accepts them. Only propose things actually stated in the note — never invent an owner or a deadline that was not mentioned.',

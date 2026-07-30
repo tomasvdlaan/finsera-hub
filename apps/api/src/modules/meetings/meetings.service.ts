@@ -12,6 +12,7 @@ import { RegistryService } from '../../core/registry/registry.service.js';
 import { chunkText } from '../../core/text/chunk.js';
 import { CrmService } from '../crm/crm.service.js';
 import { ScrumService } from '../scrum/scrum.service.js';
+import { appendToNote, headingsOf, replaceSection } from './note-edit.js';
 import { TEMPLATES, bodyFor, type TemplateName } from './templates.js';
 import {
   actionItems,
@@ -656,6 +657,62 @@ export class MeetingsService {
         updatedAt: new Date(),
       })
       .where(eq(notes.id, noteId));
+  }
+
+  /**
+   * Write something into a note, on request.
+   *
+   * The assistant could read notes and propose action points and could not add a sentence to
+   * one — so asking it to take a note got a polite refusal, which was true and useless. The
+   * body being Markdown is justified by a model being able to work with it; this is the part
+   * that lets it.
+   *
+   * Two shapes, and the difference is how much can go wrong. Appending cannot destroy
+   * anything. Replacing a section rewrites exactly that section and cannot reach a word
+   * outside it. There is no "rewrite the note" — a note body has no history, so an overwrite
+   * is unrecoverable and would be silent.
+   */
+  async writeIntoNote(
+    actor: Actor,
+    input: { noteId: string; markdown: string; section?: string | null },
+    origin: { aiInitiated?: boolean } = {},
+  ) {
+    await this.require(actor, 'meetings.write');
+    const before = await this.raw(input.noteId);
+
+    const markdown = (input.markdown ?? '').trim();
+    if (!markdown) throw new BadRequestException('There is nothing to write');
+
+    const body = input.section
+      ? replaceSection(before.body, input.section, markdown)
+      : appendToNote(before.body, markdown);
+
+    await this.update(actor, input.noteId, { body });
+    await this.db.transaction(async (tx) => {
+      await this.audit.record(tx, {
+        actorId: actor.userId,
+        action: 'meeting_note.written',
+        entityType: 'meeting_note',
+        entityId: input.noteId,
+        // Audited with the text, because this is the platform writing prose into a record a
+        // person will later read as their own.
+        detail: { section: input.section ?? null, markdown },
+        aiInitiated: origin.aiInitiated ?? false,
+      });
+    });
+
+    return {
+      noteId: input.noteId,
+      section: input.section ?? null,
+      headings: headingsOf(body),
+    };
+  }
+
+  /** What the assistant needs to write into the right place: the note's own shape. */
+  async noteOutline(actor: Actor, noteId: string) {
+    await this.require(actor, 'meetings.read');
+    const note = await this.raw(noteId);
+    return { noteId, title: note.title, headings: headingsOf(note.body), body: note.body };
   }
 
   // ── transcripts ────────────────────────────────────────────

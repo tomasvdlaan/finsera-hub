@@ -64,6 +64,18 @@ export class MeetingsModule implements OnModuleInit {
     this.aiTools.bind('meetings_list_notes', (actor: Actor, input) =>
       this.meetings.list(actor, input as { clientId?: string; projectId?: string }),
     );
+    this.aiTools.bind('meetings_note_outline', (actor: Actor, input) =>
+      this.meetings.noteOutline(actor, (input as { noteId: string }).noteId),
+    );
+    this.aiTools.bind('meetings_write_note', (actor: Actor, input) =>
+      this.meetings.writeIntoNote(
+        actor,
+        input as { noteId: string; markdown: string; section?: string | null },
+        // Every note the assistant writes is stamped as its own, so a body that reads as
+        // yours can always be traced back to whoever actually wrote it.
+        { aiInitiated: true },
+      ),
+    );
     this.aiTools.bind('meetings_propose_action_items', async (actor: Actor, input) => {
       const i = input as { noteId: string; items: Array<{ text: string; dueOn?: string }> };
       let note;

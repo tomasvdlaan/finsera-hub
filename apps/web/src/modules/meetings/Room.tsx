@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { useLiveMeeting } from '../../shell/LiveMeeting.js';
+import { useMeetingChat } from '../../shell/MeetingChat.js';
 import { useDialog } from '../../shell/ui/Dialog.js';
 import { useDocumentTitle } from '../../shell/useDocumentTitle.js';
 import { noteActions } from './actions.js';
@@ -37,6 +38,7 @@ interface Template {
  */
 export function Room() {
   const { ask } = useDialog();
+  const { wroteAt } = useMeetingChat();
   const { id = '' } = useParams();
   const navigate = useNavigate();
   const {
@@ -117,6 +119,18 @@ export function Room() {
     if (live.noteStaleAt === 0) return;
     void load();
   }, [live.noteStaleAt, load]);
+
+  /*
+   * The assistant wrote into the note, so what is on screen is behind.
+   *
+   * Flushing first is what makes this safe: the editor may be holding unsaved keystrokes, and
+   * useNoteBody refuses to adopt the server's copy while it is dirty — so without the flush
+   * the reload would be ignored and the next autosave would overwrite what the assistant wrote.
+   */
+  useEffect(() => {
+    if (wroteAt === 0) return;
+    void flush().then(load);
+  }, [wroteAt, flush, load]);
 
   const running = live.running && live.noteId === id;
 
