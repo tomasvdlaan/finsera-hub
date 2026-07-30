@@ -291,10 +291,15 @@ describe('LiveRunner', () => {
     expect(result.saved).toBe(true);
 
     const saved = await meetings.get(actor, note.id);
-    expect(saved.body).toContain('## Transcript');
-    expect(saved.body).toContain('**Marieke:**'); // who said it, in the record
+    // The transcript is its own record now, and deliberately not in the note.
+    expect(saved.body).not.toContain('## Transcript');
     expect(saved.body).toContain('## Summary');
     expect(saved.transcriptCostCents).toBe(11);
+
+    const [transcript] = await meetings.listTranscripts(actor, note.id);
+    expect(transcript!.provider).toBe(joined.providerName);
+    // Who said it, which is what makes a transcript worth reading afterwards.
+    expect(JSON.stringify(transcript!.lines)).toContain('Marieke');
 
     expect(saved.actionItems).toHaveLength(1);
     expect(saved.actionItems[0]!.status).toBe('proposed');

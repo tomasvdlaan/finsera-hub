@@ -403,11 +403,17 @@ describe('LiveGateway', () => {
     await socket.deliver({ type: 'stop' });
 
     const saved = await meetings.get(actor, note.id);
-    expect(saved.body).toContain('## Transcript');
+    // What was understood stays in the note; what was said goes next to it.
     expect(saved.body).toContain('## Summary');
     expect(saved.body).toContain('## Decisions');
+    expect(saved.body).not.toContain('## Transcript');
     expect(saved.transcribedAt).not.toBeNull();
     expect(saved.transcriptCostCents).toBe(7);
+
+    const [transcript] = await meetings.listTranscripts(actor, note.id);
+    expect(transcript!.lines).not.toHaveLength(0);
+    // No capture provider on this path, which is what 'browser' means.
+    expect(transcript!.provider).toBe('browser');
 
     // Only the ACTION proposal became an action point, and it is still only proposed.
     expect(saved.actionItems).toHaveLength(1);
@@ -439,8 +445,8 @@ describe('LiveGateway', () => {
     // A crashed tab should not also lose the meeting.
     await gateway.handleDisconnect(socket as never);
 
-    const saved = await meetings.get(actor, note.id);
-    expect(saved.body).toContain('We should add supplier drill-down.');
+    const [transcript] = await meetings.listTranscripts(actor, note.id);
+    expect(JSON.stringify(transcript!.lines)).toContain('We should add supplier drill-down.');
   });
 
   it('writes nothing when no audio was ever received', async () => {

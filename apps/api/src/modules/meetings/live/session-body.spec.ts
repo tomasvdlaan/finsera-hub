@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { assembleBody } from './session-body.js';
+import { assembleBody, formatTranscript } from './session-body.js';
 import { AI_NOTES_HEADING } from './behaviours/note-taker.behaviour.js';
 import type { Proposal, TranscriptLine } from './live-session.js';
 
@@ -85,11 +85,26 @@ describe('assembleBody', () => {
     expect(body).not.toContain('Stale notes');
   });
 
-  it('attributes transcript lines to a speaker when the capture provider knows one', () => {
+  it('keeps the transcript out of the note entirely', () => {
     const body = assembleBody(
       session({ lines: [line(65, 'We need supplier drill-down', 'Anna')] }),
     );
 
-    expect(body).toContain('[01:05] **Anna:** We need supplier drill-down');
+    // The whole reason this function exists in its current form: the body is what gets
+    // chunked, embedded and searched, and speech drowned the note it was attached to.
+    expect(body).not.toContain('We need supplier drill-down');
+    expect(body).not.toContain('Transcript');
+  });
+});
+
+describe('formatTranscript', () => {
+  it('attributes a line to a speaker when the capture provider knew one', () => {
+    expect(formatTranscript([line(65, 'We need supplier drill-down', 'Anna')])).toBe(
+      '[01:05] **Anna:** We need supplier drill-down',
+    );
+  });
+
+  it('leaves the attribution off when nobody knew who spoke', () => {
+    expect(formatTranscript([line(5, 'Someone said this')])).toBe('[00:05] Someone said this');
   });
 });

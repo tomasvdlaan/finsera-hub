@@ -169,6 +169,13 @@
       "when": 1785359577411,
       "tag": "0023_tense_darkhawk",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1785409878284,
+      "tag": "0024_solid_fabian_cortez",
+      "breakpoints": true
     }
   ]
 }

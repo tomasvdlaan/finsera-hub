@@ -119,6 +119,24 @@ export class MeetingsController {
     return this.live.startBot(actor, id, body.meetingUrl);
   }
 
+  /**
+   * Rebuild a note's search chunks from its body.
+   *
+   * Needed after the transcript backfill, which deleted chunks embedded with speech in
+   * them rather than calling a model from a migration script. Useful on its own whenever
+   * indexing has fallen behind — it is idempotent, and it replaces rather than appends.
+   */
+  @Post(':id/reindex')
+  async reindex(@CurrentActor() actor: Actor, @Param('id') id: string) {
+    return { chunks: await this.meetings.reindex(actor, id) };
+  }
+
+  /** What was said, per recording. Its own route because it is the largest thing here. */
+  @Get(':id/transcripts')
+  transcripts(@CurrentActor() actor: Actor, @Param('id') id: string) {
+    return this.meetings.listTranscripts(actor, id);
+  }
+
   /** Is a session still running? Lets a reloaded page rejoin rather than start again. */
   @Get(':id/live')
   liveStatus(@CurrentActor() actor: Actor, @Param('id') id: string) {

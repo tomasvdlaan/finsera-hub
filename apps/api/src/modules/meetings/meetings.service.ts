@@ -13,7 +13,14 @@ import { chunkText } from '../../core/text/chunk.js';
 import { CrmService } from '../crm/crm.service.js';
 import { ScrumService } from '../scrum/scrum.service.js';
 import { TEMPLATES, type TemplateName } from './templates.js';
-import { actionItems, agendaItems, attendees, noteChunks, notes } from './meetings.schema.js';
+import {
+  actionItems,
+  agendaItems,
+  attendees,
+  noteChunks,
+  notes,
+  transcripts,
+} from './meetings.schema.js';
 
 export interface CreateNoteInput {
   title: string;
@@ -567,13 +574,17 @@ export class MeetingsService {
     result: { tokens: number; costCents: number; durationSeconds: number },
   ) {
     await this.require(actor, 'meetings.write');
+    const before = await this.raw(id);
     await this.db.transaction(async (tx) => {
       await tx
         .update(notes)
         .set({
           transcribedAt: new Date(),
-          transcriptTokens: result.tokens,
-          transcriptCostCents: result.costCents,
+          // Added to, not replaced. These are the note's totals, and a second recording
+          // used to overwrite the first — so a meeting recorded twice reported only what
+          // the last attempt cost, which read as the whole meeting being cheap.
+          transcriptTokens: (before.transcriptTokens ?? 0) + result.tokens,
+          transcriptCostCents: (before.transcriptCostCents ?? 0) + result.costCents,
           updatedAt: new Date(),
         })
         .where(eq(notes.id, id));
@@ -589,7 +600,70 @@ export class MeetingsService {
     return this.get(actor, id);
   }
 
+  // ── transcripts ────────────────────────────────────────────
+
+  /**
+   * Save what was said, as its own record.
+   *
+   * It used to be appended to `notes.body`, which is the text that gets chunked, embedded
+   * and searched. A transcript is thousands of words of speech and it drowned out the note
+   * it was attached to: asking the assistant what was decided returned the moment somebody
+   * nearly decided it. Here it is stored, readable, and out of the index.
+   */
+  async saveTranscript(
+    actor: Actor,
+    noteId: string,
+    session: {
+      startedAt: Date;
+      durationSeconds: number;
+      provider?: string;
+      lines: unknown[];
+      tokens: number;
+      costCents: number;
+    },
+  ) {
+    await this.require(actor, 'meetings.write');
+    await this.raw(noteId);
+    if (session.lines.length === 0) return null;
+
+    const id = this.registry.newId();
+    await this.db.insert(transcripts).values({
+      id,
+      noteId,
+      startedAt: session.startedAt,
+      durationSeconds: session.durationSeconds,
+      provider: session.provider ?? 'browser',
+      lines: session.lines,
+      tokens: session.tokens,
+      costCents: session.costCents,
+    });
+    return { id };
+  }
+
+  /**
+   * Every recording of a note, oldest first.
+   *
+   * Its own endpoint rather than part of the note, because a note payload is fetched on
+   * every render and a transcript is the largest thing the module stores. You ask for it
+   * when you want to read it.
+   */
+  async listTranscripts(actor: Actor, noteId: string) {
+    await this.require(actor, 'meetings.read');
+    await this.raw(noteId);
+    return this.db
+      .select()
+      .from(transcripts)
+      .where(eq(transcripts.noteId, noteId))
+      .orderBy(asc(transcripts.startedAt));
+  }
+
   // ── search ─────────────────────────────────────────────────
+
+  /** Re-embed a note on request. Permission-checked; index() itself is internal. */
+  async reindex(actor: Actor, noteId: string): Promise<number> {
+    await this.require(actor, 'meetings.write');
+    return this.index(noteId);
+  }
 
   /** Chunk and embed a note's body. Replaces whatever was indexed before. */
   async index(noteId: string): Promise<number> {

@@ -387,6 +387,10 @@ export class LiveRunner {
       clearInterval(timer);
       this.timers.delete(noteId);
     }
+    // Read before ending, because ending takes the session off the register and the
+    // provider is the only thing that says whether a bot or a browser was listening.
+    const provider = this.sessions.get(noteId)?.capture?.providerName ?? 'browser';
+
     const ended = await this.sessions.end(noteId);
     if (!ended) return { saved: false };
     const { live, watchers } = ended;
@@ -398,6 +402,18 @@ export class LiveRunner {
     }
 
     const note = await this.meetings.get(actor, noteId);
+    const costCents = this.live.costCents(live);
+
+    // The transcript first, and as its own record. If the body write fails after this, what
+    // was said is still saved — the other order loses the speech to keep the summary.
+    await this.meetings.saveTranscript(actor, noteId, {
+      startedAt: live.startedAt,
+      durationSeconds: live.durationSeconds,
+      provider,
+      lines: live.lines,
+      tokens: live.tokensIn + live.tokensOut,
+      costCents,
+    });
 
     await this.meetings.update(actor, noteId, { body: assembleBody(bodyInput(live, note.body)) });
 
@@ -407,7 +423,6 @@ export class LiveRunner {
       }
     }
 
-    const costCents = this.live.costCents(live);
     // Rounded cents read as "0" for a short meeting, which looks like broken metering
     // rather than a cheap one. The token counts are kept so the real figure is
     // recoverable, and the UI says "under a cent" instead of nothing.

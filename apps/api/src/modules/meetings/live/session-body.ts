@@ -34,10 +34,6 @@ export function assembleBody(session: {
   const at = stamp(session.startedAt);
   const heading = (title: string) => `\n## ${title} — ${at}\n\n`;
 
-  const transcript = session.lines
-    .map((l) => `${clock(l.at)} ${l.speaker ? `**${l.speaker}:** ` : ''}${l.text}`)
-    .join('\n');
-
   // Actions become action points on their own, so listing them here too would be a second
   // copy that goes stale the moment one is accepted or dismissed.
   const suggestions = session.openProposals.filter((p) => p.kind !== 'action');
@@ -58,9 +54,18 @@ export function assembleBody(session: {
     suggestions.length > 0
       ? `${heading('Suggested by the assistant')}${suggestions.map(describe).join('\n')}`
       : '',
-    `${heading('Transcript')}${transcript}`,
+    // No transcript. It is saved as its own record — see MeetingsService.saveTranscript —
+    // because this text is what gets chunked, embedded and searched, and a transcript
+    // buried the note it was attached to under the speech that produced it.
   ]
     .filter(Boolean)
+    .join('\n');
+}
+
+/** A transcript as Markdown, for reading and for export. Not for the note body. */
+export function formatTranscript(lines: TranscriptLine[]): string {
+  return lines
+    .map((l) => `${clock(l.at)} ${l.speaker ? `**${l.speaker}:** ` : ''}${l.text}`)
     .join('\n');
 }
 

@@ -299,6 +299,75 @@ describe('MeetingsService', () => {
     expect(cleared.actionItems[0]!.dueOn).toBeNull();
   });
 
+  // ── transcripts, which are no longer part of the note ──
+
+  it('keeps a transcript out of the note it belongs to', async () => {
+    const created = await note();
+    await meetings.saveTranscript(actor, created.id, {
+      startedAt: new Date('2026-07-29T14:35:00Z'),
+      durationSeconds: 90,
+      provider: 'recall',
+      lines: [{ id: 'l1', at: 5, text: 'We need supplier drill-down', speaker: 'Anna' }],
+      tokens: 100,
+      costCents: 3,
+    });
+
+    const [saved] = await meetings.listTranscripts(actor, created.id);
+    expect(saved!.lines).toHaveLength(1);
+    // The point of the whole exercise: the body is what gets indexed and searched.
+    expect((await meetings.get(actor, created.id)).body).not.toContain('supplier drill-down');
+  });
+
+  it('keeps each recording of the same meeting separate', async () => {
+    const created = await note();
+    for (const [minute, text] of [['14:35', 'the first meeting'], ['16:10', 'the second']] as const) {
+      await meetings.saveTranscript(actor, created.id, {
+        startedAt: new Date(`2026-07-29T${minute}:00Z`),
+        durationSeconds: 60,
+        lines: [{ id: `l-${minute}`, at: 1, text }],
+        tokens: 10,
+        costCents: 1,
+      });
+    }
+
+    const all = await meetings.listTranscripts(actor, created.id);
+    expect(all).toHaveLength(2);
+    // Oldest first, so reading them in order reads the day in order.
+    expect(JSON.stringify(all[0]!.lines)).toContain('the first meeting');
+  });
+
+  it('does not store an empty transcript', async () => {
+    const created = await note();
+    const result = await meetings.saveTranscript(actor, created.id, {
+      startedAt: new Date(),
+      durationSeconds: 0,
+      lines: [],
+      tokens: 0,
+      costCents: 0,
+    });
+
+    expect(result).toBeNull();
+    expect(await meetings.listTranscripts(actor, created.id)).toHaveLength(0);
+  });
+
+  it('adds up what a second recording cost instead of replacing it', async () => {
+    const created = await note();
+    await meetings.recordTranscription(actor, created.id, {
+      tokens: 1000,
+      costCents: 4,
+      durationSeconds: 60,
+    });
+    const after = await meetings.recordTranscription(actor, created.id, {
+      tokens: 500,
+      costCents: 3,
+      durationSeconds: 30,
+    });
+
+    // These are the note's totals. Overwriting made a twice-recorded meeting look cheap.
+    expect(after.transcriptTokens).toBe(1500);
+    expect(after.transcriptCostCents).toBe(7);
+  });
+
   it('dismisses an action point without touching the board', async () => {
     const created = await note();
     const withAction = await meetings.addActionItem(actor, created.id, { text: 'Not doing this' });

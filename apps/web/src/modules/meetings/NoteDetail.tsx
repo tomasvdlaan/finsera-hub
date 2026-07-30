@@ -7,6 +7,7 @@ import { Timeline } from '../../shell/Timeline.js';
 import type { Client } from '../crm/types.js';
 import { LivePanel } from './LivePanel.js';
 import { RichEditor } from './RichEditor.js';
+import { Transcripts } from './Transcripts.js';
 import type { NoteDetail as Detail } from './types.js';
 
 /**
@@ -260,6 +261,10 @@ export function NoteDetail() {
         </p>
       </section>
 
+      {/* Below the notes, because the notes are the point and the transcript is the
+          evidence. It used to be inside them, which had it exactly backwards. */}
+      <Transcripts noteId={id} />
+
       <section>
         <h2>Action points</h2>
         {proposed.length === 0 && settled.length === 0 && (
@@ -378,7 +383,9 @@ export function NoteDetail() {
               </option>
             ))}
           </select>
-          {!note.projectId && note.actionItems.length > 0 && (
+          {/* Only while something is still waiting to become a task. An accepted point
+              already is one, so saying it is "needed" then is simply untrue. */}
+          {!note.projectId && proposed.length > 0 && (
             <span className="muted">— needed before an action point can become a task</span>
           )}
         </div>

@@ -6,6 +6,7 @@ import {
   date,
   index,
   integer,
+  jsonb,
   pgSchema,
   text,
   timestamp,
@@ -71,9 +72,11 @@ export const notes = meetings.table(
     status: text('status').notNull().default('draft'),
 
     /**
-     * Set by 6c when a live session transcribes this meeting. Here rather than in a
-     * separate table because a note has at most one recording session, and audio itself
-     * is never stored — only the fact that it happened, and what it cost.
+     * Totals across every recording of this meeting — when it was last transcribed, and
+     * what all of it has cost. The per-recording detail lives in `transcripts`; these are
+     * the running sums, so recording a second time adds rather than replaces.
+     *
+     * Audio itself is never stored, only what was said and what it cost.
      */
     transcribedAt: timestamp('transcribed_at', { withTimezone: true }),
     transcriptTokens: integer('transcript_tokens'),
@@ -196,6 +199,41 @@ export const actionItems = meetings.table(
       sql`${t.status} <> 'accepted' OR ${t.taskId} IS NOT NULL`,
     ),
   ],
+);
+
+/**
+ * What was said, one row per recording.
+ *
+ * Kept out of `notes.body`, where it used to be appended. The body is indexed for search
+ * and read by the assistant, and a transcript is thousands of words of speech — half-
+ * sentences, filler, repetition — that swamped the note it was attached to. A search for
+ * a decision returned the ten seconds around the moment someone nearly said it.
+ *
+ * One row per recording, not per note: a note recorded twice has two of these, each with
+ * its own start time and cost, and neither replaces the other.
+ *
+ * `lines` is jsonb rather than a row per line because a transcript is written once and
+ * read whole. A thousand rows per meeting would buy a query nothing here asks.
+ */
+export const transcripts = meetings.table(
+  'transcripts',
+  {
+    id: uuid('id').primaryKey(),
+    noteId: uuid('note_id')
+      .notNull()
+      .references(() => notes.id, { onDelete: 'cascade' }),
+    /** When the recording began, which is what distinguishes one from another. */
+    startedAt: timestamp('started_at', { withTimezone: true }).notNull(),
+    durationSeconds: integer('duration_seconds').notNull().default(0),
+    /** 'recall' for a bot, 'browser' for the microphone or a tab. */
+    provider: text('provider').notNull().default('browser'),
+    /** TranscriptLine[] — id, at, text, and speaker where the provider knew one. */
+    lines: jsonb('lines').notNull().default(sql`'[]'::jsonb`),
+    tokens: integer('tokens').notNull().default(0),
+    costCents: integer('cost_cents').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('transcripts_note_idx').on(t.noteId)],
 );
 
 /** Note chunks for semantic search — the same shape docs uses, over its own rows. */
