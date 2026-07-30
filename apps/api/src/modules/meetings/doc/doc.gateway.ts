@@ -15,7 +15,15 @@ interface Editor {
   socket: WebSocket;
   noteId: string;
   actor: Actor;
-  /** Identifies this connection's steps so it can recognise its own coming back. */
+  /**
+   * What this connection calls itself, used only when the client does not say.
+   *
+   * The client's own id is what matters and the client supplies it with every batch. This is
+   * a per-connection fallback, and it must never be preferred: an editor outlives its socket,
+   * so naming it after the connection meant that after a reconnect it stopped recognising its
+   * own steps coming back, re-applied them as a stranger's and re-sent them — one extra copy
+   * of whatever had just been typed per round trip, without end.
+   */
   clientId: string;
 }
 
@@ -30,10 +38,10 @@ interface Editor {
  *
  * Protocol:
  *
- *   client → { type: 'steps', version, steps }   changes based on `version`
+ *   client → { type: 'steps', version, steps, clientId }   changes based on `version`
  *   client → { type: 'pull', version }           catch up after a reconnect
  *
- *   server → init    { version, doc, clientId }  the document, and who you are
+ *   server → init    { version, doc }        the document and the version it is at
  *   server → steps   { version, steps, clientIds }
  *                    Broadcast to everyone including the sender — prosemirror-collab
  *                    recognises its own clientIds and uses them to confirm, so sending only
@@ -86,12 +94,7 @@ export class DocGateway implements OnGatewayConnection, OnGatewayDisconnect {
       this.docs.watch(noteId);
 
       const snapshot = await this.docs.snapshot(noteId);
-      this.send(socket, {
-        type: 'init',
-        clientId,
-        version: snapshot.version,
-        doc: snapshot.doc,
-      });
+      this.send(socket, { type: 'init', version: snapshot.version, doc: snapshot.doc });
 
       socket.on('message', (raw: Buffer | string) => void this.onMessage(socket, raw));
     } catch (error) {
@@ -122,7 +125,7 @@ export class DocGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const editor = this.editors.get(socket);
     if (!editor) return;
 
-    let message: { type?: string; version?: number; steps?: unknown[] };
+    let message: { type?: string; version?: number; steps?: unknown[]; clientId?: string };
     try {
       message = JSON.parse(raw.toString()) as typeof message;
     } catch {
@@ -145,7 +148,8 @@ export class DocGateway implements OnGatewayConnection, OnGatewayDisconnect {
         const result = await this.docs.apply(editor.noteId, {
           version: message.version ?? -1,
           steps: message.steps ?? [],
-          clientId: editor.clientId,
+          // The editor's name for itself, not the socket's. See Editor.clientId.
+          clientId: message.clientId ?? editor.clientId,
           actor: editor.actor,
         });
         // Accepted steps reach this socket through the change listener, like everyone else's.

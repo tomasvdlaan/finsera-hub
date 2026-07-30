@@ -1,15 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight';
-import { DragHandle } from '@tiptap/extension-drag-handle-react';
 import { CharacterCount, Placeholder, Selection } from '@tiptap/extensions';
 import { EditorContent, useEditor, useEditorState, type Editor } from '@tiptap/react';
-// v3 moved the menus to their own entry point.
-import { BubbleMenu } from '@tiptap/react/menus';
 import { createLowlight, common } from 'lowlight';
 import { replacing } from '@platform/note-doc';
 import { api } from '../../lib/api.js';
 import { useDialog } from '../../shell/ui/Dialog.js';
-import { SLASH, matching, type NodeJson, type SlashCommand } from './slashCommands.js';
+import type { NodeJson, NoteCommand } from './noteCommands.js';
 import { CollabExtension } from './collabExtension.js';
 import { useNoteDoc } from './useNoteDoc.js';
 
@@ -49,15 +46,15 @@ const documentExtensions = replacing('codeBlock', CodeBlockLowlight.configure({ 
 export function RichEditor({
   noteId,
   editable = true,
-  slashCommands = [],
+  commands = [],
 }: {
   /** The note being edited. The document is fetched and kept in sync for this id. */
   noteId: string;
   editable?: boolean;
-  /** Typed as `/name`. See slashCommands.ts for why they return nodes and not Markdown. */
-  slashCommands?: SlashCommand[];
+  /** Toolbar actions that insert something and do something. See noteCommands.ts. */
+  commands?: NoteCommand[];
 }) {
-  const { ready, connected, error, attach } = useNoteDoc(noteId);
+  const { ready, clientId, connected, error, attach } = useNoteDoc(noteId);
 
   if (!ready) {
     return (
@@ -74,53 +71,37 @@ export function RichEditor({
       // somebody else's document.
       key={`${noteId}:${ready.version}`}
       start={ready}
+      clientId={clientId}
       attach={attach}
       connected={connected}
       error={error}
       editable={editable}
-      slashCommands={slashCommands}
+      commands={commands}
     />
   );
 }
 
 function EditorSurface({
   start,
+  clientId,
   attach,
   connected,
   error,
   editable,
-  slashCommands,
+  commands,
 }: {
-  start: { version: number; doc: unknown; clientId: string };
+  start: { version: number; doc: unknown };
+  clientId: string;
   attach: (editor: Editor) => () => void;
   connected: boolean;
   error: string | null;
   editable: boolean;
-  slashCommands: SlashCommand[];
+  commands: NoteCommand[];
 }) {
   /** Paste and drop handlers are created before the editor exists, so they read it here. */
   const editorRef = useRef<Editor | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const { ask } = useDialog();
-
-  /*
-   * The open slash menu, if any.
-   *
-   * `from` is where the slash sits, so selecting a command can delete what was typed. The
-   * commands themselves are read through a ref because useEditor captures its options once —
-   * a handler closing over the prop would keep calling the first render's version, which for
-   * commands closing over a note id means acting on the wrong meeting.
-   */
-  const [slash, setSlash] = useState<{ query: string; from: number; to: number } | null>(null);
-  const [picked, setPicked] = useState(0);
-  const commandsRef = useRef(slashCommands);
-  commandsRef.current = slashCommands;
-  const slashRef = useRef(slash);
-  slashRef.current = slash;
-
-  const options = slash ? matching(commandsRef.current, slash.query) : [];
-  const optionsRef = useRef(options);
-  optionsRef.current = options;
 
   const editor = useEditor({
     editable,
@@ -145,58 +126,12 @@ function EditorSurface({
       CharacterCount,
 
       // What turns local typing into steps the server can accept.
-      CollabExtension.configure({ version: start.version, clientId: start.clientId }),
+      CollabExtension.configure({ version: start.version, clientId }),
     ],
     // The document as the server has it, not a Markdown string. Parsing is the server's job
     // now, which is what stops the two sides disagreeing about what the text meant.
     content: start.doc as never,
-    onUpdate: ({ editor: instance }) => {
-
-      /*
-       * Look for `/query` at the start of the block the cursor is in.
-       *
-       * Recomputed from the document rather than tracked as the user types, so it stays right
-       * through undo, paste and clicking elsewhere — the three things that make a
-       * keystroke-counting trigger drift out of step with the text on screen.
-       */
-      if (commandsRef.current.length === 0) return;
-      const { $from, empty } = instance.state.selection;
-      if (!empty) return setSlash(null);
-      const blockStart = $from.start();
-      const before = instance.state.doc.textBetween(blockStart, $from.pos, '\n', '\0');
-      const found = SLASH.exec(before);
-      if (!found) return setSlash(null);
-      setSlash({ query: found[1] ?? '', from: blockStart, to: $from.pos });
-      setPicked(0);
-    },
     editorProps: {
-      /**
-       * The slash menu's keys, taken before the editor sees them.
-       *
-       * Only while the menu is open, so arrows and Enter behave normally the rest of the time.
-       */
-      handleKeyDown: (_view, event) => {
-        const open = slashRef.current;
-        const choices = optionsRef.current;
-        if (!open || choices.length === 0) return false;
-
-        if (event.key === 'Escape') {
-          setSlash(null);
-          return true;
-        }
-        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-          const step = event.key === 'ArrowDown' ? 1 : -1;
-          setPicked((i) => (i + step + choices.length) % choices.length);
-          return true;
-        }
-        if (event.key === 'Enter' || event.key === 'Tab') {
-          const chosen = choices[Math.min(picked, choices.length - 1)];
-          if (chosen) void pick(chosen);
-          return true;
-        }
-        return false;
-      },
-
       /**
        * Paste an image straight into the note.
        *
@@ -224,17 +159,12 @@ function EditorSurface({
   /**
    * Run a command and put what it returns in the document.
    *
-   * The typed `/query` is deleted first, and only then is the command run — so a dialog opens
-   * over a note that already looks finished, and cancelling leaves no debris. If the command
-   * returns null nothing is inserted, which is the cancel path.
+   * Invoked from the toolbar. Nothing is typed into the body to trigger it any more, so there
+   * is no typed text to clean up first and cancelling leaves the note exactly as it was.
    */
-  const pick = useCallback(async (command: SlashCommand) => {
-    const open = slashRef.current;
+  const runCommand = useCallback(async (command: NoteCommand) => {
     const instance = editorRef.current;
-    setSlash(null);
-    if (!open || !instance) return;
-
-    instance.chain().focus().deleteRange({ from: open.from, to: open.to }).run();
+    if (!instance) return;
 
     let node: NodeJson | null;
     try {
@@ -371,84 +301,28 @@ function EditorSurface({
         <Toolbar
           editor={editor}
           active={active}
+          commands={commands}
           onUpload={uploadAll}
           onLink={() => void linkSelection()}
+          onCommand={(c) => void runCommand(c)}
         />
       )}
 
       {/*
-        Formatting where the text is, rather than at the top of the page.
-        
-        The toolbar stays — it is discoverable, and it holds the things you reach for before
-        writing anything, like inserting a table. This holds the things you only ever want with
-        words already selected, which is most of them.
+        The page.
+
+        A bounded, centred column with margins, because this reads as a document and a
+        document has a width. It replaces a canvas that ran the full width of whichever pane
+        it was in — fine for a wiki, wrong for something people write prose in and print.
       */}
-      {editable && (
-        <BubbleMenu editor={editor} className="bubble-menu">
-          <Button label="B" title="Bold" active={active.bold}
-            onClick={() => editor.chain().focus().toggleBold().run()} />
-          <Button label="I" title="Italic" active={active.italic}
-            onClick={() => editor.chain().focus().toggleItalic().run()} />
-          <Button label="S" title="Strikethrough" active={active.strike}
-            onClick={() => editor.chain().focus().toggleStrike().run()} />
-          <Button label="◼" title="Highlight" active={active.highlight}
-            onClick={() => editor.chain().focus().toggleHighlight().run()} />
-          <Button label="‹›" title="Code" active={active.code}
-            onClick={() => editor.chain().focus().toggleCode().run()} />
-          <span className="toolbar-sep" />
-          <Button label="H2" title="Heading" active={active.h2}
-            onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()} />
-          <Button label="❝" title="Quote" active={active.blockquote}
-            onClick={() => editor.chain().focus().toggleBlockquote().run()} />
-          <Button label="🔗" title="Link" active={active.link}
-            onClick={() => void linkSelection()} />
-        </BubbleMenu>
-      )}
-
-      {/*
-        A handle for moving a block.
-        
-        Notion's most-copied affordance and the one that most changes how a long note feels:
-        reordering by dragging rather than by cutting and pasting, which in a Markdown document
-        means never having to get the blank lines right by hand.
-      */}
-      {editable && (
-        <DragHandle editor={editor}>
-          <span className="drag-grip" aria-hidden="true">
-            ⠿
-          </span>
-        </DragHandle>
-      )}
-
-      <EditorContent editor={editor} />
-
-      {/*
-        In the flow rather than floating over the caret.
-
-        A popover positioned from coordsAtPos is the usual approach and needs scroll listeners,
-        a resize observer and clamping to the viewport to stop it hanging off the bottom of the
-        room. This sits under the editor: less clever, always in the right place, and it cannot
-        cover the sentence you are writing.
-      */}
-      {options.length > 0 && (
-        <div className="slash-menu" role="listbox" aria-label="Insert">
-          {options.map((c, i) => (
-            <button
-              key={c.name}
-              role="option"
-              aria-selected={i === Math.min(picked, options.length - 1)}
-              className={
-                i === Math.min(picked, options.length - 1) ? 'slash-item slash-on' : 'slash-item'
-              }
-              onMouseEnter={() => setPicked(i)}
-              onClick={() => void pick(c)}
-            >
-              <strong>/{c.name}</strong> <span className="muted">{c.hint}</span>
-            </button>
-          ))}
-          <span className="muted slash-help">↑↓ to choose · Enter to insert · Esc to cancel</span>
-        </div>
-      )}
+      <div className="editor-page">
+        {/*
+          EditorContent renders a wrapper div of its own around the ProseMirror element, so
+          the sheet is styled here rather than on `.tiptap` — otherwise the thing being sized
+          is not the thing that is a child of the page, and the page's height never reaches it.
+        */}
+        <EditorContent editor={editor} className="editor-sheet" />
+      </div>
 
       {uploadError && <p className="error">{uploadError}</p>}
     </div>
@@ -559,17 +433,33 @@ function Button({
   );
 }
 
+/**
+ * The toolbar, and now the only place formatting lives.
+ *
+ * There was a bubble menu as well, floating over the selection. It went with the drag handle
+ * when the editor stopped pretending to be a Notion page: both are affordances that appear
+ * and move as you work, and in a document you want the controls to stay where you left them.
+ * Everything the bubble menu offered is here, in the same order.
+ *
+ * The last group is the commands that used to be typed as `/ticket`. They are here for the
+ * same reason a word processor puts them under Insert — you can see what is available without
+ * having to know it exists.
+ */
 function Toolbar({
   editor,
   active,
+  commands,
   onUpload,
   onLink,
+  onCommand,
 }: {
   editor: Editor;
   /** Subscribed once by the parent; see useActiveMarks for why not read here. */
   active: ReturnType<typeof useActiveMarks>;
+  commands: NoteCommand[];
   onUpload: (files: File[]) => void;
   onLink: () => void;
+  onCommand: (command: NoteCommand) => void;
 }) {
   const chain = useCallback(() => editor.chain().focus(), [editor]);
 
@@ -617,6 +507,24 @@ function Toolbar({
       <span className="toolbar-sep" />
       <Button label="↶" title="Undo" onClick={() => chain().undo().run()} />
       <Button label="↷" title="Redo" onClick={() => chain().redo().run()} />
+
+      {commands.length > 0 && (
+        <>
+          <span className="toolbar-sep" />
+          {commands.map((c) => (
+            <button
+              key={c.name}
+              type="button"
+              className="toolbar-command"
+              title={c.hint}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => onCommand(c)}
+            >
+              {c.label}
+            </button>
+          ))}
+        </>
+      )}
     </div>
   );
 }

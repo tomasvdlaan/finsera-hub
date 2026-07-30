@@ -526,10 +526,22 @@ ol {
 }
 
 /* The note editor: a toolbar over a document that looks like the rendered result. */
+/*
+ * The note editor, as a document.
+ *
+ * The chrome sits in a bar at the top and the writing sits on a page below it. That is a
+ * deliberate step back from the Notion arrangement this replaced, where formatting floated
+ * over the selection and every block grew a drag handle on hover: affordances that move as
+ * you work are good for assembling a page out of blocks and distracting when you are writing
+ * prose that somebody will read end to end.
+ */
 .rich-editor {
   border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--surface);
+  border-radius: var(--radius);
+  background: var(--surface-sunken, var(--surface));
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 .editor-toolbar {
   display: flex;
@@ -565,10 +577,66 @@ ol {
   background: var(--border);
   margin: 0 0.25rem;
 }
-.rich-editor .tiptap {
-  padding: 0.75rem 1rem;
-  min-height: 18rem;
+/* The actions that do something as well as insert something — see noteCommands.ts. */
+.toolbar-command {
+  padding: 0.2rem 0.5rem;
+  font-size: var(--text-xs);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--muted);
+}
+.toolbar-command:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+/*
+ * The page the writing sits on.
+ *
+ * Scrolls independently of the toolbar, which stays put — the one thing a document editor
+ * must not do is take the formatting controls off screen when you scroll to the middle of a
+ * long note.
+ */
+.editor-page {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-4) var(--space-3);
+  /*
+   * Flex rather than `margin: 0 auto` plus a percentage height on the page.
+   *
+   * A percentage height resolves against the containing block's `height`, and a flex item's
+   * height is `auto` however tall it is actually laid out — so `min-height: 100%` on the page
+   * silently did nothing and it stopped at the last line, leaving the rest of the column
+   * empty. Centring on the cross axis and letting the page grow gets both properties without
+   * depending on a percentage resolving.
+   */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+/*
+ * The sheet: a measure, and margins around it.
+ *
+ * ~72 characters is the width prose has been set at for a very long time, for the good reason
+ * that the eye loses the start of the next line beyond it. The sheet is centred by the page,
+ * so a wide window gives margins rather than a longer line.
+ */
+.editor-sheet {
+  width: 100%;
   max-width: 72ch;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-1);
+}
+.rich-editor .tiptap {
+  flex: 1;
+  padding: var(--space-6);
   outline: none;
 }
 .rich-editor .tiptap h1 { font-size: 1.5rem; margin: 1rem 0 0.4rem; }
@@ -1549,21 +1617,19 @@ ul.decl li > div {
   margin-bottom: var(--space-2);
 }
 /*
- * The editor fills the region and the prose cap is lifted.
+ * The editor fills the region; the page inside it keeps its measure.
  *
- * 72ch is right for a document page and wrong here: the room is already two columns, so
- * capping the text again leaves a channel of writing in a field of empty space.
+ * This used to lift the 72ch cap, on the argument that the room is already two columns and
+ * capping again leaves a channel of writing in a field of empty space. The room now shows a
+ * document, and a document has a width whichever pane it is in — the notes column is narrow
+ * enough that the measure rarely binds, and where it does the result is margins rather than
+ * lines too long to read back.
  */
 .room-notes .rich-editor {
   flex: 1;
-  display: flex;
-  flex-direction: column;
   min-height: 0;
 }
 .room-notes .rich-editor .tiptap {
-  max-width: none;
-  flex: 1;
-  overflow-y: auto;
   font-size: var(--text-base);
 }
 
@@ -1751,41 +1817,6 @@ ul.decl li > div {
   margin: var(--space-4) 0;
 }
 
-/*
- * The slash-command menu.
- *
- * Under the editor rather than over the caret. A popover anchored to the cursor needs scroll
- * and resize handling and clamping to keep it on screen, and in a room where the editor fills
- * the viewport it would sit over the text being written. This is always in the same place.
- */
-.slash-menu {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  margin-top: var(--space-1);
-  padding: var(--space-1);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface-raised);
-  box-shadow: var(--shadow-2);
-}
-.slash-item {
-  border: none;
-  background: none;
-  text-align: left;
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  color: var(--text);
-}
-.slash-on {
-  background: var(--accent-bg);
-}
-.slash-help {
-  padding: var(--space-1) var(--space-3);
-  font-size: var(--text-xs);
-}
-
 /* Something the assistant looked up on its own, under the thing it is about. */
 .room-found {
   margin-top: var(--space-2);
@@ -1840,50 +1871,6 @@ ul.decl li > div {
   height: 0;
   pointer-events: none;
 }
-
-/* Formatting that comes to the text. */
-.bubble-menu {
-  display: flex;
-  align-items: center;
-  gap: 1px;
-  padding: var(--space-1);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius);
-  background: var(--surface-raised);
-  box-shadow: var(--shadow-3);
-}
-.bubble-menu button {
-  border: none;
-  background: none;
-  padding: 0.2rem 0.45rem;
-  border-radius: var(--radius-sm);
-  color: var(--text);
-  line-height: 1;
-}
-.bubble-menu button:hover:not(:disabled) { background: var(--surface); }
-.bubble-menu button.toolbar-on { background: var(--accent-bg); color: var(--accent); }
-
-/*
- * The drag handle.
- *
- * Sits in the gutter and only appears on the block under the pointer, which is what keeps a
- * document with fifty blocks from looking like a control panel.
- */
-.drag-grip {
-  display: grid;
-  place-items: center;
-  width: 1.1rem;
-  height: 1.5rem;
-  margin-right: var(--space-1);
-  border-radius: var(--radius-sm);
-  color: var(--muted);
-  cursor: grab;
-  opacity: 0;
-  transition: opacity var(--transition-fast, 120ms ease);
-}
-.rich-editor:hover .drag-grip { opacity: 0.55; }
-.drag-grip:hover { opacity: 1; background: var(--surface); }
-.drag-grip:active { cursor: grabbing; }
 
 /*
  * Syntax-highlighted code.

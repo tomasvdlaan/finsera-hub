@@ -10,7 +10,7 @@ import { RichEditor } from './RichEditor.js';
 import { RoomBar } from './RoomBar.js';
 import { RoomRail, type BoardColumn, type BoardTask } from './RoomRail.js';
 import type { Sprint } from '../scrum/types.js';
-import { calloutNode, taskNode, type SlashCommand } from './slashCommands.js';
+import { calloutNode, taskNode, type NoteCommand } from './noteCommands.js';
 import type { NoteDetail } from './types.js';
 
 interface Template {
@@ -136,16 +136,16 @@ export function Room() {
   const running = live.running && live.noteId === id;
 
   /**
-   * What `/` offers, in a meeting.
+   * What the toolbar offers beyond formatting, in a meeting.
    *
    * Each one does something real and then writes a line about it, which is the point: saying
    * "Mike is blocked on the compliance sign-off" out loud in a stand-up should put a blocker on
    * the card, not only in a paragraph nobody re-reads.
    *
-   * Memoised on what they close over rather than recreated every render, because the editor
-   * reads them through a ref and a new array on every keystroke is churn for nothing.
+   * Memoised on what they close over rather than recreated every render, so the toolbar is
+   * not rebuilt on every keystroke.
    */
-  const slashCommands = useMemo<SlashCommand[]>(
+  const commands = useMemo<NoteCommand[]>(
     () => [
       {
         name: 'ticket',
@@ -303,9 +303,6 @@ export function Room() {
       <main className="room-notes">
         <div className="room-notes-head">
           <span className="muted">Notes</span>
-          <span className="muted">
-            <code>/ticket</code> <code>/blocker</code> <code>/decision</code>
-          </span>
           {running && live.aiNotes && (
             <span className="tag" title="The assistant is writing into its own section">
               ✦ assistant writing
@@ -315,7 +312,7 @@ export function Room() {
         </div>
         {/* The whole middle. Nothing above it but the bar, which is the requirement:
             the notes are the meeting, everything else is context. */}
-        <RichEditor noteId={id} slashCommands={slashCommands} />
+        <RichEditor noteId={id} commands={commands} />
       </main>
 
       <RoomRail

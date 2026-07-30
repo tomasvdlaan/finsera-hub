@@ -161,6 +161,33 @@ describe('NoteDocService', () => {
     ).toEqual({ ok: false, reason: 'invalid' });
   });
 
+  /**
+   * The echo must carry the sender's own name back to them.
+   *
+   * `receiveTransaction` in the browser decides whether an arriving step is your own
+   * confirmation or somebody else's edit by comparing this id against the collaboration
+   * plugin's. Get it wrong and the editor does not recognise its own work coming back: it
+   * applies it a second time as though a stranger had typed it, leaves its own steps
+   * unconfirmed, and sends them again — one extra copy per round trip, without end.
+   *
+   * That is not theoretical. The server used to name each *connection* (c1, c2), while the
+   * editor survives a reconnect and kept the name it was given first. After any reconnect the
+   * two disagreed, and twenty-three typed characters became six thousand copies in seconds
+   * with the tab locked hard enough that the page would not reload. The name belongs to the
+   * editor, and the server's job is only to hand it back unchanged.
+   */
+  it('echoes the identity the client gave, unchanged', async () => {
+    const mine = 'b3f1c0de-0000-4000-8000-000000000001';
+    const heard: Array<{ clientIds: string[] }> = [];
+    docs.onChange((change) => heard.push({ clientIds: change.clientIds }));
+
+    const steps = stepsFrom('# Standup\n\nSome preamble.', (tr) => typeAt(tr, 12, 'Z'));
+    await docs.apply(NOTE, { version: 0, steps, clientId: mine, actor });
+
+    expect(heard[0]!.clientIds).toEqual([mine]);
+    expect((await docs.since(NOTE, 0))!.clientIds).toEqual([mine]);
+  });
+
   it('notifies listeners with the steps and who sent them', async () => {
     const heard: unknown[] = [];
     docs.onChange((change) => heard.push(change));

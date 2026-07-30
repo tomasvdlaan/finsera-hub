@@ -10,7 +10,26 @@ const MAX_RETRY_MS = 15_000;
 
 export interface NoteDocState {
   /** Null until the server has sent the document. The editor cannot be built before then. */
-  ready: { version: number; doc: unknown; clientId: string } | null;
+  ready: { version: number; doc: unknown } | null;
+  /**
+   * This editor's identity, for the lifetime of the editor.
+   *
+   * Generated here rather than handed out by the server, and that is the whole point. The
+   * server used to name each *connection* — c1, c2 — and the editor configured its
+   * collaboration plugin with whatever name it was given at the time. But the editor now
+   * survives a reconnect, so after one the plugin still called itself c1 while the server
+   * tagged its steps c2.
+   *
+   * The consequence was not a small one. `receiveTransaction` decides whether an arriving
+   * step is your own confirmation or somebody else's edit by comparing that id — so the
+   * editor stopped recognising its own work coming back, applied it a second time as though a
+   * stranger had typed it, left its own steps unconfirmed, and sent them again. One extra
+   * copy per round trip, for ever. Twenty-three characters became six thousand copies in a
+   * few seconds and the tab locked up hard enough that the page would not even reload.
+   *
+   * An identity that belongs to the editor cannot drift from the editor.
+   */
+  clientId: string;
   connected: boolean;
   /** Set when the connection is down; the editor goes read-only rather than lying. */
   error: string | null;
@@ -38,6 +57,8 @@ export function useNoteDoc(noteId: string, enabled = true): NoteDocState & {
   attach: (editor: Editor) => () => void;
 } {
   const [ready, setReady] = useState<NoteDocState['ready']>(null);
+  const clientId = useRef<string | null>(null);
+  if (!clientId.current) clientId.current = crypto.randomUUID();
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -62,6 +83,9 @@ export function useNoteDoc(noteId: string, enabled = true): NoteDocState & {
         type: 'steps',
         version: sendable.version,
         steps: sendable.steps.map((s) => s.toJSON()),
+        // Sent with every batch, so the server tags them with the editor's name rather than
+        // the connection's and they come back recognisable.
+        clientId: clientId.current,
       }),
     );
   }, []);
@@ -159,11 +183,7 @@ export function useNoteDoc(noteId: string, enabled = true): NoteDocState & {
             push();
             return;
           }
-          setReady({
-            version: message.version ?? 0,
-            doc: message.doc,
-            clientId: message.clientId ?? 'unknown',
-          });
+          setReady({ version: message.version ?? 0, doc: message.doc });
           return;
         }
 
@@ -252,5 +272,5 @@ export function useNoteDoc(noteId: string, enabled = true): NoteDocState & {
     };
   }, [noteId, enabled, push]);
 
-  return { ready, connected, error, attach };
+  return { ready, clientId: clientId.current, connected, error, attach };
 }
