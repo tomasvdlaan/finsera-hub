@@ -1,17 +1,25 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import Highlight from '@tiptap/extension-highlight';
+import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight';
+import { DragHandle } from '@tiptap/extension-drag-handle-react';
 import Image from '@tiptap/extension-image';
-import Link from '@tiptap/extension-link';
 // v3 ships all four table nodes from one package, with named exports only.
 import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table';
 import TaskItem from '@tiptap/extension-task-item';
 import TaskList from '@tiptap/extension-task-list';
-import { EditorContent, useEditor, type Editor } from '@tiptap/react';
+import { CharacterCount, Placeholder, Selection } from '@tiptap/extensions';
+import { EditorContent, useEditor, useEditorState, type Editor } from '@tiptap/react';
+// v3 moved the menus to their own entry point.
+import { BubbleMenu } from '@tiptap/react/menus';
 import StarterKit from '@tiptap/starter-kit';
+import { createLowlight, common } from 'lowlight';
 import { Markdown } from 'tiptap-markdown';
 import { api } from '../../lib/api.js';
 import { useDialog } from '../../shell/ui/Dialog.js';
+import { MarkdownBlockquote, MarkdownHighlight } from './markdownMark.js';
 import { SLASH, matching, type NodeJson, type SlashCommand } from './slashCommands.js';
+
+/** Syntax highlighting for fenced code. `common` is ~35 languages rather than all 190. */
+const lowlight = createLowlight(common);
 
 /** tiptap-markdown adds this to storage at runtime; it is not in TipTap's own types. */
 type MarkdownStorage = { markdown: { getMarkdown(): string } };
@@ -49,6 +57,7 @@ export function RichEditor({
   /** Paste and drop handlers are created before the editor exists, so they read it here. */
   const editorRef = useRef<Editor | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const { ask } = useDialog();
 
   /*
    * The open slash menu, if any.
@@ -72,17 +81,57 @@ export function RichEditor({
   const editor = useEditor({
     editable,
     extensions: [
-      StarterKit.configure({ heading: { levels: [1, 2, 3] } }),
-      Highlight,
+      StarterKit.configure({
+        heading: { levels: [1, 2, 3] },
+        /*
+         * Two of StarterKit's own extensions are switched off, both for the same reason.
+         *
+         * `underline` has no Markdown representation — tiptap-markdown ships specs for bold,
+         * italic, strike, code and link, and nothing else — so with `html: false` the mark is
+         * deleted on the next autosave. It was on by default and bound to Cmd+U, which meant
+         * the keyboard shortcut every writer has in their fingers produced text that looked
+         * underlined and lost it on save. There is no `__underline__` in Markdown to map it
+         * to; the honest move is not to offer it.
+         *
+         * `codeBlock` is replaced below by the lowlight version, which serialises identically
+         * (```lang) and syntax-highlights what is inside.
+         */
+        underline: false,
+        codeBlock: false,
+        // Replaced below by a version that does not corrupt over an empty line.
+        blockquote: false,
+        // StarterKit v3 includes Link. Registering the separate package as well made it a
+        // duplicate extension, which TipTap resolves by warning and using one of them.
+        link: { openOnClick: false },
+      }),
+      // Both of these exist to keep the Markdown honest. See markdownMark.ts.
+      MarkdownHighlight,
+      MarkdownBlockquote,
       // Markdown carries images as ![alt](url), so they survive the round trip.
       Image.configure({ inline: false, allowBase64: false }),
-      Link.configure({ openOnClick: false }),
       TaskList,
       TaskItem.configure({ nested: true }),
-      Table.configure({ resizable: false }),
+      Table.configure({ resizable: true }),
       TableRow,
       TableHeader,
       TableCell,
+      CodeBlockLowlight.configure({ lowlight }),
+
+      /*
+       * Chrome, none of which touches what is stored.
+       *
+       * Placeholder replaces a CSS `::before` that could only ever address the first empty
+       * paragraph; this one prompts on whichever block is empty, which is where the hint is
+       * actually useful. Selection keeps the highlight visible when focus moves to the bubble
+       * menu — without it, clicking Bold appears to deselect the words being emboldened.
+       */
+      Placeholder.configure({
+        placeholder: ({ node }) =>
+          node.type.name === 'heading' ? 'Heading' : "Write, or press '/' for a block",
+      }),
+      Selection,
+      CharacterCount,
+
       Markdown.configure({ html: false, transformPastedText: true }),
     ],
     content: markdown,
@@ -205,6 +254,39 @@ export function RichEditor({
     chain.insertContent(node).run();
   }, []);
 
+  const active = useActiveMarks(editor);
+
+  /**
+   * Ask where a link should point, and apply or remove it.
+   *
+   * One implementation, called from the toolbar and from the bubble menu. Two copies of "what
+   * counts as removing a link" is exactly the kind of small divergence nobody notices until one
+   * of them stops unlinking.
+   */
+  const linkSelection = useCallback(async () => {
+    const instance = editorRef.current;
+    if (!instance) return;
+    const values = await ask({
+      title: 'Link to where?',
+      body: 'Leave it empty to remove the link.',
+      confirmLabel: 'Apply link',
+      fields: [
+        {
+          name: 'url',
+          label: 'Address',
+          // Not type="url": the field must accept empty to mean "unlink", and a url input
+          // with a value refuses to submit anything unparseable.
+          defaultValue: (instance.getAttributes('link').href as string) ?? 'https://',
+          placeholder: 'https://',
+        },
+      ],
+    });
+    if (!values) return;
+    const chain = instance.chain().focus();
+    if (!values.url.trim()) chain.unsetLink().run();
+    else chain.setLink({ href: values.url.trim() }).run();
+  }, [ask]);
+
   /** Upload, then insert — sequentially, so several pasted images keep their order. */
   const uploadAll = useCallback(
     async (files: File[]) => {
@@ -255,7 +337,59 @@ export function RichEditor({
 
   return (
     <div className="rich-editor">
-      {editable && <Toolbar editor={editor} onUpload={uploadAll} />}
+      {editable && (
+        <Toolbar
+          editor={editor}
+          active={active}
+          onUpload={uploadAll}
+          onLink={() => void linkSelection()}
+        />
+      )}
+
+      {/*
+        Formatting where the text is, rather than at the top of the page.
+        
+        The toolbar stays — it is discoverable, and it holds the things you reach for before
+        writing anything, like inserting a table. This holds the things you only ever want with
+        words already selected, which is most of them.
+      */}
+      {editable && (
+        <BubbleMenu editor={editor} className="bubble-menu">
+          <Button label="B" title="Bold" active={active.bold}
+            onClick={() => editor.chain().focus().toggleBold().run()} />
+          <Button label="I" title="Italic" active={active.italic}
+            onClick={() => editor.chain().focus().toggleItalic().run()} />
+          <Button label="S" title="Strikethrough" active={active.strike}
+            onClick={() => editor.chain().focus().toggleStrike().run()} />
+          <Button label="◼" title="Highlight" active={active.highlight}
+            onClick={() => editor.chain().focus().toggleHighlight().run()} />
+          <Button label="‹›" title="Code" active={active.code}
+            onClick={() => editor.chain().focus().toggleCode().run()} />
+          <span className="toolbar-sep" />
+          <Button label="H2" title="Heading" active={active.h2}
+            onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()} />
+          <Button label="❝" title="Quote" active={active.blockquote}
+            onClick={() => editor.chain().focus().toggleBlockquote().run()} />
+          <Button label="🔗" title="Link" active={active.link}
+            onClick={() => void linkSelection()} />
+        </BubbleMenu>
+      )}
+
+      {/*
+        A handle for moving a block.
+        
+        Notion's most-copied affordance and the one that most changes how a long note feels:
+        reordering by dragging rather than by cutting and pasting, which in a Markdown document
+        means never having to get the blank lines right by hand.
+      */}
+      {editable && (
+        <DragHandle editor={editor}>
+          <span className="drag-grip" aria-hidden="true">
+            ⠿
+          </span>
+        </DragHandle>
+      )}
+
       <EditorContent editor={editor} />
 
       {/*
@@ -319,87 +453,128 @@ async function uploadImage(file: File): Promise<string> {
   return url;
 }
 
-function Toolbar({ editor, onUpload }: { editor: Editor; onUpload: (files: File[]) => void }) {
-  const { ask } = useDialog();
-  const chain = useCallback(() => editor.chain().focus(), [editor]);
+/**
+ * What is active where the cursor is.
+ *
+ * Read through useEditorState rather than calling editor.isActive() during render, because v3
+ * defaults `shouldRerenderOnTransaction` to false — so a component that reads isActive() in its
+ * body renders once and then shows whatever was true at mount. That is why the toolbar's
+ * buttons stopped lighting up: not a styling problem, a stale-read problem, and it has been
+ * that way since the v3 upgrade.
+ *
+ * The legacy flag would fix it by re-rendering the whole editor on every keystroke, which in a
+ * room where somebody types continuously for fifteen minutes is the wrong trade. This
+ * subscribes to exactly the booleans the buttons need and re-renders when one of them changes.
+ */
+function useActiveMarks(editor: Editor | null) {
+  return (
+    useEditorState({
+      editor,
+      selector: ({ editor: e }) => (e ? {
+        bold: e.isActive('bold'),
+        italic: e.isActive('italic'),
+        strike: e.isActive('strike'),
+        highlight: e.isActive('highlight'),
+        code: e.isActive('code'),
+        link: e.isActive('link'),
+        blockquote: e.isActive('blockquote'),
+        bulletList: e.isActive('bulletList'),
+        orderedList: e.isActive('orderedList'),
+        taskList: e.isActive('taskList'),
+        codeBlock: e.isActive('codeBlock'),
+        h1: e.isActive('heading', { level: 1 }),
+        h2: e.isActive('heading', { level: 2 }),
+        h3: e.isActive('heading', { level: 3 }),
+      } : null),
+    }) ?? {
+      bold: false, italic: false, strike: false, highlight: false, code: false, link: false,
+      blockquote: false, bulletList: false, orderedList: false, taskList: false,
+      codeBlock: false, h1: false, h2: false, h3: false,
+    }
+  );
+}
 
-  const Button = ({
-    label,
-    title,
-    active,
-    onClick,
-  }: {
-    label: string;
-    title: string;
-    active?: boolean;
-    onClick: () => void;
-  }) => (
+/**
+ * One button, shared by the toolbar and the bubble menu.
+ *
+ * At module scope rather than defined inside the toolbar: a component created during render is
+ * a new type on every render, so React remounts every button on every keystroke — which in an
+ * editor is every button, several times a second.
+ */
+function Button({
+  label,
+  title,
+  active,
+  onClick,
+}: {
+  label: string;
+  title: string;
+  active?: boolean;
+  onClick: () => void;
+}) {
+  return (
     <button
       type="button"
       title={title}
       aria-label={title}
       aria-pressed={active}
       className={active ? 'toolbar-on' : undefined}
+      // The bubble menu sits over the document; a mousedown that moves focus would collapse
+      // the selection before the command runs.
+      onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
     >
       {label}
     </button>
   );
+}
+
+function Toolbar({
+  editor,
+  active,
+  onUpload,
+  onLink,
+}: {
+  editor: Editor;
+  /** Subscribed once by the parent; see useActiveMarks for why not read here. */
+  active: ReturnType<typeof useActiveMarks>;
+  onUpload: (files: File[]) => void;
+  onLink: () => void;
+}) {
+  const chain = useCallback(() => editor.chain().focus(), [editor]);
 
   return (
     <div className="editor-toolbar">
-      <Button label="H1" title="Heading 1" active={editor.isActive('heading', { level: 1 })}
+      <Button label="H1" title="Heading 1" active={active.h1}
         onClick={() => chain().toggleHeading({ level: 1 }).run()} />
-      <Button label="H2" title="Heading 2" active={editor.isActive('heading', { level: 2 })}
+      <Button label="H2" title="Heading 2" active={active.h2}
         onClick={() => chain().toggleHeading({ level: 2 }).run()} />
-      <Button label="H3" title="Heading 3" active={editor.isActive('heading', { level: 3 })}
+      <Button label="H3" title="Heading 3" active={active.h3}
         onClick={() => chain().toggleHeading({ level: 3 }).run()} />
       <span className="toolbar-sep" />
-      <Button label="B" title="Bold" active={editor.isActive('bold')}
+      <Button label="B" title="Bold" active={active.bold}
         onClick={() => chain().toggleBold().run()} />
-      <Button label="I" title="Italic" active={editor.isActive('italic')}
+      <Button label="I" title="Italic" active={active.italic}
         onClick={() => chain().toggleItalic().run()} />
-      <Button label="S" title="Strikethrough" active={editor.isActive('strike')}
+      <Button label="S" title="Strikethrough" active={active.strike}
         onClick={() => chain().toggleStrike().run()} />
-      <Button label="◼" title="Highlight" active={editor.isActive('highlight')}
+      <Button label="◼" title="Highlight" active={active.highlight}
         onClick={() => chain().toggleHighlight().run()} />
-      <Button label="‹›" title="Code" active={editor.isActive('code')}
+      <Button label="‹›" title="Code" active={active.code}
         onClick={() => chain().toggleCode().run()} />
       <span className="toolbar-sep" />
-      <Button label="•" title="Bullet list" active={editor.isActive('bulletList')}
+      <Button label="•" title="Bullet list" active={active.bulletList}
         onClick={() => chain().toggleBulletList().run()} />
-      <Button label="1." title="Numbered list" active={editor.isActive('orderedList')}
+      <Button label="1." title="Numbered list" active={active.orderedList}
         onClick={() => chain().toggleOrderedList().run()} />
-      <Button label="☑" title="Task list" active={editor.isActive('taskList')}
+      <Button label="☑" title="Task list" active={active.taskList}
         onClick={() => chain().toggleTaskList().run()} />
-      <Button label="❝" title="Quote" active={editor.isActive('blockquote')}
+      <Button label="❝" title="Quote" active={active.blockquote}
         onClick={() => chain().toggleBlockquote().run()} />
       <span className="toolbar-sep" />
       <Button label="▦" title="Insert table"
         onClick={() => chain().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()} />
-      <Button label="🔗" title="Link"
-        onClick={() => {
-          void (async () => {
-            const values = await ask({
-              title: 'Link to where?',
-              body: 'Leave it empty to remove the link.',
-              confirmLabel: 'Apply link',
-              fields: [
-                {
-                  name: 'url',
-                  label: 'Address',
-                  // Not type="url": the field must accept empty to mean "unlink", and a
-                  // url input with a value refuses to submit anything unparseable.
-                  defaultValue: (editor.getAttributes('link').href as string) ?? 'https://',
-                  placeholder: 'https://',
-                },
-              ],
-            });
-            if (!values) return;
-            if (!values.url.trim()) return chain().unsetLink().run();
-            chain().setLink({ href: values.url.trim() }).run();
-          })();
-        }} />
+      <Button label="🔗" title="Link" active={active.link} onClick={onLink} />
       <Button label="🖼" title="Insert an image"
         onClick={() => {
           const input = document.createElement('input');

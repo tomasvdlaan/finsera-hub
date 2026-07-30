@@ -78,6 +78,10 @@
    * a lighter surface and a brighter border. Panels that need to read as layers — the room
    * bar over the notes, cards in the AI rail — use these instead of inventing a border.
    */
+  /* Motion, defined once so hover states agree. Honoured by the reduced-motion block. */
+  --transition-fast: 120ms ease;
+  --transition-base: 200ms ease;
+
   --shadow-1: 0 1px 2px rgb(0 0 0 / 0.06);
   --shadow-2: 0 2px 8px rgb(0 0 0 / 0.08);
   --shadow-3: 0 8px 24px rgb(0 0 0 / 0.12);
@@ -280,6 +284,8 @@ h3 {
 }
 @media (prefers-reduced-motion: reduce) {
   .statusbar-dot { animation: none; }
+  /* Anything that only fades in becomes instant rather than absent. */
+  * { transition-duration: 0.01ms !important; }
 }
 .statusbar-time {
   font-variant-numeric: tabular-nums;
@@ -1803,3 +1809,125 @@ ul.decl li > div {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * The editor, revamped.
+ *
+ * The sleek half of a Notion-style editor is almost entirely presentation: type rhythm, hover
+ * affordances, a menu that comes to the text rather than the text going to a menu. None of it
+ * touches what is stored, which is the reason it was worth doing while the note stays Markdown.
+ * ───────────────────────────────────────────────────────────────────────────── */
+
+/* Type rhythm. Headings on the scale, and a first heading that does not push off the top. */
+.rich-editor .tiptap h1 { font-size: var(--text-2xl); line-height: var(--leading-tight); margin: var(--space-5) 0 var(--space-2); letter-spacing: -0.01em; }
+.rich-editor .tiptap h2 { font-size: var(--text-xl); line-height: var(--leading-tight); margin: var(--space-5) 0 var(--space-2); }
+.rich-editor .tiptap h3 { font-size: var(--text-lg); line-height: var(--leading-tight); margin: var(--space-4) 0 var(--space-1); }
+.rich-editor .tiptap > :first-child { margin-top: 0; }
+.rich-editor .tiptap p { margin: var(--space-3) 0; }
+.rich-editor .tiptap ul[data-type='taskList'] li > label { user-select: none; }
+.rich-editor .tiptap ul[data-type='taskList'] li > div { flex: 1; min-width: 0; }
+
+/*
+ * The placeholder, on whichever block is empty.
+ *
+ * Replaces a CSS ::before that could only address the first paragraph, so a note you had
+ * already started offered no hint that '/' does anything.
+ */
+.rich-editor .tiptap .is-empty::before {
+  content: attr(data-placeholder);
+  color: var(--muted);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+
+/* Formatting that comes to the text. */
+.bubble-menu {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: var(--space-1);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-3);
+}
+.bubble-menu button {
+  border: none;
+  background: none;
+  padding: 0.2rem 0.45rem;
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  line-height: 1;
+}
+.bubble-menu button:hover:not(:disabled) { background: var(--surface); }
+.bubble-menu button.toolbar-on { background: var(--accent-bg); color: var(--accent); }
+
+/*
+ * The drag handle.
+ *
+ * Sits in the gutter and only appears on the block under the pointer, which is what keeps a
+ * document with fifty blocks from looking like a control panel.
+ */
+.drag-grip {
+  display: grid;
+  place-items: center;
+  width: 1.1rem;
+  height: 1.5rem;
+  margin-right: var(--space-1);
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  cursor: grab;
+  opacity: 0;
+  transition: opacity var(--transition-fast, 120ms ease);
+}
+.rich-editor:hover .drag-grip { opacity: 0.55; }
+.drag-grip:hover { opacity: 1; background: var(--surface); }
+.drag-grip:active { cursor: grabbing; }
+
+/*
+ * Syntax-highlighted code.
+ *
+ * lowlight adds hljs class names; these map the handful that carry meaning onto the theme
+ * rather than pulling in a highlight.js stylesheet with its own palette, which would be the
+ * one thing on the page that ignores light and dark.
+ */
+.rich-editor .tiptap pre {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--space-3);
+  overflow-x: auto;
+  font-size: var(--text-sm);
+}
+.rich-editor .tiptap pre code { background: none; padding: 0; }
+.tiptap .hljs-comment, .tiptap .hljs-quote { color: var(--muted); font-style: italic; }
+.tiptap .hljs-keyword, .tiptap .hljs-selector-tag, .tiptap .hljs-literal { color: var(--accent); }
+.tiptap .hljs-string, .tiptap .hljs-attr { color: var(--ok); }
+.tiptap .hljs-number, .tiptap .hljs-built_in { color: var(--warning); }
+.tiptap .hljs-title, .tiptap .hljs-name, .tiptap .hljs-function { color: var(--text); font-weight: 600; }
+.tiptap .hljs-deletion { color: var(--danger); }
+
+/* A resizable table needs its handle to be findable. */
+.rich-editor .tiptap .column-resize-handle {
+  position: absolute;
+  right: -2px;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: var(--accent);
+  pointer-events: none;
+}
+.rich-editor .tiptap table { position: relative; }
+.rich-editor .tiptap th, .rich-editor .tiptap td { position: relative; }
+.rich-editor .tiptap .selectedCell::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--accent-bg);
+  pointer-events: none;
+}
+
+/* Keeps the selection visible while the bubble menu has focus. */
+.rich-editor .tiptap .selection,
+.rich-editor .tiptap ::selection { background: var(--accent-bg); }
