@@ -113,7 +113,21 @@ export const meetingsManifest = defineManifest({
         'first if you need to know which headings exist.',
       inputSchema: z.object({
         noteId: z.string().uuid(),
-        markdown: z.string().describe('Markdown. Headings, lists, task items and quotes all work.'),
+        markdown: z.string().describe(
+          [
+            'Markdown, and only the following. Anything else is not rendered:',
+            '`##`/`###` headings, `-` bullets, `1.` numbered lists, `- [ ]` task items,',
+            '`>` quotes, ``` fenced code, tables, images, links,',
+            '**bold**, *italic*, ~~strikethrough~~, `code` and ==highlight==.',
+            '',
+            'There is no colour and no underline: the note is stored as Markdown, which cannot',
+            'express either, so asking for them is not a limitation of the editor. Use',
+            '==highlight== to draw the eye and **bold** for emphasis.',
+            '',
+            'Raw HTML is refused rather than rendered — a <span> would be stored as visible',
+            'angle brackets in the middle of the sentence.',
+          ].join('\n'),
+        ),
         section: z
           .string()
           .optional()

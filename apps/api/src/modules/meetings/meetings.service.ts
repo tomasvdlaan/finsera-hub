@@ -706,6 +706,27 @@ export class MeetingsService {
     if (!markdown) throw new BadRequestException('There is nothing to write');
 
     /*
+     * Refuse HTML rather than store it as visible text.
+     *
+     * The note is parsed with `html: false`, deliberately — bodies are partly written from
+     * meeting transcripts, and raw HTML in a document a model helped write is a hole nobody
+     * needs. But that meant a tag arrived as literal angle brackets in the middle of a
+     * sentence, which is what happened the first time somebody asked the assistant for
+     * coloured text: it reached for `<span style="color:red">`, and the note ended up reading
+     * `Needs <span style="color:red">urgent review</span>.`
+     *
+     * Saying so is better than silently keeping it. The model gets one clear error naming
+     * what to use instead, which it can act on; the alternative is a note that looks broken
+     * and no indication anywhere of why.
+     */
+    if (/<\/?[a-z][^>]*>/i.test(markdown)) {
+      throw new BadRequestException(
+        'Notes are Markdown and HTML is not rendered — it would appear as literal tags. ' +
+          'Markdown has no colour or underline; use ==highlight== or **bold** for emphasis.',
+      );
+    }
+
+    /*
      * Through the document authority, not by rewriting the body.
      *
      * This is the change that makes the assistant safe to use during a meeting. It used to

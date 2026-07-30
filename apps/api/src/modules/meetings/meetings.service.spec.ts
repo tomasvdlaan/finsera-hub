@@ -496,4 +496,57 @@ describe('MeetingsService', () => {
     const updated = await meetings.recordAttendance(actor, created.id, { name: '   ' });
     expect(updated.attendees).toHaveLength(0);
   });
+
+
+  describe('what the assistant may write into a note', () => {
+    /**
+     * Asked for coloured text, the assistant reached for `<span style="color:red">`.
+     *
+     * Notes are parsed with `html: false` — deliberately, since bodies are partly written from
+     * meeting transcripts — so the tag was not rendered. It was stored as text, and the note
+     * read `Needs <span style="color:red">urgent review</span>.` with nothing to explain why.
+     *
+     * Markdown has no colour and no underline. Refusing with a message that names the
+     * alternative is the only outcome the model can act on; keeping the tags is a note that
+     * looks broken, and dropping them silently is worse.
+     */
+    it('refuses HTML and says what to use instead', async () => {
+      const created = await note();
+      await expect(
+        meetings.writeIntoNote(actor, {
+          noteId: created.id,
+          markdown: 'Needs <span style="color:red">urgent review</span>.',
+        }),
+      ).rejects.toThrow(/HTML is not rendered/);
+
+      const after = await meetings.get(actor, created.id);
+      expect(after.body).not.toContain('<span');
+    });
+
+    it('accepts the formatting the note can actually carry', async () => {
+      const created = await note();
+      await meetings.writeIntoNote(actor, {
+        noteId: created.id,
+        markdown: '## Risks\n\n- ==Urgent review== of the **retention policy**',
+      });
+
+      // The authority writes the body out a second after the last change, so anything
+      // reading the table rather than the document has to ask for it first.
+      await docs.flush(created.id);
+      const after = await meetings.get(actor, created.id);
+      expect(after.body).toContain('==Urgent review==');
+      expect(after.body).toContain('**retention policy**');
+    });
+
+    it('does not mistake a comparison or an arrow for a tag', async () => {
+      // `<` is ordinary prose. Only something shaped like a tag is refused.
+      const created = await note();
+      await meetings.writeIntoNote(actor, {
+        noteId: created.id,
+        markdown: 'Budget < 5000 and margin > 20% => proceed.',
+      });
+      await docs.flush(created.id);
+      expect((await meetings.get(actor, created.id)).body).toContain('Budget < 5000');
+    });
+  });
 });

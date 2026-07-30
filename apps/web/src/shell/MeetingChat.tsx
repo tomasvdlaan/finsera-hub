@@ -27,6 +27,9 @@ interface MeetingChat {
   clear: () => void;
 }
 
+/** How long a question may run before the panel gives up on it. */
+const ASK_TIMEOUT_MS = 120_000;
+
 const Context = createContext<MeetingChat | null>(null);
 
 /**
@@ -72,17 +75,34 @@ export function MeetingChatProvider({ children }: { children: ReactNode }) {
       setWaited(0);
 
       const ticker = setInterval(() => setWaited((n) => n + 1), 1000);
+      /*
+       * A question that never comes back must not take the panel with it.
+       *
+       * `ask` refuses a new question while one is in flight, and `fetch` has no timeout — so a
+       * request that never settled left `asking` true for good and the panel dead until the
+       * page was reloaded. Reported as the whole program freezing, which from the outside is
+       * exactly what it looks like.
+       *
+       * Generous, because a question that makes the assistant search documents and then write
+       * into the note legitimately takes a while. It is a backstop, not a deadline.
+       */
+      const abort = new AbortController();
+      const deadline = setTimeout(() => abort.abort(), ASK_TIMEOUT_MS);
       try {
         const res = await api.post<{
           answer: string;
           conversationId?: string;
           toolCalls?: Array<{ toolName: string }>;
-        }>('/assistant/ask', {
-          message: text,
-          // Continuing the thread is what makes a follow-up question mean anything.
-          conversationId: sameThread ? conversationId : undefined,
-          context: { entityId: forNote },
-        });
+        }>(
+          '/assistant/ask',
+          {
+            message: text,
+            // Continuing the thread is what makes a follow-up question mean anything.
+            conversationId: sameThread ? conversationId : undefined,
+            context: { entityId: forNote },
+          },
+          abort.signal,
+        );
         setConversationId(res.conversationId);
         // The note on screen is now behind whatever the assistant just wrote into it.
         if ((res.toolCalls ?? []).some((t) => t.toolName === 'meetings_write_note')) {
@@ -97,8 +117,18 @@ export function MeetingChatProvider({ children }: { children: ReactNode }) {
           },
         ]);
       } catch (e) {
-        setTurns((current) => [...current, { role: 'assistant', text: (e as Error).message }]);
+        const aborted = (e as Error).name === 'AbortError';
+        setTurns((current) => [
+          ...current,
+          {
+            role: 'assistant',
+            text: aborted
+              ? 'That took too long and was given up on. The question was not lost — ask it again.'
+              : (e as Error).message,
+          },
+        ]);
       } finally {
+        clearTimeout(deadline);
         clearInterval(ticker);
         setAsking(false);
       }
