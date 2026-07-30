@@ -5,7 +5,9 @@ import { LiveSession } from '../live-session.js';
 import { AgendaDriftBehaviour } from './agenda-drift.behaviour.js';
 import { BehaviourRegistry } from './behaviour.registry.js';
 import { WakeWordBehaviour, stripWakeWord } from './wake-word.behaviour.js';
-import { AI_NOTES_HEADING, extractAiSection, mergeAiNotes } from './note-taker.behaviour.js';
+import { Transform, docToMarkdown, markdownToDoc } from '@platform/note-doc';
+import { replaceSectionMarkdown } from '../../doc/note-edit.js';
+import { AI_NOTES_HEADING, AI_NOTES_SECTION } from './note-taker.behaviour.js';
 import type { BehaviourContext, MeetingBehaviour } from './behaviour.js';
 
 const actor: Actor = { userId: crypto.randomUUID(), role: 'admin' };
@@ -233,12 +235,24 @@ describe('AgendaDriftBehaviour', () => {
   });
 });
 
-describe('note merging', () => {
+describe('the section the assistant owns', () => {
+  /*
+   * These used to test `mergeAiNotes`, a pair of string functions that found the heading with
+   * indexOf and rebuilt the body around it. The guarantee they describe is the important part
+   * and has not changed — everything outside the owned heading is yours and is never touched —
+   * so they now exercise the document edit that replaced them.
+   */
+  const merge = (body: string, notes: string) => {
+    const tr = new Transform(markdownToDoc(body));
+    replaceSectionMarkdown(tr, AI_NOTES_SECTION, notes);
+    return { markdown: docToMarkdown(tr.doc), text: tr.doc.textContent };
+  };
+
   it('adds the assistant section when there is none', () => {
-    const merged = mergeAiNotes('# My own notes\n\nSomething I typed.', '- A decision');
-    expect(merged).toContain('# My own notes');
-    expect(merged).toContain(AI_NOTES_HEADING);
-    expect(merged).toContain('- A decision');
+    const merged = merge('# My own notes\n\nSomething I typed.', '- A decision');
+    expect(merged.markdown).toContain('# My own notes');
+    expect(merged.markdown).toContain(AI_NOTES_HEADING);
+    expect(merged.markdown).toContain('- A decision');
   });
 
   it('replaces only its own section, leaving what you wrote alone', () => {
@@ -258,26 +272,32 @@ describe('note merging', () => {
       '[00:01] Someone said something.',
     ].join('\n');
 
-    const merged = mergeAiNotes(body, '- A better point');
+    const merged = merge(body, '- A better point');
 
-    expect(merged).toContain('Something I typed.');
-    expect(merged).toContain('- A better point');
-    expect(merged).not.toContain('- An old point');
+    expect(merged.markdown).toContain('Something I typed.');
+    expect(merged.markdown).toContain('- A better point');
+    expect(merged.markdown).not.toContain('- An old point');
     // And the section after it survives.
-    expect(merged).toContain('## Transcript — 14:32');
-    expect(merged).toContain('[00:01] Someone said something.');
-  });
-
-  it('reads its own section back for revision', () => {
-    const body = `${AI_NOTES_HEADING}\n\n- Point one\n- Point two\n\n## Transcript\n\nline`;
-    expect(extractAiSection(body)).toBe('- Point one\n- Point two');
-  });
-
-  it('returns nothing when the assistant has written nothing', () => {
-    expect(extractAiSection('# Just my notes')).toBe('');
+    expect(merged.markdown).toContain('## Transcript — 14:32');
+    /*
+     * Asserted on the text rather than the Markdown, because the serialiser escapes the
+     * opening bracket: the source says `\[00:01\]` and the reader sees `[00:01]`. That is
+     * correct — an unescaped `[` can start a link — and it is stable, since the escape parses
+     * back to the same text. What matters here is that the line survived, not how it is spelt.
+     */
+    expect(merged.text).toContain('[00:01] Someone said something.');
   });
 
   it('handles an empty document', () => {
-    expect(mergeAiNotes('', '- First note')).toContain('- First note');
+    expect(merge('', '- First note').markdown).toContain('- First note');
+  });
+
+  it('produces no change at all when the notes have not moved on', () => {
+    const body = `${AI_NOTES_HEADING}\n\n- Point one`;
+    const tr = new Transform(markdownToDoc(body));
+    replaceSectionMarkdown(tr, AI_NOTES_SECTION, '- Point one');
+    // Every ninety seconds, usually restating itself. A no-op must stay a no-op, or every
+    // pass would bump the version and interrupt whoever is typing.
+    expect(tr.steps).toHaveLength(0);
   });
 });

@@ -21,6 +21,8 @@ import { WakeWordBehaviour } from './live/behaviours/wake-word.behaviour.js';
 import { AgendaDriftBehaviour } from './live/behaviours/agenda-drift.behaviour.js';
 import { ContextFinderBehaviour } from './live/behaviours/context-finder.behaviour.js';
 import { NoteTakerBehaviour } from './live/behaviours/note-taker.behaviour.js';
+import { NoteDocService } from './doc/note-doc.service.js';
+import { DocGateway } from './doc/doc.gateway.js';
 
 /**
  * Meeting Notes. Depends on CRM (the client a meeting is with) and SCRUM (where an
@@ -31,6 +33,8 @@ import { NoteTakerBehaviour } from './live/behaviours/note-taker.behaviour.js';
   controllers: [MeetingsController],
   providers: [
     MeetingsService,
+    NoteDocService,
+    DocGateway,
     LiveService,
     LiveGateway,
     RecallGateway,
@@ -44,18 +48,36 @@ import { NoteTakerBehaviour } from './live/behaviours/note-taker.behaviour.js';
     NoteTakerBehaviour,
     ContextFinderBehaviour,
   ],
-  exports: [MeetingsService],
+  exports: [MeetingsService, NoteDocService],
 })
 export class MeetingsModule implements OnModuleInit {
   constructor(
     private readonly manifests: ManifestRegistry,
     private readonly aiTools: AiToolRegistry,
     private readonly meetings: MeetingsService,
+    private readonly noteDocs: NoteDocService,
   ) {}
 
   async onModuleInit(): Promise<void> {
     this.manifests.register(meetingsManifest);
     await this.meetings.ensureReportingViews();
+
+    /*
+     * Where the document authority reads and writes bodies.
+     *
+     * Bound here rather than injected, because MeetingsService is what persists a note and
+     * NoteDocService is what MeetingsService now writes through — asking Nest to resolve that
+     * circle with forwardRef would work and would make both harder to test. The AI tools below
+     * are wired the same way, for the same reason.
+     */
+    this.noteDocs.bind({
+      load: (noteId: string) => this.meetings.bodyOf(noteId),
+      save: async (noteId: string, markdown: string, actor: Actor) => {
+        // fromDocument: this text *is* the open document, so it must not be pushed back
+        // into it as a replacement — see MeetingsService.update.
+        await this.meetings.update(actor, noteId, { body: markdown }, { fromDocument: true });
+      },
+    });
 
     this.aiTools.bind('meetings_search', (actor: Actor, input) => {
       const i = input as { query: string; limit?: number };

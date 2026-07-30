@@ -21,6 +21,7 @@ import { UserService } from '../../../core/auth/user.service.js';
 import { MeetingsService } from '../meetings.service.js';
 import type { LiveSession } from './live-session.js';
 import { LiveRegistry } from './live-registry.service.js';
+import { NoteDocService } from '../doc/note-doc.service.js';
 import { LiveRunner } from './live-runner.service.js';
 import { BehaviourRegistry } from './behaviours/behaviour.registry.js';
 import type { AiToolRegistry } from '../../../core/llm/tool-registry.service.js';
@@ -66,6 +67,7 @@ const request = (query: string) => ({ url: `/api/meetings/live?${query}` }) as n
 
 describe('LiveGateway', () => {
   let meetings: MeetingsService;
+  let docs: NoteDocService;
   let crm: CrmService;
   let gateway: LiveGateway;
   let sessions: LiveRegistry;
@@ -98,10 +100,19 @@ describe('LiveGateway', () => {
     crm = new CrmService(testDb, registry, permissions, audit, bus, links);
     const time = new TimeService(testDb, registry, permissions, audit, bus, links, crm);
     const scrum = new ScrumService(testDb, registry, permissions, audit, bus, links, crm, time);
+    docs = new NoteDocService();
     meetings = new MeetingsService(
       testDb, registry, permissions, audit, bus, links,
-      new EmbeddingService(), crm, scrum, new UserService(testDb),
+      new EmbeddingService(), crm, scrum, new UserService(testDb), docs,
     );
+    // The same wiring MeetingsModule does at boot: the authority reads and writes bodies
+    // through the service, and the service edits documents through the authority.
+    docs.bind({
+      load: (noteId: string) => meetings.bodyOf(noteId),
+      save: async (noteId: string, markdown: string, who: Actor) => {
+        await meetings.update(who, noteId, { body: markdown }, { fromDocument: true });
+      },
+    });
 
     // The models are faked: this tests the gateway's behaviour, not the provider's.
     live = {
@@ -160,6 +171,7 @@ describe('LiveGateway', () => {
       { buildToolSet: vi.fn().mockResolvedValue({ tools: {}, invocations: [] }) } as unknown as AiToolRegistry,
       {} as LlmService,
       {} as unknown as TtsService,
+      docs,
     );
 
     gateway = new LiveGateway(

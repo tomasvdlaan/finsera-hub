@@ -26,6 +26,7 @@ import type { AiToolRegistry } from '../../../core/llm/tool-registry.service.js'
 import type { LlmService } from '../../../core/llm/llm.service.js';
 import type { TtsService } from '../../../core/llm/tts.service.js';
 import { LiveRegistry } from './live-registry.service.js';
+import { NoteDocService } from '../doc/note-doc.service.js';
 import { LiveRunner } from './live-runner.service.js';
 import { LiveSession } from './live-session.js';
 import type { LiveService } from './live.service.js';
@@ -43,6 +44,7 @@ const segment = (name: string, id: string, at = 0): AudioSegment => ({
 describe('LiveRunner', () => {
   let crm: CrmService;
   let meetings: MeetingsService;
+  let docs: NoteDocService;
   let runner: LiveRunner;
   let sessions: LiveRegistry;
   let live: {
@@ -90,10 +92,19 @@ describe('LiveRunner', () => {
     crm = new CrmService(testDb, registry, permissions, audit, bus, links);
     const time = new TimeService(testDb, registry, permissions, audit, bus, links, crm);
     const scrum = new ScrumService(testDb, registry, permissions, audit, bus, links, crm, time);
+    docs = new NoteDocService();
     meetings = new MeetingsService(
       testDb, registry, permissions, audit, bus, links,
-      new EmbeddingService(), crm, scrum, new UserService(testDb),
+      new EmbeddingService(), crm, scrum, new UserService(testDb), docs,
     );
+    // The same wiring MeetingsModule does at boot: the authority reads and writes bodies
+    // through the service, and the service edits documents through the authority.
+    docs.bind({
+      load: (noteId: string) => meetings.bodyOf(noteId),
+      save: async (noteId: string, markdown: string, who: Actor) => {
+        await meetings.update(who, noteId, { body: markdown }, { fromDocument: true });
+      },
+    });
 
     live = {
       transcribeSegment: vi.fn().mockResolvedValue('We should add supplier drill-down.'),
@@ -158,6 +169,7 @@ describe('LiveRunner', () => {
       { buildToolSet: vi.fn().mockResolvedValue({ tools: {}, invocations: [] }) } as unknown as AiToolRegistry,
       {} as LlmService,
       { speak: vi.fn().mockResolvedValue({ mp3: Buffer.from('mp3'), mimeType: 'audio/mp3' }) } as unknown as TtsService,
+      docs,
     );
 
     const client = await crm.createClient(actor, { name: 'DocHorse', status: 'active' });

@@ -25,6 +25,7 @@
     "@nestjs/platform-ws": "^11.1.28",
     "@nestjs/websockets": "^11.1.28",
     "@platform/contracts": "workspace:*",
+    "@platform/note-doc": "workspace:*",
     "ai": "^7.0.37",
     "drizzle-orm": "^0.38.0",
     "jose": "^5.9.0",

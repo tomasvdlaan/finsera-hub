@@ -12,7 +12,8 @@ import { AiToolRegistry } from '../../../core/llm/tool-registry.service.js';
 import { LlmService } from '../../../core/llm/llm.service.js';
 import { TtsService } from '../../../core/llm/tts.service.js';
 import { BehaviourRegistry, type BehaviourSettings } from './behaviours/behaviour.registry.js';
-import { assembleBody, bodyInput } from './session-body.js';
+import { applySession, sessionSummary } from './session-body.js';
+import { NoteDocService } from '../doc/note-doc.service.js';
 
 /**
  * Runs one live meeting, whatever is supplying the audio.
@@ -39,6 +40,7 @@ export class LiveRunner {
     private readonly toolRegistry: AiToolRegistry,
     private readonly llm: LlmService,
     private readonly tts: TtsService,
+    private readonly docs: NoteDocService,
   ) {}
 
   /** What each running meeting has switched on. */
@@ -421,7 +423,6 @@ export class LiveRunner {
       return { saved: false };
     }
 
-    const note = await this.meetings.get(actor, noteId);
     const costCents = this.live.costCents(live);
 
     // The transcript first, and as its own record. If the body write fails after this, what
@@ -435,7 +436,16 @@ export class LiveRunner {
       costCents,
     });
 
-    await this.meetings.update(actor, noteId, { body: assembleBody(bodyInput(live, note.body)) });
+    /*
+     * Through the document authority, and flushed before anything reads the note back.
+     *
+     * This was the last whole-body write in the platform: it took the copy of the body it had
+     * fetched before the transcript was saved, rebuilt the entire string, and wrote it over
+     * the top — so stopping a recording while somebody was still typing discarded everything
+     * they had written since the fetch. As bounded edits it merges with them instead.
+     */
+    await this.docs.edit(noteId, actor, (tr) => applySession(tr, sessionSummary(live)));
+    await this.docs.flush(noteId);
 
     for (const proposal of live.openProposals) {
       if (proposal.kind === 'action') {

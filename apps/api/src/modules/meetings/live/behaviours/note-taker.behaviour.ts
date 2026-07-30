@@ -14,7 +14,17 @@ const MIN_NEW_CHARS = 800;
  * you are typing without the two fighting over the same paragraph — which is the failure
  * that would make live note-taking unusable rather than merely imperfect.
  */
-export const AI_NOTES_HEADING = '## Notes from the meeting';
+export const AI_NOTES_SECTION = 'Notes from the meeting';
+
+/**
+ * The same heading as Markdown.
+ *
+ * Two forms because they answer different questions: the document authority matches a
+ * heading by its *text*, since it is looking at a node and not at characters, while anything
+ * writing Markdown needs the `##`. Keeping one derived from the other is what stops them
+ * drifting apart the next time the wording changes.
+ */
+export const AI_NOTES_HEADING = `## ${AI_NOTES_SECTION}`;
 
 interface Notes {
   markdown: string;
@@ -61,7 +71,16 @@ export class NoteTakerBehaviour implements MeetingBehaviour {
   async run(ctx: BehaviourContext): Promise<BehaviourResult | null> {
     this.lastLength.set(ctx.note.id, ctx.session.transcript.length);
 
-    const existing = extractAiSection(ctx.session.aiNotes ?? '');
+    /*
+     * The notes so far, which the model is revising.
+     *
+     * Read straight off the session. This used to run `extractAiSection` over it, looking for
+     * the `## Notes from the meeting` heading — but `aiNotes` holds the section's *content*
+     * and never contained that heading, so the search always failed and `existing` was always
+     * empty. The prompt below says "you are revising notes, not appending to them", and for
+     * every pass of every meeting so far the model has been told there were none.
+     */
+    const existing = (ctx.session.aiNotes ?? '').trim();
 
     const result = await ctx.llm.generateStructured<Notes>({
       schema: NOTES,
@@ -130,32 +149,4 @@ export class NoteTakerBehaviour implements MeetingBehaviour {
   forget(noteId: string): void {
     this.lastLength.delete(noteId);
   }
-}
-
-/** The assistant's own section, without the heading. */
-export function extractAiSection(body: string): string {
-  const start = body.indexOf(AI_NOTES_HEADING);
-  if (start === -1) return '';
-  const after = body.slice(start + AI_NOTES_HEADING.length);
-  // Ends at the next heading of the same level, so a later section is not swallowed.
-  const next = after.search(/\n##\s/);
-  return (next === -1 ? after : after.slice(0, next)).trim();
-}
-
-/**
- * Put the assistant's notes into the document, replacing its previous section.
- *
- * Anything the operator wrote outside the owned heading survives untouched — which is the
- * whole reason the boundary exists.
- */
-export function mergeAiNotes(body: string, notes: string): string {
-  const section = `${AI_NOTES_HEADING}\n\n${notes.trim()}`;
-  const start = body.indexOf(AI_NOTES_HEADING);
-
-  if (start === -1) return body.trim() ? `${body.trimEnd()}\n\n${section}\n` : `${section}\n`;
-
-  const after = body.slice(start + AI_NOTES_HEADING.length);
-  const next = after.search(/\n##\s/);
-  const tail = next === -1 ? '' : after.slice(next);
-  return `${body.slice(0, start)}${section}\n${tail}`;
 }

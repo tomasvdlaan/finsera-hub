@@ -17,6 +17,7 @@ import { timeManifest } from '../time/time.manifest.js';
 import { TimeService } from '../time/time.service.js';
 import { meetingsManifest } from './meetings.manifest.js';
 import { UserService } from '../../core/auth/user.service.js';
+import { NoteDocService } from './doc/note-doc.service.js';
 import { MeetingsService } from './meetings.service.js';
 
 const actor: Actor = { userId: crypto.randomUUID(), role: 'admin' };
@@ -25,6 +26,7 @@ describe('MeetingsService', () => {
   let crm: CrmService;
   let scrum: ScrumService;
   let meetings: MeetingsService;
+  let docs: NoteDocService;
   let clientId: string;
   let projectId: string;
 
@@ -49,10 +51,19 @@ describe('MeetingsService', () => {
     crm = new CrmService(testDb, registry, permissions, audit, bus, links);
     const time = new TimeService(testDb, registry, permissions, audit, bus, links, crm);
     scrum = new ScrumService(testDb, registry, permissions, audit, bus, links, crm, time);
+    docs = new NoteDocService();
     meetings = new MeetingsService(
       testDb, registry, permissions, audit, bus, links,
-      new EmbeddingService(), crm, scrum, new UserService(testDb),
+      new EmbeddingService(), crm, scrum, new UserService(testDb), docs,
     );
+    // The same wiring MeetingsModule does at boot: the authority reads and writes bodies
+    // through the service, and the service edits documents through the authority.
+    docs.bind({
+      load: (noteId: string) => meetings.bodyOf(noteId),
+      save: async (noteId: string, markdown: string, who: Actor) => {
+        await meetings.update(who, noteId, { body: markdown }, { fromDocument: true });
+      },
+    });
     await meetings.ensureReportingViews();
 
     const client = await crm.createClient(actor, { name: 'DocHorse', status: 'active' });

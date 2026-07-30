@@ -12,7 +12,9 @@ import { RegistryService } from '../../core/registry/registry.service.js';
 import { chunkText } from '../../core/text/chunk.js';
 import { CrmService } from '../crm/crm.service.js';
 import { ScrumService } from '../scrum/scrum.service.js';
-import { appendToNote, headingsOf, replaceSection } from './note-edit.js';
+import { headingsOf, markdownToDoc } from '@platform/note-doc';
+import { appendMarkdown, replaceSectionMarkdown } from './doc/note-edit.js';
+import { NoteDocService } from './doc/note-doc.service.js';
 import { TEMPLATES, bodyFor, type TemplateName } from './templates.js';
 import {
   actionItems,
@@ -58,6 +60,7 @@ export class MeetingsService {
     private readonly crm: CrmService,
     private readonly scrum: ScrumService,
     private readonly users: UserService,
+    private readonly docs: NoteDocService,
   ) {}
 
   // ── notes ──────────────────────────────────────────────────
@@ -158,7 +161,23 @@ export class MeetingsService {
     return this.get(actor, id);
   }
 
-  async update(actor: Actor, id: string, patch: Partial<CreateNoteInput> & { status?: string }) {
+  /**
+   * Change a note.
+   *
+   * `fromDocument` is set only by the document authority flushing its own copy. It is the
+   * difference between "this text is already what everyone is looking at, write it down" and
+   * "replace the body with this" — and without it the two fight. A body written straight to
+   * the table while somebody has the note open is overwritten a second later by the
+   * authority's next flush, silently, which is precisely the class of bug the authority
+   * exists to end. So an ordinary body update is pushed into the open document instead, and
+   * reaches every editor as a change like any other.
+   */
+  async update(
+    actor: Actor,
+    id: string,
+    patch: Partial<CreateNoteInput> & { status?: string },
+    origin: { fromDocument?: boolean } = {},
+  ) {
     await this.require(actor, 'meetings.write');
     const before = await this.raw(id);
 
@@ -186,9 +205,10 @@ export class MeetingsService {
       });
     });
 
-    // Re-index only when the text actually changed; embedding is the expensive part.
     if (patch.body !== undefined && patch.body !== before.body) {
+      // Re-index only when the text actually changed; embedding is the expensive part.
       await this.index(id).catch(() => undefined);
+      if (!origin.fromDocument) await this.docs.replace(id, actor, patch.body);
     }
     return this.get(actor, id);
   }
@@ -678,16 +698,27 @@ export class MeetingsService {
     origin: { aiInitiated?: boolean } = {},
   ) {
     await this.require(actor, 'meetings.write');
-    const before = await this.raw(input.noteId);
+    // Confirms the note exists before anything is written, and gives a 404 rather than an
+    // authority holding a document for a note id nobody has.
+    await this.raw(input.noteId);
 
     const markdown = (input.markdown ?? '').trim();
     if (!markdown) throw new BadRequestException('There is nothing to write');
 
-    const body = input.section
-      ? replaceSection(before.body, input.section, markdown)
-      : appendToNote(before.body, markdown);
+    /*
+     * Through the document authority, not by rewriting the body.
+     *
+     * This is the change that makes the assistant safe to use during a meeting. It used to
+     * read the whole body, run a regular expression over it and write the whole thing back —
+     * so anyone typing in the same second lost what they had written, silently. Now it
+     * produces a change bounded to the end of the note or to one section, which merges with
+     * live typing instead of overwriting it.
+     */
+    const { markdown: body } = await this.docs.edit(input.noteId, actor, (tr) => {
+      if (input.section) replaceSectionMarkdown(tr, input.section, markdown);
+      else appendMarkdown(tr, markdown);
+    });
 
-    await this.update(actor, input.noteId, { body });
     await this.db.transaction(async (tx) => {
       await this.audit.record(tx, {
         actorId: actor.userId,
@@ -704,15 +735,23 @@ export class MeetingsService {
     return {
       noteId: input.noteId,
       section: input.section ?? null,
-      headings: headingsOf(body),
+      headings: headingsOf(markdownToDoc(body)),
     };
   }
 
-  /** What the assistant needs to write into the right place: the note's own shape. */
+  /**
+   * What the assistant needs to write into the right place: the note's own shape.
+   *
+   * Read through the authority rather than from the table, so it reflects what is on screen
+   * this second rather than what was last flushed. Asking the assistant to write under a
+   * heading somebody added ten keystrokes ago should not fail because the body has not been
+   * saved yet.
+   */
   async noteOutline(actor: Actor, noteId: string) {
     await this.require(actor, 'meetings.read');
     const note = await this.raw(noteId);
-    return { noteId, title: note.title, headings: headingsOf(note.body), body: note.body };
+    const body = await this.docs.markdown(noteId);
+    return { noteId, title: note.title, headings: headingsOf(markdownToDoc(body)), body };
   }
 
   // ── transcripts ────────────────────────────────────────────
@@ -863,6 +902,29 @@ export class MeetingsService {
     const [row] = await this.db.select().from(notes).where(eq(notes.id, id)).limit(1);
     if (!row) throw new NotFoundException('Meeting note not found');
     return row;
+  }
+
+  /**
+   * The stored body, with no permission check.
+   *
+   * For the document authority, which hydrates a note before it has an actor to attribute the
+   * read to — by which point the socket that asked for it has already been authorised for
+   * both reading and writing. Not an endpoint, and not for anything that faces a request.
+   */
+  async bodyOf(id: string): Promise<string> {
+    return (await this.raw(id)).body;
+  }
+
+  /**
+   * May this actor change note bodies?
+   *
+   * Public because the collaborative document socket has to answer it at the moment somebody
+   * connects, not when their first edit is eventually written. The body is flushed by the
+   * authority long after the keystroke, so a permission failure there would surface as a note
+   * that quietly stops saving rather than as a refused connection.
+   */
+  async assertCanWrite(actor: Actor): Promise<void> {
+    await this.require(actor, 'meetings.write');
   }
 
   private async require(actor: Actor, capability: string): Promise<void> {
