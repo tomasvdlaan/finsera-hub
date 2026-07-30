@@ -307,6 +307,19 @@ h3 {
 .statusbar-warn .statusbar-dot {
   background: var(--error);
 }
+/*
+ * A recording in progress, seen from another page.
+ *
+ * Red because it is a recording light, not because anything is wrong — the same convention
+ * every camera has used for fifty years, and the reason it needs no label to be understood.
+ */
+.statusbar-live {
+  border-color: var(--danger);
+  background: var(--danger-bg);
+}
+.statusbar-live .statusbar-dot {
+  background: var(--danger);
+}
 /* `hidden` loses to `display: flex` on specificity, and the assistant is now hidden rather
    than unmounted — without this it stays on screen after Hide. */
 .assistant[hidden] {

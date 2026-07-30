@@ -14,6 +14,8 @@ import { api } from '../lib/api.js';
 import { webModules } from '../modules/index.js';
 import { Assistant } from './Assistant.js';
 import { Icon } from './Icon.js';
+import { LiveMeetingProvider } from './LiveMeeting.js';
+import { LivePill } from './LivePill.js';
 import { Modules } from './Modules.js';
 import { Settings } from './Settings.js';
 import { StatusBar } from './StatusBar.js';
@@ -166,6 +168,14 @@ function Shell() {
   return (
     <BrowserRouter>
       <RouteTitle nav={nav} />
+      {/*
+        Above both layouts on purpose.
+
+        A meeting has to outlive the page you started it from: the panel used to own the
+        socket, and closing that socket from the audio source is how the server learns the
+        meeting is over — so navigating away ended and finalised it. See LiveMeeting.tsx.
+      */}
+      <LiveMeetingProvider>
       <Routes>
         {/*
           Two layouts, one router.
@@ -203,6 +213,7 @@ function Shell() {
           <Route key={path} path={path} element={<Component />} />
         ))}
       </Routes>
+      </LiveMeetingProvider>
     </BrowserRouter>
   );
 }
@@ -288,6 +299,7 @@ function ChromeLayout({
           </p>
         )}
         <StatusBar />
+        <LivePill />
         <Outlet />
       </main>
 

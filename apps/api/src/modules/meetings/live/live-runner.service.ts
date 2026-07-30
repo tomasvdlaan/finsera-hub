@@ -106,6 +106,8 @@ export class LiveRunner {
 
     const live = new LiveSession(noteId, actor.userId);
     this.sessions.start(noteId, live);
+    // The note learns when the meeting actually began, not just which day it was filed on.
+    await this.meetings.stampSession(actor, noteId, { startedAt: live.startedAt });
 
     const capture = await this.recall
       .join(
@@ -403,6 +405,7 @@ export class LiveRunner {
 
     const note = await this.meetings.get(actor, noteId);
     const costCents = this.live.costCents(live);
+    await this.meetings.stampSession(actor, noteId, { endedAt: new Date() });
 
     // The transcript first, and as its own record. If the body write fails after this, what
     // was said is still saved — the other order loses the speech to keep the summary.

@@ -28,10 +28,27 @@ interface Client {
  * does NOT do is get written down: segments are transcribed and dropped, and nothing but
  * text ever reaches the database.
  *
- * Protocol, deliberately small:
+ * Protocol. Small on the way in, less so on the way out:
+ *
  *   client → { type: 'audio', mimeType, data }  base64 segment, ~25s, self-contained
  *   client → { type: 'stop' }
- *   server → { type: 'ready' | 'line' | 'proposals' | 'state' | 'cost' | 'error' | 'stopped' }
+ *
+ *   server → ready      { noteId, startedAt } — or { mode: 'watching' } for a second tab
+ *   server → line       { line: TranscriptLine }
+ *   server → proposals  { proposals: Proposal[] }
+ *   server → state      { state: { summary, decisions, openQuestions } }
+ *   server → notes      { markdown } — the note-taker's section, rewritten each pass
+ *   server → cost       { costCents }
+ *   server → speaker    { speaker, event }
+ *   server → attendees  { attendees, unconsentedPresent }
+ *   server → spoke      { text } — what the assistant said aloud
+ *   server → error      { message } — one bad segment, not the end of the meeting
+ *   server → ended      { reason } — the capture provider dropped
+ *   server → stopped    { costCents, lines } — written and saved
+ *
+ * This list said seven for a while and the server sent twelve, which is a bad way to write a
+ * second client. The web reducer in liveMeetingReducer.ts handles all of them and ignores
+ * anything unknown, so an older tab survives a newer server.
  */
 @WebSocketGateway({ path: '/api/meetings/live' })
 export class LiveGateway implements OnGatewayConnection, OnGatewayDisconnect {
@@ -96,6 +113,7 @@ export class LiveGateway implements OnGatewayConnection, OnGatewayDisconnect {
        */
       this.sessions.start(noteId, session);
       this.sessions.watch(noteId, socket as never);
+      await this.meetings.stampSession(actor, noteId, { startedAt: session.startedAt });
       this.runner.startBehaviours(actor, noteId, session);
 
       this.send(socket, { type: 'ready', noteId, startedAt: session.startedAt.toISOString() });

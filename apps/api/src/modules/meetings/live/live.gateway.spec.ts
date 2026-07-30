@@ -360,6 +360,43 @@ describe('LiveGateway', () => {
     expect(sessions.active).not.toContain(note.id);
   });
 
+  it('records when the meeting actually ran, not just its date', async () => {
+    const note = await noteWithConsent();
+    const socket = new FakeSocket();
+    await gateway.handleConnection(socket as never, request(`token=t&noteId=${note.id}`));
+
+    // notes.startedAt and endedAt have existed with a CHECK constraint since the module was
+    // written and nothing wrote them, so nothing could say whether a note filed under
+    // Tuesday was a nine o'clock stand-up or an evening that overran.
+    const started = await meetings.get(actor, note.id);
+    expect(started.startedAt).not.toBeNull();
+    expect(started.endedAt).toBeNull();
+
+    await socket.deliver({ type: 'audio', data: Buffer.from('x').toString('base64') });
+    await socket.deliver({ type: 'stop' });
+
+    const ended = await meetings.get(actor, note.id);
+    expect(ended.endedAt).not.toBeNull();
+    expect(new Date(ended.endedAt!).getTime()).toBeGreaterThanOrEqual(
+      new Date(ended.startedAt!).getTime(),
+    );
+  });
+
+  it('keeps the first start time when the same note is recorded twice', async () => {
+    const note = await noteWithConsent();
+    const first = new FakeSocket();
+    await gateway.handleConnection(first as never, request(`token=t&noteId=${note.id}`));
+    const startedAt = (await meetings.get(actor, note.id)).startedAt;
+    await first.deliver({ type: 'stop' });
+
+    const second = new FakeSocket();
+    await gateway.handleConnection(second as never, request(`token=t&noteId=${note.id}`));
+
+    // A note recorded twice spans from the first recording to the last, which is the honest
+    // reading of "when was this meeting".
+    expect((await meetings.get(actor, note.id)).startedAt).toEqual(startedAt);
+  });
+
   // ── behaviours, which never ran here before ──
 
   it('runs behaviours on what was said', async () => {

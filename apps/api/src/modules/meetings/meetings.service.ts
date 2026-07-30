@@ -600,6 +600,30 @@ export class MeetingsService {
     return this.get(actor, id);
   }
 
+  /**
+   * When the meeting actually ran, as opposed to the day it was filed under.
+   *
+   * `meetingDate` is a date somebody typed; these two are wall-clock times taken from the
+   * recording. The columns and their CHECK constraint have existed since the module was
+   * written and nothing wrote them, so no screen could say whether a note filed under
+   * Tuesday was a nine o'clock stand-up or an evening that overran.
+   *
+   * The start is stamped once and the end every time: a note recorded twice spans from the
+   * first recording to the last, which is the honest reading of "when was this meeting".
+   */
+  async stampSession(actor: Actor, noteId: string, at: { startedAt?: Date; endedAt?: Date }) {
+    await this.require(actor, 'meetings.write');
+    const before = await this.raw(noteId);
+    await this.db
+      .update(notes)
+      .set({
+        startedAt: before.startedAt ?? at.startedAt ?? null,
+        endedAt: at.endedAt ?? before.endedAt ?? null,
+        updatedAt: new Date(),
+      })
+      .where(eq(notes.id, noteId));
+  }
+
   // ── transcripts ────────────────────────────────────────────
 
   /**
