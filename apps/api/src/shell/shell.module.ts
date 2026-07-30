@@ -1,6 +1,7 @@
 import { Module, type OnApplicationBootstrap } from '@nestjs/common';
 import { ManifestRegistry } from '../core/manifest/manifest.registry.js';
 import { AssistantController } from './assistant.controller.js';
+import { SearchService } from './search.service.js';
 import { ShellController } from './shell.controller.js';
 import { TimelineService } from './timeline.service.js';
 
@@ -13,7 +14,7 @@ import { TimelineService } from './timeline.service.js';
  */
 @Module({
   controllers: [ShellController, AssistantController],
-  providers: [TimelineService],
+  providers: [TimelineService, SearchService],
   exports: [TimelineService],
 })
 export class ShellModule implements OnApplicationBootstrap {

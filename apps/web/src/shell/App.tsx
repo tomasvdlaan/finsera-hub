@@ -14,6 +14,8 @@ import { api } from '../lib/api.js';
 import { webModules } from '../modules/index.js';
 import { Assistant } from './Assistant.js';
 import { Icon } from './Icon.js';
+import type { NavItem } from '../modules/types.js';
+import { CommandBar } from './CommandBar.js';
 import { LiveMeetingProvider } from './LiveMeeting.js';
 import { LivePill } from './LivePill.js';
 import { MeetingChatProvider } from './MeetingChat.js';
@@ -25,17 +27,6 @@ import { ToastProvider } from './ui/Toast.js';
 import { useDocumentTitle } from './useDocumentTitle.js';
 import { AuthProvider, useAuth } from './AuthProvider.js';
 
-interface NavItem {
-  label: string;
-  path: string;
-  module: string;
-  icon?: string;
-  section?: string;
-  /** Lower sorts first within a section. Ties fall back to the label. */
-  order?: number;
-  /** Routed and reachable, but reached from a hub rather than from the rail. */
-  hidden?: boolean;
-}
 
 /**
  * The rail's sections, named here because they cross module boundaries.
@@ -185,6 +176,12 @@ function Shell() {
       */}
       <LiveMeetingProvider>
       <MeetingChatProvider>
+      {/*
+        Above both layouts, like the live meeting and for a related reason: it has to be
+        reachable from the meeting room, which renders outside the ordinary chrome and is
+        exactly where looking something up without losing your place matters most.
+      */}
+      <CommandBar nav={[...SHELL_ITEMS, ...nav]} />
       <Routes>
         {/*
           Two layouts, one router.

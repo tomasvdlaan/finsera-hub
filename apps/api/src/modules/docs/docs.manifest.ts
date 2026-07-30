@@ -12,7 +12,7 @@ export const docsManifest = defineManifest({
   name: 'docs',
   version: '0.1.0',
 
-  entities: [{ type: 'document', displayTemplate: '{title}', urlPattern: '/docs/documents/:id' }],
+  entities: [{ type: 'document', displayTemplate: '{title}', urlPattern: '/docs/documents/:id', readPermission: 'docs.read' }],
 
   structuralRefs: [
     { from: 'document', toType: 'client', required: false },

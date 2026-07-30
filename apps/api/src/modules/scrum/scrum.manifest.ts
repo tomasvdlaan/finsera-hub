@@ -7,8 +7,8 @@ export const scrumManifest = defineManifest({
   version: '0.1.0',
 
   entities: [
-    { type: 'task', displayTemplate: '{title}', urlPattern: '/scrum/tasks/:id' },
-    { type: 'sprint', displayTemplate: '{name}', urlPattern: '/scrum/sprints/:id' },
+    { type: 'task', displayTemplate: '{title}', urlPattern: '/scrum/tasks/:id', readPermission: 'scrum.tasks.read' },
+    { type: 'sprint', displayTemplate: '{name}', urlPattern: '/scrum/sprints/:id', readPermission: 'scrum.tasks.read' },
   ],
 
   structuralRefs: [

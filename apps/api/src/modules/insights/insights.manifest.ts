@@ -14,7 +14,7 @@ export const insightsManifest = defineManifest({
   name: 'insights',
   version: '0.1.0',
 
-  entities: [{ type: 'insight', displayTemplate: '{title}', urlPattern: '/insights' }],
+  entities: [{ type: 'insight', displayTemplate: '{title}', urlPattern: '/insights', readPermission: 'insights.read' }],
   structuralRefs: [],
   publishes: [],
   subscribes: [],

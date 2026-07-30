@@ -58,6 +58,26 @@ export class ManifestRegistry {
       }
     }
 
+    /*
+     * Every entity names a capability that gates seeing it, and it has to be a real one.
+     *
+     * The registry search reads this to decide what a given actor may find, so a typo would
+     * not be a small bug: PermissionService throws on an unknown capability, which would turn
+     * one misspelled string into a search that fails for everybody. Caught at boot instead.
+     */
+    const capabilities = new Set(
+      [...this.manifests.values()].flatMap((m) => m.permissions.map((p) => p.capability)),
+    );
+    for (const m of this.manifests.values()) {
+      for (const e of m.entities) {
+        if (!capabilities.has(e.readPermission)) {
+          problems.push(
+            `entity '${e.type}' needs capability '${e.readPermission}', which no module declares`,
+          );
+        }
+      }
+    }
+
     for (const m of this.manifests.values()) {
       for (const s of m.subscribes) {
         if (!eventNames.has(s.event)) {

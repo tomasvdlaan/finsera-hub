@@ -45,3 +45,21 @@ export interface ChatWidgetProps {
   displayName: string;
   urlPath: string;
 }
+
+/**
+ * A destination in the rail, assembled by the API from module manifests.
+ *
+ * Lives here rather than in App.tsx because the command bar offers the same destinations the
+ * rail does, and two components describing one shape in two places is how they drift.
+ */
+export interface NavItem {
+  label: string;
+  path: string;
+  module: string;
+  icon?: string;
+  section?: string;
+  /** Lower sorts first within a section. Ties fall back to the label. */
+  order?: number;
+  /** Routed and reachable, but reached from a hub rather than from the rail. */
+  hidden?: boolean;
+}

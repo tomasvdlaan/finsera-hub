@@ -9,6 +9,7 @@ import {
   Patch,
   Post,
   Put,
+  Query,
 } from '@nestjs/common';
 import { decodeJwt } from 'jose';
 import { NAV_SECTIONS } from '@platform/contracts';
@@ -22,11 +23,13 @@ import { EventDispatcher } from '../core/events/event-dispatcher.service.js';
 import { LinkService } from '../core/links/link.service.js';
 import { SettingsService, type OrgSettings } from '../core/settings/settings.service.js';
 import { ManifestRegistry } from '../core/manifest/manifest.registry.js';
+import { SearchService } from './search.service.js';
 import { TimelineService } from './timeline.service.js';
 
 @Controller('core')
 export class ShellController {
   constructor(
+    private readonly search: SearchService,
     private readonly manifests: ManifestRegistry,
     private readonly users: UserService,
     private readonly links: LinkService,
@@ -37,6 +40,19 @@ export class ShellController {
   ) {}
 
   /** The organisation's own legal details — printed on every invoice and quote. */
+  /**
+   * Everything called `q`, whatever kind of thing it is.
+   *
+   * Behind the command bar. One endpoint rather than one per module, because the point of it
+   * is that you do not have to know whether what you are looking for is a client, a note or
+   * an invoice before you start typing.
+   */
+  @Get('search')
+  async find(@CurrentActor() actor: Actor, @Query('q') q = '', @Query('limit') limit?: string) {
+    const max = Math.min(Number(limit) || 20, 50);
+    return { results: await this.search.find(actor, q, max) };
+  }
+
   @Get('settings')
   getSettings() {
     return this.settings.get();

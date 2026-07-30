@@ -17,7 +17,8 @@ function manifests() {
     defineManifest({
       name: 'demo',
       version: '1.0.0',
-      entities: [{ type: 'demo_item', displayTemplate: '{title}', urlPattern: '/demo/items/:id' }],
+      entities: [{ type: 'demo_item', displayTemplate: '{title}', urlPattern: '/demo/items/:id', readPermission: 'demo.items.read' }],
+      permissions: [{ capability: 'demo.items.read', description: 'Read demo items.' }],
     }),
   );
   m.seal();

@@ -6,7 +6,8 @@ import { ManifestRegistry } from './manifest.registry.js';
 const base = {
   name: 'alpha',
   version: '1.0.0',
-  entities: [{ type: 'alpha_item', displayTemplate: '{title}', urlPattern: '/alpha/:id' }],
+  entities: [{ type: 'alpha_item', displayTemplate: '{title}', urlPattern: '/alpha/:id', readPermission: 'alpha.read' }],
+  permissions: [{ capability: 'alpha.read', description: 'Read alpha.' }],
   publishes: [{ name: 'alpha_item.created', description: 'created' }],
 };
 
@@ -35,7 +36,7 @@ describe('ManifestRegistry', () => {
       defineManifest({
         name: 'beta',
         version: '1.0.0',
-        entities: [{ type: 'alpha_item', displayTemplate: '{x}', urlPattern: '/beta/:id' }],
+        entities: [{ type: 'alpha_item', displayTemplate: '{x}', urlPattern: '/beta/:id', readPermission: 'alpha.read' }],
       }),
     );
     expect(() => r.seal()).toThrow(/claimed by both/);

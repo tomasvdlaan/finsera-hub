@@ -6,8 +6,8 @@ export const salesManifest = defineManifest({
   version: '0.1.0',
 
   entities: [
-    { type: 'quote', displayTemplate: '{number}', urlPattern: '/sales/quotes/:id' },
-    { type: 'contract', displayTemplate: '{title}', urlPattern: '/sales/contracts/:id' },
+    { type: 'quote', displayTemplate: '{number}', urlPattern: '/sales/quotes/:id', readPermission: 'sales.quotes.read' },
+    { type: 'contract', displayTemplate: '{title}', urlPattern: '/sales/contracts/:id', readPermission: 'sales.contracts.read' },
   ],
 
   structuralRefs: [

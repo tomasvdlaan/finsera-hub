@@ -6,7 +6,7 @@ export const meetingsManifest = defineManifest({
   version: '0.1.0',
 
   entities: [
-    { type: 'meeting_note', displayTemplate: '{title}', urlPattern: '/meetings/:id' },
+    { type: 'meeting_note', displayTemplate: '{title}', urlPattern: '/meetings/:id', readPermission: 'meetings.read' },
   ],
 
   structuralRefs: [

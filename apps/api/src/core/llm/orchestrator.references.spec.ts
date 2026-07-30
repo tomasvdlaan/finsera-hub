@@ -24,7 +24,7 @@ function manifests() {
     defineManifest({
       name: 'demo',
       version: '1.0.0',
-      entities: [{ type: 'thing', displayTemplate: '{name}', urlPattern: '/things/:id' }],
+      entities: [{ type: 'thing', displayTemplate: '{name}', urlPattern: '/things/:id', readPermission: 'demo.read' }],
       permissions: [{ capability: 'demo.read', description: 'read' }],
       aiTools: [
         {

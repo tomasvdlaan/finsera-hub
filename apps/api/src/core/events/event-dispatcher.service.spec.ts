@@ -14,7 +14,8 @@ function manifests() {
     defineManifest({
       name: 'demo',
       version: '1.0.0',
-      entities: [{ type: 'demo_item', displayTemplate: '{t}', urlPattern: '/demo/:id' }],
+      entities: [{ type: 'demo_item', displayTemplate: '{t}', urlPattern: '/demo/:id', readPermission: 'demo.items.read' }],
+      permissions: [{ capability: 'demo.items.read', description: 'Read demo items.' }],
       publishes: [{ name: 'demo_item.created', description: 'created' }],
       subscribes: [{ event: 'demo_item.created', handler: 'onItemCreated' }],
     }),

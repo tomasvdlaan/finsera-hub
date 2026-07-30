@@ -24,7 +24,8 @@ function makeRegistry() {
     defineManifest({
       name: 'fixture',
       version: '1.0.0',
-      entities: [{ type: 'fixture_item', displayTemplate: '{title}', urlPattern: '/fixture/items/:id' }],
+      entities: [{ type: 'fixture_item', displayTemplate: '{title}', urlPattern: '/fixture/items/:id', readPermission: 'fixture.read' }],
+      permissions: [{ capability: 'fixture.read', description: 'Read fixtures.' }],
     }),
   );
   manifests.seal();

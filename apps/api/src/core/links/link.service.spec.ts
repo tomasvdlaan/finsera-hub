@@ -17,9 +17,10 @@ function manifests() {
       name: 'demo',
       version: '1.0.0',
       entities: [
-        { type: 'demo_item', displayTemplate: '{title}', urlPattern: '/demo/items/:id' },
-        { type: 'demo_secret', displayTemplate: '{title}', urlPattern: '/demo/secrets/:id' },
+        { type: 'demo_item', displayTemplate: '{title}', urlPattern: '/demo/items/:id', readPermission: 'demo.items.read' },
+        { type: 'demo_secret', displayTemplate: '{title}', urlPattern: '/demo/secrets/:id', readPermission: 'demo.items.read' },
       ],
+      permissions: [{ capability: 'demo.items.read', description: 'Read demo items.' }],
       structuralRefs: [
         // Required one way and not the other, so the rule is tested where it fires and
         // where it must not.

@@ -27,6 +27,19 @@ export const entityDeclarationSchema = z.object({
   type: identifier, //             'demo_item' — globally unique across modules
   displayTemplate: z.string(), //  '{title}' — how the registry renders its name
   urlPattern: z.string(), //       '/demo/items/:id'
+  /**
+   * The capability required to see that this entity exists.
+   *
+   * Every entity in the platform is in one registry table, which is what lets one query
+   * search all of them at once — and is exactly why this has to be declared. A search over
+   * that table without it would answer "does a client called X exist" to anybody who can
+   * reach the box, regardless of whether they may read the CRM.
+   *
+   * It cannot be derived: the capability names are not uniform (`meetings.read` but
+   * `crm.clients.read`, `time.entries.read_all`), and guessing at a permission is the kind
+   * of cleverness that fails open. Sealing checks that what is named here exists.
+   */
+  readPermission: z.string(), //   'crm.clients.read'
 });
 
 /** A typed reference to an entity owned by ANOTHER module (Master §8.1). */

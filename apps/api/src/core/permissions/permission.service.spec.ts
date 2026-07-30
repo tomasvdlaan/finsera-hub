@@ -16,8 +16,11 @@ function makeManifests() {
     defineManifest({
       name: 'demo',
       version: '1.0.0',
-      entities: [{ type: 'demo_item', displayTemplate: '{title}', urlPattern: '/demo/items/:id' }],
-      permissions: [{ capability: 'demo.items.create', description: 'Create demo items.' }],
+      entities: [{ type: 'demo_item', displayTemplate: '{title}', urlPattern: '/demo/items/:id', readPermission: 'demo.items.read' }],
+      permissions: [
+        { capability: 'demo.items.create', description: 'Create demo items.' },
+        { capability: 'demo.items.read', description: 'Read demo items.' },
+      ],
     }),
   );
   manifests.seal();

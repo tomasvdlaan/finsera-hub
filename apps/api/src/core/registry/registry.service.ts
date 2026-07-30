@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { EntityRef } from '@platform/contracts';
-import { inArray, eq } from 'drizzle-orm';
+import { and, asc, desc, ilike, inArray, isNull, eq, sql } from 'drizzle-orm';
 import { v7 as uuidv7 } from 'uuid';
 import { DB, type Database, type Executor, type Tx } from '../db/db.module.js';
 import { entities } from '../db/core.schema.js';
@@ -27,6 +27,53 @@ export class RegistryService {
     @Inject(DB) private readonly db: Database,
     private readonly manifests: ManifestRegistry,
   ) {}
+
+  /**
+   * Find anything in the platform by name.
+   *
+   * One query over every entity there is — clients, projects, notes, documents, invoices,
+   * quotes, contracts, tasks, sprints — which is possible only because registration is an
+   * invariant rather than a convention. Nothing here knows what a client is; it knows that
+   * everything is registered, and that is enough.
+   *
+   * Takes the types it may return rather than working them out. The registry owns identity,
+   * not authorisation, and it has no business asking who is calling — the caller decides what
+   * this actor may be told exists, and SearchService is where that decision lives.
+   */
+  async search(query: string, allowedTypes: string[], limit = 20): Promise<EntityRef[]> {
+    const q = query.trim();
+    if (q.length < 2 || allowedTypes.length === 0) return [];
+    const allowed = allowedTypes;
+
+    const rows = await this.db
+      .select()
+      .from(entities)
+      .where(
+        and(
+          isNull(entities.deletedAt),
+          inArray(entities.entityType, allowed),
+          ilike(entities.displayName, `%${q}%`),
+        ),
+      )
+      /*
+       * A name that starts with what was typed comes first.
+       *
+       * Without it "Power BI" ranks below "Migrate the Power BI workspace" purely because one
+       * was touched more recently, and a command bar whose first result is never the obvious
+       * one stops being used.
+       */
+      .orderBy(desc(sql`${entities.displayName} ILIKE ${q + '%'}`), asc(entities.displayName))
+      .limit(limit);
+
+    return rows.map((r) => ({
+      id: r.id,
+      entityType: r.entityType,
+      displayName: r.displayName,
+      urlPath: r.urlPath,
+      deleted: false,
+    }));
+  }
+
 
   /** Mint an id before inserting, so the module row and registry entry can share it. */
   newId(): string {

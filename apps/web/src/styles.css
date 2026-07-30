@@ -2302,3 +2302,129 @@ ul.decl li > div {
 }
 .room-asked p, .room-answer p { margin: 0 0 var(--space-1); }
 .room-ask .room-answer { margin-bottom: var(--space-3); }
+
+/*
+ * The command bar.
+ *
+ * Deliberately the only thing on screen while it is open. The assistant used to be a button
+ * in the rail opening a panel beside the page, which made it a feature of the page rather
+ * than of the platform — and on the meeting room, which has no rail, it was unreachable.
+ */
+.cmdk-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgb(0 0 0 / 0.45);
+  backdrop-filter: blur(2px);
+  display: flex;
+  justify-content: center;
+  /* Nearer the top than the middle: the list grows downwards, and a box that centres itself
+     moves under the cursor every time a result arrives. */
+  padding: 12vh var(--space-4) var(--space-4);
+}
+.cmdk {
+  width: min(40rem, 100%);
+  align-self: flex-start;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-3);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  max-height: 70vh;
+}
+.cmdk-input {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+}
+.cmdk-input input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: none;
+  padding: 0;
+  font-size: var(--text-lg);
+  color: var(--text);
+}
+.cmdk-input input:focus-visible {
+  outline: none;
+}
+.cmdk-hint {
+  font-size: var(--text-xs);
+}
+.cmdk-list {
+  list-style: none;
+  margin: 0;
+  padding: var(--space-2);
+  overflow-y: auto;
+}
+.cmdk-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  text-align: left;
+  padding: var(--space-2) var(--space-3);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text);
+  font-weight: 500;
+}
+/* Highlighted by the keyboard as well as the mouse, so the two never disagree. */
+.cmdk-on {
+  background: var(--accent-bg);
+  color: var(--brand);
+}
+.cmdk-glyph {
+  display: grid;
+  place-items: center;
+  width: 1.1rem;
+  flex-shrink: 0;
+  color: var(--muted);
+}
+.cmdk-on .cmdk-glyph {
+  color: var(--brand);
+}
+.cmdk-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cmdk-answer {
+  padding: var(--space-4);
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  overflow-y: auto;
+}
+.cmdk-answer p {
+  margin: 0 0 var(--space-2);
+  white-space: pre-wrap;
+}
+.cmdk-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin: 0;
+}
+.cmdk-foot {
+  padding: var(--space-2) var(--space-4);
+  border-top: 1px solid var(--border);
+  background: var(--surface-sunken);
+  font-size: var(--text-xs);
+}
+.cmdk-foot kbd {
+  font-size: 0.6875rem;
+  padding: 0.05rem 0.3rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  margin-right: 2px;
+}

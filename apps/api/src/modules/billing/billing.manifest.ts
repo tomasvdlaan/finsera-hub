@@ -5,7 +5,7 @@ export const billingManifest = defineManifest({
   name: 'billing',
   version: '0.1.0',
 
-  entities: [{ type: 'invoice', displayTemplate: '{number}', urlPattern: '/billing/invoices/:id' }],
+  entities: [{ type: 'invoice', displayTemplate: '{number}', urlPattern: '/billing/invoices/:id', readPermission: 'billing.read' }],
 
   structuralRefs: [
     { from: 'invoice', toType: 'client', required: true },
