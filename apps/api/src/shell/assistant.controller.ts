@@ -83,10 +83,151 @@ export class AssistantController {
     }
   }
 
-  /** `?q=` filters on titles and on what was actually said in each thread. */
+  /**
+   * The list, narrowed however the caller asks.
+   *
+   * Every filter is a query parameter rather than a separate endpoint, because a saved search
+   * stores exactly this shape — one query language, whether it is typed now or remembered.
+   */
   @Get('conversations')
-  list(@CurrentActor() actor: Actor, @Query('q') q?: string) {
-    return this.orchestrator.listConversations(actor, q);
+  list(@CurrentActor() actor: Actor, @Query() query: Record<string, string>) {
+    return this.orchestrator.listConversations(actor, {
+      q: query.q,
+      folderId: query.folderId as string | 'none' | undefined,
+      tagId: query.tagId,
+      subjectId: query.subjectId,
+      usedTool: query.usedTool,
+      since: query.since,
+      until: query.until,
+      pinnedOnly: query.pinnedOnly === 'true',
+      includeArchived: query.includeArchived === 'true',
+      archivedOnly: query.archivedOnly === 'true',
+      sort: query.sort as 'recent' | 'oldest' | 'title' | undefined,
+      limit: query.limit ? Number(query.limit) : undefined,
+    });
+  }
+
+  @Post('conversations/:id/archive')
+  archive(
+    @CurrentActor() actor: Actor,
+    @Param('id') id: string,
+    @Body() body: { archived?: boolean },
+  ) {
+    return this.orchestrator.archiveConversation(actor, id, body.archived !== false);
+  }
+
+  /** One action, many conversations — filing sixty-seven of them one at a time is why nobody does. */
+  @Post('conversations/bulk')
+  bulk(
+    @CurrentActor() actor: Actor,
+    @Body()
+    body: {
+      ids: string[];
+      move?: string | null;
+      archive?: boolean;
+      pin?: boolean;
+      tag?: string;
+      on?: boolean;
+      delete?: true;
+    },
+  ) {
+    const action =
+      body.delete
+        ? ({ delete: true } as const)
+        : body.tag
+          ? ({ tag: body.tag, on: body.on !== false } as const)
+          : body.archive !== undefined
+            ? ({ archive: body.archive } as const)
+            : body.pin !== undefined
+              ? ({ pin: body.pin } as const)
+              : ({ move: body.move ?? null } as const);
+    return this.orchestrator.bulkConversations(actor, body.ids ?? [], action);
+  }
+
+  /** Where this thread probably belongs, from the records its answers cited. */
+  @Get('conversations/:id/suggested-subject')
+  suggested(@CurrentActor() actor: Actor, @Param('id') id: string) {
+    return this.orchestrator.suggestSubject(actor, id);
+  }
+
+  @Post('conversations/:id/split')
+  split(
+    @CurrentActor() actor: Actor,
+    @Param('id') _id: string,
+    @Body() body: { messageId: string; title?: string },
+  ) {
+    return this.orchestrator.splitConversation(actor, body.messageId, body.title);
+  }
+
+  @Post('conversations/:id/merge')
+  merge(
+    @CurrentActor() actor: Actor,
+    @Param('id') id: string,
+    @Body() body: { intoId: string },
+  ) {
+    return this.orchestrator.mergeConversations(actor, id, body.intoId);
+  }
+
+  // ── messages ──
+
+  @Post('messages/:id/mark')
+  markMessage(
+    @CurrentActor() actor: Actor,
+    @Param('id') id: string,
+    @Body() body: { starred?: boolean; pinned?: boolean },
+  ) {
+    return this.orchestrator.markMessage(actor, id, body);
+  }
+
+  @Get('starred')
+  starred(@CurrentActor() actor: Actor) {
+    return this.orchestrator.starredMessages(actor);
+  }
+
+  // ── tags ──
+
+  @Get('tags')
+  tags(@CurrentActor() actor: Actor) {
+    return this.orchestrator.listTags(actor);
+  }
+
+  @Post('tags')
+  createTag(@CurrentActor() actor: Actor, @Body() body: { name: string; colour?: string | null }) {
+    return this.orchestrator.createTag(actor, body.name, body.colour);
+  }
+
+  @Delete('tags/:id')
+  deleteTag(@CurrentActor() actor: Actor, @Param('id') id: string) {
+    return this.orchestrator.deleteTag(actor, id);
+  }
+
+  @Post('conversations/:id/tags')
+  tagConversation(
+    @CurrentActor() actor: Actor,
+    @Param('id') id: string,
+    @Body() body: { tagId: string; on?: boolean },
+  ) {
+    return this.orchestrator.tagConversation(actor, id, body.tagId, body.on !== false);
+  }
+
+  // ── saved searches ──
+
+  @Get('views')
+  views(@CurrentActor() actor: Actor) {
+    return this.orchestrator.listViews(actor);
+  }
+
+  @Post('views')
+  createView(
+    @CurrentActor() actor: Actor,
+    @Body() body: { name: string; query: Record<string, unknown> },
+  ) {
+    return this.orchestrator.createView(actor, body.name, body.query ?? {});
+  }
+
+  @Delete('views/:id')
+  deleteView(@CurrentActor() actor: Actor, @Param('id') id: string) {
+    return this.orchestrator.deleteView(actor, id);
   }
 
   @Patch('conversations/:id')
@@ -121,17 +262,29 @@ export class AssistantController {
   }
 
   @Post('folders')
-  createFolder(@CurrentActor() actor: Actor, @Body() body: { name: string }) {
-    return this.orchestrator.createFolder(actor, body.name);
+  createFolder(
+    @CurrentActor() actor: Actor,
+    @Body()
+    body: { name: string; parentId?: string | null; colour?: string | null; emoji?: string | null },
+  ) {
+    return this.orchestrator.createFolder(actor, body);
   }
 
+  /** Name, colour, glyph, order or parent — whichever was sent. */
   @Patch('folders/:id')
-  renameFolder(
+  updateFolder(
     @CurrentActor() actor: Actor,
     @Param('id') id: string,
-    @Body() body: { name: string },
+    @Body()
+    body: {
+      name?: string;
+      colour?: string | null;
+      emoji?: string | null;
+      position?: number;
+      parentId?: string | null;
+    },
   ) {
-    return this.orchestrator.renameFolder(actor, id, body.name);
+    return this.orchestrator.updateFolder(actor, id, body);
   }
 
   /** Deletes the folder; its conversations return to the top level rather than going with it. */

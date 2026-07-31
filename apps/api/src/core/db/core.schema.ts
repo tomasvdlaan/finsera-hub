@@ -11,6 +11,7 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
 
@@ -154,11 +155,88 @@ export const conversationFolders = core.table(
       .notNull()
       .references(() => users.id),
     name: text('name').notNull(),
+    /**
+     * One level of nesting, enforced in the service rather than the schema.
+     *
+     * A self-reference cannot express "at most two deep" — that is a check on the whole
+     * chain, not on a row — so the column allows any depth and `createFolder` refuses a
+     * parent that already has one. Deeper trees are a filing system you get lost in.
+     */
+    parentId: uuid('parent_id'),
+    /** Manual order. Alphabetical put the folder you use most wherever its name fell. */
+    position: integer('position').notNull().default(0),
+    /** A colour and a glyph, for finding a folder without reading it. */
+    colour: text('colour'),
+    emoji: text('emoji'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    index('conversation_folders_user_idx').on(t.userId, t.name),
+    index('conversation_folders_user_idx').on(t.userId, t.position),
+    index('conversation_folders_parent_idx').on(t.parentId),
     check('conversation_folders_named', sql`length(trim(${t.name})) > 0`),
+    check('conversation_folders_not_own_parent', sql`${t.parentId} IS NULL OR ${t.parentId} <> ${t.id}`),
+  ],
+);
+
+/**
+ * Tags, because a folder makes you choose.
+ *
+ * A conversation about DocHorse invoicing belongs under the client and under billing, and a
+ * single `folder_id` forces one. Folders stay for hierarchy — the drawer you put things in —
+ * and tags cut across it.
+ */
+export const conversationTags = core.table(
+  'conversation_tags',
+  {
+    id: uuid('id').primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    name: text('name').notNull(),
+    colour: text('colour'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('conversation_tags_unique').on(t.userId, t.name),
+    check('conversation_tags_named', sql`length(trim(${t.name})) > 0`),
+  ],
+);
+
+export const conversationTagLinks = core.table(
+  'conversation_tag_links',
+  {
+    conversationId: uuid('conversation_id').notNull(),
+    tagId: uuid('tag_id')
+      .notNull()
+      .references(() => conversationTags.id, { onDelete: 'cascade' }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.conversationId, t.tagId] }),
+    index('conversation_tag_links_tag_idx').on(t.tagId),
+  ],
+);
+
+/**
+ * A saved search that keeps itself current — a folder you never have to file into.
+ *
+ * The query is stored as the same shape the list endpoint already accepts, so a smart folder
+ * is literally a remembered set of filters rather than a second query language.
+ */
+export const conversationViews = core.table(
+  'conversation_views',
+  {
+    id: uuid('id').primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    name: text('name').notNull(),
+    query: jsonb('query').notNull().default({}),
+    position: integer('position').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('conversation_views_user_idx').on(t.userId, t.position),
+    check('conversation_views_named', sql`length(trim(${t.name})) > 0`),
   ],
 );
 
@@ -183,12 +261,24 @@ export const conversations = core.table(
     }),
     /** Pinned to the top of the list, above the by-recency ordering. */
     pinnedAt: timestamp('pinned_at', { withTimezone: true }),
+    /**
+     * The record this conversation is about.
+     *
+     * A registry id, taken from the page the question was asked on. It was already being
+     * sent — the orchestrator used it to write the system prompt and then discarded it — so a
+     * chat started from a client's page had no lasting connection to that client. Storing it
+     * files the conversation without anybody filing it.
+     */
+    subjectId: uuid('subject_id'),
+    /** Out of the way, still searchable. Deleting was the only way to shorten the list. */
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     index('conversations_user_idx').on(t.userId, t.updatedAt),
     index('conversations_folder_idx').on(t.folderId),
+    index('conversations_subject_idx').on(t.subjectId),
   ],
 );
 
@@ -210,9 +300,16 @@ export const messages = core.table(
      * without replaying every tool call.
      */
     references: jsonb('references').notNull().default([]),
+    /** Kept out of the thread it lives in — often the unit you want is one answer. */
+    starredAt: timestamp('starred_at', { withTimezone: true }),
+    /** Held at the top of its own conversation, for the answer a long thread keeps returning to. */
+    pinnedAt: timestamp('pinned_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index('messages_conversation_idx').on(t.conversationId, t.createdAt)],
+  (t) => [
+    index('messages_conversation_idx').on(t.conversationId, t.createdAt),
+    index('messages_starred_idx').on(t.starredAt),
+  ],
 );
 
 /**
