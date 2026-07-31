@@ -1,7 +1,18 @@
+/**
+ * What a column means, as opposed to what it is called.
+ *
+ * `queue` is waiting to be started, `active` is being worked on, `waiting` is out of our hands,
+ * `done` is finished. Cycle time runs from the first `active` to the first `done`, and a WIP
+ * limit only means anything on an `active` column — neither can be expressed by a name.
+ */
+export type ColumnFlow = 'queue' | 'active' | 'waiting' | 'done';
+
 export interface BoardColumn {
   key: string;
   label: string;
   isDone: boolean;
+  /** Always present on a board read from the API; older rows are defaulted server-side. */
+  flow?: ColumnFlow;
   /**
    * How many cards may sit here at once, if the column is limited.
    *
@@ -18,6 +29,13 @@ export interface Board {
 }
 
 export interface Task {
+  /**
+   * The role of the column this card is in, carried on the card.
+   *
+   * Cross-project screens cannot fetch a board per project, and grouping by status key meant
+   * quietly mis-filing any column somebody had renamed.
+   */
+  flow: ColumnFlow;
   id: string;
   projectId: string;
   title: string;

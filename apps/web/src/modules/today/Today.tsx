@@ -19,6 +19,8 @@ interface Task {
   projectId: string;
   title: string;
   status: string;
+  /** What the card's column means. See the grouping below for why the name is not enough. */
+  flow: 'queue' | 'active' | 'waiting' | 'done';
   priority: string;
   dueOn: string | null;
 }
@@ -46,10 +48,14 @@ interface ClientRequest {
 const hours = (minutes = 0) =>
   `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, '0')}m`;
 
-/** The columns worth showing on a front door: what is moving, and what is stuck. */
-const DOING = ['in_progress', 'review'];
-const WAITING = ['waiting_on_client'];
-const NEXT = ['to_do'];
+/*
+ * What is moving, what is stuck, what is next.
+ *
+ * These used to be three lists of column keys written out here, which meant a board whose
+ * columns had been renamed — something board settings invites you to do — silently dropped its
+ * work off this page. Each card now carries its column's role, so the grouping follows the
+ * board instead of guessing at it.
+ */
 
 /** Where an insight points, so a line of text becomes a way to deal with the thing. */
 function subjectPath(i: Insight): string | null {
@@ -123,22 +129,18 @@ export function Today() {
         .catch((e: Error) => setErrors((all) => [...all, `${label}: ${e.message}`]));
 
     void load<Insight[]>('/insights?status=open', setInsights, 'attention');
-    // Every open status at once — this is why the list endpoint was widened first.
-    void load<Task[]>(
-      `/scrum/tasks?${[...DOING, ...WAITING, ...NEXT].map((s) => `status=${s}`).join('&')}`,
-      setTasks,
-      'work',
-    );
+    // Everything still open, whatever its column is called.
+    void load<Task[]>('/scrum/tasks', setTasks, 'work');
     void load<{ entries: DayEntry[] }>(`/time/day?date=${today}`, setDay, "today's hours");
     void load<ClientRequest[]>('/portal-preview/requests', setRequests, 'client requests');
     api.get<Project[]>('/crm/projects').then(setProjects).catch(() => setProjects([]));
   }, []);
 
   const projectName = new Map(projects.map((p) => [p.id, p.name]));
-  const byStatus = (keys: string[]) => tasks.filter((t) => keys.includes(t.status));
-  const doing = byStatus(DOING);
-  const waiting = byStatus(WAITING);
-  const next = byStatus(NEXT);
+  const inFlow = (...roles: Task['flow'][]) => tasks.filter((t) => roles.includes(t.flow));
+  const doing = inFlow('active');
+  const waiting = inFlow('waiting');
+  const next = inFlow('queue');
 
   const today = new Date().toISOString().slice(0, 10);
   const overdue = tasks.filter((t) => t.dueOn && t.dueOn < today);

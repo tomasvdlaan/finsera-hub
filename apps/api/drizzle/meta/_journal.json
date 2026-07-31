@@ -232,6 +232,13 @@
       "when": 1785519702772,
       "tag": "0032_retire_story_points",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1785519702773,
+      "tag": "0033_column_flow_roles",
+      "breakpoints": true
     }
   ]
 }

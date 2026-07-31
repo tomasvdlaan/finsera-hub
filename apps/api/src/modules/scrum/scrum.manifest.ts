@@ -54,6 +54,19 @@ export const scrumManifest = defineManifest({
         'they are blocked.',
     },
     {
+      view: 'scrum.v_task_flow',
+      description:
+        'One row per live card: how long it took from start to done, how long from creation ' +
+        'to done, how long it has been in flight if it still is, how long it has spent ' +
+        'waiting on a client, and how many times it came back after being finished.',
+    },
+    {
+      view: 'scrum.v_column_flow',
+      description:
+        "Each board column's role — queue, active, waiting or done — so a query can tell " +
+        'work in progress from a backlog without knowing what anyone named their columns.',
+    },
+    {
       view: 'scrum.v_sprints',
       description:
         'Sprints with their goal, dates, state, and cards and estimated minutes done vs total.',

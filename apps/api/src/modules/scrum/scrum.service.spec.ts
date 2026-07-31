@@ -551,3 +551,228 @@ describe('ScrumService card age, type and comment counts', () => {
     expect(after.get(talkative.id)?.commentCount).toBe(1);
   });
 });
+
+/**
+ * Flow.
+ *
+ * Every case here is a way a flow number can be confidently wrong rather than absent, which is
+ * the failure mode that matters: an absent metric gets asked about, a wrong one gets believed.
+ */
+describe('ScrumService flow', () => {
+  let scrum: ScrumService;
+  let projectId: string;
+
+  beforeEach(async () => {
+    await resetDb();
+    await truncate(
+      sql`TRUNCATE scrum.tasks, scrum.sprints, scrum.boards, crm.projects, crm.contacts, crm.clients CASCADE`,
+    );
+    await seedUser(actor.userId, 'admin');
+
+    const manifests = new ManifestRegistry();
+    for (const m of [crmManifest, timeManifest, scrumManifest]) manifests.register(m);
+    manifests.seal();
+
+    const registry = new RegistryService(testDb, manifests);
+    const permissions = new PermissionService(testDb, manifests);
+    const audit = new AuditService();
+    const links = new LinkService(testDb, registry, permissions, audit, manifests);
+    const bus = new EventBus(manifests);
+    const crm = new CrmService(testDb, registry, permissions, audit, bus, links);
+    const time = new TimeService(testDb, registry, permissions, audit, bus, links, crm);
+    scrum = new ScrumService(testDb, registry, permissions, audit, bus, links, crm, time);
+
+    const client = await crm.createClient(actor, { name: 'DocHorse', status: 'active' });
+    const project = await crm.createProject(actor, {
+      clientId: client.id,
+      name: 'Power BI',
+      billingModel: 'time_and_materials',
+    });
+    projectId = project.id;
+    await scrum.getBoard(actor, projectId);
+    await scrum.ensureReportingViews();
+  });
+
+  /** Backdate a card's transitions so a span has a measurable length. */
+  const backdate = async (taskId: string, status: string, minutesAgo: number) =>
+    testDb.execute(sql`
+      UPDATE scrum.task_transitions
+         SET at = now() - (${minutesAgo} || ' minutes')::interval
+       WHERE task_id = ${taskId} AND to_status = ${status}
+    `);
+
+  it('measures cycle time from the first start to the first done', async () => {
+    const t = await scrum.createTask(actor, { projectId, title: 'Bounced' });
+    await scrum.moveTask(actor, t.id, { status: 'in_progress' });
+    await scrum.moveTask(actor, t.id, { status: 'done' });
+    await backdate(t.id, 'in_progress', 600);
+
+    const flow = await scrum.flow(actor, projectId);
+    // Ten hours from starting to finishing, whatever it did in between.
+    expect(flow.cycle.samples[0]?.minutes).toBe(600);
+    expect(flow.cycle.n).toBe(1);
+  });
+
+  it('counts a reopened card in the week it first landed, not the week it landed again', async () => {
+    /*
+     * The card that most needs an honest number is the one that was called finished twice.
+     *
+     * `completed_at` is *rewritten* every time a card re-enters a done column, so a card
+     * finished three weeks ago, reopened and finished again today moves itself out of the old
+     * week and into this one — last month's throughput silently changes. The transitions do
+     * not move, so the first landing stays where it happened.
+     */
+    const t = await scrum.createTask(actor, { projectId, title: 'Reopened' });
+    await scrum.moveTask(actor, t.id, { status: 'in_progress' });
+    await scrum.moveTask(actor, t.id, { status: 'done' });
+    await backdate(t.id, 'in_progress', 40_000);
+    await backdate(t.id, 'done', 30_000); // ~three weeks ago
+    await scrum.moveTask(actor, t.id, { status: 'in_progress' });
+    await scrum.moveTask(actor, t.id, { status: 'done' }); // and again, just now
+
+    const flow = await scrum.flow(actor, projectId);
+    expect(flow.reopened).toBe(1);
+    expect(flow.throughput.reduce((n, w) => n + w.count, 0)).toBe(1);
+
+    const landed = flow.throughput[0]!.week;
+    const thisWeek = new Date();
+    thisWeek.setUTCDate(thisWeek.getUTCDate() - ((thisWeek.getUTCDay() + 6) % 7));
+    expect(landed).not.toBe(thisWeek.toISOString().slice(0, 10));
+  });
+
+  it('gives a card that never started no cycle time, and calls it queued rather than aging', async () => {
+    await scrum.createTask(actor, { projectId, title: 'Never touched' });
+
+    const flow = await scrum.flow(actor, projectId);
+    expect(flow.cycle.n).toBe(0);
+    expect(flow.aging).toEqual([]);
+    expect(flow.queued.map((q) => q.title)).toEqual(['Never touched']);
+  });
+
+  it('counts a card waiting on the client as waiting, not as work in progress', async () => {
+    const t = await scrum.createTask(actor, { projectId, title: 'With them' });
+    await scrum.moveTask(actor, t.id, { status: 'in_progress' });
+    await scrum.moveTask(actor, t.id, { status: 'waiting_on_client' });
+    await backdate(t.id, 'waiting_on_client', 2880);
+
+    const flow = await scrum.flow(actor, projectId);
+    expect(flow.waiting.now).toBe(1);
+    expect(flow.waiting.minutes).toBeGreaterThanOrEqual(2880);
+    expect(flow.aging[0]).toMatchObject({ title: 'With them', waiting: true, measured: true });
+  });
+
+  it('withholds a percentile until there is something to be a percentile of', async () => {
+    // Created straight into a working column, so the creation row is already the first start
+    // and each card costs two round trips rather than three.
+    const finish = async (title: string) => {
+      const t = await scrum.createTask(actor, { projectId, title, status: 'in_progress' });
+      await scrum.moveTask(actor, t.id, { status: 'done' });
+    };
+    await Promise.all([0, 1, 2].map((i) => finish(`Card ${i}`)));
+    const few = await scrum.flow(actor, projectId);
+    // Three finished cards is three anecdotes. Naming a median over them invites it to be
+    // read as a forecast, so the samples are returned and the percentile is not.
+    expect(few.cycle.n).toBe(3);
+    expect(few.cycle.meaningful).toBe(false);
+    expect(few.cycle.p50).toBeNull();
+    expect(few.cycle.samples).toHaveLength(3);
+
+    await Promise.all([3, 4, 5, 6, 7, 8].map((i) => finish(`Card ${i}`)));
+    const enough = await scrum.flow(actor, projectId);
+    expect(enough.cycle.meaningful).toBe(true);
+    expect(enough.cycle.p50).not.toBeNull();
+  });
+
+  it('says nothing at all rather than dividing by an empty board', async () => {
+    const flow = await scrum.flow(actor, projectId);
+    expect(flow).toMatchObject({
+      cards: 0,
+      excluded: 0,
+      reopened: 0,
+      throughput: [],
+      aging: [],
+      queued: [],
+    });
+    expect(flow.cycle).toMatchObject({ n: 0, p50: null, p85: null, meaningful: false });
+    expect(flow.waiting).toEqual({ minutes: 0, spells: 0, now: 0 });
+  });
+
+  it('still reports lead time for a card with no transition history', async () => {
+    // Cards created before task_transitions existed have no rows at all. Column-level numbers
+    // cannot see them and say so; created-to-done does not need the history.
+    const t = await scrum.createTask(actor, { projectId, title: 'Older than the table' });
+    await scrum.moveTask(actor, t.id, { status: 'done' });
+    await testDb.execute(sql`DELETE FROM scrum.task_transitions WHERE task_id = ${t.id}`);
+
+    const flow = await scrum.flow(actor, projectId);
+    expect(flow.excluded).toBe(1);
+    expect(flow.lead.n).toBe(1);
+    expect(flow.cycle.n).toBe(0);
+  });
+
+  it('follows a renamed column instead of guessing from its key', async () => {
+    /*
+     * The bug this replaced.
+     *
+     * Today and All work grouped by hardcoded status keys, so renaming In progress to
+     * "Building" — which board settings invites — dropped that work off both screens. The
+     * role travels on the card, so the name is free to be whatever anybody wants.
+     */
+    await scrum.updateBoard(actor, projectId, {
+      columns: [
+        { key: 'icebox', label: 'Icebox', isDone: false, flow: 'queue' },
+        { key: 'building', label: 'Building', isDone: false, flow: 'active' },
+        { key: 'their_court', label: 'Their court', isDone: false, flow: 'waiting' },
+        { key: 'shipped', label: 'Shipped', isDone: true, flow: 'done' },
+      ],
+    });
+    const a = await scrum.createTask(actor, { projectId, title: 'A', status: 'building' });
+    await scrum.createTask(actor, { projectId, title: 'B', status: 'their_court' });
+    await scrum.createTask(actor, { projectId, title: 'C', status: 'icebox' });
+
+    const list = await scrum.listTasks(actor, { projectId });
+    expect(new Map(list.map((t) => [t.title, t.flow]))).toEqual(
+      new Map([
+        ['A', 'active'],
+        ['B', 'waiting'],
+        ['C', 'queue'],
+      ]),
+    );
+    // And the metrics follow the same roles, with not a default column name among them.
+    await scrum.moveTask(actor, a.id, { status: 'shipped' });
+    const flow = await scrum.flow(actor, projectId);
+    expect(flow.cycle.n).toBe(1);
+    expect(flow.aging.map((x) => x.title)).toEqual(['B']);
+    expect(flow.queued.map((x) => x.title)).toEqual(['C']);
+  });
+
+  it('refuses a WIP limit that is not a limit', async () => {
+    // Never validated, and the browser divides by it: zero renders the fill as Infinity.
+    await expect(
+      scrum.updateBoard(actor, projectId, {
+        columns: [
+          { key: 'to_do', label: 'To do', isDone: false, flow: 'queue', wipLimit: 0 },
+          { key: 'done', label: 'Done', isDone: true, flow: 'done' },
+        ],
+      }),
+    ).rejects.toThrow(/whole number of cards/i);
+  });
+
+  it('keeps from_status in step with the previous row, so either could be read', async () => {
+    // The spans are built from lead(to_status) and never read from_status. That makes the
+    // column redundant, and a redundant column is only safe while it agrees.
+    const t = await scrum.createTask(actor, { projectId, title: 'Consistent' });
+    await scrum.moveTask(actor, t.id, { status: 'in_progress' });
+    await scrum.moveTask(actor, t.id, { status: 'review' });
+    await scrum.moveTask(actor, t.id, { status: 'done' });
+
+    const { rows } = await testDb.execute<{ disagreements: number }>(sql`
+      SELECT count(*)::int AS disagreements FROM (
+        SELECT from_status,
+               lag(to_status) OVER (PARTITION BY task_id ORDER BY at, id) AS previous
+          FROM scrum.task_transitions WHERE task_id = ${t.id}
+      ) s WHERE from_status IS DISTINCT FROM previous
+    `);
+    expect(rows[0]?.disagreements).toBe(0);
+  });
+});

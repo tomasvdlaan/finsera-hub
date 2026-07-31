@@ -4,7 +4,7 @@ import { api } from '../../lib/api.js';
 import { Button, Panel } from '../../shell/ui/primitives.js';
 import { useToast } from '../../shell/ui/Toast.js';
 import type { Project } from '../crm/types.js';
-import type { BoardColumn, Board as BoardType, Task } from './types.js';
+import type { BoardColumn, ColumnFlow, Board as BoardType, Task } from './types.js';
 
 /**
  * A key from a label, for a column that does not have one yet.
@@ -97,7 +97,7 @@ export function BoardSettings() {
   const add = () =>
     setColumns((cs) => [
       ...cs,
-      { key: '', label: '', isDone: false, wipLimit: null, existing: false },
+      { key: '', label: '', isDone: false, flow: 'active' as ColumnFlow, wipLimit: null, existing: false },
     ]);
 
   const remove = (index: number) => setColumns((cs) => cs.filter((_, i) => i !== index));
@@ -160,7 +160,13 @@ export function BoardSettings() {
       const payload: BoardColumn[] = columns.map((c) => {
         const key = c.existing ? c.key : keyFrom(c.label, taken);
         if (!c.existing) taken.add(key);
-        return { key, label: c.label.trim(), isDone: c.isDone, wipLimit: c.wipLimit ?? null };
+        return {
+          key,
+          label: c.label.trim(),
+          isDone: c.isDone,
+          flow: c.flow ?? (c.isDone ? 'done' : 'active'),
+          wipLimit: c.wipLimit ?? null,
+        };
       });
       await api.patch(`/scrum/boards/${projectId}`, { columns: payload });
       toast.ok('Board saved');
@@ -217,6 +223,7 @@ export function BoardSettings() {
           <thead>
             <tr>
               <th scope="col">Name</th>
+              <th scope="col">Flow</th>
               <th scope="col">Done</th>
               <th scope="col">Limit</th>
               <th scope="col">Cards</th>
@@ -238,6 +245,26 @@ export function BoardSettings() {
                   {/* The key is what is stored on every card in this column, so renaming the
                       label is safe and changing the key would strand them. Shown, not editable. */}
                   {c.existing && <code className="muted column-key">{c.key}</code>}
+                </td>
+                <td>
+                  {/*
+                    What the column means, which is not what it is called.
+
+                    Cycle time runs from the first active column to the first done one, a WIP
+                    limit only bites on active work, and time spent waiting is reported to the
+                    client. All three used to be guessed from the default column names.
+                  */}
+                  <select
+                    value={c.flow ?? (c.isDone ? 'done' : 'active')}
+                    onChange={(e) => edit(i, { flow: e.target.value as ColumnFlow })}
+                    aria-label={`What ${c.label || `column ${i + 1}`} means`}
+                    className="column-flow"
+                  >
+                    <option value="queue">Queued</option>
+                    <option value="active">Being worked on</option>
+                    <option value="waiting">Waiting on someone else</option>
+                    <option value="done">Finished</option>
+                  </select>
                 </td>
                 <td>
                   <input

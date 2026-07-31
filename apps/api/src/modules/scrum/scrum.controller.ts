@@ -106,6 +106,16 @@ export class ScrumController {
     return sprint ? this.scrum.getSprint(actor, sprint.id) : null;
   }
 
+  /** How work moves on this board: cycle and lead time, what is old now, throughput. */
+  @Get('projects/:projectId/flow')
+  flow(
+    @CurrentActor() actor: Actor,
+    @Param('projectId') projectId: string,
+    @Query('since') since?: string,
+  ) {
+    return this.scrum.flow(actor, projectId, { since });
+  }
+
   @Get('sprints/:id')
   sprint(@CurrentActor() actor: Actor, @Param('id') id: string) {
     return this.scrum.getSprint(actor, id);

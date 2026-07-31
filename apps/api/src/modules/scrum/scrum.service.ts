@@ -17,15 +17,22 @@ import { RegistryService } from '../../core/registry/registry.service.js';
 import { CrmService } from '../crm/crm.service.js';
 import { TimeService } from '../time/time.service.js';
 import {
+  COLUMN_FLOWS,
   DEFAULT_COLUMNS,
   PRIORITIES,
+  flowOf,
   boards,
   sprints,
   taskTransitions,
   tasks,
   type BoardColumn,
+  type ColumnFlow,
   type SprintSummary,
 } from './scrum.schema.js';
+
+/** Every column carrying an explicit flow, so no caller has to know the fallback. */
+const withFlow = (columns: BoardColumn[]): BoardColumn[] =>
+  columns.map((c, i) => ({ ...c, flow: flowOf(c, i) }));
 
 export interface CreateTaskInput {
   projectId: string;
@@ -45,6 +52,72 @@ export interface CreateTaskInput {
 
 /** Gap between ranks, so a card can always be dropped between two others without a rewrite. */
 const RANK_STEP = 1000;
+
+interface FlowRow extends Record<string, unknown> {
+  task_id: string;
+  title: string;
+  assignee_id: string | null;
+  status: string;
+  current_flow: string | null;
+  has_history: boolean;
+  cycle_minutes: number | null;
+  lead_minutes: number | null;
+  age_minutes: number | null;
+  queued_minutes: number | null;
+  waiting_minutes: number;
+  waiting_spells: number;
+  reopen_count: number;
+  first_done_at: string | null;
+  completed_at: string | null;
+}
+
+/**
+ * How many finished cards it takes before a percentile is worth printing.
+ *
+ * Under this the answer is the cards themselves — "six finished: 2d, 3d, 1d, 9d, 2d, 4d" is
+ * strictly more informative than a median over six, and it cannot mislead. A p85 of five items
+ * *is* the second-worst item wearing a statistic's clothes, and it will be read as a forecast.
+ * So the API returns null rather than leaving the UI to decide how brave to be.
+ */
+const MEANINGFUL_AT = 8;
+
+/** Nearest-rank, which for small samples is an actual observation rather than an average. */
+function percentile(sorted: number[], p: number): number | null {
+  if (sorted.length === 0) return null;
+  return sorted[Math.min(sorted.length - 1, Math.ceil(p * sorted.length) - 1)]!;
+}
+
+function stat(rows: FlowRow[], pick: (r: FlowRow) => number) {
+  const samples = rows
+    .map((r) => ({ taskId: r.task_id, title: r.title, minutes: pick(r) }))
+    .sort((a, b) => a.minutes - b.minutes);
+  const values = samples.map((s) => s.minutes);
+  const enough = samples.length >= MEANINGFUL_AT;
+  return {
+    n: samples.length,
+    samples,
+    meaningful: enough,
+    p50: enough ? percentile(values, 0.5) : null,
+    // p85 rather than p95: at twenty items p95 is simply the worst one.
+    p85: enough ? percentile(values, 0.85) : null,
+  };
+}
+
+/** Counts per ISO week, keyed by the Monday that starts it. */
+function weekly(dates: string[]): Array<{ week: string; count: number }> {
+  const byWeek = new Map<string, number>();
+  for (const iso of dates) {
+    const d = new Date(iso);
+    const monday = new Date(
+      Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - ((d.getUTCDay() + 6) % 7)),
+    );
+    const key = monday.toISOString().slice(0, 10);
+    byWeek.set(key, (byWeek.get(key) ?? 0) + 1);
+  }
+  return [...byWeek.entries()]
+    .map(([week, count]) => ({ week, count }))
+    .sort((a, b) => a.week.localeCompare(b.week));
+}
 
 @Injectable()
 export class ScrumService {
@@ -71,14 +144,16 @@ export class ScrumService {
       .from(boards)
       .where(eq(boards.projectId, projectId))
       .limit(1);
-    if (existing) return existing;
+    if (existing) return { ...existing, columns: withFlow(existing.columns) };
 
     const [created] = await this.db
       .insert(boards)
       .values({ projectId, columns: DEFAULT_COLUMNS })
       .onConflictDoNothing()
       .returning();
-    return created ?? { projectId, columns: DEFAULT_COLUMNS, usesSprints: false };
+    return created
+      ? { ...created, columns: withFlow(created.columns) }
+      : { projectId, columns: DEFAULT_COLUMNS, usesSprints: false };
   }
 
   async updateBoard(
@@ -98,6 +173,30 @@ export class ScrumService {
       const keys = new Set(patch.columns.map((c) => c.key));
       if (keys.size !== patch.columns.length) {
         throw new BadRequestException('Column keys must be unique');
+      }
+      const badFlow = patch.columns.find((c) => c.flow && !COLUMN_FLOWS.includes(c.flow));
+      if (badFlow) {
+        throw new BadRequestException(
+          `${badFlow.label} has an unknown flow. Use one of: ${COLUMN_FLOWS.join(', ')}`,
+        );
+      }
+      /*
+       * A limit has to be a limit.
+       *
+       * This was never checked, and the browser divides by it — a stored 0 makes the fill
+       * width Infinity and a negative one makes it NaN, so the column silently renders
+       * wrong rather than complaining.
+       */
+      const badLimit = patch.columns.find(
+        (c) =>
+          c.wipLimit !== undefined &&
+          c.wipLimit !== null &&
+          (!Number.isInteger(c.wipLimit) || c.wipLimit < 1),
+      );
+      if (badLimit) {
+        throw new BadRequestException(
+          `A WIP limit is a whole number of cards, one or more — ${badLimit.label} has ${badLimit.wipLimit}`,
+        );
       }
       // Removing a column would strand every task sitting in it.
       const inUse = await this.db
@@ -441,10 +540,103 @@ export class ScrumService {
     };
   }
 
+  // ── flow ───────────────────────────────────────────────────
+
+  /**
+   * How work actually moves through this board.
+   *
+   * Velocity answers "how much did we commit to and deliver", which needs a team big enough to
+   * average and a habit of committing. These answer "how long does a thing take once it starts,
+   * what is old right now, and how much of the elapsed time was us waiting on someone else" —
+   * which need neither, and which are the questions a consultancy can act on.
+   */
+  async flow(actor: Actor, projectId: string, opts: { since?: string } = {}) {
+    await this.require(actor, 'scrum.tasks.read');
+    await this.crm.getProject(actor, projectId);
+
+    const since = opts.since ? new Date(opts.since) : null;
+    const rows = await this.db.execute<FlowRow>(sql`
+      SELECT task_id, title, assignee_id, status, current_flow, has_history,
+             cycle_minutes, lead_minutes, age_minutes, queued_minutes,
+             waiting_minutes, waiting_spells, reopen_count,
+             first_done_at, completed_at
+        FROM scrum.v_task_flow
+       WHERE project_id = ${projectId}
+    `);
+    const all = rows.rows;
+    const finishedAt = (r: FlowRow) => r.first_done_at ?? r.completed_at;
+    const inWindow = (r: FlowRow) => {
+      const at = finishedAt(r);
+      return at !== null && (!since || new Date(at) >= since);
+    };
+    const finished = all.filter(inWindow);
+
+    return {
+      /** Cards the column-level numbers cannot see, because they have no transitions at all. */
+      excluded: all.filter((r) => !r.has_history).length,
+      cards: all.length,
+      cycle: stat(finished.filter((r) => r.cycle_minutes !== null), (r) => r.cycle_minutes!),
+      lead: stat(finished.filter((r) => r.lead_minutes !== null), (r) => r.lead_minutes!),
+      /*
+       * What is old right now, oldest first.
+       *
+       * The one number on this page that is useful on the day it ships: it is a fact about a
+       * single card, not a distribution, so it needs no sample size to mean something.
+       */
+      aging: all
+        .filter((r) => r.age_minutes !== null)
+        .sort((a, b) => b.age_minutes! - a.age_minutes!)
+        .map((r) => ({
+          taskId: r.task_id,
+          title: r.title,
+          status: r.status,
+          minutes: r.age_minutes!,
+          waiting: r.current_flow === 'waiting',
+          /** False when the age is inferred from creation rather than measured from a move. */
+          measured: r.has_history,
+        })),
+      /** Oldest thing nobody has started. Not aging work — a different problem. */
+      queued: all
+        .filter((r) => r.queued_minutes !== null)
+        .sort((a, b) => b.queued_minutes! - a.queued_minutes!)
+        .slice(0, 5)
+        .map((r) => ({ taskId: r.task_id, title: r.title, minutes: r.queued_minutes! })),
+      waiting: {
+        minutes: all.reduce((n, r) => n + r.waiting_minutes, 0),
+        spells: all.reduce((n, r) => n + r.waiting_spells, 0),
+        now: all.filter((r) => r.current_flow === 'waiting').length,
+      },
+      /*
+       * Cards finished per ISO week.
+       *
+       * Counted from the first time a card entered a done column, never from completed_at:
+       * that column is *nulled* when a card leaves a done column, so anything re-opened and
+       * finished again would silently count zero.
+       */
+      throughput: weekly(finished.map((r) => finishedAt(r)!)),
+      reopened: all.filter((r) => r.reopen_count > 0).length,
+    };
+  }
+
   private async rawSprint(id: string) {
     const [found] = await this.db.select().from(sprints).where(eq(sprints.id, id)).limit(1);
     if (!found) throw new NotFoundException('Sprint not found');
     return found;
+  }
+
+  /** `projectId:status` → the column's flow role, for however many projects are in a list. */
+  private async flowByStatus(projectIds: string[]): Promise<Map<string, ColumnFlow>> {
+    const unique = [...new Set(projectIds)];
+    if (unique.length === 0) return new Map();
+    const rows = await this.db
+      .select({ projectId: boards.projectId, columns: boards.columns })
+      .from(boards)
+      .where(inArray(boards.projectId, unique));
+    const map = new Map<string, ColumnFlow>();
+    for (const b of rows) {
+      b.columns.forEach((c, i) => map.set(`${b.projectId}:${c.key}`, flowOf(c, i)));
+    }
+    return map;
   }
 
   /** The board row without the permission check, for internal aggregates. */
@@ -787,14 +979,23 @@ export class ScrumService {
      * the current column is the honest answer.
      */
     const ids = rows.map((r) => r.id);
-    const [enteredAt, comments, people, subtasks] = await Promise.all([
+    const [enteredAt, comments, people, subtasks, flows] = await Promise.all([
       this.enteredColumnAt(rows),
       this.commentCounts(ids),
       this.peopleFor(rows.map((r) => r.assigneeId)),
       this.subtaskProgress(ids),
+      this.flowByStatus(rows.map((r) => r.projectId)),
     ]);
     return rows.map((r) => ({
       ...r,
+      /*
+       * What this card's column *means*, carried on the card.
+       *
+       * Cross-project screens — Today, All work — used to group by hardcoded status keys and
+       * so mis-filed any column anybody renamed. They cannot reasonably fetch a board per
+       * project, and this is one lookup for the whole list, so the fact travels with the card.
+       */
+      flow: flows.get(`${r.projectId}:${r.status}`) ?? 'active',
       enteredColumnAt: enteredAt.get(r.id) ?? r.createdAt,
       daysInColumn: Math.floor(
         (Date.now() - (enteredAt.get(r.id) ?? r.createdAt).getTime()) / 86_400_000,
@@ -933,7 +1134,7 @@ export class ScrumService {
   async getTask(actor: Actor, id: string) {
     await this.require(actor, 'scrum.tasks.read');
     const task = await this.rawTask(id);
-    const [children, loggedMinutes, assignee, enteredAt, comments] = await Promise.all([
+    const [children, loggedMinutes, assignee, enteredAt, comments, flows] = await Promise.all([
       this.db
         .select()
         .from(tasks)
@@ -948,14 +1149,16 @@ export class ScrumService {
             .limit(1)
             .then((r) => r[0] ?? null)
         : Promise.resolve(null),
-      // The same two derived facts the board shows, so the card and the page it opens agree.
+      // The same derived facts the board shows, so the card and the page it opens agree.
       this.enteredColumnAt([task]),
       this.commentCounts([id]),
+      this.flowByStatus([task.projectId]),
     ]);
     const since = enteredAt.get(id) ?? task.createdAt;
 
     return {
       ...task,
+      flow: flows.get(`${task.projectId}:${task.status}`) ?? 'active',
       children,
       loggedMinutes,
       assignee,
@@ -1219,6 +1422,118 @@ export class ScrumService {
   }
 
   async ensureReportingViews(): Promise<void> {
+    /*
+     * What each column means, per project, as SQL.
+     *
+     * The roles live in `boards.columns` jsonb, and the fallback for a board that predates the
+     * field has to match `flowOf` in the schema exactly — two definitions of "is this column
+     * where work happens" would drift, and the one in SQL is the one the metrics and the
+     * insight rules would believe. Kept as its own view so there is a single place to look.
+     */
+    await this.db.execute(sql`DROP VIEW IF EXISTS scrum.v_column_flow CASCADE`);
+    await this.db.execute(sql`
+      CREATE VIEW scrum.v_column_flow AS
+      SELECT b.project_id,
+             c.value->>'key' AS status,
+             c.ord::int AS position,
+             coalesce(
+               c.value->>'flow',
+               CASE WHEN (c.value->>'isDone')::boolean THEN 'done'
+                    WHEN c.ord = 1 THEN 'queue'
+                    ELSE 'active' END
+             ) AS flow
+        FROM scrum.boards b,
+             LATERAL jsonb_array_elements(b.columns) WITH ORDINALITY AS c(value, ord)
+    `);
+
+    /*
+     * How each card has actually flowed.
+     *
+     * One row per live card. The spans come from a window over the transitions rather than
+     * from `from_status`: the previous row's `to_status` *is* the from-status, so reading it
+     * would only add a way to disagree with itself, and the NULL on a creation row stops being
+     * a special case. A card that re-enters a column produces two spans, which is the whole
+     * point — the card's current column cannot tell you it has been here before.
+     *
+     * Firsts, not lasts. Cycle time runs from the first time work started to the first time it
+     * was done, because a card that bounced out of review and back took all of that.
+     *
+     * `first_done_at` rather than `completed_at` for anything counted: `completed_at` is
+     * *nulled* when a card leaves a done column, so a re-opened card silently vanishes from
+     * any throughput built on it. `completed_at` survives here only as the fallback for cards
+     * created before the transitions table existed, which have no rows at all.
+     */
+    await this.db.execute(sql`DROP VIEW IF EXISTS scrum.v_task_flow CASCADE`);
+    await this.db.execute(sql`
+      CREATE VIEW scrum.v_task_flow AS
+      WITH spans AS (
+        SELECT x.task_id, x.to_status, x.at,
+               lead(x.at) OVER (PARTITION BY x.task_id ORDER BY x.at, x.id) AS until
+          FROM scrum.task_transitions x
+      ),
+      labelled AS (
+        SELECT s.task_id, s.at, s.until,
+               -- A span in a column the board no longer has still happened. Counting it as
+               -- active errs toward the longer, less flattering cycle time.
+               coalesce(f.flow, 'active') AS flow
+          FROM spans s
+          JOIN scrum.tasks t ON t.id = s.task_id
+          LEFT JOIN scrum.v_column_flow f
+            ON f.project_id = t.project_id AND f.status = s.to_status
+      ),
+      rolled AS (
+        SELECT task_id,
+               min(at) FILTER (WHERE flow = 'active') AS first_work_at,
+               min(at) FILTER (WHERE flow = 'done') AS first_done_at,
+               count(*) FILTER (WHERE flow = 'done') AS done_entries,
+               coalesce(sum(EXTRACT(epoch FROM (coalesce(until, now()) - at)) / 60)
+                        FILTER (WHERE flow = 'waiting'), 0) AS waiting_minutes,
+               count(*) FILTER (WHERE flow = 'waiting') AS waiting_spells,
+               count(*) AS transitions
+          FROM labelled GROUP BY task_id
+      )
+      SELECT t.id AS task_id, t.project_id, t.assignee_id, t.title, t.type, t.status,
+             t.created_at, t.completed_at,
+             cf.flow AS current_flow,
+             (r.transitions IS NOT NULL) AS has_history,
+             r.first_work_at, r.first_done_at,
+             coalesce(round(r.waiting_minutes), 0)::int AS waiting_minutes,
+             coalesce(r.waiting_spells, 0)::int AS waiting_spells,
+             -- How many times it came back after being done.
+             greatest(coalesce(r.done_entries, 0) - 1, 0)::int AS reopen_count,
+             CASE WHEN r.first_work_at IS NOT NULL AND r.first_done_at IS NOT NULL
+                  THEN round(EXTRACT(epoch FROM (r.first_done_at - r.first_work_at)) / 60)::int
+             END AS cycle_minutes,
+             -- Lead time survives without any history: a card created before the transitions
+             -- table existed still knows when it was made and when it finished.
+             CASE WHEN coalesce(r.first_done_at, t.completed_at) IS NOT NULL
+                  THEN round(EXTRACT(epoch FROM
+                       (coalesce(r.first_done_at, t.completed_at) - t.created_at)) / 60)::int
+             END AS lead_minutes,
+             -- In flight right now: started, not finished. Measured from when work started,
+             -- not from when it entered this column, so bouncing does not reset the clock.
+             --
+             -- A card with no history at all falls back to when it was created. That is an
+             -- upper bound rather than a measurement — it cannot have been in flight longer
+             -- than it has existed — and it errs toward showing an old card rather than
+             -- hiding one, which is the right direction for the number whose entire job is to
+             -- make you look. has_history says which of the two you are reading.
+             CASE WHEN t.completed_at IS NULL AND cf.flow IN ('active','waiting')
+                  THEN round(EXTRACT(epoch FROM
+                       (now() - coalesce(r.first_work_at, t.created_at))) / 60)::int
+             END AS age_minutes,
+             -- Not the same thing, and conflating them is how a board reports two hundred
+             -- aging items and gets ignored: this one has not been started at all.
+             CASE WHEN t.completed_at IS NULL AND cf.flow = 'queue'
+                  THEN round(EXTRACT(epoch FROM (now() - t.created_at)) / 60)::int
+             END AS queued_minutes
+        FROM scrum.tasks t
+        LEFT JOIN rolled r ON r.task_id = t.id
+        LEFT JOIN scrum.v_column_flow cf
+          ON cf.project_id = t.project_id AND cf.status = t.status
+       WHERE t.archived_at IS NULL
+    `);
+
     await this.db.execute(sql`DROP VIEW IF EXISTS scrum.v_tasks CASCADE`);
     await this.db.execute(sql`
       CREATE VIEW scrum.v_tasks AS

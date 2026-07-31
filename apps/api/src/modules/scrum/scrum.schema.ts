@@ -16,11 +16,38 @@ import {
 
 export const scrum = pgSchema('scrum');
 
+/**
+ * What a column *means*, as opposed to what it is called.
+ *
+ * A board could say a column was done and nothing else. That is enough to stamp `completed_at`
+ * and no help at all for the two questions that matter about flow: when did work on this card
+ * actually start, and is this column somewhere work happens or somewhere it queues. Cycle time
+ * is "first entry into a working column until done", and a WIP limit on a backlog is a filing
+ * rule rather than a limit — neither is expressible without this.
+ *
+ * It was already being guessed at, twice, in the web app, against column keys anyone is free to
+ * rename in board settings: `Today.tsx` hardcoded `['in_progress','review']` as doing and
+ * `['waiting_on_client']` as waiting, and `Work.tsx` kept its own canonical list with an "other"
+ * lane for whatever fell out. Both silently mis-grouped a renamed column. This is the fact they
+ * were both approximating, stored once where the columns are.
+ *
+ * `waiting` is separate from `active` rather than folded into it because the difference is the
+ * whole reason "waiting on client" is a default column: it is time the work is not moving and
+ * nobody here can move it. Counted as active it flatters the cycle time; counted as a queue it
+ * disappears from it. It is neither.
+ */
+export type ColumnFlow = 'queue' | 'active' | 'waiting' | 'done';
+
 export interface BoardColumn {
   key: string;
   label: string;
   /** Entering this column stamps completed_at — "done" is a property of the column. */
   isDone: boolean;
+  /**
+   * Where this column sits in the flow of work. Optional on the way in so an older board row
+   * does not become invalid; defaulted on read, and validated on write.
+   */
+  flow?: ColumnFlow;
   /**
    * How many cards may sit here at once, if the column is limited.
    *
@@ -40,12 +67,26 @@ export interface BoardColumn {
  * progress" and the board lies about where things stand.
  */
 export const DEFAULT_COLUMNS: BoardColumn[] = [
-  { key: 'to_do', label: 'To do', isDone: false },
-  { key: 'in_progress', label: 'In progress', isDone: false },
-  { key: 'waiting_on_client', label: 'Waiting on client', isDone: false },
-  { key: 'review', label: 'Review', isDone: false },
-  { key: 'done', label: 'Done', isDone: true },
+  { key: 'to_do', label: 'To do', isDone: false, flow: 'queue' },
+  { key: 'in_progress', label: 'In progress', isDone: false, flow: 'active' },
+  { key: 'waiting_on_client', label: 'Waiting on client', isDone: false, flow: 'waiting' },
+  { key: 'review', label: 'Review', isDone: false, flow: 'active' },
+  { key: 'done', label: 'Done', isDone: true, flow: 'done' },
 ];
+
+export const COLUMN_FLOWS = ['queue', 'active', 'waiting', 'done'] as const;
+
+/**
+ * The flow of a column that does not declare one.
+ *
+ * Every board predates this field, so every board needs an answer that is right more often
+ * than not. A done column is done; the first column of a board is where cards are created and
+ * is therefore the queue; anything else is somewhere work happens. That last guess is the
+ * generous one — it counts a column into cycle time rather than out of it, which errs toward
+ * the unflattering number, which is the right direction to err.
+ */
+export const flowOf = (column: BoardColumn, index: number): ColumnFlow =>
+  column.flow ?? (column.isDone ? 'done' : index === 0 ? 'queue' : 'active');
 
 export const PRIORITIES = ['low', 'normal', 'high', 'urgent'] as const;
 export const SPRINT_STATES = ['planned', 'active', 'completed'] as const;

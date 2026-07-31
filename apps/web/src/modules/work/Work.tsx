@@ -8,6 +8,8 @@ interface Task {
   projectId: string;
   title: string;
   status: string;
+  /** What the card's column means — see LANES for why the key is not enough. */
+  flow: 'queue' | 'active' | 'waiting' | 'done';
   priority: string;
   dueOn: string | null;
   estimateMinutes: number | null;
@@ -22,22 +24,22 @@ interface Project {
 }
 
 /**
- * The columns a cross-project board groups by.
+ * The lanes a cross-project board groups by.
  *
  * Boards are per project — `boards` is keyed by projectId with its own `columns` jsonb — so
- * "the columns from the board config" has no referent once two projects diverge. This uses
- * the canonical set every board starts from, plus an Other lane so a task in a bespoke column
- * is visible rather than silently missing. Nothing is dropped, which is the only property that
- * matters for a board you plan from.
+ * "the columns from the board config" has no referent once two projects diverge. This used to
+ * hardcode the keys every board happens to start with, plus an Other lane to catch whatever
+ * fell out; renaming a column in board settings quietly emptied its lane and filled Other.
+ *
+ * Grouping by what a column *means* has a referent across every project, and the meaning is
+ * carried on each card. Nothing is dropped, which is the only property that matters for a
+ * board you plan from.
  */
-const COLUMNS: Array<{ key: string; label: string }> = [
-  { key: 'to_do', label: 'To do' },
-  { key: 'in_progress', label: 'In progress' },
-  { key: 'waiting_on_client', label: 'Waiting on client' },
-  { key: 'review', label: 'Review' },
+const LANES: Array<{ key: Task['flow']; label: string }> = [
+  { key: 'queue', label: 'To do' },
+  { key: 'active', label: 'In progress' },
+  { key: 'waiting', label: 'Waiting' },
 ];
-
-const OTHER = 'other';
 
 /**
  * Every open card, everywhere.
@@ -58,11 +60,9 @@ export function Work() {
   const [error, setError] = useState<string>();
 
   const load = useCallback(() => {
-    // Every open status at once — the widened endpoint takes a repeated param, which is why
-    // this page needed it before it could exist.
-    const statuses = [...COLUMNS.map((c) => c.key)].map((s) => `status=${s}`).join('&');
+    // Everything still open, whatever anybody has named their columns.
     api
-      .get<Task[]>(`/scrum/tasks?${statuses}`)
+      .get<Task[]>('/scrum/tasks')
       .then(setTasks)
       .catch((e: Error) => setError(e.message));
   }, []);
@@ -79,12 +79,8 @@ export function Work() {
 
   const visible = (tasks ?? []).filter((t) => !projectFilter || t.projectId === projectFilter);
 
-  /** Anything in a column this board does not name still has to appear somewhere. */
-  const columnOf = (t: Task) => (COLUMNS.some((c) => c.key === t.status) ? t.status : OTHER);
-  const inColumn = (key: string) => visible.filter((t) => columnOf(t) === key);
-  const other = inColumn(OTHER);
-
-  const lanes = [...COLUMNS, ...(other.length > 0 ? [{ key: OTHER, label: 'Other' }] : [])];
+  const inColumn = (key: Task['flow']) => visible.filter((t) => t.flow === key);
+  const lanes = LANES;
 
   if (error) return <p className="error">{error}</p>;
 

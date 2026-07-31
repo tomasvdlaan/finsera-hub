@@ -4365,3 +4365,50 @@ button.nav-me:hover { background: var(--surface); }
   flex-basis: 100%;
   font-size: var(--text-xs);
 }
+
+/*
+ * Flow.
+ *
+ * Deliberately plain. These are numbers you read once a week and act on, not a dashboard to
+ * sit in front of — a chart library here would be more pixels than information.
+ */
+.flow-list {
+  list-style: none;
+  padding: 0;
+  margin: var(--space-2) 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.flow-list li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.flow-weeks {
+  list-style: none;
+  padding: 0;
+  margin: var(--space-2) 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.flow-weeks li {
+  display: grid;
+  grid-template-columns: 6.5rem 1fr auto;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+}
+/* A bar rather than a number alone: the shape of four weeks is the point. */
+.flow-bar {
+  display: block;
+  height: 0.55rem;
+  min-width: 2px;
+  border-radius: var(--radius);
+  background: var(--accent);
+}
+.column-flow {
+  font-size: var(--text-xs);
+}
