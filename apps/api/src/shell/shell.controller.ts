@@ -240,6 +240,33 @@ export class ShellController {
     return this.timeline.for(actor, entityId);
   }
 
+  /**
+   * The same log with time as its axis rather than an entity.
+   *
+   * Exposed over HTTP as well as to the assistant because the two want the same thing for
+   * different reasons — the model to answer "what happened this week", a page to show it —
+   * and one of them being the only caller is how a capability ends up with no surface.
+   */
+  @Get('activity')
+  activity(
+    @CurrentActor() actor: Actor,
+    @Query('since') since?: string,
+    @Query('until') until?: string,
+    @Query('entityType') entityType?: string,
+    @Query('actorId') actorId?: string,
+    @Query('eventName') eventName?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.timeline.recent(actor, {
+      since,
+      until,
+      entityType,
+      actorId,
+      eventName,
+      limit: limit ? Number(limit) : undefined,
+    });
+  }
+
   /** Dead-lettered event deliveries — the only ops surface in Phase 0 (spec §9). */
   @Get('events/dead')
   async deadLetters(@CurrentActor() actor: Actor) {

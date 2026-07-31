@@ -49,6 +49,11 @@ export class AiToolRegistry {
     this.executors.set(toolName, executor);
   }
 
+  /** Whether anything is behind this tool name. Checked at bootstrap, not per request. */
+  isBound(toolName: string): boolean {
+    return this.executors.has(toolName);
+  }
+
   /**
    * Build the tool set for one conversation.
    *
