@@ -13,14 +13,18 @@ import {
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { api } from '../../lib/api.js';
 import type { Project } from '../crm/types.js';
+import { Avatar } from '../../shell/ui/primitives.js';
+import { parseQuickAdd } from './quickAdd.js';
 import { SprintBar } from './SprintBar.js';
 import { TaskCard } from './TaskCard.js';
+import { TaskPreview } from './TaskPreview.js';
 import {
+  PRIORITIES,
   TASK_TYPES,
   hours,
-  toMinutes,
   type BoardColumn,
   type Board as BoardType,
+  type Person,
   type Sprint,
   type Task,
   type TaskType,
@@ -42,6 +46,10 @@ function Column({
   columns,
   onMove,
   onPull,
+  onOpen,
+  openId,
+  collapsed,
+  onToggleCollapse,
 }: {
   column: BoardColumn;
   tasks: Task[];
@@ -53,6 +61,10 @@ function Column({
   ) => void;
   /** Offered only while looking at the backlog with a sprint to pull into. */
   onPull?: (taskId: string) => void;
+  onOpen?: (taskId: string) => void;
+  openId?: string | null;
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
 }) {
   // Droppable on the column itself, so an empty column is still a valid target.
   const { setNodeRef, isOver } = useDroppable({ id: `column:${column.key}` });
@@ -68,9 +80,43 @@ function Column({
   const limit = column.wipLimit ?? null;
   const over = limit != null && tasks.length > limit;
 
+  /*
+   * Collapsed, a column becomes a spine.
+   *
+   * A board with a "waiting on client" column that is always empty and a "done" column with
+   * four months in it spends most of its width on things nobody is reading. Folding one keeps
+   * it as a drop target — which is the whole point, and why this is not simply hiding it.
+   */
+  if (collapsed) {
+    return (
+      <div
+        className={`board-column is-collapsed${isOver ? ' over' : ''}`}
+        ref={setNodeRef}
+        onClick={onToggleCollapse}
+      >
+        <button type="button" className="column-spine" aria-label={`Expand ${column.label}`}>
+          <span className="column-spine-count">{tasks.length}</span>
+          <span className="column-spine-label">{column.label}</span>
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <div className={`board-column${isOver ? ' over' : ''}${over ? ' wip-exceeded' : ''}`} ref={setNodeRef}>
+    <div
+      className={`board-column${isOver ? ' over' : ''}${over ? ' wip-exceeded' : ''}${column.isDone ? ' is-done-column' : ''}`}
+      ref={setNodeRef}
+    >
       <div className="board-column-head">
+        <button
+          type="button"
+          className="column-fold"
+          onClick={onToggleCollapse}
+          aria-label={`Collapse ${column.label}`}
+          title="Collapse"
+        >
+          ‹
+        </button>
         <strong>{column.label}</strong>
         <span className={over ? 'error' : 'muted'}>
           {tasks.length}
@@ -78,6 +124,16 @@ function Column({
           {estimate > 0 && ` · ${hours(estimate)}h`}
         </span>
       </div>
+      {/* A hairline that fills toward the limit — the count says the number, this says how
+          close, which is the thing you want to notice without reading. */}
+      {limit != null && (
+        <span className="wip-track" aria-hidden="true">
+          <span
+            className={over ? 'wip-track-fill is-over' : 'wip-track-fill'}
+            style={{ width: `${Math.min(100, (tasks.length / limit) * 100)}%` }}
+          />
+        </span>
+      )}
       {over && (
         <p className="wip-warning" role="status">
           Over the limit — finish something before starting another.
@@ -93,14 +149,46 @@ function Column({
               columns={columns}
               onMove={(status) => onMove(task.id, status)}
               onPull={onPull && (() => onPull(task.id))}
+              onOpen={onOpen && (() => onOpen(task.id))}
+              selected={openId === task.id}
             />
           ))}
-          {tasks.length === 0 && <p className="muted">—</p>}
+          {tasks.length === 0 && <p className="board-column-empty muted">Drop a card here</p>}
         </div>
       </SortableContext>
     </div>
   );
 }
+
+/** What the rows are grouped by. 'none' is one board, the way it has always been. */
+type Lane = 'none' | 'assignee' | 'priority' | 'type';
+
+interface Filters {
+  assignee: string | null;
+  type: string | null;
+  priority: string | null;
+  label: string | null;
+  flag: 'blocked' | 'overdue' | 'stale' | null;
+  /**
+   * Show cards that belong to another card.
+   *
+   * Off by default. A subtask is a real task — that is what lets it be estimated, assigned and
+   * timed — but three checklist items sitting in To Do beside their own parent is the same
+   * work counted twice, and it makes the column count lie. They are still reachable: they are
+   * on their parent, and turning this on puts them back on the board where they can be
+   * dragged and assigned like anything else.
+   */
+  subtasks: boolean;
+}
+
+const NO_FILTERS: Filters = {
+  assignee: null,
+  type: null,
+  priority: null,
+  label: null,
+  flag: null,
+  subtasks: false,
+};
 
 /**
  * The board (Phase 4 brief §6).
@@ -119,9 +207,14 @@ export function Board() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [title, setTitle] = useState('');
-  const [estimate, setEstimate] = useState('');
   const [type, setType] = useState<TaskType>('story');
   const [busy, setBusy] = useState(false);
+  const [people, setPeople] = useState<Person[]>([]);
+  const [sprintList, setSprintList] = useState<Sprint[]>([]);
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [filters, setFilters] = useState<Filters>(NO_FILTERS);
+  const [lane, setLane] = useState<Lane>('none');
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
   const sensors = useSensors(
     // A small distance so a click on a card is not swallowed as a drag.
@@ -137,6 +230,12 @@ export function Board() {
         setProjectId((current) => current || (ps[0]?.id ?? ''));
       })
       .catch(() => setProjects([]));
+    // Needed by the quick-add parser and the preview's assignee select, so it is fetched once
+    // for the page rather than per card.
+    api
+      .get<Person[]>('/core/users')
+      .then(setPeople)
+      .catch(() => setPeople([]));
   }, []);
 
   const load = useCallback(async () => {
@@ -160,6 +259,7 @@ export function Board() {
       setBoard(b);
       setTasks(t);
       setSprint(s);
+      setSprintList(all);
       // The next one waiting, oldest first — you start the sprint you planned, not the most
       // recent thing you typed.
       setPlanned(
@@ -189,19 +289,99 @@ export function Board() {
     if (projectId) setParams({ projectId }, { replace: true });
   }, [load, projectId, setParams]);
 
-  const shown = useMemo(() => {
+  const inScope = useMemo(() => {
     if (!sprint || scope === 'all') return tasks;
     return scope === 'sprint'
       ? tasks.filter((t) => t.sprintId === sprint.id)
       : tasks.filter((t) => t.sprintId === null);
   }, [tasks, sprint, scope]);
 
-  const byColumn = useMemo(() => {
-    const map = new Map<string, Task[]>();
-    for (const column of board?.columns ?? []) map.set(column.key, []);
-    for (const task of shown) map.get(task.status)?.push(task);
-    return map;
-  }, [board, shown]);
+  /*
+   * Filtered in the browser rather than re-queried.
+   *
+   * The whole board is already loaded — it has to be, or the columns cannot show counts — so
+   * a round trip per filter change would buy nothing and cost a flicker on every click.
+   * `listTasks` still takes these as query parameters for the callers that need them.
+   */
+  const shown = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    return inScope.filter((t) => {
+      if (!filters.subtasks && t.parentId) return false;
+      if (filters.assignee === 'none' && t.assigneeId !== null) return false;
+      if (filters.assignee && filters.assignee !== 'none' && t.assigneeId !== filters.assignee)
+        return false;
+      if (filters.type && t.type !== filters.type) return false;
+      if (filters.priority && t.priority !== filters.priority) return false;
+      if (filters.label && !t.labels.includes(filters.label)) return false;
+      if (filters.flag === 'blocked' && !t.blockedReason) return false;
+      if (filters.flag === 'overdue' && !(t.dueOn && !t.completedAt && t.dueOn < today))
+        return false;
+      if (filters.flag === 'stale' && (t.completedAt || t.daysInColumn < 5)) return false;
+      return true;
+    });
+  }, [inScope, filters]);
+
+  /** Every label in use on this board, so the filter offers what exists and nothing else. */
+  const labels = useMemo(
+    () => [...new Set(inScope.flatMap((t) => t.labels))].sort(),
+    [inScope],
+  );
+
+  const filtered =
+    Boolean(filters.assignee || filters.type || filters.priority || filters.label || filters.flag) ||
+    filters.subtasks;
+
+  /*
+   * Swimlanes: the same columns, split into rows.
+   *
+   * A column with thirty cards is a list, and the question people actually bring to a board —
+   * what is everyone on, what is urgent — is a grouping the columns cannot express because
+   * the columns are already spent on status.
+   */
+  const lanes = useMemo((): Array<{ key: string; label: string; person?: Person; tasks: Task[] }> => {
+    if (lane === 'none') return [{ key: 'all', label: '', tasks: shown }];
+
+    if (lane === 'assignee') {
+      const groups = new Map<string, { label: string; person?: Person; tasks: Task[] }>();
+      for (const t of shown) {
+        const key = t.assigneeId ?? 'none';
+        const entry = groups.get(key) ?? {
+          label: t.assignee?.displayName ?? 'Unassigned',
+          person: t.assignee ?? undefined,
+          tasks: [],
+        };
+        entry.tasks.push(t);
+        groups.set(key, entry);
+      }
+      // Unassigned last: it is a bucket, not a person, and it is usually the biggest.
+      return [...groups.entries()]
+        .map(([key, v]) => ({ key, ...v }))
+        .sort((a, b) =>
+          a.key === 'none' ? 1 : b.key === 'none' ? -1 : a.label.localeCompare(b.label),
+        );
+    }
+
+    // Priority and type both have a fixed vocabulary, so the lanes keep their meaningful
+    // order rather than sorting alphabetically into nonsense (high, low, normal, urgent).
+    const order = lane === 'priority' ? [...PRIORITIES].reverse() : TASK_TYPES;
+    return order
+      .map((key) => ({
+        key,
+        label: key,
+        tasks: shown.filter((t) => (lane === 'priority' ? t.priority : t.type) === key),
+      }))
+      .filter((l) => l.tasks.length > 0);
+  }, [shown, lane]);
+
+  const columnsOf = useCallback(
+    (list: Task[]) => {
+      const map = new Map<string, Task[]>();
+      for (const column of board?.columns ?? []) map.set(column.key, []);
+      for (const task of list) map.get(task.status)?.push(task);
+      return map;
+    },
+    [board],
+  );
 
   /**
    * Moves are applied locally first, then confirmed by the server.
@@ -273,20 +453,29 @@ export function Board() {
     void move(taskId, target.status, { beforeTaskId: target.id });
   };
 
+  const parsed = useMemo(() => parseQuickAdd(title, people), [title, people]);
+
   const addTask = async (e: FormEvent) => {
     e.preventDefault();
-    if (!title.trim() || !projectId) return;
+    if (!parsed.title || !projectId) return;
     setBusy(true);
     setError(null);
     try {
       await api.post('/scrum/tasks', {
         projectId,
-        title: title.trim(),
-        type,
-        estimateMinutes: toMinutes(estimate),
+        title: parsed.title,
+        // The select is the default; anything typed on the line wins, because it was typed
+        // more recently and more deliberately.
+        type: parsed.type ?? type,
+        priority: parsed.priority,
+        labels: parsed.labels,
+        assigneeId: parsed.assigneeId,
+        estimateMinutes: parsed.estimateMinutes,
+        // A card added while looking at a sprint belongs to it. Added from the backlog or a
+        // flow board, it does not — which is the same rule the scope switch already implies.
+        sprintId: scope === 'sprint' && sprint ? sprint.id : undefined,
       });
       setTitle('');
-      setEstimate('');
       // The type is not reset: bugs arrive in clusters, and so do chores.
       await load();
     } catch (err) {
@@ -295,6 +484,37 @@ export function Board() {
       setBusy(false);
     }
   };
+
+  /*
+   * The keyboard, on the board itself.
+   *
+   * Not a shortcut sheet — three keys that make the board usable without a pointer at all:
+   * `n` to type a new card, `f` to reach the filters, Escape to clear them and close the
+   * preview. Everything else already works through Tab, because the cards are buttons.
+   */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      // Never while someone is typing — this is the bug that makes shortcuts hated.
+      if (el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable)) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+      if (e.key === 'n') {
+        e.preventDefault();
+        document.querySelector<HTMLInputElement>('.quick-add input')?.focus();
+      }
+      if (e.key === 'f') {
+        e.preventDefault();
+        document.querySelector<HTMLSelectElement>('.filter-bar select')?.focus();
+      }
+      if (e.key === 'Escape') {
+        setOpenId(null);
+        setFilters(NO_FILTERS);
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, []);
 
   if (projects.length === 0) {
     return (
@@ -361,13 +581,14 @@ export function Board() {
         </div>
       )}
 
-      <form onSubmit={(e) => void addTask(e)} className="row">
+      <form onSubmit={(e) => void addTask(e)} className="row quick-add">
         <input
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          placeholder="New task"
-          aria-label="New task title"
-          style={{ flex: 1, minWidth: 200 }}
+          placeholder="New task — try  !high  @name  #label  ~2h  bug"
+          aria-label="New task"
+          aria-describedby="quick-add-hint"
+          style={{ flex: 1, minWidth: 240 }}
         />
         <select
           value={type}
@@ -380,39 +601,217 @@ export function Board() {
             </option>
           ))}
         </select>
-        <input
-          value={estimate}
-          onChange={(e) => setEstimate(e.target.value)}
-          placeholder="est. hours"
-          aria-label="Estimate in hours"
-          style={{ width: 110 }}
-        />
-        <button type="submit" disabled={busy || !title.trim()}>
+        <button type="submit" disabled={busy || !parsed.title}>
           Add
         </button>
       </form>
 
+      {/*
+        What the line was understood to mean, before anything is created.
+
+        A parser that acts silently is a parser you cannot trust with a title, so it shows its
+        working — and because it only ever removes tokens it recognised, what is left is
+        exactly the title you will get.
+      */}
+      {parsed.recognised.length > 0 && (
+        <p className="quick-add-read muted" id="quick-add-hint" aria-live="polite">
+          <strong>{parsed.title || '(no title yet)'}</strong>
+          {parsed.recognised.map((r) => (
+            <span key={r.token} className="tag">
+              {r.means}
+            </span>
+          ))}
+        </p>
+      )}
+
+      {/*
+        Filters and lanes, in one row.
+
+        Both answer the same complaint — a board of forty cards in five columns is a wall —
+        and both are view state rather than stored state: nothing here is saved, because a
+        filter you forgot you set is a board that lies to you tomorrow morning.
+      */}
+      <div className="row filter-bar" role="group" aria-label="Filter and group">
+        <select
+          value={filters.assignee ?? ''}
+          onChange={(e) => setFilters((f) => ({ ...f, assignee: e.target.value || null }))}
+          aria-label="Filter by assignee"
+        >
+          <option value="">Anyone</option>
+          <option value="none">Unassigned</option>
+          {people.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.displayName}
+            </option>
+          ))}
+        </select>
+
+        <select
+          value={filters.type ?? ''}
+          onChange={(e) => setFilters((f) => ({ ...f, type: e.target.value || null }))}
+          aria-label="Filter by type"
+        >
+          <option value="">Any type</option>
+          {TASK_TYPES.map((t) => (
+            <option key={t} value={t}>
+              {t}
+            </option>
+          ))}
+        </select>
+
+        <select
+          value={filters.priority ?? ''}
+          onChange={(e) => setFilters((f) => ({ ...f, priority: e.target.value || null }))}
+          aria-label="Filter by priority"
+        >
+          <option value="">Any priority</option>
+          {PRIORITIES.map((p) => (
+            <option key={p} value={p}>
+              {p}
+            </option>
+          ))}
+        </select>
+
+        {/* Only offered when the board actually has labels on it. */}
+        {labels.length > 0 && (
+          <select
+            value={filters.label ?? ''}
+            onChange={(e) => setFilters((f) => ({ ...f, label: e.target.value || null }))}
+            aria-label="Filter by label"
+          >
+            <option value="">Any label</option>
+            {labels.map((l) => (
+              <option key={l} value={l}>
+                {l}
+              </option>
+            ))}
+          </select>
+        )}
+
+        {/* The three questions worth one click: what is stuck, what is late, what is rotting. */}
+        {(
+          [
+            ['blocked', 'Blocked'],
+            ['overdue', 'Overdue'],
+            ['stale', 'Sitting 5d+'],
+          ] as Array<[NonNullable<Filters['flag']>, string]>
+        ).map(([key, text]) => (
+          <button
+            key={key}
+            type="button"
+            className={filters.flag === key ? 'chip chip-on' : 'chip'}
+            aria-pressed={filters.flag === key}
+            onClick={() => setFilters((f) => ({ ...f, flag: f.flag === key ? null : key }))}
+          >
+            {text}
+          </button>
+        ))}
+
+        <span className="filter-lanes">
+          <label htmlFor="lane-select" className="muted">
+            Group
+          </label>
+          <select
+            id="lane-select"
+            value={lane}
+            onChange={(e) => setLane(e.target.value as Lane)}
+          >
+            <option value="none">No lanes</option>
+            <option value="assignee">By person</option>
+            <option value="priority">By priority</option>
+            <option value="type">By type</option>
+          </select>
+        </span>
+
+        <button
+          type="button"
+          className={filters.subtasks ? 'chip chip-on' : 'chip'}
+          aria-pressed={filters.subtasks}
+          onClick={() => setFilters((f) => ({ ...f, subtasks: !f.subtasks }))}
+          title="Subtasks live on their parent card unless you ask for them here"
+        >
+          Subtasks
+        </button>
+
+        {filtered && (
+          <button type="button" className="chip" onClick={() => setFilters(NO_FILTERS)}>
+            Clear
+          </button>
+        )}
+      </div>
+
       {error && <p className="error">{error}</p>}
 
       {board && (
-        <DndContext sensors={sensors} collisionDetection={closestCorners} onDragEnd={onDragEnd}>
-          <div className="board">
-            {board.columns.map((column) => (
-              <Column
-                key={column.key}
-                column={column}
-                tasks={byColumn.get(column.key) ?? []}
-                columns={board.columns}
-                onMove={move}
-                onPull={sprint && scope === 'backlog' ? pull : undefined}
-              />
-            ))}
-          </div>
-        </DndContext>
+        <div className={openId ? 'board-stage has-preview' : 'board-stage'}>
+          <DndContext sensors={sensors} collisionDetection={closestCorners} onDragEnd={onDragEnd}>
+            <div className="board-lanes">
+              {lanes.map((swim) => {
+                const byColumn = columnsOf(swim.tasks);
+                return (
+                  <section key={swim.key} className="board-lane">
+                    {lane !== 'none' && (
+                      <header className="lane-head">
+                        {swim.person ? (
+                          <Avatar id={swim.person.id} name={swim.person.displayName} size="sm" />
+                        ) : (
+                          <span className="avatar avatar-sm avatar-empty" aria-hidden="true">
+                            ?
+                          </span>
+                        )}
+                        <strong>{swim.label}</strong>
+                        <span className="muted">{swim.tasks.length}</span>
+                      </header>
+                    )}
+                    <div className="board">
+                      {board.columns.map((column) => (
+                        <Column
+                          key={column.key}
+                          column={column}
+                          tasks={byColumn.get(column.key) ?? []}
+                          columns={board.columns}
+                          onMove={move}
+                          onPull={sprint && scope === 'backlog' ? pull : undefined}
+                          onOpen={setOpenId}
+                          openId={openId}
+                          collapsed={collapsed.has(column.key)}
+                          onToggleCollapse={() =>
+                            setCollapsed((c) => {
+                              const next = new Set(c);
+                              if (next.has(column.key)) next.delete(column.key);
+                              else next.add(column.key);
+                              return next;
+                            })
+                          }
+                        />
+                      ))}
+                    </div>
+                  </section>
+                );
+              })}
+              {lanes.length === 0 && (
+                <p className="muted">Nothing matches those filters.</p>
+              )}
+            </div>
+          </DndContext>
+
+          {openId && (
+            <TaskPreview
+              key={openId}
+              taskId={openId}
+              columns={board.columns}
+              people={people}
+              sprints={sprintList}
+              onClose={() => setOpenId(null)}
+              onChanged={load}
+            />
+          )}
+        </div>
       )}
 
-      <p className="muted">
-        Drag a card by its handle, or use the dropdown on any card to move it with the keyboard.
+      <p className="muted board-hint">
+        Drag a card by its handle, or move it with the dropdown. Click a card to preview it.
+        <kbd>n</kbd> new · <kbd>f</kbd> filter · <kbd>Esc</kbd> clear
       </p>
     </>
   );

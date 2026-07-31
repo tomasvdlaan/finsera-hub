@@ -1,6 +1,6 @@
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Link } from 'react-router-dom';
+import { Avatar } from '../../shell/ui/primitives.js';
 import { firstImage } from '../../shell/ui/MarkdownEditor.js';
 import { ageTone, daysBlocked, hours, isOverdue, type Task } from './types.js';
 
@@ -15,24 +15,34 @@ const TYPE_MARK: Record<string, { mark: string; label: string }> = {
 /**
  * A card on the board.
  *
- * Dragging is one way to move it; the keyboard menu beside it is the other. A board that
- * only responds to a pointer is unusable one-handed and untestable without one.
+ * Three ways to act on it, because a board that only responds to a pointer is unusable
+ * one-handed and untestable without one: drag it by the handle, move it with the column
+ * select, or open it into the preview beside the board.
+ *
+ * The title is a button rather than a link now. It used to navigate to the task page, which
+ * meant glancing at a card cost you the board you were reading. The page still exists and the
+ * preview links to it; this is the cheap look.
  *
  * What a card shows is ordered by what stops work rather than by what describes it: the
- * blocker first, then how long it has been sitting still, then the picture, then everything
- * that is merely true about it.
+ * blocker first, then how long it has sat still, then the picture, then everything that is
+ * merely true about it.
  */
 export function TaskCard({
   task,
   columns,
   onMove,
   onPull,
+  onOpen,
+  selected,
 }: {
   task: Task;
   columns: Array<{ key: string; label: string }>;
   onMove: (status: string) => void;
   /** Put this into the running sprint. Passed only while looking at the backlog. */
   onPull?: () => void;
+  /** Open it in the preview beside the board. */
+  onOpen?: () => void;
+  selected?: boolean;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: task.id,
@@ -52,10 +62,22 @@ export function TaskCard({
    */
   const thumbnail = firstImage(task.description);
 
+  const classes = [
+    'task-card',
+    `task-card-${task.type}`,
+    isDragging && 'dragging',
+    stale && `age-${stale}`,
+    task.blockedReason && 'is-blocked',
+    selected && 'is-selected',
+    task.completedAt && 'is-done',
+  ]
+    .filter(Boolean)
+    .join(' ');
+
   return (
     <div
       ref={setNodeRef}
-      className={`task-card${isDragging ? ' dragging' : ''}${stale ? ` age-${stale}` : ''}`}
+      className={classes}
       style={{ transform: CSS.Translate.toString(transform), transition }}
     >
       {/* Only the handle starts a drag, so the title stays clickable and selectable. */}
@@ -68,7 +90,15 @@ export function TaskCard({
           <span className={`task-type task-type-${task.type}`} title={type.label} aria-hidden="true">
             {type.mark}
           </span>
-          <Link to={`/scrum/tasks/${task.id}`}>{task.title}</Link>
+          <button
+            type="button"
+            className="task-open"
+            onClick={onOpen}
+            aria-haspopup="dialog"
+            aria-label={`Open ${task.title}`}
+          >
+            {task.title}
+          </button>
         </div>
 
         {/*
@@ -85,11 +115,38 @@ export function TaskCard({
         )}
 
         {thumbnail && (
-          <Link to={`/scrum/tasks/${task.id}`} className="task-thumb" tabIndex={-1}>
-            {/* Empty alt: the title above says what this is, and the picture is decoration
-                at this size. Announcing the filename would be noise on every card. */}
+          <button
+            type="button"
+            className="task-thumb"
+            onClick={onOpen}
+            tabIndex={-1}
+            aria-hidden="true"
+          >
+            {/* Empty alt: the title above says what this is, and the picture is decoration at
+                this size. Announcing the filename would be noise on every card. */}
             <img src={thumbnail} alt="" loading="lazy" />
-          </Link>
+          </button>
+        )}
+
+        {/*
+          The checklist, as a bar.
+
+          "3 of 5" is a fact you have to read; a bar three fifths full is one you can see from
+          across the room, which is the only way a number earns space on a card this size.
+          Absent entirely when there are no subtasks, rather than an empty bar saying nothing.
+        */}
+        {task.subtasks.total > 0 && (
+          <div
+            className="task-subtasks"
+            title={`${task.subtasks.done} of ${task.subtasks.total} subtasks done`}
+          >
+            <span className="task-subtasks-bar">
+              <span style={{ width: `${(task.subtasks.done / task.subtasks.total) * 100}%` }} />
+            </span>
+            <span className="muted">
+              {task.subtasks.done}/{task.subtasks.total}
+            </span>
+          </div>
         )}
 
         {/* Controls sit below the title rather than beside it: a card is narrow, and a
@@ -109,8 +166,8 @@ export function TaskCard({
           {/*
             How long it has sat here — the standup question the board could never answer.
 
-            Only once it is worth answering. A card that arrived this morning saying "0d" is
-            a number that trains people to stop reading numbers.
+            Only once it is worth answering. A card that arrived this morning saying "0d" is a
+            number that trains people to stop reading numbers.
           */}
           {stale && (
             <span
@@ -141,6 +198,17 @@ export function TaskCard({
             <button type="button" className="chip chip-pull" onClick={onPull}>
               + sprint
             </button>
+          )}
+        </div>
+
+        <div className="task-card-foot">
+          {/* Whose card this is — something the board could not say for as long as it existed. */}
+          {task.assignee ? (
+            <Avatar id={task.assignee.id} name={task.assignee.displayName} size="sm" />
+          ) : (
+            <span className="avatar avatar-sm avatar-empty" title="Unassigned">
+              ?
+            </span>
           )}
           <select
             className="task-move"

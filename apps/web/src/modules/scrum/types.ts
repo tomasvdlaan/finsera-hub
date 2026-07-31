@@ -60,6 +60,25 @@ export interface Task {
   enteredColumnAt: string;
   daysInColumn: number;
   commentCount: number;
+  /** The person, not the id — so a card can show a face without fetching the user list. */
+  assignee: Person | null;
+  /** A subtask is a task with a parent, so this is counted rather than stored. */
+  subtasks: { done: number; total: number };
+}
+
+export interface Person {
+  id: string;
+  displayName: string;
+}
+
+/** A column change, for the trail on the preview. */
+export interface Transition {
+  id: string;
+  fromStatus: string | null;
+  toStatus: string;
+  at: string;
+  movedBy: string;
+  movedByName: string | null;
 }
 
 export const TASK_TYPES = ['story', 'bug', 'chore', 'spike'] as const;
@@ -177,9 +196,8 @@ export const daysBlocked = (blockedSince: string | null): number =>
 export interface TaskDetail extends Task {
   children: Task[];
   loggedMinutes: number;
-  assignee: { id: string; displayName: string } | null;
+  history: Transition[];
 }
-
 export const PRIORITIES = ['low', 'normal', 'high', 'urgent'] as const;
 
 export const hours = (minutes: number | null | undefined): number | null =>

@@ -1771,6 +1771,444 @@ a.badge:hover {
 }
 
 /*
+ * The card, given some weight.
+ *
+ * It was a bordered rectangle with a hairline on the left when something was wrong. The
+ * hairline is now the card's own edge — a stripe carrying the type when nothing is wrong,
+ * and taken over by the blocker or the age when something is. One channel, in priority
+ * order, rather than three things competing along the same edge.
+ */
+.task-card {
+  position: relative;
+  border-left: 3px solid var(--border);
+  overflow: hidden;
+}
+.task-card-story { border-left-color: color-mix(in srgb, var(--accent) 65%, transparent); }
+.task-card-bug { border-left-color: color-mix(in srgb, var(--danger) 65%, transparent); }
+.task-card-chore { border-left-color: var(--border-strong); }
+.task-card-spike { border-left-color: color-mix(in srgb, var(--warning) 65%, transparent); }
+/* Age, then blocked — a blocked card is more urgent than an old one, and it wins the edge. */
+.task-card.age-stale { border-left-color: var(--warning); }
+.task-card.age-old,
+.task-card.is-blocked { border-left-color: var(--danger); }
+
+.task-card.is-selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent), var(--shadow-2);
+}
+/* Finished work recedes rather than disappearing — the Done column should read as settled. */
+.task-card.is-done .task-open,
+.task-card.is-done .task-card-meta {
+  opacity: 0.62;
+}
+
+/* The title is a button now, and must not look like one. */
+.task-open {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--accent);
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+}
+.task-open:hover {
+  text-decoration: underline;
+}
+
+.task-thumb {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 1px solid var(--border);
+  background: var(--surface-sunken);
+  cursor: pointer;
+}
+
+/*
+ * The checklist bar.
+ *
+ * Thinner than the sprint meter on purpose: this is a detail of one card, not the state of a
+ * fortnight, and matching weights would make every card look like a dashboard.
+ */
+.task-subtasks {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  font-size: var(--text-xs);
+}
+.task-subtasks-bar {
+  flex: 1;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--surface-sunken);
+  overflow: hidden;
+}
+.task-subtasks-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--ok);
+  transition: width var(--transition-fast);
+}
+
+/* Assignee on the left, column select on the right — the two ends of "whose, and where". */
+.task-card-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+.task-card-foot .task-move {
+  margin-left: auto;
+}
+
+/*
+ * Faces.
+ *
+ * Initials on a generated hue. Fixed saturation and lightness with white text, so every
+ * possible colour clears contrast in both themes without anyone having to check.
+ */
+.avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  color: #fff;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  flex: none;
+  user-select: none;
+}
+.avatar-sm {
+  width: 1.5rem;
+  height: 1.5rem;
+  font-size: 0.625rem;
+}
+.avatar-md {
+  width: 2rem;
+  height: 2rem;
+  font-size: 0.75rem;
+}
+.avatar-empty {
+  background: transparent;
+  border: 1px dashed var(--border-strong);
+  color: var(--muted);
+}
+.avatar-rest {
+  background: var(--surface-sunken);
+  color: var(--muted);
+  border: 1px solid var(--border);
+}
+/* Overlapped, and outlined against whatever they sit on so they read as separate people. */
+.avatar-stack {
+  display: inline-flex;
+}
+.avatar-stack .avatar + .avatar {
+  margin-left: -0.4rem;
+}
+.avatar-stack .avatar {
+  box-shadow: 0 0 0 2px var(--surface);
+}
+
+/*
+ * Columns, with a little more structure.
+ *
+ * A done column sits back — it is an archive you glance at, not a queue you work from.
+ */
+.board-column.is-done-column {
+  background: color-mix(in srgb, var(--ok-bg) 45%, var(--surface-sunken));
+}
+.board-column-head {
+  align-items: baseline;
+}
+.column-fold,
+.column-spine {
+  background: none;
+  border: 0;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0;
+  font: inherit;
+}
+.column-fold {
+  margin-right: calc(var(--space-1) * -1);
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+/* Revealed on approach: a fold arrow on every column at rest is five arrows nobody wants. */
+.board-column:hover .column-fold,
+.column-fold:focus-visible {
+  opacity: 1;
+}
+.board-column.is-collapsed {
+  flex: 0 0 3rem;
+  min-width: 3rem;
+  max-width: 3rem;
+  padding: var(--space-2) 0;
+  cursor: pointer;
+}
+.column-spine {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  height: 100%;
+}
+.column-spine-label {
+  writing-mode: vertical-rl;
+  text-transform: uppercase;
+  letter-spacing: var(--track-label);
+  font-size: 0.6875rem;
+  font-weight: 700;
+}
+.column-spine-count {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: var(--text);
+}
+/* A dashed floor, so an empty column reads as a place a card goes rather than a mistake. */
+.board-column-empty {
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-4) var(--space-2);
+  text-align: center;
+  font-size: var(--text-xs);
+}
+.wip-track {
+  display: block;
+  height: 2px;
+  margin: 0 var(--space-2) var(--space-2);
+  background: var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.wip-track-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width var(--transition-fast);
+}
+.wip-track-fill.is-over {
+  background: var(--warning);
+}
+
+/* ── the stage: board beside preview ───────────────────────────────────── */
+.board-stage {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-4);
+  align-items: start;
+}
+.board-stage.has-preview {
+  grid-template-columns: minmax(0, 1fr) 24rem;
+}
+@media (max-width: 1100px) {
+  /* Below this the two-column split leaves the board unusable, so the preview goes under. */
+  .board-stage.has-preview {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.board-lanes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  min-width: 0;
+}
+.lane-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: var(--space-2);
+}
+
+/* ── filters ───────────────────────────────────────────────────────────── */
+.filter-bar {
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  padding: var(--space-2) 0;
+}
+.filter-bar select {
+  font-size: var(--text-sm);
+}
+.filter-lanes {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+
+/* ── quick add ─────────────────────────────────────────────────────────── */
+.quick-add input {
+  font-variant-ligatures: none;
+}
+.quick-add-read {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: calc(var(--space-2) * -1) 0 var(--space-3);
+  font-size: var(--text-xs);
+}
+.board-hint kbd {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.75em;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-sm);
+  padding: 0.05em 0.35em;
+  margin: 0 0.15em;
+}
+
+/* ── the preview ───────────────────────────────────────────────────────── */
+.task-preview {
+  position: sticky;
+  top: var(--space-4);
+  max-height: calc(100dvh - var(--space-8));
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-3);
+  padding: var(--space-4);
+  min-width: 0;
+}
+.preview-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.preview-title {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.preview-title h2 {
+  margin: 0;
+  font-size: var(--text-lg);
+  line-height: var(--leading-tight);
+}
+/*
+ * The fields, as a two-column grid.
+ *
+ * A definition list rather than a stack of labelled inputs: these are attributes of one
+ * record, the labels are short and repetitive, and lining the values up means you can read
+ * down them instead of across every row.
+ */
+.preview-fields {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-2) var(--space-3);
+  align-items: center;
+  margin: var(--space-4) 0;
+}
+.preview-fields dt {
+  font-size: var(--text-xs);
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: var(--track-label);
+}
+.preview-fields dd {
+  margin: 0;
+  min-width: 0;
+}
+.preview-fields select,
+.preview-fields input[type='date'] {
+  width: 100%;
+  font-size: var(--text-sm);
+}
+.preview-assignee {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.preview-hours {
+  width: 5rem;
+  font-size: var(--text-sm);
+}
+.preview-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+.preview-body {
+  margin-top: var(--space-3);
+}
+
+.subtask-list {
+  list-style: none;
+  margin: 0 0 var(--space-3);
+  padding: 0;
+}
+.subtask-list li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--text-sm);
+}
+.subtask-list label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+}
+.subtask-list li.is-done span {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+
+/*
+ * The trail, as a timeline.
+ *
+ * Dots on a line rather than rows in a table, because the shape being read is the gaps — a
+ * card that crossed three columns in an hour and then sat for a fortnight tells its story in
+ * the spacing, and a table flattens exactly that.
+ */
+.activity {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 var(--space-4);
+  position: relative;
+  font-size: var(--text-sm);
+}
+.activity::before {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 6px;
+  bottom: 6px;
+  width: 1px;
+  background: var(--border);
+}
+.activity li {
+  position: relative;
+  padding: var(--space-2) 0;
+}
+.activity-dot {
+  position: absolute;
+  left: calc(var(--space-4) * -1);
+  top: calc(var(--space-2) + 6px);
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 2px solid var(--accent);
+}
+
+/*
  * Over the WIP limit.
  *
  * Loud enough to be an argument, quiet enough to be ignored — which is the correct strength

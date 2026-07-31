@@ -801,9 +801,11 @@ export class ScrumService {
      * the current column is the honest answer.
      */
     const ids = rows.map((r) => r.id);
-    const [enteredAt, comments] = await Promise.all([
+    const [enteredAt, comments, people, subtasks] = await Promise.all([
       this.enteredColumnAt(rows),
       this.commentCounts(ids),
+      this.peopleFor(rows.map((r) => r.assigneeId)),
+      this.subtaskProgress(ids),
     ]);
     return rows.map((r) => ({
       ...r,
@@ -812,7 +814,79 @@ export class ScrumService {
         (Date.now() - (enteredAt.get(r.id) ?? r.createdAt).getTime()) / 86_400_000,
       ),
       commentCount: comments.get(r.id) ?? 0,
+      /*
+       * The person, not the id.
+       *
+       * The board could not draw an avatar because it was never sent a name — `assignee_id`
+       * is a bare uuid and every screen that wanted to show who was on a card had to fetch
+       * the whole user list and join it itself. Two did; the board simply showed nobody.
+       */
+      assignee: (r.assigneeId && people.get(r.assigneeId)) || null,
+      subtasks: subtasks.get(r.id) ?? { done: 0, total: 0 },
     }));
+  }
+
+  /** Display names for a set of user ids, deduplicated, in one query. */
+  private async peopleFor(
+    userIds: Array<string | null>,
+  ): Promise<Map<string, { id: string; displayName: string }>> {
+    const map = new Map<string, { id: string; displayName: string }>();
+    const wanted = [...new Set(userIds.filter((id): id is string => id !== null))];
+    if (wanted.length === 0) return map;
+
+    const rows = await this.db
+      .select({ id: users.id, displayName: users.displayName })
+      .from(users)
+      .where(inArray(users.id, wanted));
+    for (const row of rows) map.set(row.id, row);
+    return map;
+  }
+
+  /**
+   * How much of each card's checklist is ticked.
+   *
+   * Subtasks are not a separate kind of thing here — a subtask is a task with a parent, which
+   * is what lets one be estimated, assigned and timed like any other. The cost is that "three
+   * of five done" needs counting rather than reading, so it is counted once for the whole
+   * board instead of per card.
+   */
+  private async subtaskProgress(
+    parentIds: string[],
+  ): Promise<Map<string, { done: number; total: number }>> {
+    const map = new Map<string, { done: number; total: number }>();
+    if (parentIds.length === 0) return map;
+
+    const rows = await this.db
+      .select({
+        parentId: tasks.parentId,
+        total: sql<number>`count(*)::int`,
+        done: sql<number>`count(${tasks.completedAt})::int`,
+      })
+      .from(tasks)
+      .where(and(inArray(tasks.parentId, parentIds), isNull(tasks.archivedAt)))
+      .groupBy(tasks.parentId);
+
+    for (const row of rows) {
+      if (row.parentId) map.set(row.parentId, { done: row.done, total: row.total });
+    }
+    return map;
+  }
+
+  /** Every column this card has been in, oldest first, with who moved it. */
+  private async historyOf(taskId: string) {
+    return this.db
+      .select({
+        id: taskTransitions.id,
+        fromStatus: taskTransitions.fromStatus,
+        toStatus: taskTransitions.toStatus,
+        at: taskTransitions.at,
+        movedBy: taskTransitions.movedBy,
+        movedByName: users.displayName,
+      })
+      .from(taskTransitions)
+      .leftJoin(users, eq(users.id, taskTransitions.movedBy))
+      .where(eq(taskTransitions.taskId, taskId))
+      .orderBy(asc(taskTransitions.at));
   }
 
   /**
@@ -899,6 +973,14 @@ export class ScrumService {
       children,
       loggedMinutes,
       assignee,
+      /*
+       * Where this card has been, and who moved it.
+       *
+       * The transition log was written for card age and has been accumulating ever since with
+       * nothing reading it beyond one derived number. It is the honest answer to "why has this
+       * been in review for a week" — it says when it arrived and what it came from.
+       */
+      history: await this.historyOf(id),
       enteredColumnAt: since,
       daysInColumn: Math.floor((Date.now() - since.getTime()) / 86_400_000),
       commentCount: comments.get(id) ?? 0,

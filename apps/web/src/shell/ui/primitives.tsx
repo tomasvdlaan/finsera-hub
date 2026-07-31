@@ -208,3 +208,100 @@ export function Empty({ children, action }: { children: ReactNode; action?: Reac
     </div>
   );
 }
+
+/**
+ * Initials, for a face we do not have a picture of.
+ *
+ * Two letters from the first and last word rather than the first two characters: "Septin
+ * Annisa" is SA, not SE, and that is the difference between a recognisable avatar and a wall
+ * of identical squares.
+ */
+export function initials(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return '?';
+  const first = words[0]![0] ?? '';
+  const last = words.length > 1 ? (words[words.length - 1]![0] ?? '') : '';
+  return (first + last).toUpperCase();
+}
+
+/**
+ * A stable colour per person, derived from their id.
+ *
+ * Derived rather than stored so a new colleague has a colour the moment they exist, and the
+ * same one on every screen. Hue only — saturation and lightness are fixed, so no avatar can
+ * come out unreadable against either theme.
+ */
+export function personHue(id: string): number {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) % 360;
+  return hash;
+}
+
+/**
+ * A person, as a face.
+ *
+ * The app had no such thing — every screen that wanted to show who was on something printed a
+ * name, or more often printed nothing, which is why the board could show eight cards without
+ * once saying whose they were.
+ *
+ * Initials on a generated colour rather than an uploaded photo. There is no avatar upload and
+ * there does not need to be: a consistent colour per person is enough to tell four people
+ * apart at a glance, which is all a card has room to say.
+ */
+export function Avatar({
+  name,
+  id,
+  size = 'md',
+  title,
+}: {
+  name: string;
+  /** The colour is derived from this, so it is the same on every screen. */
+  id: string;
+  size?: 'sm' | 'md';
+  title?: string;
+}) {
+  const hue = personHue(id);
+  return (
+    <span
+      className={`avatar avatar-${size}`}
+      title={title ?? name}
+      // A hue with fixed saturation and lightness, so nothing can come out unreadable.
+      style={{ background: `hsl(${hue} 52% 42%)` }}
+      aria-hidden={title === '' ? true : undefined}
+    >
+      {initials(name)}
+    </span>
+  );
+}
+
+/**
+ * Several people, overlapping.
+ *
+ * Capped, with the remainder counted — five faces in a row on a 240px card is not information,
+ * it is a texture.
+ */
+export function AvatarStack({
+  people,
+  max = 3,
+  size = 'sm',
+}: {
+  people: Array<{ id: string; displayName: string }>;
+  max?: number;
+  size?: 'sm' | 'md';
+}) {
+  if (people.length === 0) return null;
+  const shown = people.slice(0, max);
+  const rest = people.length - shown.length;
+  return (
+    <span className="avatar-stack">
+      {shown.map((p) => (
+        <Avatar key={p.id} id={p.id} name={p.displayName} size={size} />
+      ))}
+      {rest > 0 && (
+        <span className={`avatar avatar-${size} avatar-rest`} title={`${rest} more`}>
+          +{rest}
+        </span>
+      )}
+    </span>
+  );
+}
