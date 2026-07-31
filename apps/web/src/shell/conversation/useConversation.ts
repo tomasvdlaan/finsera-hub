@@ -48,6 +48,8 @@ type AskEvent =
 export interface ConversationSummary {
   id: string;
   title: string | null;
+  folderId: string | null;
+  pinnedAt: string | null;
   updatedAt: string;
 }
 
@@ -78,6 +80,17 @@ export function useConversation() {
    */
   const [wroteAt, setWroteAt] = useState(0);
   const busyRef = useRef(false);
+  /** The in-flight request, so it can be given up on deliberately rather than only by timeout. */
+  const inFlight = useRef<AbortController | null>(null);
+
+  /** Set when the reader pressed stop, so the abort is not reported as a timeout. */
+  const stopped = useRef(false);
+
+  const stop = useCallback(() => {
+    if (!inFlight.current) return;
+    stopped.current = true;
+    inFlight.current.abort();
+  }, []);
 
   const reset = useCallback(() => {
     setTurns([]);
@@ -130,6 +143,7 @@ export function useConversation() {
        * request that never settled used to leave the panel dead until the page was reloaded.
        */
       const abort = new AbortController();
+      inFlight.current = abort;
       const deadline = setTimeout(() => abort.abort(), ASK_TIMEOUT_MS);
 
       /*
@@ -190,6 +204,18 @@ export function useConversation() {
         }
       } catch (e) {
         const aborted = (e as Error).name === 'AbortError';
+        /*
+         * A deliberate stop keeps what arrived.
+         *
+         * Streaming makes this possible and makes it necessary: half an answer is often the
+         * half you wanted, and replacing it with "you stopped this" would throw away the only
+         * reason to have watched it arrive.
+         */
+        if (aborted && stopped.current) {
+          stopped.current = false;
+          fill((t) => ({ ...t, pending: false, running: undefined }));
+          return;
+        }
         const text = aborted
           ? 'That took too long and was given up on. The question was not lost — ask it again.'
           : (e as Error).message;
@@ -200,6 +226,7 @@ export function useConversation() {
       } finally {
         clearTimeout(deadline);
         clearInterval(ticker);
+        inFlight.current = null;
         busyRef.current = false;
         setBusy(false);
       }
@@ -207,10 +234,44 @@ export function useConversation() {
     [conversationId],
   );
 
-  return { turns, conversationId, busy, waited, error, wroteAt, ask, open, reset, setTurns };
+  /**
+   * Ask the last question again.
+   *
+   * Drops the answer being replaced before re-asking, so the thread does not end up with two
+   * attempts and no way to tell which one the reader kept. The question itself is re-sent
+   * rather than a "try again" instruction — the model should not be told it failed.
+   */
+  const regenerate = useCallback(async () => {
+    if (busyRef.current) return;
+    const lastQuestion = [...turns].reverse().find((t) => t.role === 'user');
+    if (!lastQuestion) return;
+    setTurns((current) => {
+      const cut = [...current];
+      while (cut.length > 0 && cut[cut.length - 1]!.role === 'assistant') cut.pop();
+      if (cut.length > 0) cut.pop(); // the question, which `ask` puts back
+      return cut;
+    });
+    await ask(lastQuestion.content);
+  }, [turns, ask]);
+
+  return {
+    turns,
+    conversationId,
+    busy,
+    waited,
+    error,
+    wroteAt,
+    ask,
+    open,
+    reset,
+    setTurns,
+    stop,
+    regenerate,
+  };
 }
 
 /** Every conversation this user has had. The endpoint has existed since the assistant did. */
-export async function listConversations(): Promise<ConversationSummary[]> {
-  return api.get<ConversationSummary[]>('/assistant/conversations');
+export async function listConversations(query?: string): Promise<ConversationSummary[]> {
+  const q = query?.trim() ? `?q=${encodeURIComponent(query.trim())}` : '';
+  return api.get<ConversationSummary[]>(`/assistant/conversations${q}`);
 }

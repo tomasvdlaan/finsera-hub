@@ -3756,3 +3756,182 @@ button.nav-me:hover { background: var(--surface); }
     animation: none;
   }
 }
+
+/* ── the conversation list ─────────────────────────────────────────────── */
+.conversation-search {
+  width: 100%;
+  margin: var(--space-2) 0 var(--space-3);
+  font-size: var(--text-sm);
+}
+.conversation-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.conversation-row .nav-row {
+  flex: 1;
+  min-width: 0;
+}
+/*
+ * The ⋯ appears on approach.
+ *
+ * A permanent one on every row is a column of dots down the sidebar, which reads as clutter
+ * and competes with the titles — the thing you are actually scanning.
+ */
+.row-menu-trigger {
+  border: 0;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-sm);
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+.conversation-row:hover .row-menu-trigger,
+.folder-head:hover .row-menu-trigger,
+.row-menu-trigger:focus-visible,
+.row-menu-trigger[aria-expanded='true'] {
+  opacity: 1;
+}
+.row-menu {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  z-index: 20;
+  min-width: 12rem;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-1);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-3);
+}
+.row-menu button {
+  text-align: left;
+  background: none;
+  border: 0;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-sm);
+  padding: var(--space-2);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.row-menu button:hover {
+  background: var(--surface-sunken);
+}
+.row-menu button.destructive {
+  color: var(--danger);
+}
+.row-menu hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: var(--space-1) 0;
+}
+.pin-mark {
+  color: var(--accent);
+  font-size: 0.6em;
+  flex: none;
+}
+.conversation-folder {
+  margin-bottom: var(--space-2);
+}
+.folder-head {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.folder-toggle {
+  flex: 1;
+  text-align: left;
+  background: none;
+  border: 0;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: var(--track-label);
+  font-weight: 700;
+  padding: var(--space-2) 0;
+  cursor: pointer;
+  min-width: 0;
+}
+.folder-empty {
+  font-size: var(--text-xs);
+  padding-left: var(--space-4);
+}
+.new-folder {
+  margin-top: var(--space-3);
+  font-size: var(--text-sm);
+}
+
+/* ── answer actions ───────────────────────────────────────────────────── */
+.turn-actions {
+  display: flex;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+  font-size: var(--text-xs);
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+/* Same reasoning as the row menu: present when wanted, invisible when not. */
+.turn:hover .turn-actions,
+.turn-actions:focus-within {
+  opacity: 1;
+}
+.chat-stop {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-2) 0;
+}
+
+/*
+ * Rendered Markdown inside a chat turn.
+ *
+ * Tighter than `.markdown-body` on a page: a turn is a paragraph or two in a column, and the
+ * document rhythm makes short answers look like they have been spaced out to fill the room.
+ */
+.turn-content .markdown-body > :first-child {
+  margin-top: 0;
+}
+.turn-content .markdown-body > :last-child {
+  margin-bottom: 0;
+}
+.turn-content .markdown-body p,
+.turn-content .markdown-body ul,
+.turn-content .markdown-body ol {
+  margin: var(--space-2) 0;
+}
+.turn-content .markdown-body h1,
+.turn-content .markdown-body h2,
+.turn-content .markdown-body h3 {
+  font-size: var(--text-base);
+  margin: var(--space-3) 0 var(--space-1);
+}
+.turn-content .markdown-body ul,
+.turn-content .markdown-body ol {
+  padding-left: 1.3rem;
+  list-style: revert;
+}
+.turn-content .markdown-body table {
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+.turn-content .markdown-body th,
+.turn-content .markdown-body td {
+  border: 1px solid var(--border);
+  padding: var(--space-1) var(--space-2);
+  text-align: left;
+}
+.turn-content .markdown-body pre {
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2);
+  overflow-x: auto;
+  font-size: var(--text-xs);
+}

@@ -140,6 +140,28 @@ export const files = core.table('files', {
  * Lives in `core` rather than a module because the assistant is a horizontal capability,
  * not module twelve — every module's tools run through the same conversations.
  */
+/**
+ * Somewhere to put conversations, once there are more than a screenful.
+ *
+ * Per user, because a conversation is per user — there is no sharing here and a folder that
+ * outlived the only person who could see inside it would be a puzzle rather than a feature.
+ */
+export const conversationFolders = core.table(
+  'conversation_folders',
+  {
+    id: uuid('id').primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    name: text('name').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('conversation_folders_user_idx').on(t.userId, t.name),
+    check('conversation_folders_named', sql`length(trim(${t.name})) > 0`),
+  ],
+);
+
 export const conversations = core.table(
   'conversations',
   {
@@ -148,10 +170,26 @@ export const conversations = core.table(
       .notNull()
       .references(() => users.id),
     title: text('title').notNull(),
+    /**
+     * Whether the title is still the one generated from the first question.
+     *
+     * Renaming sets this false, and auto-titling then leaves it alone. Without it, naming a
+     * thread and asking one more question would silently rename it back.
+     */
+    titleIsAuto: boolean('title_is_auto').notNull().default(true),
+    /** Null is the top level, which is where a conversation starts and most of them stay. */
+    folderId: uuid('folder_id').references(() => conversationFolders.id, {
+      onDelete: 'set null',
+    }),
+    /** Pinned to the top of the list, above the by-recency ordering. */
+    pinnedAt: timestamp('pinned_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index('conversations_user_idx').on(t.userId, t.updatedAt)],
+  (t) => [
+    index('conversations_user_idx').on(t.userId, t.updatedAt),
+    index('conversations_folder_idx').on(t.folderId),
+  ],
 );
 
 export const messages = core.table(

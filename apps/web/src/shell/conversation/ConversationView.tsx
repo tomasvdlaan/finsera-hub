@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
+import { Markdown } from '../ui/MarkdownEditor.js';
 import { chatWidgets } from '../../modules/index.js';
 import type { ChatWidgetProps } from '../../modules/types.js';
 import type { Reference, Turn } from './useConversation.js';
@@ -26,11 +27,23 @@ function ReferenceCard(props: ChatWidgetProps) {
 const CITATION = /\[\[entity:([0-9a-f-]{36})\]\]/gi;
 
 /**
- * Split an answer on `[[entity:id]]` citations, rendering each as its card in place.
+ * Split an answer on `[[entity:id]]` citations, rendering each as its card in place and the
+ * text between them as Markdown.
  *
  * Only cited records become cards, and the server has already dropped any citation it could
  * not ground in a tool result or that this user may not see. A citation the server did not
  * approve renders as nothing at all rather than leaving `[[entity:…]]` on screen.
+ *
+ * The model has always written Markdown — headings, lists, bold, tables — and this rendered
+ * it as literal asterisks and hashes, which is the single thing that made the assistant look
+ * unfinished next to every other chat product. It parses with the same `@platform/note-doc`
+ * schema the notes and task descriptions use, so an answer, a meeting note and a card
+ * description all say a bullet the same way.
+ *
+ * Each stretch between citations is parsed separately, which means a citation dropped inside
+ * a paragraph splits it in two. That is the honest trade for cards being block elements, and
+ * it is rare by construction: the system prompt asks for at most one or two citations, placed
+ * where a reader would follow them.
  */
 function AnswerBody({ text, references }: { text: string; references: Reference[] }) {
   const byId = new Map(references.map((r) => [r.id.toLowerCase(), r]));
@@ -39,12 +52,12 @@ function AnswerBody({ text, references }: { text: string; references: Reference[
 
   for (const match of text.matchAll(CITATION)) {
     const at = match.index ?? 0;
-    if (at > cursor) parts.push(text.slice(cursor, at));
+    if (at > cursor) parts.push(<Markdown key={`t-${cursor}`} value={text.slice(cursor, at)} />);
     const ref = byId.get(match[1]!.toLowerCase());
     if (ref) parts.push(<ReferenceCard key={`${ref.id}-${at}`} {...ref} />);
     cursor = at + match[0].length;
   }
-  if (cursor < text.length) parts.push(text.slice(cursor));
+  if (cursor < text.length) parts.push(<Markdown key={`t-${cursor}`} value={text.slice(cursor)} />);
 
   return <div className="turn-content">{parts}</div>;
 }
@@ -62,14 +75,20 @@ export function ConversationView({
   busy,
   waited,
   compact,
+  onStop,
+  onRegenerate,
 }: {
   turns: Turn[];
   busy?: boolean;
-  /** Seconds spent waiting, because the assistant does not stream. */
+  /** Seconds spent waiting — now only until the first token arrives. */
   waited?: number;
   /** Tighter spacing for the meeting rail and the command bar. */
   compact?: boolean;
+  /** Give up on the answer in flight, keeping whatever arrived. */
+  onStop?: () => void;
+  onRegenerate?: () => void;
 }) {
+  const last = turns.length - 1;
   return (
     <div className={compact ? 'chat chat-compact' : 'chat'}>
       {turns.map((turn, i) => (
@@ -101,6 +120,26 @@ export function ConversationView({
             <div className="turn-content">{turn.content}</div>
           )}
 
+          {/*
+            Copy and retry, on the finished answer only.
+            
+            On the last one only, too: a row of buttons under every turn is a page of buttons,
+            and regenerating anything but the most recent answer would strand everything after
+            it against a question that no longer produced it.
+          */}
+          {turn.role === 'assistant' && !turn.pending && turn.content && (
+            <div className="turn-actions">
+              <button type="button" className="link-button" onClick={() => void copy(turn.content)}>
+                copy
+              </button>
+              {i === last && onRegenerate && !busy && (
+                <button type="button" className="link-button" onClick={onRegenerate}>
+                  try again
+                </button>
+              )}
+            </div>
+          )}
+
           {/* What it looked at, so an answer can be checked rather than trusted. */}
           {turn.toolCalls && turn.toolCalls.length > 0 && (
             <div className="turn-tools">
@@ -127,6 +166,15 @@ export function ConversationView({
           </div>
         </div>
       )}
+
+      {/* Only while something is actually in flight, and below it, where the eye already is. */}
+      {busy && onStop && (
+        <div className="chat-stop">
+          <button type="button" className="chip" onClick={onStop}>
+            Stop
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -142,4 +190,19 @@ function humanise(toolName: string): string {
   const words = toolName.split('_');
   const rest = words.length > 1 ? words.slice(1) : words;
   return rest.join(' ');
+}
+
+/**
+ * Copy an answer.
+ *
+ * The Markdown, not the rendered text — it is what the model wrote and what pastes usefully
+ * into a note, a card description or an email. Silent on failure: the clipboard is denied in
+ * plenty of legitimate situations and an error toast about it helps nobody.
+ */
+async function copy(text: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    /* nothing to do about it */
+  }
 }

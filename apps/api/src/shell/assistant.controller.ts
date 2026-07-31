@@ -1,4 +1,15 @@
-import { Body, Controller, Delete, Get, Logger, Param, Post, Res } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Logger,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Res,
+} from '@nestjs/common';
 import type { Response } from 'express';
 import type { Actor } from '@platform/contracts';
 import { CurrentActor } from '../core/auth/current-actor.decorator.js';
@@ -72,9 +83,61 @@ export class AssistantController {
     }
   }
 
+  /** `?q=` filters on titles and on what was actually said in each thread. */
   @Get('conversations')
-  list(@CurrentActor() actor: Actor) {
-    return this.orchestrator.listConversations(actor);
+  list(@CurrentActor() actor: Actor, @Query('q') q?: string) {
+    return this.orchestrator.listConversations(actor, q);
+  }
+
+  @Patch('conversations/:id')
+  rename(
+    @CurrentActor() actor: Actor,
+    @Param('id') id: string,
+    @Body() body: { title: string },
+  ) {
+    return this.orchestrator.renameConversation(actor, id, body.title);
+  }
+
+  @Post('conversations/:id/pin')
+  pin(@CurrentActor() actor: Actor, @Param('id') id: string, @Body() body: { pinned: boolean }) {
+    return this.orchestrator.pinConversation(actor, id, body.pinned !== false);
+  }
+
+  /** `folderId: null` moves it back to the top level. */
+  @Post('conversations/:id/move')
+  move(
+    @CurrentActor() actor: Actor,
+    @Param('id') id: string,
+    @Body() body: { folderId: string | null },
+  ) {
+    return this.orchestrator.moveConversation(actor, id, body.folderId ?? null);
+  }
+
+  // ── folders ──
+
+  @Get('folders')
+  folders(@CurrentActor() actor: Actor) {
+    return this.orchestrator.listFolders(actor);
+  }
+
+  @Post('folders')
+  createFolder(@CurrentActor() actor: Actor, @Body() body: { name: string }) {
+    return this.orchestrator.createFolder(actor, body.name);
+  }
+
+  @Patch('folders/:id')
+  renameFolder(
+    @CurrentActor() actor: Actor,
+    @Param('id') id: string,
+    @Body() body: { name: string },
+  ) {
+    return this.orchestrator.renameFolder(actor, id, body.name);
+  }
+
+  /** Deletes the folder; its conversations return to the top level rather than going with it. */
+  @Delete('folders/:id')
+  deleteFolder(@CurrentActor() actor: Actor, @Param('id') id: string) {
+    return this.orchestrator.deleteFolder(actor, id);
   }
 
   @Get('conversations/:id')

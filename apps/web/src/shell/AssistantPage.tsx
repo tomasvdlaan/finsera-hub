@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useDocumentTitle } from './useDocumentTitle.js';
-import { Button, Empty } from './ui/primitives.js';
+import { Empty } from './ui/primitives.js';
 import {
   Composer,
   ConversationView,
@@ -9,6 +9,8 @@ import {
   useConversation,
   type ConversationSummary,
 } from './conversation/index.js';
+import { api } from '../lib/api.js';
+import { ConversationList, type Folder } from './ConversationList.js';
 
 /**
  * The assistant, with room and a memory.
@@ -26,7 +28,9 @@ export function AssistantPage() {
   const { id } = useParams();
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
-  const { turns, conversationId, busy, waited, error, ask, open, reset } = useConversation();
+  const { turns, conversationId, busy, waited, error, ask, open, reset, stop, regenerate } =
+    useConversation();
+  const [folders, setFolders] = useState<Folder[]>([]);
   const [history, setHistory] = useState<ConversationSummary[]>([]);
   const bottom = useRef<HTMLDivElement>(null);
 
@@ -37,9 +41,29 @@ export function AssistantPage() {
       .then(setHistory)
       // The list is a convenience; failing to load it must not take the page down.
       .catch(() => setHistory([]));
+    api
+      .get<Folder[]>('/assistant/folders')
+      .then(setFolders)
+      .catch(() => setFolders([]));
   }, []);
 
   useEffect(refreshHistory, [refreshHistory]);
+
+  /*
+   * A new chat from anywhere on the page.
+   *
+   * ⌘⇧O rather than ⌘N, which the browser owns and will not give up. Ignored while anything
+   * is focused, so it cannot fire mid-sentence in the composer.
+   */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || !e.shiftKey || e.key.toLowerCase() !== 'o') return;
+      e.preventDefault();
+      navigate('/assistant');
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [navigate]);
 
   /*
    * Open whichever conversation the URL names, so a thread can be linked to.
@@ -94,31 +118,14 @@ export function AssistantPage() {
 
   return (
     <div className="assistant-page">
-      <aside className="assistant-history">
-        <div className="row">
-          <h2>Conversations</h2>
-          <Button size="sm" onClick={() => navigate('/assistant')}>
-            New
-          </Button>
-        </div>
-        {history.length === 0 ? (
-          <p className="muted">Nothing yet. Ask something.</p>
-        ) : (
-          <ul>
-            {history.map((c) => (
-              <li key={c.id}>
-                <button
-                  type="button"
-                  className={c.id === (id ?? conversationId) ? 'nav-row active' : 'nav-row'}
-                  onClick={() => navigate(`/assistant/${c.id}`)}
-                >
-                  <span className="nav-label">{c.title ?? 'Untitled'}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </aside>
+      <ConversationList
+        history={history}
+        folders={folders}
+        activeId={id ?? conversationId}
+        onOpen={(cid) => navigate(`/assistant/${cid}`)}
+        onChanged={refreshHistory}
+        onNew={() => navigate('/assistant')}
+      />
 
       <div className="assistant-main">
         {turns.length === 0 && !busy ? (
@@ -128,7 +135,13 @@ export function AssistantPage() {
             trust.
           </Empty>
         ) : (
-          <ConversationView turns={turns} busy={busy} waited={waited} />
+          <ConversationView
+          turns={turns}
+          busy={busy}
+          waited={waited}
+          onStop={stop}
+          onRegenerate={() => void regenerate()}
+        />
         )}
         <div ref={bottom} />
         {error && <p className="error">{error}</p>}
