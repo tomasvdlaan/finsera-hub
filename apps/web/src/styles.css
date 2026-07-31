@@ -1253,6 +1253,117 @@ a.badge:hover {
   transition: width 0.2s;
 }
 
+/*
+ * The sprint, above the board.
+ *
+ * A band rather than a card: it is the header for everything below it, and a card would make
+ * it look like one more thing on the board instead of the frame around it.
+ */
+.sprint-bar {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: var(--space-3) var(--space-4);
+  margin: var(--space-3) 0;
+  box-shadow: var(--shadow-1);
+}
+/* Planned but not started: present, clearly not the thing in progress. */
+.sprint-bar-quiet {
+  border-left-color: var(--border-strong);
+  background: var(--surface-sunken);
+  box-shadow: none;
+}
+.sprint-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+.sprint-what {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2) var(--space-3);
+  min-width: 0;
+}
+/*
+ * The goal, set apart.
+ *
+ * It is the only sentence on this bar that says what the fortnight is *for*, and in the same
+ * weight as the dates it disappears into them.
+ */
+.sprint-goal {
+  font-size: var(--text-sm);
+  color: var(--text);
+  font-style: italic;
+}
+.sprint-meter {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+.sprint-meter .meter {
+  flex: 1;
+  max-width: 420px;
+}
+.sprint-numbers {
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.sprint-days {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-xs);
+}
+.sprint-days-behind {
+  color: var(--warning);
+  font-weight: 600;
+}
+.sprint-none {
+  align-items: baseline;
+  margin: var(--space-2) 0 var(--space-3);
+}
+
+/*
+ * Chips — a small pressable pill, for choices that are not important enough to be buttons.
+ *
+ * Distinct from `.badge` and `.tag`, which are read rather than pressed. This is the first
+ * thing in the app that needed a control this quiet, so it gets a name rather than a
+ * one-off class.
+ */
+.chip {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 0.15rem 0.6rem;
+  font-size: var(--text-xs);
+  line-height: 1.6;
+  cursor: pointer;
+  transition: border-color var(--transition-fast), color var(--transition-fast),
+    background var(--transition-fast);
+}
+.chip:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+.chip-on {
+  background: var(--accent-bg);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+.chip-pull {
+  /* Pushed left of the column select, which owns the right edge of every card. */
+  margin-left: auto;
+}
+.scope-switch {
+  gap: var(--space-2);
+  margin: 0 0 var(--space-3);
+}
+
 /* time entries (day view) */
 .entries li {
   display: flex;

@@ -29,7 +29,20 @@ async function request<T>(
     const detail = await res.json().catch(() => null);
     throw new Error(detail?.message ?? `${res.status} ${res.statusText}`);
   }
-  return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
+  /*
+   * An empty body is `null`, not a parse error.
+   *
+   * Nest serialises a handler that returns `null` as a 200 with no body at all, so
+   * `res.json()` throws "Unexpected end of JSON input" — an error about the response format
+   * for what is actually a perfectly good answer. "This project has no active sprint" arrived
+   * that way and surfaced on the board as a JSON parse failure.
+   *
+   * Reading the text first rather than testing Content-Length, because a chunked or
+   * compressed response does not have to declare one.
+   */
+  if (res.status === 204) return undefined as T;
+  const text = await res.text();
+  return (text ? JSON.parse(text) : null) as T;
 }
 
 export const api = {

@@ -307,7 +307,10 @@ export class ScrumService {
       });
     });
 
-    return this.getSprint(actor, id);
+    // Told to the caller, not only to the audit log. Closing a sprint silently moves cards
+    // off the board, and "3 unfinished cards went back to the backlog" is the one sentence
+    // that stops that looking like data loss.
+    return { ...(await this.getSprint(actor, id)), returnedToBacklog: returned.length };
   }
 
   async getSprint(actor: Actor, id: string) {

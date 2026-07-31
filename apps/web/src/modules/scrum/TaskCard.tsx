@@ -26,10 +26,13 @@ export function TaskCard({
   task,
   columns,
   onMove,
+  onPull,
 }: {
   task: Task;
   columns: Array<{ key: string; label: string }>;
   onMove: (status: string) => void;
+  /** Put this into the running sprint. Passed only while looking at the backlog. */
+  onPull?: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: task.id,
@@ -127,6 +130,18 @@ export function TaskCard({
               {l}
             </span>
           ))}
+          {/*
+            Sprint planning, one card at a time.
+
+            On the card rather than in a bulk picker because that is where the decision is
+            actually made — you read what a card is and then decide whether it belongs in the
+            fortnight, and a multi-select of titles is a list of things you have to remember.
+          */}
+          {onPull && (
+            <button type="button" className="chip chip-pull" onClick={onPull}>
+              + sprint
+            </button>
+          )}
           <select
             className="task-move"
             value={task.status}
