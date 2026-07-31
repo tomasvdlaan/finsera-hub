@@ -84,6 +84,24 @@ export interface SprintProgress {
   days: { elapsed: number; total: number; overrun: boolean };
 }
 
+/**
+ * What a sprint turned out to be, frozen when it closed.
+ *
+ * Stored rather than derived because closing a sprint detaches everything unfinished — ask
+ * the live tables what a completed sprint achieved and every one of them reports a clean
+ * sweep. Null while a sprint is still open.
+ */
+export interface SprintSummary {
+  unit: 'points' | 'minutes' | 'count';
+  committed: { points: number; minutes: number; cards: number };
+  completed: { points: number; minutes: number; cards: number };
+  /** Completed cards by kind. The retrospective's one useful sentence. */
+  byType: Record<string, number>;
+  returnedToBacklog: number;
+  days: { total: number; overran: boolean };
+  closedAt: string;
+}
+
 export interface Sprint {
   id: string;
   projectId: string;
@@ -93,6 +111,41 @@ export interface Sprint {
   endsOn: string;
   state: 'planned' | 'active' | 'completed';
   progress: SprintProgress;
+  summary: SprintSummary | null;
+}
+
+/** What a closed sprint delivered, in the unit it could honestly report at the time. */
+export function deliveredLabel(s: SprintSummary): string {
+  if (s.unit === 'points') return `${s.completed.points} of ${s.committed.points} pts`;
+  if (s.unit === 'minutes') {
+    const h = (m: number) => Math.round((m / 60) * 10) / 10;
+    return `${h(s.completed.minutes)}h of ${h(s.committed.minutes)}h`;
+  }
+  return `${s.completed.cards} of ${s.committed.cards} cards`;
+}
+
+/** The delivered figure alone, for comparing one sprint against the next. */
+export const deliveredValue = (s: SprintSummary): number =>
+  s.unit === 'points'
+    ? s.completed.points
+    : s.unit === 'minutes'
+      ? Math.round((s.completed.minutes / 60) * 10) / 10
+      : s.completed.cards;
+
+/**
+ * How much of what it took on a sprint finished, as a fraction.
+ *
+ * Null when it took on nothing, because 0 of 0 renders as a full bar in every naive
+ * percentage and an empty sprint did not succeed completely.
+ */
+export function deliveredFraction(s: SprintSummary): number | null {
+  const { completed, committed } =
+    s.unit === 'points'
+      ? { completed: s.completed.points, committed: s.committed.points }
+      : s.unit === 'minutes'
+        ? { completed: s.completed.minutes, committed: s.committed.minutes }
+        : { completed: s.completed.cards, committed: s.committed.cards };
+  return committed > 0 ? Math.min(1, completed / committed) : null;
 }
 
 /**

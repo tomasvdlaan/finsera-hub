@@ -204,6 +204,13 @@
       "when": 1785459653211,
       "tag": "0028_uneven_power_man",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1785496553161,
+      "tag": "0029_noisy_celestials",
+      "breakpoints": true
     }
   ]
 }

@@ -1,0 +1,1 @@
+ALTER TABLE "scrum"."sprints" ADD COLUMN "summary" jsonb;

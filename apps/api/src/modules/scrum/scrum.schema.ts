@@ -59,6 +59,34 @@ export const boards = scrum.table('boards', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+/**
+ * What a sprint turned out to be, frozen at the moment it was closed.
+ *
+ * This has to be stored rather than derived, and the reason is the closing itself: finishing
+ * a sprint sets `sprint_id = null` on everything unfinished, so afterwards the only cards
+ * still pointing at it are the ones that got done. Ask the live tables what a completed
+ * sprint achieved and every sprint ever run reports one hundred per cent — the evidence of
+ * what was missed is destroyed by the act of finishing.
+ *
+ * `committed` is everything that was in it at the end; `completed` is the part that landed.
+ * Both carry all three units so a later screen can compare like with like, and `unit` records
+ * which one the sprint could honestly report at the time — a backlog that was half-pointed
+ * then does not become fully pointed later because somebody tidied up.
+ *
+ * `byType` counts only completed cards. It exists for the one sentence a retrospective
+ * actually wants: two fifths of this went on bugs nobody planned.
+ */
+export interface SprintSummary {
+  unit: 'points' | 'minutes' | 'count';
+  committed: { points: number; minutes: number; cards: number };
+  completed: { points: number; minutes: number; cards: number };
+  /** Completed cards by kind — story, bug, chore, spike. */
+  byType: Record<string, number>;
+  returnedToBacklog: number;
+  days: { total: number; overran: boolean };
+  closedAt: string;
+}
+
 export const sprints = scrum.table(
   'sprints',
   {
@@ -69,6 +97,8 @@ export const sprints = scrum.table(
     startsOn: date('starts_on').notNull(),
     endsOn: date('ends_on').notNull(),
     state: text('state').notNull().default('planned'),
+    /** Written once, when the sprint is completed. Null for anything still open. */
+    summary: jsonb('summary').$type<SprintSummary>(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

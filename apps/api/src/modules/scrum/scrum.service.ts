@@ -24,6 +24,7 @@ import {
   taskTransitions,
   tasks,
   type BoardColumn,
+  type SprintSummary,
 } from './scrum.schema.js';
 
 export interface CreateTaskInput {
@@ -253,10 +254,18 @@ export class ScrumService {
   async completeSprint(actor: Actor, id: string) {
     await this.require(actor, 'scrum.board.manage');
     const sprint = await this.rawSprint(id);
-    if (sprint.state === 'completed') return this.getSprint(actor, id);
+    // Idempotent, and the same shape as a first close: a caller that has to check which
+    // branch it got is a caller that will forget to. Nothing moved, so nothing returned.
+    if (sprint.state === 'completed') {
+      return { ...(await this.getSprint(actor, id)), returnedToBacklog: 0 };
+    }
 
     const board = await this.getBoard(actor, sprint.projectId);
     const doneKeys = board.columns.filter((c) => c.isDone).map((c) => c.key);
+
+    // Read the whole sprint before anything moves. Once the unfinished cards are detached
+    // there is no longer a way to ask what was in it.
+    const summary = await this.summarise(sprint, doneKeys);
 
     const returned = await this.db
       .select({ id: tasks.id })
@@ -287,7 +296,11 @@ export class ScrumService {
 
       await tx
         .update(sprints)
-        .set({ state: 'completed', updatedAt: new Date() })
+        .set({
+          state: 'completed',
+          summary: { ...summary, returnedToBacklog: returned.length },
+          updatedAt: new Date(),
+        })
         .where(eq(sprints.id, id));
 
       await this.audit.record(tx, {
@@ -328,6 +341,69 @@ export class ScrumService {
    * when every card has them, minutes only when every card has those, and otherwise it counts
    * cards and says so.
    */
+  /**
+   * What this sprint amounted to, computed while the answer still exists.
+   *
+   * Called from `completeSprint` before any card is detached, and stored on the row. Deriving
+   * it afterwards is impossible: closing a sprint nulls `sprint_id` on everything unfinished,
+   * so a later query sees only the cards that landed and reports every sprint ever run as a
+   * clean sweep.
+   */
+  private async summarise(
+    sprint: { id: string; startsOn: string; endsOn: string },
+    doneKeys: string[],
+  ): Promise<Omit<SprintSummary, 'returnedToBacklog'>> {
+    const rows = await this.db
+      .select({
+        storyPoints: tasks.storyPoints,
+        estimateMinutes: tasks.estimateMinutes,
+        status: tasks.status,
+        completedAt: tasks.completedAt,
+        type: tasks.type,
+      })
+      .from(tasks)
+      .where(and(eq(tasks.sprintId, sprint.id), isNull(tasks.archivedAt)));
+
+    const isDone = (t: (typeof rows)[number]) =>
+      t.completedAt !== null || doneKeys.includes(t.status);
+    const done = rows.filter(isDone);
+    const total = (set: typeof rows, pick: (t: (typeof rows)[number]) => number | null) =>
+      set.reduce((n, t) => n + (pick(t) ?? 0), 0);
+
+    const byType: Record<string, number> = {};
+    for (const t of done) byType[t.type] = (byType[t.type] ?? 0) + 1;
+
+    const day = 86_400_000;
+    const today = new Date().toISOString().slice(0, 10);
+
+    return {
+      // The unit it could honestly report at the time, frozen. A backlog that was half
+      // pointed then does not become fully pointed later because somebody tidied up.
+      unit:
+        rows.length > 0 && rows.every((t) => t.storyPoints !== null)
+          ? 'points'
+          : rows.length > 0 && rows.every((t) => t.estimateMinutes !== null)
+            ? 'minutes'
+            : 'count',
+      committed: {
+        points: total(rows, (t) => t.storyPoints),
+        minutes: total(rows, (t) => t.estimateMinutes),
+        cards: rows.length,
+      },
+      completed: {
+        points: total(done, (t) => t.storyPoints),
+        minutes: total(done, (t) => t.estimateMinutes),
+        cards: done.length,
+      },
+      byType,
+      days: {
+        total: Math.round((Date.parse(sprint.endsOn) - Date.parse(sprint.startsOn)) / day) + 1,
+        overran: today > sprint.endsOn,
+      },
+      closedAt: new Date().toISOString(),
+    };
+  }
+
   async sprintProgress(sprint: { id: string; projectId: string; startsOn: string; endsOn: string }) {
     const board = await this.getBoardRaw(sprint.projectId);
     const doneKeys = (board?.columns ?? DEFAULT_COLUMNS).filter((c) => c.isDone).map((c) => c.key);

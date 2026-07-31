@@ -1367,6 +1367,117 @@ a.badge:hover {
   margin-left: auto;
   font-size: var(--text-sm);
 }
+.board-settings-link ~ a {
+  font-size: var(--text-sm);
+}
+
+/*
+ * Sprint history.
+ *
+ * A log rather than a table: each row carries a bar, a mix and a sentence, which is more than
+ * a cell can hold, and the rows are read one at a time rather than compared column by column.
+ */
+.sprint-log {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.sprint-log-row {
+  padding: var(--space-4) 0;
+  border-top: 1px solid var(--border);
+}
+.sprint-log-row:first-child {
+  border-top: 0;
+  padding-top: var(--space-2);
+}
+.sprint-log-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2) var(--space-3);
+}
+.sprint-log-row .sprint-goal {
+  margin: var(--space-1) 0 0;
+}
+.sprint-returned {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-xs);
+}
+
+/*
+ * What kind of work a sprint delivered.
+ *
+ * One bar rather than four numbers, because the question is a share — how much of the
+ * fortnight went on bugs nobody planned — and a share is a length.
+ */
+.type-mix {
+  margin-top: var(--space-3);
+}
+.type-mix-bar {
+  display: flex;
+  height: 8px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--surface-sunken);
+  max-width: 420px;
+}
+.type-mix-bar span {
+  display: block;
+}
+.type-mix-key {
+  display: block;
+  margin-top: var(--space-1);
+  font-size: var(--text-xs);
+}
+
+/*
+ * Velocity.
+ *
+ * Bars from the flow of the page rather than a charting library — this is a handful of
+ * numbers, and a dependency to draw six rectangles is a dependency to maintain forever.
+ */
+.velocity {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-3);
+  list-style: none;
+  margin: var(--space-4) 0 0;
+  padding: 0;
+  min-height: 140px;
+  /* Capped, and growing with the number of sprints rather than the width of the panel: six
+     bars spread across a 1400px screen stop reading as a series and start reading as six
+     unrelated rectangles. */
+  max-width: min(100%, 640px);
+}
+.velocity li {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  flex: 1 1 0;
+  min-width: 0;
+  height: 140px;
+}
+.velocity-bar {
+  width: 100%;
+  max-width: 64px;
+  background: var(--accent);
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  transition: height var(--transition-fast);
+}
+.velocity-value {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  margin-top: var(--space-1);
+}
+.velocity-name {
+  font-size: var(--text-xs);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 /*
  * Present to a screen reader, absent to everyone else.

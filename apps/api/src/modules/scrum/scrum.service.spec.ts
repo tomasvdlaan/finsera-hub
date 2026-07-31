@@ -131,6 +131,74 @@ describe('ScrumService sprints', () => {
     expect((await scrum.getTask(actor, finished.id)).sprintId).toBe(created.id);
   });
 
+  /*
+   * The summary, which is the only record of a sprint that survives its own completion.
+   *
+   * Closing a sprint detaches everything unfinished, so a query against the live tables
+   * afterwards sees only the cards that landed. Without the snapshot every sprint ever run
+   * reports a clean sweep, which is both flattering and useless.
+   */
+  it('freezes what the sprint contained before the unfinished work is detached', async () => {
+    const created = await sprint();
+    await scrum.startSprint(actor, created.id);
+    const missed = await scrum.createTask(actor, {
+      projectId,
+      title: 'Not going to happen',
+      sprintId: created.id,
+      storyPoints: 5,
+      type: 'story',
+    });
+    const landed = await scrum.createTask(actor, {
+      projectId,
+      title: 'Did happen',
+      sprintId: created.id,
+      storyPoints: 3,
+      type: 'bug',
+    });
+    await scrum.moveTask(actor, landed.id, { status: 'done' });
+
+    const closed = await scrum.completeSprint(actor, created.id);
+    const summary = (await scrum.getSprint(actor, created.id)).summary!;
+
+    expect(summary.committed).toMatchObject({ points: 8, cards: 2 });
+    expect(summary.completed).toMatchObject({ points: 3, cards: 1 });
+    expect(summary.returnedToBacklog).toBe(1);
+    // The retrospective sentence: what kind of work actually got delivered.
+    expect(summary.byType).toEqual({ bug: 1 });
+    expect(closed.returnedToBacklog).toBe(1);
+
+    // And the point of storing it: the live tables can no longer answer this.
+    expect((await scrum.getTask(actor, missed.id)).sprintId).toBeNull();
+    expect((await scrum.getSprint(actor, created.id)).progress.cards).toEqual({
+      done: 1,
+      total: 1,
+    });
+  });
+
+  it('freezes the unit as it stood, not as the backlog was later tidied', async () => {
+    const created = await sprint();
+    await scrum.startSprint(actor, created.id);
+    const a = await scrum.createTask(actor, { projectId, title: 'A', sprintId: created.id });
+    await scrum.createTask(actor, { projectId, title: 'B', sprintId: created.id });
+    await scrum.moveTask(actor, a.id, { status: 'done' });
+    await scrum.completeSprint(actor, created.id);
+
+    // Nothing was pointed or estimated at the time, so it could only ever report cards.
+    const summary = (await scrum.getSprint(actor, created.id)).summary!;
+    expect(summary.unit).toBe('count');
+    expect(summary.completed.cards).toBe(1);
+
+    // Pointing the survivor afterwards must not retro-fit a unit onto a closed sprint.
+    await scrum.updateTask(actor, a.id, { storyPoints: 8 });
+    expect((await scrum.getSprint(actor, created.id)).summary!.unit).toBe('count');
+  });
+
+  it('leaves the summary null while a sprint is still open', async () => {
+    const created = await sprint();
+    await scrum.startSprint(actor, created.id);
+    expect((await scrum.getSprint(actor, created.id)).summary).toBeNull();
+  });
+
   it('refuses to restart a finished sprint', async () => {
     const created = await sprint();
     await scrum.startSprint(actor, created.id);

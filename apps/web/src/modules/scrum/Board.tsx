@@ -325,7 +325,10 @@ export function Board() {
           {shown.filter((t) => !t.completedAt).length} open of {shown.length}
         </span>
         {/* Pushed to the far end: you configure a board rarely and read it constantly. */}
-        <Link to={`/scrum/settings?projectId=${projectId}`} className="muted board-settings-link">
+        <Link to={`/scrum/sprints?projectId=${projectId}`} className="muted board-settings-link">
+          Sprints
+        </Link>
+        <Link to={`/scrum/settings?projectId=${projectId}`} className="muted">
           Columns
         </Link>
       </div>
