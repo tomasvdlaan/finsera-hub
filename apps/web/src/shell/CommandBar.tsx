@@ -2,13 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api.js';
 import { Icon } from './Icon.js';
+import { Button } from './ui/primitives.js';
+import { Composer, ConversationView, useConversation } from './conversation/index.js';
 import type { NavItem } from '../modules/types.js';
 
 /** How long after the last keystroke the server is asked. */
 const SEARCH_AFTER_MS = 180;
 
-/** A question that runs a model can legitimately take a while; this is a backstop. */
-const ASK_TIMEOUT_MS = 120_000;
 
 interface EntityHit {
   id: string;
@@ -96,11 +96,19 @@ export function CommandBar({
   const [picked, setPicked] = useState(0);
   const [searching, setSearching] = useState(false);
 
-  /** The assistant's answer, shown in place rather than in another panel. */
-  const [answer, setAnswer] = useState<{ text: string; tools: string[] } | null>(null);
-  const [asking, setAsking] = useState(false);
+  /*
+   * A conversation, not an answer.
+   *
+   * This used to call /assistant/ask with no conversationId and render the reply as a dead
+   * end — you could read it and that was all. There was no way to say "and the second one?",
+   * which is most of what anyone wants to say next.
+   */
+  const chat = useConversation();
   const [recents, setRecents] = useState<Recent[]>([]);
   const [running, setRunning] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  /** Once a question has been asked, the box stops being a list and becomes a thread. */
+  const talking = chat.turns.length > 0 || chat.busy;
 
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -108,9 +116,9 @@ export function CommandBar({
     setOpen(false);
     setQuery('');
     setHits([]);
-    setAnswer(null);
     setPicked(0);
-  }, []);
+    chat.reset();
+  }, [chat]);
 
   /*
    * ⌘K from anywhere, including the meeting room.
@@ -267,38 +275,24 @@ export function CommandBar({
           if (to) navigate(to);
           close();
         } catch (e) {
-          setAnswer({ text: (e as Error).message, tools: [] });
+          setActionError((e as Error).message);
         } finally {
           setRunning(null);
         }
         return;
       }
 
-      setAsking(true);
-      setAnswer(null);
-      const abort = new AbortController();
-      const deadline = setTimeout(() => abort.abort(), ASK_TIMEOUT_MS);
-      try {
-        const res = await api.post<{ answer: string; toolCalls?: Array<{ toolName: string }> }>(
-          '/assistant/ask',
-          { message: row.label },
-          abort.signal,
-        );
-        setAnswer({ text: res.answer, tools: (res.toolCalls ?? []).map((t) => t.toolName) });
-      } catch (e) {
-        setAnswer({
-          text:
-            (e as Error).name === 'AbortError'
-              ? 'That took too long and was given up on. Ask it again.'
-              : (e as Error).message,
-          tools: [],
-        });
-      } finally {
-        clearTimeout(deadline);
-        setAsking(false);
-      }
+      /*
+       * The entity the current page is about, so "this client" resolves without naming it.
+       *
+       * The sidebar panel scraped this out of the URL and the command bar never did, which
+       * meant the same question answered differently depending on where you asked it.
+       */
+      const entityId = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i
+        .exec(window.location.pathname)?.[0];
+      await chat.ask(row.label, entityId ? { entityId } : undefined);
     },
-    [navigate, close],
+    [navigate, close, chat],
   );
 
   if (!open) return null;
@@ -323,7 +317,7 @@ export function CommandBar({
             aria-label="Go to, find, or ask anything"
             onChange={(e) => {
               setQuery(e.target.value);
-              setAnswer(null);
+              setActionError(null);
             }}
             onKeyDown={(e) => {
               if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
@@ -386,27 +380,33 @@ export function CommandBar({
           </ul>
         )}
 
-        {(asking || answer) && (
-          <div className="cmdk-answer">
-            {asking ? (
-              <p className="muted">Thinking…</p>
-            ) : (
-              <>
-                <p>{answer!.text}</p>
-                {answer!.tools.length > 0 && (
-                  /* What it looked at, so the answer can be checked rather than trusted. */
-                  <p className="cmdk-tools">
-                    {answer!.tools.map((t) => (
-                      <span key={t} className="tag">
-                        {t}
-                      </span>
-                    ))}
-                  </p>
-                )}
-              </>
+        {talking && (
+          <div className="cmdk-thread">
+            <ConversationView turns={chat.turns} busy={chat.busy} waited={chat.waited} compact />
+          </div>
+        )}
+
+        {talking && (
+          /* Keep going here, or take it somewhere with room. The hand-off carries the
+             conversation, so nothing is retyped. */
+          <div className="cmdk-continue">
+            <Composer onSend={(m) => void chat.ask(m)} busy={chat.busy} placeholder="Reply…" />
+            {chat.conversationId && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  navigate(`/assistant/${chat.conversationId}`);
+                  close();
+                }}
+              >
+                Open in full →
+              </Button>
             )}
           </div>
         )}
+
+        {actionError && <p className="error cmdk-continue">{actionError}</p>}
 
         <div className="cmdk-foot muted">
           <span>

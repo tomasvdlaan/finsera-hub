@@ -7,12 +7,13 @@ import {
   Routes,
   Outlet,
   useLocation,
+  useNavigate,
 } from 'react-router-dom';
 import type { CurrentUser } from '@platform/contracts';
 import { api } from '../lib/api.js';
 import { webModules } from '../modules/index.js';
-import { Assistant } from './Assistant.js';
 import type { NavItem } from '../modules/types.js';
+import { AssistantPage } from './AssistantPage.js';
 import { CommandBar } from './CommandBar.js';
 import { Sidebar, type SidebarCounts } from './Sidebar.js';
 import { LiveMeetingProvider } from './LiveMeeting.js';
@@ -111,7 +112,6 @@ function Shell() {
   const { user, loading, error: authError, login, logout } = useAuth();
   const [nav, setNav] = useState<NavItem[]>([]);
   const [me, setMe] = useState<CurrentUser | null>(null);
-  const [assistantOpen, setAssistantOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [counts, setCounts] = useState<SidebarCounts>({});
   const [error, setError] = useState<string | null>(null);
@@ -204,9 +204,6 @@ function Shell() {
               counts={counts}
               onSearch={() => setSearchOpen(true)}
               error={error}
-              assistantOpen={assistantOpen}
-              onToggleAssistant={() => setAssistantOpen((o) => !o)}
-              onCloseAssistant={() => setAssistantOpen(false)}
               onLogout={logout}
             />
           }
@@ -215,6 +212,8 @@ function Shell() {
           {chromed.map(({ path, Component }) => (
             <Route key={path} path={path} element={<Component />} />
           ))}
+          <Route path="/assistant" element={<AssistantPage />} />
+          <Route path="/assistant/:id" element={<AssistantPage />} />
           <Route path="/platform/modules" element={<Modules />} />
           <Route path="/platform/settings" element={<Settings />} />
           <Route path="*" element={<NotFound home={home} />} />
@@ -237,31 +236,26 @@ function Shell() {
  * render is a new type on every render and React would remount its whole subtree — which
  * would take the assistant's conversation with it on every keystroke of shell state.
  *
- * The assistant is mounted here, so entering the meeting room does end the conversation.
- * That is the trade: the room has an AI rail of its own with the meeting as its context, and
- * carrying a second assistant into it would be two AI panels arguing over the same screen.
+ * The assistant used to be a panel mounted here. It is a page now — /assistant — because a
+ * conversation with history, entity cards and a thread wants room, and because a panel that
+ * only existed inside this layout could never be reached from the meeting room.
  */
 function ChromeLayout({
   nav,
   me,
   counts,
   error,
-  assistantOpen,
   onSearch,
-  onToggleAssistant,
-  onCloseAssistant,
   onLogout,
 }: {
   nav: NavItem[];
   me: CurrentUser | null;
   counts: SidebarCounts;
   error: string | null;
-  assistantOpen: boolean;
   onSearch: () => void;
-  onToggleAssistant: () => void;
-  onCloseAssistant: () => void;
   onLogout: () => void;
 }) {
+  const navigate = useNavigate();
   return (
     <div className="layout">
       <Sidebar
@@ -270,7 +264,7 @@ function ChromeLayout({
         counts={counts}
         me={me}
         onSearch={onSearch}
-        onOpenAssistant={onToggleAssistant}
+        onOpenAssistant={() => navigate('/assistant')}
         onLogout={onLogout}
       />
 
@@ -285,16 +279,6 @@ function ChromeLayout({
         <Outlet />
       </main>
 
-      {/*
-        Mounted always, hidden when closed.
-
-        It used to be `{assistantOpen && <Assistant/>}`, which unmounts the component on
-        close and takes the turns and the conversationId with it — so "hide" was
-        indistinguishable from "discard", and reopening started a new conversation with no
-        way back to the old one. Keeping it mounted is the smallest fix that makes the
-        panel behave like a panel.
-      */}
-      <Assistant hidden={!assistantOpen} onClose={onCloseAssistant} />
     </div>
   );
 }

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import type { Behaviour } from '../../shell/LiveMeeting.js';
 import type { LiveState } from '../../shell/liveMeetingReducer.js';
 import { useMeetingChat } from '../../shell/MeetingChat.js';
+import { Composer, ConversationView } from '../../shell/conversation/index.js';
 import { LiveTab } from './LiveTab.js';
 import { TranscriptTicker } from './TranscriptTicker.js';
 import type { NoteDetail } from './types.js';
@@ -380,8 +381,7 @@ function AiTab({
  * silent seconds mid-meeting reads as broken.
  */
 function AskBox({ noteId }: { noteId: string }) {
-  const { noteId: threadFor, turns, asking, waited, ask } = useMeetingChat();
-  const [question, setQuestion] = useState('');
+  const { noteId: threadFor, turns, busy, waited, ask } = useMeetingChat();
 
   // A thread from a different meeting is not this meeting's history.
   const mine = threadFor === noteId ? turns : [];
@@ -389,40 +389,17 @@ function AskBox({ noteId }: { noteId: string }) {
   return (
     <section className="room-block room-ask">
       <h3>Ask about this meeting</h3>
-
-      {mine.map((turn, i) => (
-        <div
-          key={`${i}-${turn.text.slice(0, 12)}`}
-          className={turn.role === 'user' ? 'room-asked' : 'room-answer'}
-        >
-          <p>{turn.text}</p>
-          {turn.tools && turn.tools.length > 0 && (
-            <p className="muted">Looked at: {turn.tools.map((x) => x.replace(/_/g, ' ')).join(', ')}</p>
-          )}
-        </div>
-      ))}
-
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          const q = question;
-          setQuestion('');
-          void ask(noteId, q);
-        }}
-      >
-        <div className="row">
-          <input
-            value={question}
-            onChange={(e) => setQuestion(e.target.value)}
-            placeholder={mine.length > 0 ? 'Ask a follow-up…' : 'What did we agree last time?'}
-            aria-label="Ask the assistant about this meeting"
-            style={{ flex: 1, minWidth: 0 }}
-          />
-          <button type="submit" disabled={asking || !question.trim()}>
-            {asking ? `${waited}s…` : 'Ask'}
-          </button>
-        </div>
-      </form>
+      {/*
+        The same conversation view the command bar and the assistant page use — so an answer
+        that cites an invoice shows the invoice here too, which it never did while this
+        rendered its own turns.
+      */}
+      <ConversationView turns={mine} busy={busy} waited={waited} compact />
+      <Composer
+        onSend={(q) => void ask(noteId, q)}
+        busy={busy}
+        placeholder={mine.length > 0 ? 'Ask a follow-up…' : 'What did we agree last time?'}
+      />
     </section>
   );
 }

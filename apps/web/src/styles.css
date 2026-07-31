@@ -490,12 +490,6 @@ h3 {
 .statusbar-live .statusbar-dot {
   background: var(--danger);
 }
-/* `hidden` loses to `display: flex` on specificity, and the assistant is now hidden rather
-   than unmounted — without this it stays on screen after Hide. */
-.assistant[hidden] {
-  display: none;
-}
-
 .sidebar-footer {
   margin-top: auto;
   font-size: 0.85rem;
@@ -1286,211 +1280,6 @@ a.badge:hover {
   flex-shrink: 0;
 }
 
-/* assistant sidebar */
-.assistant {
-  width: 360px;
-  flex-shrink: 0;
-  border-left: 1px solid var(--border);
-  background: var(--surface);
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-  position: sticky;
-  top: 0;
-}
-
-/* Below this width a third column squeezes the content to one word per line, so the
-   assistant floats over the page instead of taking layout space from it. */
-@media (max-width: 1100px) {
-  .assistant {
-    position: fixed;
-    top: 0;
-    right: 0;
-    width: min(380px, 100vw);
-    box-shadow: -8px 0 24px rgb(0 0 0 / 0.25);
-    z-index: 10;
-  }
-}
-.assistant-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0.75rem 1rem;
-  border-bottom: 1px solid var(--border);
-}
-.assistant-body {
-  flex: 1;
-  overflow-y: auto;
-  padding: 1rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-.turn {
-  padding: 0.5rem 0.7rem;
-  border-radius: var(--radius);
-  font-size: 0.92rem;
-}
-.turn-user {
-  background: var(--bg);
-  border: 1px solid var(--border);
-  align-self: flex-end;
-  max-width: 90%;
-}
-.turn-assistant {
-  background: transparent;
-}
-.turn-content {
-  white-space: pre-wrap;
-}
-.turn-tools {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem;
-  margin-top: 0.4rem;
-}
-.assistant-input {
-  display: flex;
-  gap: 0.5rem;
-  padding: 0.75rem;
-  border-top: 1px solid var(--border);
-}
-.assistant-input input {
-  flex: 1;
-  min-width: 0;
-}
-
-/* platform documentation */
-.stat-row {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
-  gap: var(--space-3);
-  margin: var(--space-5) 0 var(--space-6);
-}
-.module-card {
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  margin: 0 0 0.6rem;
-  padding: 0;
-  border-top: 1px solid var(--border);
-}
-.module-head {
-  width: 100%;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 1rem;
-  padding: 0.7rem 0.9rem;
-  background: var(--surface);
-  border: none;
-  border-radius: var(--radius);
-  text-align: left;
-}
-.module-body {
-  padding: 0.5rem 0.9rem 1rem;
-}
-.module-block {
-  margin-top: 1.1rem;
-}
-.module-block h3 {
-  font-size: 0.95rem;
-  margin: 0;
-}
-.module-block .muted {
-  font-size: 0.85rem;
-}
-ul.decl li {
-  padding: 0.45rem 0 0.45rem 0.7rem;
-  border-left: 2px solid var(--border);
-  margin-bottom: 0.3rem;
-  display: block;
-}
-ul.decl code {
-  font-family: ui-monospace, SFMono-Regular, monospace;
-  font-size: 0.85rem;
-}
-.risk-read {
-  border-color: var(--accent);
-}
-.risk-write-draft {
-  border-color: #d97706;
-}
-.risk-write-commit,
-.risk-restricted {
-  border-color: var(--error);
-  color: var(--error);
-}
-
-ul.decl code + .badge {
-  margin-left: 0.4rem;
-}
-ul.decl li > div {
-  margin-top: 0.15rem;
-}
-
-/* document previews */
-.preview {
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
-  padding: 1rem;
-  max-height: 70vh;
-  overflow: auto;
-}
-.preview-text {
-  white-space: pre-wrap;
-  font-family: ui-monospace, SFMono-Regular, monospace;
-  font-size: 0.85rem;
-  margin: 0;
-}
-.preview-html :where(h1, h2, h3) {
-  font-size: 1.05rem;
-  margin: 0.8rem 0 0.3rem;
-}
-.preview-html p {
-  margin: 0 0 0.6rem;
-}
-.preview-html table {
-  border-collapse: collapse;
-  margin: 0.5rem 0;
-}
-.preview-html :where(td, th) {
-  border: 1px solid var(--border);
-  padding: 0.3rem 0.5rem;
-}
-.preview-image {
-  max-width: 100%;
-  height: auto;
-  display: block;
-  padding: 0;
-}
-.preview-pdf {
-  width: 100%;
-  height: 70vh;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
-}
-
-/* Word previews (docx-preview renders its own page structure) */
-.preview-docx {
-  padding: 0;
-  background: var(--bg);
-}
-.preview-docx .docx-wrapper {
-  background: transparent;
-  padding: 0.5rem;
-}
-.preview-docx .docx {
-  background: #fff;
-  color: #111;
-  padding: 2rem;
-  margin: 0 auto 0.75rem;
-  box-shadow: 0 1px 4px rgb(0 0 0 / 0.25);
-  max-width: 100%;
-}
-
-/* assistant reference cards */
 .chat-card {
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -2730,3 +2519,66 @@ button.nav-me:hover { background: var(--surface); }
   cursor: pointer;
 }
 .nav-menu-item:hover { background: var(--danger-bg); color: var(--danger); }
+
+/* ── The assistant page ─────────────────────────────────────────────────────
+ *
+ * Where a conversation goes when it stops being one question. The command bar answers in
+ * place — that path has to stay a keystroke — and hands off to here, carrying the thread.
+ */
+.assistant-page {
+  display: grid;
+  grid-template-columns: 16rem 1fr;
+  gap: var(--space-5);
+  align-items: start;
+  min-height: 0;
+}
+.assistant-history ul { list-style: none; margin: var(--space-3) 0 0; padding: 0; }
+.assistant-history li { margin-bottom: 1px; }
+.assistant-history .nav-row { font-size: var(--text-sm); }
+.assistant-main { display: flex; flex-direction: column; min-width: 0; }
+
+/* One conversation, drawn the same way in all three places it appears. */
+.chat { display: flex; flex-direction: column; gap: var(--space-4); }
+.chat-compact { gap: var(--space-3); }
+.turn { display: flex; flex-direction: column; gap: var(--space-2); }
+/*
+ * The question is set apart, not bubbled.
+ *
+ * A chat bubble on the right is the convention for messaging between people; this is one
+ * person interrogating their own records, and the answers are the content.
+ */
+.turn-user .turn-content {
+  align-self: flex-start;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+  font-weight: 600;
+}
+.turn-assistant .turn-content { white-space: pre-wrap; }
+.turn-tools { display: flex; flex-wrap: wrap; gap: var(--space-1); }
+
+.composer {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border);
+}
+.composer input { flex: 1; min-width: 0; }
+.assistant-page .composer { position: sticky; bottom: 0; background: var(--bg); }
+
+/* The overlay, once it has stopped being a list of results. */
+.cmdk-thread {
+  padding: var(--space-4);
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  overflow-y: auto;
+}
+.cmdk-continue {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-4) var(--space-3);
+  background: var(--surface);
+}
+.cmdk-continue .composer { flex: 1; margin: 0; padding: 0; border: none; }
