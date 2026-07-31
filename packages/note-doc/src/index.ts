@@ -12,5 +12,5 @@ export { headingsOf, sectionRange, endOfDoc, type SectionRange } from './section
  * Consumers taking their own dependency is exactly how two copies end up installed, so the
  * package that owns the schema hands out the library that built it.
  */
-export { Fragment, Node, Slice, type Schema } from '@tiptap/pm/model';
+export { DOMSerializer, Fragment, Node, Slice, type Schema } from '@tiptap/pm/model';
 export { Mapping, ReplaceStep, Step, Transform } from '@tiptap/pm/transform';

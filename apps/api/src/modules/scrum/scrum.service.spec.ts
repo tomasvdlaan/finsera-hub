@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { Actor } from '@platform/contracts';
 import { sql } from 'drizzle-orm';
 import { AuditService } from '../../core/audit/audit.service.js';
+import { CommentService } from '../../core/comments/comment.service.js';
 import { EventBus } from '../../core/events/event-bus.service.js';
 import { LinkService } from '../../core/links/link.service.js';
 import { ManifestRegistry } from '../../core/manifest/manifest.registry.js';
@@ -389,5 +390,104 @@ describe('ScrumService blockers', () => {
     expect(row.blocked).toBe(true);
     expect(Number(row.days_blocked)).toBe(0);
     expect(row.blocked_since).not.toBeNull();
+  });
+});
+
+/**
+ * Card age, task type, and the comment count on the board.
+ *
+ * Card age gets a test because it is derived rather than stored, and derived numbers rot
+ * quietly — the failure mode is not an error, it is a board that says a stuck card is fresh.
+ *
+ * The count is tested against `core.comments` on purpose. Discussion on any record already
+ * lives there, and the count on the card has to be the same number as the thread beneath it;
+ * a scrum-local comments table would have made those two disagree.
+ */
+describe('ScrumService card age, type and comment counts', () => {
+  let scrum: ScrumService;
+  let comments: CommentService;
+  let projectId: string;
+
+  beforeEach(async () => {
+    await resetDb();
+    await truncate(sql`TRUNCATE scrum.tasks, crm.projects, crm.contacts, crm.clients CASCADE`);
+    await seedUser(actor.userId, 'admin');
+
+    const manifests = new ManifestRegistry();
+    for (const m of [crmManifest, timeManifest, scrumManifest]) manifests.register(m);
+    manifests.seal();
+
+    const registry = new RegistryService(testDb, manifests);
+    const permissions = new PermissionService(testDb, manifests);
+    const audit = new AuditService();
+    const links = new LinkService(testDb, registry, permissions, audit, manifests);
+    const bus = new EventBus(manifests);
+    const crm = new CrmService(testDb, registry, permissions, audit, bus, links);
+    const time = new TimeService(testDb, registry, permissions, audit, bus, links, crm);
+    scrum = new ScrumService(testDb, registry, permissions, audit, bus, links, crm, time);
+    comments = new CommentService(testDb, registry, permissions, audit);
+
+    const client = await crm.createClient(actor, { name: 'DocHorse', status: 'active' });
+    const project = await crm.createProject(actor, {
+      clientId: client.id,
+      name: 'Power BI',
+      billingModel: 'time_and_materials',
+    });
+    projectId = project.id;
+  });
+
+  const task = (over: Record<string, unknown> = {}) =>
+    scrum.createTask(actor, { projectId, title: 'Model the spend dataset', ...over });
+
+  it('measures age from the last move, not the last edit', async () => {
+    const created = await task();
+    await scrum.moveTask(actor, created.id, { status: 'in_progress' });
+
+    // Backdate the arrival, then touch the card. `updatedAt` jumps; the age must not.
+    await testDb.execute(
+      sql`UPDATE scrum.task_transitions SET at = now() - interval '9 days'
+          WHERE task_id = ${created.id} AND to_status = 'in_progress'`,
+    );
+    await scrum.updateTask(actor, created.id, { title: 'Model the spend dataset (v2)' });
+
+    const [row] = await scrum.listTasks(actor, { projectId });
+    expect(row?.daysInColumn).toBe(9);
+  });
+
+  it('records a transition when the edit form moves the card', async () => {
+    const created = await task();
+    await scrum.updateTask(actor, created.id, { status: 'in_progress' });
+
+    const rows = await testDb.execute(
+      sql`SELECT from_status, to_status FROM scrum.task_transitions
+          WHERE task_id = ${created.id} ORDER BY at`,
+    );
+    expect(rows.rows).toHaveLength(2);
+    expect(rows.rows[1]).toMatchObject({ from_status: 'to_do', to_status: 'in_progress' });
+  });
+
+  it('refuses a task type it cannot report on', async () => {
+    await expect(task({ type: 'epic' })).rejects.toThrow(/type/i);
+    const spike = await task({ type: 'spike' });
+    expect(spike.type).toBe('spike');
+  });
+
+  it('counts the discussion on the card, and forgets what was deleted', async () => {
+    const talkative = await task();
+    const quiet = await task({ title: 'Nobody has said anything' });
+    await comments.add(actor, { subjectId: talkative.id, body: 'Blocked on the export format.' });
+    const second = await comments.add(actor, { subjectId: talkative.id, body: 'CSV it is.' });
+
+    const before = new Map((await scrum.listTasks(actor, { projectId })).map((r) => [r.id, r]));
+    expect(before.get(talkative.id)?.commentCount).toBe(2);
+    // Zero rather than undefined: the card renders the same either way, and the type should
+    // not make the caller think about it.
+    expect(before.get(quiet.id)?.commentCount).toBe(0);
+
+    // Comments are soft-deleted so replies keep their parent — but a tombstone is not a
+    // remark, and counting it would leave a card advertising a conversation that is not there.
+    await comments.remove(actor, second.id);
+    const after = new Map((await scrum.listTasks(actor, { projectId })).map((r) => [r.id, r]));
+    expect(after.get(talkative.id)?.commentCount).toBe(1);
   });
 });

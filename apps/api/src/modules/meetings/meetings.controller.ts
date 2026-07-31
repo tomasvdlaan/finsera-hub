@@ -14,6 +14,7 @@ import type { Response } from 'express';
 import { StorageService } from '../../core/storage/storage.service.js';
 import type { Actor } from '@platform/contracts';
 import { CurrentActor } from '../../core/auth/current-actor.decorator.js';
+import { Public } from '../../core/auth/public.decorator.js';
 import { LiveRunner } from './live/live-runner.service.js';
 import { MeetingsService, type CreateNoteInput } from './meetings.service.js';
 import { TEMPLATE_LIST } from './templates.js';
@@ -87,10 +88,26 @@ export class MeetingsController {
   /**
    * Serve a note image.
    *
-   * The key is a random path chosen at upload, but it is still checked rather than
-   * trusted: a key containing traversal segments would otherwise read anything the
-   * process can.
+   * Unauthenticated, and that is a trade rather than an oversight.
+   *
+   * An `<img src>` cannot carry an Authorization header, so while this route sat behind the
+   * guard *every image pasted into a note rendered as a broken icon* — the upload succeeded,
+   * the Markdown was correct, and the picture was unreachable by the only element that can
+   * display it. The alternatives are worse in practice: fetching each image as a blob needs
+   * bespoke handling everywhere Markdown is rendered, and signed URLs need an expiry a note
+   * kept for two years will outlive.
+   *
+   * What makes it acceptable is that the key is unguessable — `randomUUID()` chosen at
+   * upload, never derived from the filename, the note or anything an outsider can see.
+   * Knowing the URL is the permission: there is nothing to enumerate and no id to increment.
+   * The exposure is a leaked URL, the same as any capability link.
+   *
+   * The key is still checked rather than trusted, and the response is locked down: these
+   * bytes were uploaded by whoever can write a note, and an SVG served inline can carry
+   * script, so the CSP denies it everything and `nosniff` stops a mislabelled file being
+   * reinterpreted as one.
    */
+  @Public()
   @Get('images/*key')
   async image(@Param('key') key: string, @Res() res: Response) {
     const safe = safeStorageKey(key);
@@ -99,6 +116,10 @@ export class MeetingsController {
     const data = await this.storage.get(safe);
     res.setHeader('Content-Type', mimeFromKey(safe));
     res.setHeader('Cache-Control', 'private, max-age=86400');
+    res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'");
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    // A leaked URL a crawler has indexed is a worse problem than a leaked URL.
+    res.setHeader('X-Robots-Tag', 'noindex, nofollow');
     res.send(data);
   }
 

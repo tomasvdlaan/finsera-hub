@@ -21,6 +21,15 @@ export interface BoardColumn {
   label: string;
   /** Entering this column stamps completed_at — "done" is a property of the column. */
   isDone: boolean;
+  /**
+   * How many cards may sit here at once, if the column is limited.
+   *
+   * The one control that makes a board a system rather than a list. Without it a team — or
+   * one person — starts everything and finishes nothing, and the board faithfully records
+   * that as progress. It is advisory: exceeding it warns rather than refuses, because a
+   * board that will not accept reality gets worked around instead of obeyed.
+   */
+  wipLimit?: number | null;
 }
 
 /**
@@ -105,6 +114,15 @@ export const tasks = scrum.table(
      */
     storyPoints: integer('story_points'),
     priority: text('priority').notNull().default('normal'),
+    /**
+     * story | bug | chore | spike.
+     *
+     * Velocity that counts bug-fixing as delivered value is a lie, and a trustworthy
+     * velocity is the main number a sprint is judged on. It also lets a retrospective be
+     * told "two fifths of this sprint went on unplanned bugs", which is a far more useful
+     * sentence than a burndown line.
+     */
+    type: text('type').notNull().default('story'),
     labels: text('labels').array().notNull().default(sql`ARRAY[]::text[]`),
     dueOn: date('due_on'),
     /** An epic is a task with children, not a separate entity. */
@@ -165,4 +183,30 @@ export const tasks = scrum.table(
     ),
     index('tasks_blocked_idx').on(t.blockedSince),
   ],
+);
+
+/**
+ * Every time a card changed column, and who moved it.
+ *
+ * Written for one question the board cannot otherwise answer: how long has this been sitting
+ * here. `updatedAt` moves for any edit, so a card whose title was corrected looks freshly
+ * worked on — which is exactly backwards for the card you most need to notice.
+ *
+ * Append-only by intent. It is the raw material for cycle time per column later, and a row
+ * that can be edited is not evidence of anything.
+ */
+export const taskTransitions = scrum.table(
+  'task_transitions',
+  {
+    id: uuid('id').primaryKey(),
+    taskId: uuid('task_id')
+      .notNull()
+      .references(() => tasks.id, { onDelete: 'cascade' }),
+    /** Null for the first row, which records the column a card was created in. */
+    fromStatus: text('from_status'),
+    toStatus: text('to_status').notNull(),
+    movedBy: uuid('moved_by').notNull(),
+    at: timestamp('at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('task_transitions_task_idx').on(t.taskId, t.at)],
 );

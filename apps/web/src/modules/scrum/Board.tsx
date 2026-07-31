@@ -14,7 +14,15 @@ import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { api } from '../../lib/api.js';
 import type { Project } from '../crm/types.js';
 import { TaskCard } from './TaskCard.js';
-import { hours, toMinutes, type Board as BoardType, type Task } from './types.js';
+import {
+  TASK_TYPES,
+  hours,
+  toMinutes,
+  type BoardColumn,
+  type Board as BoardType,
+  type Task,
+  type TaskType,
+} from './types.js';
 
 function Column({
   column,
@@ -22,7 +30,7 @@ function Column({
   columns,
   onMove,
 }: {
-  column: { key: string; label: string; isDone: boolean };
+  column: BoardColumn;
   tasks: Task[];
   columns: Array<{ key: string; label: string }>;
   onMove: (
@@ -35,15 +43,31 @@ function Column({
   const { setNodeRef, isOver } = useDroppable({ id: `column:${column.key}` });
   const estimate = tasks.reduce((sum, t) => sum + (t.estimateMinutes ?? 0), 0);
 
+  /*
+   * Over the limit — said, not enforced.
+   *
+   * The point of a WIP limit is to make starting a fifth thing feel like a decision rather
+   * than a reflex. A board that refuses the drop gets worked around within a week; a board
+   * that turns the number red gets argued with, which is the conversation the limit is for.
+   */
+  const limit = column.wipLimit ?? null;
+  const over = limit != null && tasks.length > limit;
+
   return (
-    <div className={`board-column${isOver ? ' over' : ''}`} ref={setNodeRef}>
+    <div className={`board-column${isOver ? ' over' : ''}${over ? ' wip-exceeded' : ''}`} ref={setNodeRef}>
       <div className="board-column-head">
         <strong>{column.label}</strong>
-        <span className="muted">
+        <span className={over ? 'error' : 'muted'}>
           {tasks.length}
+          {limit != null && ` / ${limit}`}
           {estimate > 0 && ` · ${hours(estimate)}h`}
         </span>
       </div>
+      {over && (
+        <p className="wip-warning" role="status">
+          Over the limit — finish something before starting another.
+        </p>
+      )}
 
       <SortableContext items={tasks.map((t) => t.id)} strategy={verticalListSortingStrategy}>
         <div className="board-column-body">
@@ -77,6 +101,7 @@ export function Board() {
   const [error, setError] = useState<string | null>(null);
   const [title, setTitle] = useState('');
   const [estimate, setEstimate] = useState('');
+  const [type, setType] = useState<TaskType>('story');
   const [busy, setBusy] = useState(false);
 
   const sensors = useSensors(
@@ -180,10 +205,12 @@ export function Board() {
       await api.post('/scrum/tasks', {
         projectId,
         title: title.trim(),
+        type,
         estimateMinutes: toMinutes(estimate),
       });
       setTitle('');
       setEstimate('');
+      // The type is not reset: bugs arrive in clusters, and so do chores.
       await load();
     } catch (err) {
       setError((err as Error).message);
@@ -230,6 +257,17 @@ export function Board() {
           aria-label="New task title"
           style={{ flex: 1, minWidth: 200 }}
         />
+        <select
+          value={type}
+          onChange={(e) => setType(e.target.value as TaskType)}
+          aria-label="Task type"
+        >
+          {TASK_TYPES.map((t) => (
+            <option key={t} value={t}>
+              {t}
+            </option>
+          ))}
+        </select>
         <input
           value={estimate}
           onChange={(e) => setEstimate(e.target.value)}

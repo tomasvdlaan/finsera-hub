@@ -1366,6 +1366,300 @@ a.badge:hover {
 .task-card.dragging {
   opacity: 0.4;
 }
+
+/*
+ * The card, expanded.
+ *
+ * Everything below earns its place by answering a question a standup asks: what kind of work
+ * is this, has it been sitting here, is there a picture, has anyone said anything. Ordered so
+ * the things that stop work read before the things that describe it.
+ */
+.task-card-title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+.task-card-title a {
+  min-width: 0;
+}
+
+/*
+ * Type as a single letter.
+ *
+ * A word would cost a line on a card 240px wide, and type is glanced at rather than read —
+ * what matters is that a board of bugs looks different from a board of stories from across
+ * the room. Colour carries it, the letter disambiguates it, and the title attribute says it
+ * in words for anyone who needs them.
+ */
+.task-type {
+  flex: none;
+  width: 1.15rem;
+  height: 1.15rem;
+  border-radius: var(--radius-sm);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65rem;
+  font-weight: 700;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  border: 1px solid currentColor;
+  /* Tinted, not filled: four saturated squares per column would compete with the blocker
+     chip, which is the one thing on a card that should shout. */
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}
+.task-type-story {
+  color: var(--accent);
+}
+.task-type-bug {
+  color: var(--danger);
+}
+.task-type-chore {
+  color: var(--muted);
+}
+.task-type-spike {
+  color: var(--warning);
+}
+
+/*
+ * The thumbnail.
+ *
+ * Capped short and cropped rather than scaled to fit: a tall screenshot allowed its natural
+ * ratio would push every other card off the screen, and the top of an image is almost always
+ * the part that identifies it.
+ */
+.task-thumb {
+  display: block;
+  margin: var(--space-2) 0 0;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--surface-sunken);
+}
+.task-thumb img {
+  display: block;
+  width: 100%;
+  height: 84px;
+  object-fit: cover;
+}
+
+/*
+ * Age, in two steps.
+ *
+ * A gradient would be a number nobody reads. Silent under a working week, warning-coloured
+ * after five days, danger-coloured after two weeks — at which point the card is not late, it
+ * is forgotten.
+ */
+.age-tag {
+  font-variant-numeric: tabular-nums;
+}
+.age-tag.age-stale {
+  border-color: var(--warning);
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+.age-tag.age-old {
+  border-color: var(--danger);
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+/* A hairline down the left edge, so a stalled card is findable by scanning the column rather
+   than by reading every chip in it. */
+.task-card.age-old {
+  border-left: 3px solid var(--danger);
+}
+.task-card.age-stale {
+  border-left: 3px solid var(--warning);
+}
+
+/*
+ * Over the WIP limit.
+ *
+ * Loud enough to be an argument, quiet enough to be ignored — which is the correct strength
+ * for a rule that is advisory by design.
+ */
+.board-column.wip-exceeded {
+  border-color: var(--warning);
+  background: var(--warning-bg);
+}
+.wip-warning {
+  margin: 0 0 var(--space-2);
+  padding: 0 var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--warning);
+}
+
+/*
+ * Rendered Markdown, wherever it is read rather than written.
+ *
+ * Scoped to a class rather than applied to the elements, because these tags appear in plenty
+ * of places in this app that are not a document and should not inherit a document's rhythm.
+ */
+.markdown-body > :first-child {
+  margin-top: 0;
+}
+.markdown-body > :last-child {
+  margin-bottom: 0;
+}
+.markdown-body p,
+.markdown-body ul,
+.markdown-body ol,
+.markdown-body pre,
+.markdown-body blockquote {
+  margin: var(--space-2) 0;
+}
+.markdown-body img {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+}
+.markdown-body pre {
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2);
+  overflow-x: auto;
+}
+.markdown-body blockquote {
+  border-left: 3px solid var(--border-strong);
+  padding-left: var(--space-3);
+  color: var(--muted);
+}
+.markdown-body table {
+  border-collapse: collapse;
+  width: 100%;
+}
+.markdown-body th,
+.markdown-body td {
+  border: 1px solid var(--border);
+  padding: var(--space-1) var(--space-2);
+  text-align: left;
+}
+
+/*
+ * A Markdown field inside a form.
+ *
+ * It has to read as an input — bordered, focusable, sitting on the surface — rather than as
+ * the bare sheet the note editor is, or the description looks like part of the page and
+ * nobody discovers it can be typed in.
+ */
+.markdown-editor {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: var(--space-2) var(--space-3);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+.markdown-editor:focus-within {
+  border-color: var(--focus);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 18%, transparent);
+}
+.markdown-editor .tiptap {
+  outline: none;
+  min-height: 4.5rem;
+  max-width: none;
+  font-size: var(--text-sm);
+}
+.markdown-editor .tiptap > :first-child {
+  margin-top: 0;
+}
+.markdown-editor .tiptap > :last-child {
+  margin-bottom: 0;
+}
+.markdown-editor .tiptap p,
+.markdown-editor .tiptap ul,
+.markdown-editor .tiptap ol,
+.markdown-editor .tiptap pre,
+.markdown-editor .tiptap blockquote {
+  margin: var(--space-2) 0;
+}
+.markdown-editor .tiptap img {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+}
+.markdown-editor .tiptap pre {
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2);
+  overflow-x: auto;
+}
+.markdown-editor .tiptap blockquote {
+  border-left: 3px solid var(--border-strong);
+  padding-left: var(--space-3);
+  color: var(--muted);
+}
+/* From the Placeholder extension's attribute, so the prompt is set per field rather than
+   hard-coded in the stylesheet the way the note editor's is. */
+.markdown-editor .tiptap p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: var(--muted);
+  float: left;
+  pointer-events: none;
+  height: 0;
+}
+/*
+ * Lists, in both the field editor and rendered Markdown.
+ *
+ * `list-style: revert` rather than a value, because the app's reset strips markers globally —
+ * which is right for the navigation and the card grids that make up most of its lists, and
+ * wrong the moment a list is prose. Without this a bulleted description renders as loose
+ * lines with no relationship to each other.
+ */
+.markdown-editor .tiptap ul,
+.markdown-editor .tiptap ol,
+.markdown-body ul,
+.markdown-body ol {
+  padding-left: 1.4rem;
+  list-style: revert;
+}
+.markdown-editor .tiptap ul[data-type='taskList'],
+.markdown-body ul[data-type='taskList'] {
+  list-style: none;
+  padding-left: 0.2rem;
+}
+.markdown-editor .tiptap ul[data-type='taskList'] li,
+.markdown-body ul[data-type='taskList'] li {
+  display: flex;
+  gap: 0.45rem;
+  align-items: flex-start;
+}
+.markdown-editor .tiptap ul[data-type='taskList'] li > label,
+.markdown-body ul[data-type='taskList'] li > label {
+  user-select: none;
+}
+.markdown-editor .tiptap ul[data-type='taskList'] li > div,
+.markdown-body ul[data-type='taskList'] li > div {
+  flex: 1;
+  min-width: 0;
+}
+.markdown-editor .tiptap h1,
+.markdown-editor .tiptap h2,
+.markdown-editor .tiptap h3,
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3 {
+  margin: var(--space-4) 0 var(--space-2);
+  line-height: var(--leading-tight);
+}
+.markdown-editor .tiptap h1,
+.markdown-body h1 {
+  font-size: var(--text-lg);
+}
+.markdown-editor .tiptap h2,
+.markdown-body h2 {
+  font-size: var(--text-base);
+}
+.markdown-editor .tiptap h3,
+.markdown-body h3 {
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+.comment-body {
+  margin: var(--space-1) 0;
+}
 .task-card-body {
   flex: 1;
   min-width: 0;

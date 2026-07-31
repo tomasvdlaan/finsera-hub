@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { api } from '../lib/api.js';
 import { useDialog } from './ui/Dialog.js';
+import { Markdown, MarkdownEditor } from './ui/MarkdownEditor.js';
 import { useToast } from './ui/Toast.js';
 
 interface Comment {
@@ -120,7 +121,7 @@ export function Comments({ entityId }: { entityId: string }) {
         </p>
       ) : editing === c.id ? (
         <>
-          <textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={3} />
+          <MarkdownEditor value={draft} onSave={setDraft} placeholder="Edit your comment…" />
           <div className="row">
             <button onClick={() => saveEdit(c.id)} disabled={busy || !draft.trim()}>
               Save
@@ -132,9 +133,9 @@ export function Comments({ entityId }: { entityId: string }) {
         </>
       ) : (
         <>
-          {/* Pre-wrapped so paragraphs and lists a person typed survive, without giving a
-              comment field the whole markdown surface. */}
-          <p style={{ whiteSpace: 'pre-wrap', margin: '0.25rem 0' }}>{c.body}</p>
+          {/* The same Markdown a note is written in, so a screenshot pasted into a remark
+              about a card behaves exactly as one pasted into the card itself. */}
+          <Markdown value={c.body} className="comment-body" />
           <div className="comment-actions">
             {!isReply && (
               <button className="link-button" onClick={() => setReplyTo(c.id)}>

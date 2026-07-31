@@ -8,7 +8,7 @@ import {
 import type { Actor } from '@platform/contracts';
 import { and, asc, desc, eq, inArray, isNull, lte, notInArray, or, sql } from 'drizzle-orm';
 import { AuditService } from '../../core/audit/audit.service.js';
-import { users } from '../../core/db/core.schema.js';
+import { comments, users } from '../../core/db/core.schema.js';
 import { DB, type Database } from '../../core/db/db.module.js';
 import { EventBus } from '../../core/events/event-bus.service.js';
 import { LinkService } from '../../core/links/link.service.js';
@@ -21,6 +21,7 @@ import {
   PRIORITIES,
   boards,
   sprints,
+  taskTransitions,
   tasks,
   type BoardColumn,
 } from './scrum.schema.js';
@@ -34,6 +35,8 @@ export interface CreateTaskInput {
   estimateMinutes?: number | null;
   storyPoints?: number | null;
   priority?: string;
+  /** story | bug | chore | spike. See validType for why the vocabulary is closed. */
+  type?: string;
   labels?: string[];
   dueOn?: string | null;
   parentId?: string | null;
@@ -421,6 +424,7 @@ export class ScrumService {
         estimateMinutes: input.estimateMinutes ?? null,
         storyPoints: input.storyPoints ?? null,
         priority: this.validPriority(input.priority),
+        type: this.validType(input.type),
         labels: input.labels ?? [],
         dueOn: input.dueOn ?? null,
         parentId: input.parentId ?? null,
@@ -428,6 +432,15 @@ export class ScrumService {
         rank: String(rank),
         completedAt: column.isDone ? new Date() : null,
         createdBy: actor.userId,
+      });
+
+      // The column a card was created in, so its age is measurable from the start.
+      await tx.insert(taskTransitions).values({
+        id: this.registry.newId(),
+        taskId: id,
+        fromStatus: null,
+        toStatus: status,
+        movedBy: actor.userId,
       });
 
       // Mirror the structural ref so tasks reach the project and client timelines.
@@ -488,6 +501,7 @@ export class ScrumService {
             patch.estimateMinutes === undefined ? before.estimateMinutes : patch.estimateMinutes,
           storyPoints: patch.storyPoints === undefined ? before.storyPoints : patch.storyPoints,
           priority: patch.priority ? this.validPriority(patch.priority) : before.priority,
+          type: patch.type ? this.validType(patch.type) : before.type,
           labels: patch.labels ?? before.labels,
           dueOn: patch.dueOn === undefined ? before.dueOn : patch.dueOn,
           parentId: patch.parentId === undefined ? before.parentId : patch.parentId,
@@ -511,6 +525,16 @@ export class ScrumService {
       });
 
       if (status !== before.status) {
+        // The edit form can change the column too, and a move recorded on one path but not the
+        // other would make card age lie exactly where it matters — the card somebody quietly
+        // dragged back would look as though it had never left.
+        await tx.insert(taskTransitions).values({
+          id: this.registry.newId(),
+          taskId: id,
+          fromStatus: before.status,
+          toStatus: status,
+          movedBy: actor.userId,
+        });
         await this.events.publish(tx, {
           name: 'task.moved',
           entityType: 'task',
@@ -596,6 +620,16 @@ export class ScrumService {
       });
 
       if (input.status !== task.status) {
+        // Append-only: how long a card has sat where it is cannot be recovered from
+        // `updatedAt`, which moves for any edit at all.
+        await tx.insert(taskTransitions).values({
+          id: this.registry.newId(),
+          taskId: id,
+          fromStatus: task.status,
+          toStatus: input.status,
+          movedBy: actor.userId,
+        });
+
         await this.events.publish(tx, {
           name: 'task.moved',
           entityType: 'task',
@@ -672,19 +706,95 @@ export class ScrumService {
     if (filter.dueBefore) where.push(lte(tasks.dueOn, filter.dueBefore));
     if (!filter.includeCompleted) where.push(isNull(tasks.completedAt));
 
-    return this.db
+    const rows = await this.db
       .select()
       .from(tasks)
       .where(and(...where))
       .orderBy(asc(tasks.rank))
       .limit(500);
+
+    /*
+     * How long each card has sat where it is.
+     *
+     * The standup question is "why is this still here", and the board could not answer it:
+     * `updatedAt` moves when a title is corrected, so the card nobody has touched in a
+     * fortnight looked as fresh as the one edited a minute ago. The latest transition into
+     * the current column is the honest answer.
+     */
+    const ids = rows.map((r) => r.id);
+    const [enteredAt, comments] = await Promise.all([
+      this.enteredColumnAt(rows),
+      this.commentCounts(ids),
+    ]);
+    return rows.map((r) => ({
+      ...r,
+      enteredColumnAt: enteredAt.get(r.id) ?? r.createdAt,
+      daysInColumn: Math.floor(
+        (Date.now() - (enteredAt.get(r.id) ?? r.createdAt).getTime()) / 86_400_000,
+      ),
+      commentCount: comments.get(r.id) ?? 0,
+    }));
   }
 
+  /**
+   * When each of these cards last entered the column it is in now.
+   *
+   * Matched on `toStatus` rather than simply taking the newest row. The two agree while the
+   * history is complete, and disagree the moment it is not — a card whose status was set by a
+   * path that wrote no transition would otherwise be dated from an unrelated move and report
+   * an age that is merely plausible. Reading the column back is the difference between a
+   * number derived from evidence and one derived from an assumption.
+   */
+  private async enteredColumnAt(
+    cards: Array<{ id: string; status: string }>,
+  ): Promise<Map<string, Date>> {
+    const map = new Map<string, Date>();
+    if (cards.length === 0) return map;
+
+    const status = new Map(cards.map((c) => [c.id, c.status]));
+    const rows = await this.db
+      .select({
+        taskId: taskTransitions.taskId,
+        toStatus: taskTransitions.toStatus,
+        at: taskTransitions.at,
+      })
+      .from(taskTransitions)
+      .where(inArray(taskTransitions.taskId, [...status.keys()]))
+      .orderBy(asc(taskTransitions.at));
+
+    // Walking in order leaves the most recent arrival into the column the card is in now.
+    for (const row of rows) {
+      if (row.toStatus === status.get(row.taskId)) map.set(row.taskId, row.at);
+    }
+    return map;
+  }
+
+  /**
+   * How many comments each card has, in one query rather than one per card.
+   *
+   * Read from `core.comments`, which is where discussion on any record already lives — a
+   * task, a note, an invoice. A comments table of its own inside scrum would have been a
+   * second answer to a question the platform had already answered, and the card would have
+   * shown a count that disagreed with the thread underneath it.
+   */
+  private async commentCounts(taskIds: string[]): Promise<Map<string, number>> {
+    const map = new Map<string, number>();
+    if (taskIds.length === 0) return map;
+
+    const rows = await this.db
+      .select({ taskId: comments.subjectId, count: sql<number>`count(*)::int` })
+      .from(comments)
+      .where(and(inArray(comments.subjectId, taskIds), isNull(comments.deletedAt)))
+      .groupBy(comments.subjectId);
+
+    for (const row of rows) map.set(row.taskId, row.count);
+    return map;
+  }
   /** One task with the hours logged against it — the reason this module exists. */
   async getTask(actor: Actor, id: string) {
     await this.require(actor, 'scrum.tasks.read');
     const task = await this.rawTask(id);
-    const [children, loggedMinutes, assignee] = await Promise.all([
+    const [children, loggedMinutes, assignee, enteredAt, comments] = await Promise.all([
       this.db
         .select()
         .from(tasks)
@@ -699,9 +809,21 @@ export class ScrumService {
             .limit(1)
             .then((r) => r[0] ?? null)
         : Promise.resolve(null),
+      // The same two derived facts the board shows, so the card and the page it opens agree.
+      this.enteredColumnAt([task]),
+      this.commentCounts([id]),
     ]);
+    const since = enteredAt.get(id) ?? task.createdAt;
 
-    return { ...task, children, loggedMinutes, assignee };
+    return {
+      ...task,
+      children,
+      loggedMinutes,
+      assignee,
+      enteredColumnAt: since,
+      daysInColumn: Math.floor((Date.now() - since.getTime()) / 86_400_000),
+      commentCount: comments.get(id) ?? 0,
+    };
   }
 
   /**
@@ -872,6 +994,21 @@ export class ScrumService {
       );
     }
     return found;
+  }
+
+  /**
+   * story | bug | chore | spike, and nothing else.
+   *
+   * The point of the vocabulary is that a sprint report can subtract the bugs from the
+   * velocity; a free-text field would make that arithmetic guesswork within a month.
+   */
+  private validType(type?: string | null): string {
+    const allowed = ['story', 'bug', 'chore', 'spike'];
+    if (!type) return 'story';
+    if (!allowed.includes(type)) {
+      throw new BadRequestException(`Unknown task type '${type}' — one of ${allowed.join(', ')}`);
+    }
+    return type;
   }
 
   private validPriority(priority?: string): string {

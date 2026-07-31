@@ -2,6 +2,13 @@ export interface BoardColumn {
   key: string;
   label: string;
   isDone: boolean;
+  /**
+   * How many cards may sit here at once, if the column is limited.
+   *
+   * Advisory. Exceeding it warns rather than refuses — a board that will not accept reality
+   * gets worked around instead of obeyed, and then it stops describing anything.
+   */
+  wipLimit?: number | null;
 }
 
 export interface Board {
@@ -21,6 +28,14 @@ export interface Task {
   /** Beside minutes, not instead of them. See the column comment in scrum.schema.ts. */
   storyPoints: number | null;
   priority: 'low' | 'normal' | 'high' | 'urgent';
+  /**
+   * story | bug | chore | spike.
+   *
+   * The unit a retrospective is argued in. "Two fifths of this sprint went on unplanned bugs"
+   * is a more useful sentence than any burndown line, and it cannot be said without this.
+   */
+  type: TaskType;
+  sprintId: string | null;
   labels: string[];
   dueOn: string | null;
   parentId: string | null;
@@ -34,7 +49,30 @@ export interface Task {
   blockedReason: string | null;
   blockedSince: string | null;
   blockedOnUserId: string | null;
+
+  /**
+   * When this card last entered the column it is in, and how long ago that was in days.
+   *
+   * Derived server-side from the transition log rather than from `updatedAt`, which moves for
+   * any edit — so a card whose title was corrected used to look freshly worked on, which is
+   * exactly backwards for the card you most need to notice.
+   */
+  enteredColumnAt: string;
+  daysInColumn: number;
+  commentCount: number;
 }
+
+export const TASK_TYPES = ['story', 'bug', 'chore', 'spike'] as const;
+export type TaskType = (typeof TASK_TYPES)[number];
+
+/**
+ * How long a card may sit before the board says so.
+ *
+ * Two thresholds rather than a gradient: a number that creeps up by shades is a number nobody
+ * reads. Silent until it has been a working week, loud after two.
+ */
+export const ageTone = (days: number): 'stale' | 'old' | null =>
+  days >= 14 ? 'old' : days >= 5 ? 'stale' : null;
 
 export interface SprintProgress {
   /** Which of the three a screen should show. Decided server-side so every screen agrees. */

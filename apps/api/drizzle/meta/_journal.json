@@ -197,6 +197,13 @@
       "when": 1785458571791,
       "tag": "0027_crazy_eternity",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1785459653211,
+      "tag": "0028_uneven_power_man",
+      "breakpoints": true
     }
   ]
 }
