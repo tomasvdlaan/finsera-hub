@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   DndContext,
   KeyboardSensor,
@@ -324,6 +324,10 @@ export function Board() {
         <span className="muted">
           {shown.filter((t) => !t.completedAt).length} open of {shown.length}
         </span>
+        {/* Pushed to the far end: you configure a board rarely and read it constantly. */}
+        <Link to={`/scrum/settings?projectId=${projectId}`} className="muted board-settings-link">
+          Columns
+        </Link>
       </div>
 
       <SprintBar projectId={projectId} active={sprint} planned={planned} onChange={load} />
