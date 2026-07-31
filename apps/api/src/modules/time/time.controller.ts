@@ -28,6 +28,16 @@ export class TimeController {
   }
 
   /** Whatever clock is currently running, if any. */
+  /** What you have been doing lately — the list under the clock on the tracker. */
+  @Get('recent')
+  recent(
+    @CurrentActor() actor: Actor,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.time.getRecent(actor, { from, to });
+  }
+
   @Get('running')
   running(@CurrentActor() actor: Actor) {
     return this.time.getRunning(actor);

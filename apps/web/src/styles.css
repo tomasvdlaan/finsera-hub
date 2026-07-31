@@ -2582,3 +2582,86 @@ button.nav-me:hover { background: var(--surface); }
   background: var(--surface);
 }
 .cmdk-continue .composer { flex: 1; margin: 0; padding: 0; border: none; }
+
+/* ── The time tracker ───────────────────────────────────────────────────────
+ *
+ * Three things on one screen: run a clock, write down the hour you forgot to run one for,
+ * and see what you have already logged. It replaced a page that showed a single day and made
+ * you step through dates to see the one before it.
+ */
+.tracker-top {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--space-4);
+  margin: var(--space-5) 0;
+  align-items: stretch;
+}
+.tracker-clock {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-1);
+}
+/* The number is the point of the card, so it is set like one rather than like a label. */
+.tracker-elapsed {
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--track-tight);
+  min-width: 6ch;
+}
+.tracker-what { flex: 1; min-width: 8rem; }
+.tracker-running-what { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tracker-warn { border-color: var(--warning); background: var(--warning-bg); }
+
+.tracker-totals {
+  display: flex;
+  gap: var(--space-6);
+  align-items: center;
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-1);
+}
+
+/* One row, because an entry you have to scroll to finish is an entry nobody adds. */
+.tracker-manual {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.tracker-manual > input:first-child { flex: 1; min-width: 12rem; }
+.tracker-time { width: 6rem; }
+
+.tracker-recent-head { margin: var(--space-6) 0 var(--space-3); }
+.tracker-day { padding: var(--space-4); }
+.tracker-day + .tracker-day { margin-top: var(--space-3); }
+.tracker-day .panel-head { margin-bottom: var(--space-2); }
+.tracker-day h3 { margin: 0; }
+.tracker-day-total { font-weight: 700; font-variant-numeric: tabular-nums; }
+
+.tracker-entry {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--border);
+}
+.tracker-entry-what { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tracker-entry-project { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); }
+/* Hashed from the project id, so the same project is the same colour down the page. */
+.tracker-dot { width: 8px; height: 8px; border-radius: var(--radius-pill); flex-shrink: 0; }
+.tracker-entry-times { font-size: var(--text-xs); color: var(--muted); font-variant-numeric: tabular-nums; }
+.tracker-entry-duration { font-weight: 700; font-variant-numeric: tabular-nums; min-width: 4rem; text-align: right; }
+
+@media (max-width: 60rem) {
+  .tracker-top { grid-template-columns: 1fr; }
+  .tracker-entry { grid-template-columns: 1fr auto; row-gap: var(--space-1); }
+}

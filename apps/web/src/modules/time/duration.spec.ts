@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatDuration, parseDuration, resolveTimes, spansMidnight } from './duration.js';
+import { formatDuration, formatSpan, parseDuration, resolveTimes, spansMidnight } from './duration.js';
 
 /**
  * Every hour logged goes through this parser. Being told your input is wrong is slower
@@ -115,5 +115,27 @@ describe('spansMidnight', () => {
   it('is false for a same-day entry or a running one', () => {
     expect(spansMidnight('2026-07-27T09:00:00', '2026-07-27T17:00:00')).toBe(false);
     expect(spansMidnight('2026-07-27T22:00:00', null)).toBe(false);
+  });
+});
+
+describe('formatSpan', () => {
+  /*
+   * The tracker's unit, as opposed to the invoice's. `formatHours` says 1.5; this says
+   * 1h 30m. Both are correct and they are for different readers.
+   */
+  it('reads as hours and minutes', () => {
+    expect(formatSpan(90)).toBe('1h 30m');
+    expect(formatSpan(120)).toBe('2h');
+    expect(formatSpan(45)).toBe('45m');
+  });
+
+  it('shows a zero rather than nothing', () => {
+    // formatDuration returns '' here, which on a day total reads as a page that failed.
+    expect(formatSpan(0)).toBe('0m');
+  });
+
+  it('rounds part-minutes rather than showing them', () => {
+    expect(formatSpan(90.4)).toBe('1h 30m');
+    expect(formatSpan(-5)).toBe('0m');
   });
 });

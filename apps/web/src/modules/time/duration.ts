@@ -44,6 +44,25 @@ export function formatHours(minutes: number): string {
   return Number.isInteger(hours) ? String(hours) : hours.toFixed(2).replace(/0+$/, '');
 }
 
+/**
+ * How long something took, for a human reading it rather than an invoice.
+ *
+ * `formatHours` gives decimal hours — 1.5, 0.25 — which is the right unit next to a rate and
+ * on the week grid, because that is what gets multiplied by money. It is the wrong unit on a
+ * tracker: nobody says they spent nought point two five of an hour on something. Both exist
+ * on purpose, and which one a screen uses says what that screen is for.
+ *
+ * Zero renders as `0m` rather than as nothing. A total that disappears when it is zero reads
+ * as a page that failed to load.
+ */
+export function formatSpan(minutes: number): string {
+  const total = Math.max(0, Math.round(minutes));
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  if (h === 0) return `${m}m`;
+  return m === 0 ? `${h}h` : `${h}h ${m}m`;
+}
+
 export const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 export function shiftWeek(weekOf: string, weeks: number): string {

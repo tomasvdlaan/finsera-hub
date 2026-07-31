@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { Actor } from '@platform/contracts';
-import { and, asc, eq, gte, inArray, isNotNull, isNull, lte, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lte, sql } from 'drizzle-orm';
 import { AuditService } from '../../core/audit/audit.service.js';
 import { DB, type Database, type Tx } from '../../core/db/db.module.js';
 import { EventBus } from '../../core/events/event-bus.service.js';
@@ -290,6 +290,72 @@ export class TimeService {
   }
 
   // ── day view: the primary screen ───────────────────────────
+
+  /**
+   * Entries across a span of days, newest first, grouped by the day they were worked on.
+   *
+   * `getDay` answers "what did I do on Tuesday" and the week view answers "how much per
+   * project" — neither answers "what have I been doing lately", which is what a tracker
+   * screen shows under the clock. Fetching seven days one call at a time would work and
+   * would be seven round trips for one list.
+   */
+  async getRecent(
+    actor: Actor,
+    opts: { from?: string; to?: string; personId?: string } = {},
+  ) {
+    await this.require(actor, 'time.entries.write_own');
+    const personId = opts.personId ?? actor.userId;
+    if (personId !== actor.userId) await this.require(actor, 'time.entries.read_all');
+
+    const to = this.validateDate(opts.to ?? today());
+    const from = this.validateDate(
+      opts.from ?? new Date(Date.parse(to) - 13 * 86_400_000).toISOString().slice(0, 10),
+    );
+
+    const rows = await this.db
+      .select()
+      .from(entries)
+      .where(
+        and(
+          eq(entries.personId, personId),
+          gte(entries.workedOn, from),
+          lte(entries.workedOn, to),
+        ),
+      )
+      .orderBy(desc(entries.workedOn), desc(entries.startedAt), desc(entries.createdAt));
+
+    const projects = await this.projectNames(actor, rows.map((r) => r.projectId));
+    const decorated = rows.map((r) => ({
+      ...this.decorate(r),
+      projectName: projects.get(r.projectId)?.name ?? '(unavailable)',
+      clientName: projects.get(r.projectId)?.clientName ?? null,
+    }));
+
+    // Grouped here rather than in the browser: the day totals are the point of the grouping,
+    // and a total computed twice is a total that eventually disagrees with itself.
+    const byDay = new Map<string, typeof decorated>();
+    for (const entry of decorated) {
+      const list = byDay.get(entry.workedOn) ?? [];
+      list.push(entry);
+      byDay.set(entry.workedOn, list);
+    }
+
+    return {
+      from,
+      to,
+      days: [...byDay.entries()].map(([date, list]) => ({
+        date,
+        entries: list,
+        /*
+         * `effectiveMinutes`, not the raw column — the same basis every other total in this
+         * service uses. `minutes` is null for an entry timed by its start and end, and does
+         * not move for one that is still running, so summing it produced a day total that
+         * disagreed with the rows printed underneath it.
+         */
+        totalMinutes: list.reduce((sum, e) => sum + e.effectiveMinutes, 0),
+      })),
+    };
+  }
 
   async getDay(actor: Actor, opts: { date?: string; personId?: string } = {}) {
     await this.require(actor, 'time.entries.write_own');
