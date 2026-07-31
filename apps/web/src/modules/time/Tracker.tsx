@@ -4,8 +4,18 @@ import { api } from '../../lib/api.js';
 import { Badge, Button, Empty } from '../../shell/ui/primitives.js';
 import { elapsed, useRunningTimer } from '../../shell/useRunningTimer.js';
 import { notifyTimeChanged } from '../../shell/useDocumentTitle.js';
-import { formatClock, formatSpan, parseDuration, todayIso } from './duration.js';
+import {
+  formatClock,
+  formatDuration,
+  formatSpan,
+  parseDuration,
+  toLocalInput,
+  todayIso,
+} from './duration.js';
 import { TargetPicker, type Target } from './TargetPicker.js';
+import { Icon } from '../../shell/Icon.js';
+import { useDialog } from '../../shell/ui/Dialog.js';
+import { useToast } from '../../shell/ui/Toast.js';
 
 interface Project {
   id: string;
@@ -15,7 +25,11 @@ interface Project {
 
 interface Entry {
   id: string;
-  projectId: string;
+  projectId: string | null;
+  /** Set when the hour is against a client with no project yet. */
+  clientId: string | null;
+  /** The raw column: null for an entry timed by its start and end. */
+  minutes: number | null;
   projectName: string;
   clientName: string | null;
   description: string | null;
@@ -47,7 +61,26 @@ interface Day {
  * renamed. Storing a colour would mean a picker, a migration and a way to choose two that
  * look alike.
  */
-function projectHue(id: string): number {
+/**
+ * A stable colour per target.
+ *
+ * Takes null now that an hour can be against a client, or against nothing at all — internal
+ * work has no project id and used to crash this. Null gets its own fixed hue rather than a
+ * derived one, so every internal hour shares a colour and reads as one thing.
+ */
+/** Whether either time in the draft differs from the value the field was handed. */
+function timesChanged(
+  entry: { startedAt: string | null; endedAt: string | null },
+  draft: { startedAt: string; endedAt: string },
+): boolean {
+  return (
+    draft.startedAt !== toLocalInput(entry.startedAt) ||
+    draft.endedAt !== toLocalInput(entry.endedAt)
+  );
+}
+
+function projectHue(id: string | null): number {
+  if (!id) return 220;
   let hash = 0;
   for (let i = 0; i < id.length; i += 1) hash = (hash * 31 + id.charCodeAt(i)) % 360;
   return hash;
@@ -121,6 +154,20 @@ const dayLabel = (iso: string) => {
  */
 export function Tracker() {
   const { running, forgotten, busy, error: timerError, start, stop } = useRunningTimer();
+  const { confirm } = useDialog();
+  const toast = useToast();
+  /** Which entry is open for correction, and the draft being corrected. */
+  const [editing, setEditing] = useState<string | null>(null);
+  const [draft, setDraft] = useState<{
+    description: string;
+    startedAt: string;
+    endedAt: string;
+    /** For an entry logged as a length rather than a span — "1h30", the way it was entered. */
+    duration: string;
+    target: Target;
+    billable: boolean;
+  } | null>(null);
+  const [rowError, setRowError] = useState<string | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [days, setDays] = useState<Day[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -213,6 +260,119 @@ export function Tracker() {
   };
 
   /** Change whether an entry is billable. Refused by the server once it has been invoiced. */
+  /*
+   * Correcting an hour, where the hour is.
+   *
+   * These endpoints have existed since the module did, and the tracker's own footer told you
+   * to go to the day view to use them — so fixing a typo meant leaving the page you record
+   * on. The day view keeps working; this is the same three verbs where they are wanted.
+   */
+  const beginEdit = (entry: Entry) => {
+    setRowError(null);
+    setEditing(entry.id);
+    setDraft({
+      description: entry.description ?? '',
+      startedAt: toLocalInput(entry.startedAt),
+      endedAt: toLocalInput(entry.endedAt),
+      // Blank when the entry has a span: the times are the truth there, and offering both
+      // would be two controls for one number with no rule about which wins.
+      duration: entry.startedAt ? '' : formatDuration(entry.effectiveMinutes),
+      target: { projectId: entry.projectId, clientId: entry.clientId },
+      billable: entry.billable,
+    });
+  };
+
+  const saveEdit = async (entry: Entry) => {
+    if (!draft) return;
+    setRowError(null);
+    try {
+      await api.patch(`/time/entries/${entry.id}`, {
+        description: draft.description.trim() || null,
+        // Both ids together: the server clears the other one, and sending only the new half
+        // would leave a row that fails its own check constraint.
+        projectId: draft.target.projectId ?? null,
+        clientId: draft.target.clientId ?? null,
+        billable: draft.billable,
+        /*
+         * Times only when they were actually changed.
+         *
+         * A `datetime-local` field has minute precision, so an entry that started at 23:43:51
+         * comes back as 23:43 — and saving a row where only the description was corrected
+         * would silently shave fifty-one seconds off it. Comparing against what the field was
+         * given means an untouched time is not sent at all.
+         */
+        ...(timesChanged(entry, draft)
+          ? {
+              startedAt: draft.startedAt ? new Date(draft.startedAt).toISOString() : null,
+              endedAt: draft.endedAt ? new Date(draft.endedAt).toISOString() : null,
+              workedOn: draft.startedAt ? draft.startedAt.slice(0, 10) : entry.workedOn,
+            }
+          : /*
+             * An entry logged as a length is corrected as a length.
+             *
+             * Only when it has no span — an entry with a start and an end gets its duration
+             * from them, and letting both be edited would be two controls for one number
+             * with no rule about which wins.
+             */
+            !entry.startedAt && draft.duration.trim()
+            ? { minutes: parseDuration(draft.duration) }
+            : {}),
+      });
+      setEditing(null);
+      setDraft(null);
+      await load();
+      notifyTimeChanged();
+    } catch (e) {
+      // Beside the fields being corrected, not at the top of a page nobody is looking at.
+      setRowError((e as Error).message);
+    }
+  };
+
+  /**
+   * Delete, with a way back.
+   *
+   * An hour is small enough that a confirmation dialog for every one would be a nuisance, and
+   * valuable enough that losing one silently is not acceptable — so it goes immediately and
+   * the toast offers to put it back. Recreated rather than un-deleted, because the row is
+   * gone; what returns is an identical entry, which is what was wanted.
+   */
+  const removeEntry = async (entry: Entry) => {
+    try {
+      await api.del(`/time/entries/${entry.id}`);
+      await load();
+      notifyTimeChanged();
+      toast.ok('Entry deleted', {
+        undo: async () => {
+          await api.post('/time/entries', {
+            projectId: entry.projectId,
+            clientId: entry.clientId,
+            workedOn: entry.workedOn,
+            minutes: entry.minutes ?? entry.effectiveMinutes,
+            startedAt: entry.startedAt,
+            endedAt: entry.endedAt,
+            description: entry.description,
+            billable: entry.billable,
+          });
+          await load();
+          notifyTimeChanged();
+        },
+      });
+    } catch (e) {
+      setRowError((e as Error).message);
+    }
+  };
+
+  /** Pick this up again — the same work, timed from now. */
+  const continueEntry = async (entry: Entry) => {
+    setRowError(null);
+    try {
+      await start({ projectId: entry.projectId, clientId: entry.clientId }, entry.description ?? '');
+      await load();
+    } catch (e) {
+      setRowError((e as Error).message);
+    }
+  };
+
   const setEntryBillable = async (entry: Entry, next: boolean) => {
     setError(null);
     try {
@@ -384,44 +544,177 @@ export function Tracker() {
               <h3>{dayLabel(day.date)}</h3>
               <span className="tracker-day-total">{formatSpan(day.totalMinutes)}</span>
             </header>
-            {day.entries.map((entry) => (
-              <div key={entry.id} className="tracker-entry">
-                <span className="tracker-entry-what">
-                  {entry.description || <span className="muted">No description</span>}
-                </span>
-                <span className="tracker-entry-project">
-                  <span
-                    className="tracker-dot"
-                    style={{ background: `hsl(${projectHue(entry.projectId)} 55% 50%)` }}
-                    aria-hidden="true"
+            {day.entries.map((entry) =>
+              editing === entry.id && draft ? (
+                /*
+                 * The row becomes the form.
+                 *
+                 * In place rather than in a dialog: an hour is corrected in the context of the
+                 * hours either side of it — "that started when the last one ended" — and a
+                 * modal hides exactly the rows you are checking it against.
+                 */
+                <div key={entry.id} className="tracker-entry is-editing">
+                  <input
+                    value={draft.description}
+                    onChange={(e) => setDraft({ ...draft, description: e.target.value })}
+                    placeholder="What were you doing?"
+                    aria-label="Description"
+                    className="edit-what"
                   />
-                  <Link to={`/crm/projects/${entry.projectId}`}>{entry.projectName}</Link>
-                </span>
-                <span className="tracker-entry-times">
-                  {entry.startedAt && entry.endedAt
-                    ? `${formatClock(entry.startedAt)} – ${formatClock(entry.endedAt)}`
-                    : ''}
-                </span>
-                {/*
-                  Whether this hour can still be sold, and whether it already has been.
-                  
-                  Invoiced hours are frozen — the server refuses to change them and says to
-                  credit the invoice first — so the control is disabled rather than offered
-                  and then rejected.
-                */}
-                <BillingControl entry={entry} onChange={setEntryBillable} />
-                <span className="tracker-entry-duration">
-                  {formatSpan(entry.effectiveMinutes)}
-                </span>
-              </div>
-            ))}
+                  <TargetPicker
+                    value={draft.target}
+                    projects={projects}
+                    clients={clients}
+                    onChange={(t) => setDraft({ ...draft, target: t })}
+                  />
+                  <input
+                    type="datetime-local"
+                    value={draft.startedAt}
+                    onChange={(e) => setDraft({ ...draft, startedAt: e.target.value })}
+                    aria-label="Started at"
+                  />
+                  <input
+                    type="datetime-local"
+                    value={draft.endedAt}
+                    onChange={(e) => setDraft({ ...draft, endedAt: e.target.value })}
+                    aria-label="Ended at"
+                  />
+                  {/* Only for an entry that never had a span — see saveEdit. */}
+                  {!entry.startedAt && (
+                    <input
+                      value={draft.duration}
+                      onChange={(e) => setDraft({ ...draft, duration: e.target.value })}
+                      placeholder="1h30"
+                      aria-label="Duration"
+                      className="edit-duration"
+                    />
+                  )}
+                  <label className="edit-billable">
+                    <input
+                      type="checkbox"
+                      checked={draft.billable}
+                      onChange={(e) => setDraft({ ...draft, billable: e.target.checked })}
+                    />
+                    Billable
+                  </label>
+                  <span className="entry-actions">
+                    <Button size="sm" variant="primary" onClick={() => void saveEdit(entry)}>
+                      Save
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        setEditing(null);
+                        setDraft(null);
+                        setRowError(null);
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                  </span>
+                  {rowError && <span className="error edit-error">{rowError}</span>}
+                </div>
+              ) : (
+                <div key={entry.id} className="tracker-entry">
+                  <span className="tracker-entry-what">
+                    {entry.description || <span className="muted">No description</span>}
+                  </span>
+                  <span className="tracker-entry-project">
+                    <span
+                      className="tracker-dot"
+                      style={{ background: `hsl(${projectHue(entry.projectId)} 55% 50%)` }}
+                      aria-hidden="true"
+                    />
+                    {entry.projectId ? (
+                      <Link to={`/crm/projects/${entry.projectId}`}>{entry.projectName}</Link>
+                    ) : (
+                      <span className="muted">{entry.projectName}</span>
+                    )}
+                  </span>
+                  <span className="tracker-entry-times">
+                    {entry.startedAt && entry.endedAt
+                      ? `${formatClock(entry.startedAt)} – ${formatClock(entry.endedAt)}`
+                      : ''}
+                  </span>
+                  {/*
+                    Whether this hour can still be sold, and whether it already has been.
+
+                    Invoiced hours are frozen — the server refuses to change them and says to
+                    credit the invoice first — so the control is disabled rather than offered
+                    and then rejected.
+                  */}
+                  <BillingControl entry={entry} onChange={setEntryBillable} />
+                  <span className="tracker-entry-duration">
+                    {formatSpan(entry.effectiveMinutes)}
+                  </span>
+
+                  {/*
+                    Three verbs, as glyphs, appearing on approach.
+
+                    Invoiced hours cannot be edited or deleted — the server refuses — so those
+                    two are disabled and say why rather than failing after the click.
+                    Continuing one is always fine: it starts a new entry, and touches nothing
+                    that was invoiced.
+                  */}
+                  <span className="entry-actions">
+                    <button
+                      type="button"
+                      className="icon-btn"
+                      title={running ? 'A timer is already running' : 'Continue this work'}
+                      aria-label={`Continue ${entry.description ?? 'this entry'}`}
+                      disabled={Boolean(running) || busy}
+                      onClick={() => void continueEntry(entry)}
+                    >
+                      <Icon name="clock" size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      className="icon-btn"
+                      title={
+                        entry.billingStatus === 'invoiced'
+                          ? 'On an issued invoice — credit the invoice first'
+                          : 'Edit'
+                      }
+                      aria-label={`Edit ${entry.description ?? 'this entry'}`}
+                      disabled={entry.billingStatus === 'invoiced' || entry.running}
+                      onClick={() => beginEdit(entry)}
+                    >
+                      <Icon name="pencil" size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      className="icon-btn is-danger"
+                      title={
+                        entry.billingStatus === 'invoiced'
+                          ? 'On an issued invoice — credit the invoice first'
+                          : 'Delete'
+                      }
+                      aria-label={`Delete ${entry.description ?? 'this entry'}`}
+                      disabled={entry.billingStatus === 'invoiced' || entry.running}
+                      onClick={async () => {
+                        const ok = await confirm({
+                          title: 'Delete this entry?',
+                          body: `${formatSpan(entry.effectiveMinutes)} on ${entry.projectName}. You can undo it straight after.`,
+                          confirmLabel: 'Delete',
+                          destructive: true,
+                        });
+                        if (ok) await removeEntry(entry);
+                      }}
+                    >
+                      <Icon name="trash" size={14} />
+                    </button>
+                  </span>
+                </div>
+              ),
+            )}
           </section>
         ))
       )}
 
       <p className="muted">
-        <Link to="/time/week">See the week by project</Link> — or open a day to correct times,
-        change what is billable, or delete an entry.
+        <Link to="/time/week">See the week by project</Link>. Hover an entry to continue,
+        correct or delete it.
       </p>
     </>
   );

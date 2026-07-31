@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatDuration, formatSpan, parseDuration, resolveTimes, spansMidnight } from './duration.js';
+import { formatDuration, formatSpan, parseDuration, resolveTimes, spansMidnight, toLocalInput } from './duration.js';
 
 /**
  * Every hour logged goes through this parser. Being told your input is wrong is slower
@@ -137,5 +137,25 @@ describe('formatSpan', () => {
   it('rounds part-minutes rather than showing them', () => {
     expect(formatSpan(90.4)).toBe('1h 30m');
     expect(formatSpan(-5)).toBe('0m');
+  });
+});
+
+describe('toLocalInput', () => {
+  it('is empty for nothing', () => {
+    expect(toLocalInput(null)).toBe('');
+  });
+
+  it('round-trips through a datetime-local field without shifting the instant', () => {
+    // The trap: a datetime-local input is read as LOCAL time, so handing it a UTC string
+    // moves the entry by the offset every time somebody opens it to edit.
+    const iso = new Date('2026-07-31T09:30:00Z').toISOString();
+    const value = toLocalInput(iso);
+    expect(new Date(value).getTime()).toBe(new Date(iso).getTime());
+  });
+
+  it('gives a value the input can actually display', () => {
+    expect(toLocalInput(new Date('2026-07-31T09:30:00Z').toISOString())).toMatch(
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/,
+    );
   });
 });

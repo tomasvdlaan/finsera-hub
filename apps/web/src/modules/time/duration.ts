@@ -127,3 +127,17 @@ export function spansMidnight(startedAt: string | null, endedAt: string | null):
   if (!startedAt || !endedAt) return false;
   return new Date(startedAt).toDateString() !== new Date(endedAt).toDateString();
 }
+
+/**
+ * An instant as a `datetime-local` input expects it.
+ *
+ * `toISOString` is UTC, and a `datetime-local` field is read as local time — so feeding it an
+ * ISO string shifts an entry by the timezone offset the moment anybody opens it to edit,
+ * which is a silent two-hour correction nobody asked for. This subtracts the offset first so
+ * the value round-trips.
+ */
+export function toLocalInput(iso: string | null): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+}

@@ -4271,3 +4271,65 @@ button.nav-me:hover { background: var(--surface); }
   font-size: var(--text-xs);
   margin-bottom: var(--space-2);
 }
+
+/*
+ * ── correcting an hour, in place ───────────────────────────────────────
+ *
+ * The actions appear on approach. A row of three glyphs beside every entry, permanently, is
+ * a column of icons competing with the descriptions — which are the thing being read.
+ */
+.entry-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.1rem;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+.tracker-entry:hover .entry-actions,
+.entry-actions:focus-within,
+.tracker-entry.is-editing .entry-actions {
+  opacity: 1;
+}
+.entry-actions .icon-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+/*
+ * The editing row keeps the grid it replaces.
+ *
+ * Wrapping to its own block would push every entry below it down the page, so the row you
+ * are correcting stops being next to the ones you are correcting it against.
+ */
+.tracker-entry.is-editing {
+  align-items: center;
+  gap: var(--space-2);
+  background: var(--surface-sunken);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2);
+  flex-wrap: wrap;
+}
+.tracker-entry.is-editing input[type='datetime-local'],
+.tracker-entry.is-editing select {
+  font-size: var(--text-xs);
+}
+.tracker-entry.is-editing .edit-what {
+  flex: 1;
+  min-width: 8rem;
+  font-size: var(--text-sm);
+}
+.edit-duration {
+  width: 5rem;
+  font-size: var(--text-xs);
+}
+.edit-billable {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.edit-error {
+  flex-basis: 100%;
+  font-size: var(--text-xs);
+}

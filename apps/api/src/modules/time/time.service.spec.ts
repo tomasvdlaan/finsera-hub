@@ -289,6 +289,29 @@ describe('TimeService', () => {
     ).resolves.toBeDefined();
   });
 
+  /*
+   * Invoiced hours are frozen, and this is the guard that protects the money.
+   *
+   * The tracker now offers edit and delete on every row, and it disables both on an invoiced
+   * entry — but a disabled button is a courtesy, not a control. This is the control.
+   */
+  it('refuses to change or delete hours that are on an issued invoice', async () => {
+    const { id } = await time.createEntry(actor, { projectId, workedOn: MONDAY, minutes: 60 });
+    // invoiceId is a registry id rather than a foreign key, so the pair can be set directly;
+    // the CHECK only insists the stamp cannot float free of an invoice.
+    await testDb.execute(
+      sql`UPDATE time.entries SET invoice_id = ${crypto.randomUUID()}, invoiced_at = now()
+          WHERE id = ${id}`,
+    );
+
+    await expect(time.updateEntry(actor, id, { minutes: 500 })).rejects.toThrow(/credit the invoice/i);
+    await expect(time.deleteEntry(actor, id)).rejects.toThrow(/credit the invoice/i);
+
+    // And it is still there afterwards, which is the point.
+    const rows = await testDb.execute(sql`SELECT count(*)::int n FROM time.entries WHERE id = ${id}`);
+    expect((rows.rows[0] as { n: number }).n).toBe(1);
+  });
+
   it('lets an old entry be edited and deleted', async () => {
     const { id } = await time.createEntry(actor, { projectId, workedOn: MONDAY, minutes: 450 });
     await expect(time.updateEntry(actor, id, { minutes: 500 })).resolves.toBeDefined();
