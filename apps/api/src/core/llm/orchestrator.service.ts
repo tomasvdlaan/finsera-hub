@@ -7,7 +7,7 @@ import { DB, type Database } from '../db/db.module.js';
 import { conversations, messages } from '../db/core.schema.js';
 import { PermissionService } from '../permissions/permission.service.js';
 import { RegistryService } from '../registry/registry.service.js';
-import { LlmService } from './llm.service.js';
+import { LlmService, type TokenUsage } from './llm.service.js';
 import { AiToolRegistry, type ToolInvocation } from './tool-registry.service.js';
 
 export interface AskInput {
@@ -33,7 +33,7 @@ export interface AskResult {
    * so the model can choose WHICH records to show but cannot invent one.
    */
   references: EntityRef[];
-  usage: { inputTokens: number; outputTokens: number };
+  usage: TokenUsage;
 }
 
 const UUID_PATTERN = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
@@ -124,7 +124,12 @@ export class OrchestratorService {
 
     this.logger.log(
       `ask: ${result.steps} step(s), ${invocations.length} tool call(s), ` +
-        `${result.usage.inputTokens}+${result.usage.outputTokens} tokens`,
+        `${result.usage.inputTokens}+${result.usage.outputTokens} tokens` +
+        // The share of input that cost a tenth of list price. A multi-step answer with a
+        // cold cache and one with a warm cache differ by more than they look on the bill.
+        (result.usage.cacheReadTokens > 0
+          ? `, ${Math.round((result.usage.cacheReadTokens / Math.max(1, result.usage.inputTokens)) * 100)}% cached`
+          : ''),
     );
 
     return { conversationId, answer, toolCalls: invocations, references, usage: result.usage };

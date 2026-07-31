@@ -23,12 +23,53 @@ export interface GenerateOptions {
   model?: LanguageModel;
 }
 
+export interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  /** Input tokens served from the prompt cache rather than re-read. */
+  cacheReadTokens: number;
+  /** Input tokens written into the cache — charged at a premium, once. */
+  cacheWriteTokens: number;
+}
+
 export interface GenerateResult {
   text: string;
   toolCalls: Array<{ toolName: string; input: unknown }>;
-  usage: { inputTokens: number; outputTokens: number };
+  usage: TokenUsage;
   steps: number;
 }
+
+/**
+ * Cache the static head of every request: the system prompt and the tool schemas.
+ *
+ * A tool-calling answer re-sends its entire context on every step. One real answer from the
+ * logs took four steps and ten tool calls for 22,994 input tokens against 2,064 output — and
+ * the overwhelming majority of that input is the same forty tool schemas, four times over.
+ * That prefix is byte-identical on every step of every conversation by every user, which is
+ * exactly the shape a prompt cache is for.
+ *
+ * An hour rather than the five-minute default. The window that matters is a working session:
+ * five minutes expires between one question and the next time somebody looks up from what
+ * they were doing, which is precisely when the cache would have paid.
+ *
+ * Anthropic-only, applied by the provider to the whole static prefix. Other providers ignore
+ * an option they do not know, so this stays a single object rather than a branch.
+ */
+const CACHE_THE_PREFIX = {
+  anthropic: { cacheControl: { type: 'ephemeral' as const, ttl: '1h' as const } },
+};
+
+/** The four numbers, defaulted — a provider that reports nothing must not become NaN. */
+const readUsage = (u?: {
+  inputTokens?: number;
+  outputTokens?: number;
+  inputTokenDetails?: { cacheReadTokens?: number; cacheWriteTokens?: number };
+}): TokenUsage => ({
+  inputTokens: u?.inputTokens ?? 0,
+  outputTokens: u?.outputTokens ?? 0,
+  cacheReadTokens: u?.inputTokenDetails?.cacheReadTokens ?? 0,
+  cacheWriteTokens: u?.inputTokenDetails?.cacheWriteTokens ?? 0,
+});
 
 /**
  * The provider interface (AI plan §3.2, decision D6).
@@ -174,15 +215,20 @@ export class LlmService {
       system: opts.system,
       messages: opts.messages,
       tools: opts.tools,
+      providerOptions: CACHE_THE_PREFIX,
       stopWhen: stepCountIs(opts.maxSteps ?? 8),
       maxRetries: 2,
     });
 
-    const usage = {
-      inputTokens: result.usage?.inputTokens ?? 0,
-      outputTokens: result.usage?.outputTokens ?? 0,
-    };
-    this.logger.log(`LLM call: ${usage.inputTokens} in / ${usage.outputTokens} out`);
+    const usage = readUsage(result.usage);
+    // Cache reads logged beside the totals, because "is caching working" is otherwise a
+    // question you can only answer from an invoice a month later.
+    this.logger.log(
+      `LLM call: ${usage.inputTokens} in / ${usage.outputTokens} out` +
+        (usage.cacheReadTokens || usage.cacheWriteTokens
+          ? ` (cache: ${usage.cacheReadTokens} read, ${usage.cacheWriteTokens} written)`
+          : ''),
+    );
 
     return {
       text: result.text,

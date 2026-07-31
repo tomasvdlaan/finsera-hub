@@ -111,9 +111,14 @@ function withEnv(vars: Record<string, string | undefined>, fn: () => void) {
 }
 
 /** V4 nests token counts and requires every field, so build them in one place. */
-function usage(input: number, output: number) {
+function usage(input: number, output: number, cache?: { read?: number; write?: number }) {
   return {
-    inputTokens: { total: input, noCache: input, cacheRead: undefined, cacheWrite: undefined },
+    inputTokens: {
+      total: input,
+      noCache: input - (cache?.read ?? 0) - (cache?.write ?? 0),
+      cacheRead: cache?.read,
+      cacheWrite: cache?.write,
+    },
     outputTokens: { total: output, text: output, reasoning: undefined },
   };
 }
@@ -263,6 +268,67 @@ describe('AI spine', () => {
       messages: [{ role: 'user', content: 'hi' }],
     });
     expect(result.usage.inputTokens).toBeGreaterThan(0);
+  });
+
+  /*
+   * Caching.
+   *
+   * The saving is invisible from inside the process — it shows up on an invoice weeks later —
+   * so what is asserted is the two things that are checkable here: that the request carries
+   * the instruction, and that when a provider reports a cache hit the numbers survive the
+   * wrapper instead of being flattened to two totals.
+   */
+  it('asks the provider to cache the static prefix', async () => {
+    const seen: Array<Record<string, unknown> | undefined> = [];
+    const model = new MockLanguageModelV4({
+      doGenerate: async (options) => {
+        seen.push(options.providerOptions);
+        return {
+          finishReason: { unified: 'stop' as const, raw: undefined },
+          usage: usage(10, 5),
+          content: [{ type: 'text' as const, text: 'ok' }],
+          warnings: [],
+        };
+      },
+    });
+
+    await new LlmService().generate({ model, messages: [{ role: 'user', content: 'hi' }] });
+
+    // The system prompt and the tool schemas are identical on every step of every
+    // conversation; an hour is a working session, five minutes is not.
+    expect(seen[0]?.anthropic).toEqual({ cacheControl: { type: 'ephemeral', ttl: '1h' } });
+  });
+
+  it('surfaces cache reads and writes rather than one input total', async () => {
+    const model = new MockLanguageModelV4({
+      doGenerate: async () => ({
+        finishReason: { unified: 'stop' as const, raw: undefined },
+        usage: usage(1000, 50, { read: 800, write: 120 }),
+        content: [{ type: 'text' as const, text: 'ok' }],
+        warnings: [],
+      }),
+    });
+
+    const result = await new LlmService().generate({
+      model,
+      messages: [{ role: 'user', content: 'hi' }],
+    });
+    expect(result.usage).toMatchObject({
+      inputTokens: 1000,
+      outputTokens: 50,
+      cacheReadTokens: 800,
+      cacheWriteTokens: 120,
+    });
+  });
+
+  it('reports zero rather than NaN when a provider says nothing about caching', async () => {
+    // Google reports no cache detail at all, and a NaN would poison the cost model quietly.
+    const result = await new LlmService().generate({
+      model: modelCalling('demo_list_items', {}),
+      messages: [{ role: 'user', content: 'hi' }],
+    });
+    expect(result.usage.cacheReadTokens).toBe(0);
+    expect(result.usage.cacheWriteTokens).toBe(0);
   });
 
   /**
