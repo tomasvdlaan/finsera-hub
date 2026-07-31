@@ -159,4 +159,39 @@ describe('conversation organisation', () => {
   it('refuses a folder with no name', async () => {
     await expect(orchestrator.createFolder(me, '  ')).rejects.toThrow(/needs a name/i);
   });
+
+  /*
+   * Which tools an answer used, after a reload.
+   *
+   * They were written as `{ tool }` and read as `{ toolName }`, so a conversation showed its
+   * tool chips until you refreshed and then showed a row of blank ones — losing the only
+   * thing that lets an answer be checked rather than taken on trust. Both shapes are in the
+   * database now and both have to come back readable.
+   */
+  it('returns tool calls readable however they were stored', async () => {
+    const id = await seedConversation('Has history');
+    await testDb.execute(
+      sql`INSERT INTO core.messages (id, conversation_id, role, content, tool_calls) VALUES
+          (${uuidv7()}, ${id}, 'assistant', 'Old row',
+           ${JSON.stringify([{ tool: 'crm_search_clients', module: 'crm', executed: true }])}::jsonb),
+          (${uuidv7()}, ${id}, 'assistant', 'New row',
+           ${JSON.stringify([{ toolName: 'activity_recent', module: 'core', executed: true }])}::jsonb)`,
+    );
+
+    const { messages: rows } = await orchestrator.getConversation(me, id);
+    const names = rows.flatMap((m) =>
+      (m.toolCalls as Array<{ toolName?: string }>).map((c) => c.toolName),
+    );
+    expect(names).toEqual(['crm_search_clients', 'activity_recent']);
+  });
+
+  it('leaves a message with no tool calls alone', async () => {
+    const id = await seedConversation('Quiet');
+    await testDb.execute(
+      sql`INSERT INTO core.messages (id, conversation_id, role, content)
+          VALUES (${uuidv7()}, ${id}, 'assistant', 'Just an answer')`,
+    );
+    const { messages: rows } = await orchestrator.getConversation(me, id);
+    expect(rows[0]?.toolCalls).toEqual([]);
+  });
 });

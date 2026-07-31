@@ -142,7 +142,11 @@ export class OrchestratorService {
           role: 'assistant',
           content: answer,
           toolCalls: invocations.map((i) => ({
-            tool: i.toolName,
+            // `toolName`, matching what the live answer returns and what every reader
+            // expects. It was written as `tool` and read as `toolName`, so a conversation
+            // showed which tools it used until the moment you reloaded it, and then showed a
+            // row of blank chips instead. Old rows are normalised on read; see readToolCalls.
+            toolName: i.toolName,
             module: i.module,
             riskClass: i.riskClass,
             executed: i.executed,
@@ -331,7 +335,7 @@ export class OrchestratorService {
       .from(messages)
       .where(eq(messages.conversationId, id))
       .orderBy(asc(messages.createdAt));
-    return { id, messages: rows };
+    return { id, messages: rows.map((r) => ({ ...r, toolCalls: readToolCalls(r.toolCalls) })) };
   }
 
   async deleteConversation(actor: Actor, id: string) {
@@ -510,4 +514,21 @@ export class OrchestratorService {
 
     return parts.join(' ');
   }
+}
+
+/**
+ * Stored tool calls, whatever shape they were written in.
+ *
+ * The column held `{ tool }` for the assistant's whole life while every reader looked for
+ * `toolName`, so reopening a conversation lost the record of what it had looked at — the one
+ * thing that lets an answer be checked rather than trusted. New rows are written correctly;
+ * this is what makes the ones already in the database readable, without a migration that
+ * rewrites jsonb in place.
+ */
+function readToolCalls(raw: unknown): unknown[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((c) => {
+    const call = c as Record<string, unknown>;
+    return call.toolName ? call : { ...call, toolName: call.tool };
+  });
 }
