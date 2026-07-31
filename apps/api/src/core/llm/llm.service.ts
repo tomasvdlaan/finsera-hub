@@ -6,6 +6,7 @@ import {
   generateObject,
   generateText,
   stepCountIs,
+  streamText,
   type LanguageModel,
   type ModelMessage,
   type ToolSet,
@@ -38,6 +39,19 @@ export interface GenerateResult {
   usage: TokenUsage;
   steps: number;
 }
+
+/**
+ * What a generation emits as it happens.
+ *
+ * `tool` matters as much as `text` here, and arguably more: a tool-calling answer spends most
+ * of its wall clock deciding and calling before a single word exists, so a stream that only
+ * carried text would show a spinner for eight seconds and then a burst. One measured answer
+ * today took four steps and ten tool calls; the words were the last two seconds of it.
+ */
+export type GenerationEvent =
+  | { type: 'text'; delta: string }
+  | { type: 'tool'; toolName: string }
+  | { type: 'done'; result: GenerateResult };
 
 /**
  * Cache the static head of every request: the system prompt and the tool schemas.
@@ -200,6 +214,61 @@ export class LlmService {
       usage: {
         inputTokens: result.usage?.inputTokens ?? 0,
         outputTokens: result.usage?.outputTokens ?? 0,
+      },
+    };
+  }
+
+  /**
+   * The same call, delivered as it arrives.
+   *
+   * A generator rather than a callback so the caller decides what to do with back-pressure —
+   * the orchestrator has to persist the answer and resolve its citations after the last
+   * token, and that is far easier to express as code after a `for await` than as a handler.
+   *
+   * The aggregate is yielded as a final `done` rather than returned, because a generator
+   * cannot do both and the caller needs the totals in the same sequence as the deltas.
+   */
+  async *stream(opts: GenerateOptions): AsyncGenerator<GenerationEvent> {
+    const model = opts.model ?? this.resolveModel(opts.role);
+
+    const result = streamText({
+      model,
+      system: opts.system,
+      messages: opts.messages,
+      tools: opts.tools,
+      providerOptions: CACHE_THE_PREFIX,
+      stopWhen: stepCountIs(opts.maxSteps ?? 8),
+      maxRetries: 2,
+    });
+
+    const toolCalls: Array<{ toolName: string; input: unknown }> = [];
+
+    for await (const part of result.fullStream) {
+      if (part.type === 'text-delta') {
+        yield { type: 'text', delta: part.text };
+      } else if (part.type === 'tool-call') {
+        toolCalls.push({ toolName: part.toolName, input: part.input });
+        yield { type: 'tool', toolName: part.toolName };
+      } else if (part.type === 'error') {
+        // Surfaced rather than swallowed: the stream ends either way, and a caller that
+        // cannot tell "finished" from "broke" writes an empty answer to the database.
+        throw part.error instanceof Error ? part.error : new Error(String(part.error));
+      }
+    }
+
+    const usage = readUsage(await result.usage);
+    this.logger.log(
+      `LLM stream: ${usage.inputTokens} in / ${usage.outputTokens} out` +
+        (usage.cacheReadTokens ? ` (${usage.cacheReadTokens} cached)` : ''),
+    );
+
+    yield {
+      type: 'done',
+      result: {
+        text: await result.text,
+        toolCalls,
+        usage,
+        steps: (await result.steps)?.length ?? 1,
       },
     };
   }

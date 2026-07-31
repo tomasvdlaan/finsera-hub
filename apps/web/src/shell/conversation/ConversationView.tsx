@@ -75,7 +75,28 @@ export function ConversationView({
       {turns.map((turn, i) => (
         <div key={i} className={`turn turn-${turn.role}`}>
           {turn.role === 'assistant' ? (
-            <AnswerBody text={turn.content} references={turn.references ?? []} />
+            <>
+              {/*
+                What it is doing, while it is doing it.
+                
+                Shown above the text rather than below, because for most of a real answer
+                there is no text yet — the wait is tool calls, and this is the only thing on
+                screen that is true during it.
+              */}
+              {turn.pending && (turn.running?.length ?? 0) > 0 && (
+                <div className="turn-running" aria-live="polite">
+                  {turn.running!.map((name, j) => (
+                    <span key={j} className="tag running-tag">
+                      {humanise(name)}
+                    </span>
+                  ))}
+                </div>
+              )}
+              <AnswerBody text={turn.content} references={turn.references ?? []} />
+              {/* A caret while the words are still arriving, so a pause reads as thinking
+                  rather than as finished. */}
+              {turn.pending && <span className="stream-caret" aria-hidden="true" />}
+            </>
           ) : (
             <div className="turn-content">{turn.content}</div>
           )}
@@ -97,7 +118,9 @@ export function ConversationView({
         </div>
       ))}
 
-      {busy && (
+      {/* Only until the streamed turn exists — after that the turn speaks for itself, and
+          two "thinking" indicators is one too many. */}
+      {busy && !turns.some((t) => t.pending) && (
         <div className="turn turn-assistant">
           <div className="turn-content muted">
             Thinking{waited && waited > 2 ? ` — ${waited}s` : '…'}
@@ -106,4 +129,17 @@ export function ConversationView({
       )}
     </div>
   );
+}
+
+/**
+ * A tool name a person can read.
+ *
+ * Derived rather than mapped. Forty tools with hand-written labels is forty things to forget
+ * to update, and the names already follow `module_verb_noun` — so dropping the module and
+ * unpicking the underscores gets most of the way there with nothing to maintain.
+ */
+function humanise(toolName: string): string {
+  const words = toolName.split('_');
+  const rest = words.length > 1 ? words.slice(1) : words;
+  return rest.join(' ');
 }

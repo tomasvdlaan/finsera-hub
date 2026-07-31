@@ -1,5 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { api } from '../../lib/api.js';
+import { getUser } from '../../lib/auth.js';
+import { readEventStream } from './sse.js';
 
 /** A question that runs a model can legitimately take a while; this is a backstop. */
 const ASK_TIMEOUT_MS = 120_000;
@@ -25,7 +27,23 @@ export interface Turn {
   toolCalls?: ToolCall[];
   references?: Reference[];
   pending?: boolean;
+  /**
+   * The tools this answer has reached for so far, in order, while it is still being written.
+   *
+   * Kept separate from `toolCalls`, which is the settled record the server returns and stores.
+   * This one exists only during the stream — it is what the reader watches instead of a
+   * spinner, and it is the honest account of a wait that is mostly tool calls rather than
+   * typing.
+   */
+  running?: string[];
 }
+
+/** What the server sends while it is working. */
+type AskEvent =
+  | { type: 'text'; delta: string; conversationId: string }
+  | { type: 'tool'; toolName: string; conversationId: string }
+  | { type: 'done'; result: { conversationId: string; answer: string; toolCalls?: ToolCall[]; references?: Reference[] } }
+  | { type: 'error'; message: string };
 
 export interface ConversationSummary {
   id: string;
@@ -114,37 +132,70 @@ export function useConversation() {
       const abort = new AbortController();
       const deadline = setTimeout(() => abort.abort(), ASK_TIMEOUT_MS);
 
-      try {
-        const res = await api.post<{
-          conversationId: string;
-          answer: string;
-          toolCalls?: ToolCall[];
-          references?: Reference[];
-        }>(
-          '/assistant/ask',
-          { message: text, conversationId, context: context ?? {} },
-          abort.signal,
+      /*
+       * The assistant turn is appended empty and then filled in place.
+       *
+       * Rendering deltas into the last turn rather than accumulating and appending at the end
+       * is what makes this a stream rather than a slower way to do the same thing — and it
+       * means a reader who loses the connection keeps the words that did arrive.
+       */
+      setTurns((current) => [...current, { role: 'assistant', content: '', pending: true, running: [] }]);
+
+      const fill = (patch: (turn: Turn) => Turn) =>
+        setTurns((current) =>
+          current.map((t, i) => (i === current.length - 1 && t.role === 'assistant' ? patch(t) : t)),
         );
 
-        setConversationId(res.conversationId);
-        if ((res.toolCalls ?? []).some((t) => t.toolName === 'meetings_write_note')) {
-          setWroteAt((n) => n + 1);
-        }
-        setTurns((current) => [
-          ...current,
-          {
-            role: 'assistant',
-            content: res.answer,
-            toolCalls: res.toolCalls,
-            references: res.references,
+      try {
+        const user = await getUser();
+        const res = await fetch('/api/assistant/ask/stream', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(user?.access_token ? { Authorization: `Bearer ${user.access_token}` } : {}),
           },
-        ]);
+          body: JSON.stringify({ message: text, conversationId, context: context ?? {} }),
+          signal: abort.signal,
+        });
+
+        if (!res.ok || !res.body) {
+          const detail = await res.json().catch(() => null);
+          throw new Error(detail?.message ?? `${res.status} ${res.statusText}`);
+        }
+
+        for await (const event of readEventStream<AskEvent>(res.body, abort.signal)) {
+          if (event.type === 'text') {
+            setConversationId(event.conversationId);
+            fill((t) => ({ ...t, content: t.content + event.delta }));
+          } else if (event.type === 'tool') {
+            setConversationId(event.conversationId);
+            fill((t) => ({ ...t, running: [...(t.running ?? []), event.toolName] }));
+          } else if (event.type === 'error') {
+            throw new Error(event.message);
+          } else {
+            const { result } = event;
+            setConversationId(result.conversationId);
+            if ((result.toolCalls ?? []).some((t) => t.toolName === 'meetings_write_note')) {
+              setWroteAt((n) => n + 1);
+            }
+            // The server's own text replaces what was streamed: identical in practice, and
+            // authoritative when it is not — it is what was written to the database.
+            fill(() => ({
+              role: 'assistant',
+              content: result.answer,
+              toolCalls: result.toolCalls,
+              references: result.references,
+            }));
+          }
+        }
       } catch (e) {
         const aborted = (e as Error).name === 'AbortError';
         const text = aborted
           ? 'That took too long and was given up on. The question was not lost — ask it again.'
           : (e as Error).message;
-        setTurns((current) => [...current, { role: 'assistant', content: text }]);
+        // Replaces the pending turn rather than appending after it, or a failed answer
+        // leaves an empty bubble above the explanation of why it is empty.
+        fill(() => ({ role: 'assistant', content: text }));
         setError(text);
       } finally {
         clearTimeout(deadline);

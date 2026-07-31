@@ -7,7 +7,7 @@ import { DB, type Database } from '../db/db.module.js';
 import { conversations, messages } from '../db/core.schema.js';
 import { PermissionService } from '../permissions/permission.service.js';
 import { RegistryService } from '../registry/registry.service.js';
-import { LlmService, type TokenUsage } from './llm.service.js';
+import { LlmService, type GenerateResult, type TokenUsage } from './llm.service.js';
 import { AiToolRegistry, type ToolInvocation } from './tool-registry.service.js';
 
 export interface AskInput {
@@ -20,6 +20,12 @@ export interface AskInput {
   /** Injected in tests, mirroring LlmService — production resolves from configuration. */
   model?: LanguageModel;
 }
+
+/** What a streamed ask emits. `done` carries exactly what the blocking call returns. */
+export type AskEvent =
+  | { type: 'text'; delta: string; conversationId: string }
+  | { type: 'tool'; toolName: string; conversationId: string }
+  | { type: 'done'; result: AskResult };
 
 export interface AskResult {
   conversationId: string;
@@ -68,7 +74,29 @@ export class OrchestratorService {
     private readonly permissions: PermissionService,
   ) {}
 
+  /**
+   * Ask, and wait for the whole answer.
+   *
+   * A thin drain of `askStream`. There is exactly one flow — permissions, tool set, model
+   * call, citation resolution, persistence — and two shapes on top of it, because the moment
+   * there were two copies the streaming one would have grown a fix the blocking one never
+   * got.
+   */
   async ask(actor: Actor, input: AskInput): Promise<AskResult> {
+    for await (const event of this.askStream(actor, input)) {
+      if (event.type === 'done') return event.result;
+    }
+    throw new Error('The assistant produced no answer.');
+  }
+
+  /**
+   * Ask, and watch it happen.
+   *
+   * Emits `tool` as each call is made and `text` as words arrive, then one `done` carrying
+   * everything the blocking call returns. The order matters: tool events dominate the early
+   * part of a real answer, which is exactly the stretch that used to be a silent spinner.
+   */
+  async *askStream(actor: Actor, input: AskInput): AsyncGenerator<AskEvent> {
     const question = input.message?.trim();
     if (!question) throw new NotFoundException('Message is empty');
 
@@ -83,14 +111,21 @@ export class OrchestratorService {
 
     const system = await this.systemPrompt(actor, input.context?.entityId);
 
-    const result = await this.llm.generate({
+    let result: GenerateResult | undefined;
+    for await (const event of this.llm.stream({
       role: 'strong',
       system,
       messages: [...history, { role: 'user', content: question }],
       tools,
       maxSteps: 8,
       model: input.model,
-    });
+    })) {
+      if (event.type === 'done') result = event.result;
+      // The conversation id goes out with the first event a caller sees, so a client that
+      // is interrupted mid-answer still knows which thread to reopen.
+      else yield { ...event, conversationId };
+    }
+    if (!result) throw new Error('The model stream ended without a result.');
 
     const answer =
       result.text.trim() ||
@@ -132,7 +167,10 @@ export class OrchestratorService {
           : ''),
     );
 
-    return { conversationId, answer, toolCalls: invocations, references, usage: result.usage };
+    yield {
+      type: 'done',
+      result: { conversationId, answer, toolCalls: invocations, references, usage: result.usage },
+    };
   }
 
   // ── conversations ──────────────────────────────────────────

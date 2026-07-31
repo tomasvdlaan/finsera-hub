@@ -43,13 +43,28 @@ function manifests() {
   return m;
 }
 
-/** A model that returns a fixed answer after one tool call. */
+/**
+ * A model that returns a fixed answer after one tool call.
+ *
+ * `doStream` as well as `doGenerate`, because `ask` is a drain of `askStream` and so every
+ * path through the orchestrator now goes through `streamText`. The two implementations
+ * describe the same turn — a tool call, then the answer — and the answer is emitted in three
+ * deltas rather than one string precisely so that a test can tell a stream that reassembles
+ * from one that happens to work because nothing was ever split.
+ */
 function modelSaying(answer: string) {
   let step = 0;
   const usage = (i: number, o: number) => ({
     inputTokens: { total: i, noCache: i, cacheRead: undefined, cacheWrite: undefined },
     outputTokens: { total: o, text: o, reasoning: undefined },
   });
+
+  const thirds = [
+    answer.slice(0, Math.ceil(answer.length / 3)),
+    answer.slice(Math.ceil(answer.length / 3), Math.ceil((answer.length * 2) / 3)),
+    answer.slice(Math.ceil((answer.length * 2) / 3)),
+  ];
+
   return new MockLanguageModelV4({
     doGenerate: async () => {
       step += 1;
@@ -69,6 +84,36 @@ function modelSaying(answer: string) {
         content: [{ type: 'text' as const, text: answer }],
         warnings: [],
       };
+    },
+
+    doStream: async () => {
+      step += 1;
+      const parts: unknown[] =
+        step === 1
+          ? [
+              {
+                type: 'tool-call',
+                toolCallId: 'c1',
+                toolName: 'demo_find',
+                input: '{}',
+              },
+              { type: 'finish', finishReason: { unified: 'tool-calls', raw: undefined }, usage: usage(10, 5) },
+            ]
+          : [
+              { type: 'text-start', id: 't1' },
+              ...thirds.map((delta) => ({ type: 'text-delta', id: 't1', delta })),
+              { type: 'text-end', id: 't1' },
+              { type: 'finish', finishReason: { unified: 'stop', raw: undefined }, usage: usage(12, 8) },
+            ];
+
+      return {
+        stream: new ReadableStream({
+          start(controller) {
+            for (const p of parts) controller.enqueue(p);
+            controller.close();
+          },
+        }),
+      } as never;
     },
   });
 }

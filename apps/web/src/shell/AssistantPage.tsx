@@ -41,10 +41,26 @@ export function AssistantPage() {
 
   useEffect(refreshHistory, [refreshHistory]);
 
-  /* Open whichever conversation the URL names, so a thread can be linked to. */
+  /*
+   * Open whichever conversation the URL names, so a thread can be linked to.
+   *
+   * Two things here are load-bearing and both were learned by watching an answer disappear.
+   *
+   * It never reopens the thread already on screen. A new conversation gets its URL the moment
+   * the server names it — which is now the first event of a stream rather than the last — so
+   * this would otherwise fire mid-answer and refetch a conversation not yet written, replacing
+   * the words arriving with an empty thread.
+   *
+   * And it keys on the URL alone. The obvious fix was to compare against `conversationId`,
+   * which puts it in the dependency array — and then the `reset()` branch fires the instant
+   * the stream names the conversation, while the URL is still id-less. That wiped the turn
+   * even faster. The current id is read through a ref for exactly that reason.
+   */
+  const openedId = useRef<string | undefined>(undefined);
+  openedId.current = conversationId;
   useEffect(() => {
-    if (id) void open(id);
-    else reset();
+    if (!id) reset();
+    else if (id !== openedId.current) void open(id);
   }, [id, open, reset]);
 
   /*

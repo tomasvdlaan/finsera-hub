@@ -1,4 +1,5 @@
-import { Body, Controller, Delete, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Logger, Param, Post, Res } from '@nestjs/common';
+import type { Response } from 'express';
 import type { Actor } from '@platform/contracts';
 import { CurrentActor } from '../core/auth/current-actor.decorator.js';
 import { AiToolRegistry } from '../core/llm/tool-registry.service.js';
@@ -10,6 +11,8 @@ import { OrchestratorService, type AskInput } from '../core/llm/orchestrator.ser
  */
 @Controller('assistant')
 export class AssistantController {
+  private readonly logger = new Logger(AssistantController.name);
+
   constructor(
     private readonly orchestrator: OrchestratorService,
     private readonly tools: AiToolRegistry,
@@ -18,6 +21,55 @@ export class AssistantController {
   @Post('ask')
   ask(@CurrentActor() actor: Actor, @Body() body: AskInput) {
     return this.orchestrator.ask(actor, body);
+  }
+
+  /**
+   * The same question, answered out loud.
+   *
+   * Server-sent events over the existing POST rather than a WebSocket: this is one request
+   * with one response that happens to arrive in pieces, and the app's two sockets both exist
+   * because something genuinely bidirectional needed them. SSE is normally a GET, and a GET
+   * cannot carry a conversation and a context object without putting them in a URL — so this
+   * is a POST that streams, which every browser handles through `fetch` and none through
+   * `EventSource`. The client reads it with a stream reader for exactly that reason.
+   *
+   * `flushHeaders` matters: without it Nest buffers, and the first byte arrives with the
+   * last — a stream that streams nothing, which is worse than not streaming at all because
+   * it looks like it works.
+   */
+  @Post('ask/stream')
+  async askStream(@CurrentActor() actor: Actor, @Body() body: AskInput, @Res() res: Response) {
+    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    // Nothing between us and the browser should buffer this into a single write.
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
+
+    const send = (event: unknown) => res.write(`data: ${JSON.stringify(event)}\n\n`);
+
+    try {
+      for await (const event of this.orchestrator.askStream(actor, body)) {
+        // A client that has gone away stops the model rather than paying to finish talking
+        // to nobody — the one place streaming is cheaper than not streaming.
+        if (res.writableEnded || res.destroyed) return;
+        send(event);
+      }
+    } catch (e) {
+      /*
+       * The status line has already been sent, so this cannot become a 500.
+       *
+       * An error frame is the only way left to tell the client, and it must be sent rather
+       * than the connection simply dropped: a reader that sees a closed stream with no
+       * `done` cannot distinguish a crash from a network blip, and will show a blank answer
+       * for both.
+       */
+      const message = (e as Error).message ?? 'The assistant failed.';
+      this.logger.error(`ask/stream failed: ${message}`);
+      send({ type: 'error', message });
+    } finally {
+      res.end();
+    }
   }
 
   @Get('conversations')
