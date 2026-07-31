@@ -17,6 +17,7 @@ import { AssistantPage } from './AssistantPage.js';
 import { CommandBar } from './CommandBar.js';
 import { Sidebar, type SidebarCounts } from './Sidebar.js';
 import { LiveMeetingProvider } from './LiveMeeting.js';
+import { RunningTimerProvider } from './useRunningTimer.js';
 import { LivePill } from './LivePill.js';
 import { MeetingChatProvider } from './MeetingChat.js';
 import { Modules } from './Modules.js';
@@ -174,6 +175,9 @@ function Shell() {
       */}
       <LiveMeetingProvider>
       <MeetingChatProvider>
+      {/* Above the router: the clock has to survive navigation, and the rail and the tracker
+          page must be looking at the same one. */}
+      <RunningTimerProvider>
       {/*
         Above both layouts, like the live meeting and for a related reason: it has to be
         reachable from the meeting room, which renders outside the ordinary chrome and is
@@ -223,6 +227,7 @@ function Shell() {
           <Route key={path} path={path} element={<Component />} />
         ))}
       </Routes>
+      </RunningTimerProvider>
       </MeetingChatProvider>
       </LiveMeetingProvider>
     </BrowserRouter>

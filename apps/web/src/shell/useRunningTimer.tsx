@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import { api } from '../lib/api.js';
 import { TIME_CHANGED, notifyTimeChanged } from './useDocumentTitle.js';
 
@@ -34,7 +34,7 @@ export function elapsed(since: string): string {
  * Running state used to be derived by scanning the entries of the day being viewed, so a
  * timer started on Friday was invisible on Monday while its minutes kept accruing.
  */
-export function useRunningTimer() {
+function useTimerState() {
   const [running, setRunning] = useState<Running | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -122,4 +122,29 @@ export function useRunningTimer() {
     : false;
 
   return { running, forgotten, busy, error, start, stop, reload: load };
+}
+
+type TimerState = ReturnType<typeof useTimerState>;
+const Context = createContext<TimerState | null>(null);
+
+/**
+ * One clock for the whole application.
+ *
+ * The rail and the tracker page each called the hook directly, which meant two independent
+ * pollers with their own copy of what was running. They agreed most of the time and could
+ * disagree for up to thirty seconds after a change made in the other — and a timer that shows
+ * two different answers on one screen is worse than one that is merely slow.
+ *
+ * Mounted above the router, so navigating does not remount it: the clock carries on across
+ * pages and is already correct when you come back, rather than blank until the next fetch.
+ */
+export function RunningTimerProvider({ children }: { children: ReactNode }) {
+  const state = useTimerState();
+  return <Context.Provider value={state}>{children}</Context.Provider>;
+}
+
+export function useRunningTimer(): TimerState {
+  const ctx = useContext(Context);
+  if (!ctx) throw new Error('useRunningTimer must be used inside RunningTimerProvider');
+  return ctx;
 }

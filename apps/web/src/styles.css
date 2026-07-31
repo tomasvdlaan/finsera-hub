@@ -2638,6 +2638,22 @@ button.nav-me:hover { background: var(--surface); }
 }
 .tracker-manual > input:first-child { flex: 1; min-width: 12rem; }
 .tracker-time { width: 6rem; }
+.tracker-when { width: 13rem; }
+.tracker-time:disabled { opacity: 0.5; }
+
+/* The switch sits with the row rather than in a column of its own, so it reads as a
+   property of the entry and not as another number. */
+.tracker-billable {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--muted);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.tracker-billable input { margin: 0; }
+.tracker-billable-text { min-width: 5.5rem; }
 
 .tracker-recent-head { margin: var(--space-6) 0 var(--space-3); }
 .tracker-day { padding: var(--space-4); }
@@ -2648,7 +2664,7 @@ button.nav-me:hover { background: var(--surface); }
 
 .tracker-entry {
   display: grid;
-  grid-template-columns: 1fr auto auto auto;
+  grid-template-columns: 1fr auto auto auto auto;
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-2) 0;
@@ -2664,4 +2680,5 @@ button.nav-me:hover { background: var(--surface); }
 @media (max-width: 60rem) {
   .tracker-top { grid-template-columns: 1fr; }
   .tracker-entry { grid-template-columns: 1fr auto; row-gap: var(--space-1); }
+  .tracker-when { width: 100%; }
 }

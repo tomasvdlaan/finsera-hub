@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api.js';
-import { Button, Empty } from '../../shell/ui/primitives.js';
+import { Badge, Button, Empty } from '../../shell/ui/primitives.js';
 import { elapsed, useRunningTimer } from '../../shell/useRunningTimer.js';
 import { notifyTimeChanged } from '../../shell/useDocumentTitle.js';
-import { formatClock, formatSpan, parseDuration, resolveTimes, todayIso } from './duration.js';
+import { formatClock, formatSpan, parseDuration, todayIso } from './duration.js';
 
 interface Project {
   id: string;
@@ -24,6 +24,12 @@ interface Entry {
   endedAt: string | null;
   billable: boolean;
   workedOn: string;
+  running: boolean;
+  /**
+   * unbilled → billable and not yet on anything. on_draft → sitting on a draft invoice.
+   * invoiced → issued, and therefore frozen: the server refuses to change these at all.
+   */
+  billingStatus: 'not_billable' | 'unbilled' | 'on_draft' | 'invoiced';
 }
 
 interface Day {
@@ -44,6 +50,54 @@ function projectHue(id: string): number {
   let hash = 0;
   for (let i = 0; i < id.length; i += 1) hash = (hash * 31 + id.charCodeAt(i)) % 360;
   return hash;
+}
+
+const BILLING_LABEL: Record<Entry['billingStatus'], string> = {
+  not_billable: 'Not billable',
+  unbilled: 'Billable',
+  on_draft: 'On a draft invoice',
+  invoiced: 'Invoiced',
+};
+
+/**
+ * The billing state of one entry, and the switch for it where there still is one.
+ *
+ * Four states, three of which are ordinary and one of which is final. Once hours are on an
+ * issued invoice they cannot be altered — so this shows the badge alone rather than a control
+ * that would be refused, and says why on hover.
+ */
+function BillingControl({
+  entry,
+  onChange,
+}: {
+  entry: Entry;
+  onChange: (entry: Entry, next: boolean) => void;
+}) {
+  if (entry.billingStatus === 'invoiced' || entry.billingStatus === 'on_draft') {
+    return (
+      <Badge tone={entry.billingStatus === 'invoiced' ? 'ok' : 'warning'}
+        title={
+          entry.billingStatus === 'invoiced'
+            ? 'On an issued invoice — credit the invoice to change these hours'
+            : 'On a draft invoice'
+        }
+      >
+        {BILLING_LABEL[entry.billingStatus]}
+      </Badge>
+    );
+  }
+
+  return (
+    <label className="tracker-billable" title={BILLING_LABEL[entry.billingStatus]}>
+      <input
+        type="checkbox"
+        checked={entry.billable}
+        aria-label={`Billable — ${entry.description ?? 'entry'}`}
+        onChange={(e) => onChange(entry, e.target.checked)}
+      />
+      <span className="tracker-billable-text">{entry.billable ? 'Billable' : 'Not billable'}</span>
+    </label>
+  );
 }
 
 const dayLabel = (iso: string) => {
@@ -76,7 +130,15 @@ export function Tracker() {
   const [manualStart, setManualStart] = useState('');
   const [manualEnd, setManualEnd] = useState('');
   const [manualDuration, setManualDuration] = useState('');
+  const [billable, setBillable] = useState(true);
   const [saving, setSaving] = useState(false);
+  /*
+   * Re-renders once a second while something is running.
+   *
+   * Today's figure has to move — it is the number you glance at to decide whether to stop —
+   * and the server can only tell you what it was when you asked.
+   */
+  const [, setTick] = useState(0);
 
   const load = useCallback(async () => {
     try {
@@ -101,6 +163,12 @@ export function Tracker() {
     if (!running) void load();
   }, [running, load]);
 
+  useEffect(() => {
+    if (!running) return;
+    const clock = setInterval(() => setTick((t) => t + 1), 1000);
+    return () => clearInterval(clock);
+  }, [running]);
+
   const logManually = async () => {
     if (!projectId) return;
     setSaving(true);
@@ -108,16 +176,26 @@ export function Tracker() {
     try {
       const minutes = manualDuration ? parseDuration(manualDuration) : null;
       if (manualDuration && minutes === null) throw new Error(`"${manualDuration}" is not a duration`);
-      // 22:00–02:00 is a four-hour shift, not a negative one — resolveTimes knows that.
-      const { startedAt, endedAt } = resolveTimes(todayIso(), manualStart, manualEnd);
+      if (!manualStart && minutes === null) throw new Error('Give a start and end, or a duration');
+
+      /*
+       * Full instants, not times against an assumed day.
+       *
+       * The fields were `09:00`–`10:30` and the entry was filed under today, so an hour
+       * worked last Thursday could not be entered at all without going to the day view and
+       * changing the date first. A shift that runs past midnight is also two dates, and no
+       * amount of cleverness recovers the second one from a bare clock time.
+       */
       await api.post('/time/entries', {
         projectId,
-        workedOn: todayIso(),
-        startedAt,
-        endedAt,
+        // The day an entry belongs to is the day it started, which the browser gives us.
+        workedOn: manualStart ? manualStart.slice(0, 10) : todayIso(),
+        startedAt: manualStart ? new Date(manualStart).toISOString() : null,
+        endedAt: manualEnd ? new Date(manualEnd).toISOString() : null,
         // Times win when both are given; the clock is the evidence.
-        minutes: manualStart ? undefined : minutes,
+        minutes: manualStart && manualEnd ? undefined : minutes,
         description: description.trim() || null,
+        billable,
       });
       setDescription('');
       setManualStart('');
@@ -132,8 +210,36 @@ export function Tracker() {
     }
   };
 
-  const today = days.find((d) => d.date === todayIso())?.totalMinutes ?? 0;
-  const week = days.reduce((sum, d) => sum + d.totalMinutes, 0);
+  /** Change whether an entry is billable. Refused by the server once it has been invoiced. */
+  const setEntryBillable = async (entry: Entry, next: boolean) => {
+    setError(null);
+    try {
+      await api.patch(`/time/entries/${entry.id}`, { billable: next });
+      notifyTimeChanged();
+      await load();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  /*
+   * Today, counting the clock that is still running.
+   *
+   * The server's total already includes a running entry, but frozen at the moment it was
+   * asked — so the figure sat still while the clock beside it moved. The stored entries are
+   * summed without the running one and its live elapsed is added back, which keeps the two
+   * numbers on this screen telling the same story second by second.
+   */
+  const liveMinutes = running
+    ? Math.max(0, Math.floor((Date.now() - new Date(running.startedAt).getTime()) / 60_000))
+    : 0;
+  const runningToday = running?.workedOn === todayIso();
+  const settled = (day: Day | undefined) =>
+    (day?.entries ?? []).filter((e) => !e.running).reduce((sum, e) => sum + e.effectiveMinutes, 0);
+
+  const today = settled(days.find((d) => d.date === todayIso())) + (runningToday ? liveMinutes : 0);
+  const week =
+    days.reduce((sum, d) => sum + settled(d), 0) + liveMinutes;
 
   return (
     <>
@@ -231,19 +337,21 @@ export function Tracker() {
               </option>
             ))}
           </select>
+          {/* Full instants. A shift that runs past midnight is two dates, and a bare clock
+              time cannot express the second one. */}
           <input
-            className="tracker-time"
+            type="datetime-local"
+            className="tracker-when"
             value={manualStart}
-            placeholder="09:00"
-            aria-label="Start time"
+            aria-label="Started at"
             onChange={(e) => setManualStart(e.target.value)}
           />
           <span className="muted">–</span>
           <input
-            className="tracker-time"
+            type="datetime-local"
+            className="tracker-when"
             value={manualEnd}
-            placeholder="10:30"
-            aria-label="End time"
+            aria-label="Ended at"
             onChange={(e) => setManualEnd(e.target.value)}
           />
           <input
@@ -251,8 +359,18 @@ export function Tracker() {
             value={manualDuration}
             placeholder="or 1h30"
             aria-label="Duration"
+            disabled={Boolean(manualStart && manualEnd)}
+            title={manualStart && manualEnd ? 'Taken from the times above' : undefined}
             onChange={(e) => setManualDuration(e.target.value)}
           />
+          <label className="tracker-billable">
+            <input
+              type="checkbox"
+              checked={billable}
+              onChange={(e) => setBillable(e.target.checked)}
+            />
+            Billable
+          </label>
           <Button variant="primary" disabled={saving || !projectId} onClick={() => void logManually()}>
             {saving ? 'Logging…' : 'Log'}
           </Button>
@@ -292,6 +410,14 @@ export function Tracker() {
                     ? `${formatClock(entry.startedAt)} – ${formatClock(entry.endedAt)}`
                     : ''}
                 </span>
+                {/*
+                  Whether this hour can still be sold, and whether it already has been.
+                  
+                  Invoiced hours are frozen — the server refuses to change them and says to
+                  credit the invoice first — so the control is disabled rather than offered
+                  and then rejected.
+                */}
+                <BillingControl entry={entry} onChange={setEntryBillable} />
                 <span className="tracker-entry-duration">
                   {formatSpan(entry.effectiveMinutes)}
                 </span>
