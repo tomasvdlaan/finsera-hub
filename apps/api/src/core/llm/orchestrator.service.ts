@@ -880,7 +880,9 @@ export class OrchestratorService {
       .select()
       .from(messages)
       .where(eq(messages.conversationId, id))
-      .orderBy(asc(messages.createdAt));
+      // By id as well as time: a question and its answer share a timestamp, so time alone
+      // could show the answer above the question it answers.
+      .orderBy(asc(messages.createdAt), asc(messages.id));
     return { id, messages: rows.map((r) => ({ ...r, toolCalls: readToolCalls(r.toolCalls) })) };
   }
 
@@ -1021,13 +1023,39 @@ export class OrchestratorService {
     }
   }
 
+  /**
+   * What the model is shown of the conversation so far — the MOST RECENT exchanges.
+   *
+   * This read `ORDER BY created_at ASC LIMIT 20`, which is the *first* twenty messages. Past
+   * ten exchanges the assistant was permanently re-reading the opening of the conversation
+   * and never saw a word you had said since; on a long thread it got steadily worse and read
+   * as the model being forgetful rather than as a limit pointing the wrong way.
+   *
+   * Sorted by `id` as well as time, and that is not belt-and-braces. A question and its
+   * answer are inserted in one statement, so `now()` gives them an identical `created_at` and
+   * time alone cannot say which came first — the order was whatever Postgres happened to
+   * return, and an answer could be presented as preceding its own question. The ids are
+   * uuidv7, minted in sequence, so they order the pair correctly.
+   */
   private async history(conversationId: string): Promise<ModelMessage[]> {
     const rows = await this.db
       .select({ role: messages.role, content: messages.content })
       .from(messages)
       .where(eq(messages.conversationId, conversationId))
-      .orderBy(asc(messages.createdAt))
+      // Newest first so the limit keeps the recent end, then reversed back below.
+      .orderBy(desc(messages.createdAt), desc(messages.id))
       .limit(HISTORY_LIMIT);
+
+    rows.reverse();
+
+    /*
+     * Never open on an answer.
+     *
+     * Cutting at a fixed count lands mid-exchange half the time, leaving an assistant turn
+     * with no question in front of it. Some providers reject that outright and the rest are
+     * simply confused by it, so the dangling half is dropped rather than sent.
+     */
+    while (rows.length > 0 && rows[0]!.role !== 'user') rows.shift();
 
     return rows.map((r) => ({
       role: r.role === 'user' ? ('user' as const) : ('assistant' as const),
