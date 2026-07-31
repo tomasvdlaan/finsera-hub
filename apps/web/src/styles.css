@@ -1601,10 +1601,19 @@ a.badge:hover {
 }
 
 /* board */
+/*
+ * Columns are all as tall as the tallest, not as tall as their contents.
+ *
+ * They used to size to what was in them, which made a quiet column a 136px stub — and since
+ * the column *is* the drop target, a card released anywhere below that stub hit nothing and
+ * silently went home. "Drop a card here" was written across a box that only meant it for the
+ * top eighth of the column. Stretching them makes the promise true, and squares off a board
+ * whose columns previously ended at five different heights.
+ */
 .board {
   display: flex;
   gap: 0.6rem;
-  align-items: flex-start;
+  align-items: stretch;
   overflow-x: auto;
   padding-bottom: 0.5rem;
   margin: 1rem 0;
@@ -1646,10 +1655,19 @@ a.badge:hover {
   gap: 0.4rem;
   min-height: 60px;
 }
+/*
+ * The whole card is the grip.
+ *
+ * `user-select: none` because a drag now starts anywhere: without it, pulling a card leaves a
+ * trail of half-highlighted text behind it. Nothing here was selectable prose anyway — the
+ * title is a button.
+ */
 .task-card {
   display: flex;
   align-items: flex-start;
   gap: var(--space-2);
+  cursor: grab;
+  user-select: none;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -1662,6 +1680,18 @@ a.badge:hover {
   border-color: var(--border-strong);
   box-shadow: var(--shadow-2);
 }
+.task-card:active {
+  cursor: grabbing;
+}
+/* It is focusable now — the keyboard drag is the only way in without a pointer. */
+.task-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.task-card-body {
+  flex: 1;
+  min-width: 0;
+}
 .task-card.dragging {
   opacity: 0.4;
 }
@@ -1669,8 +1699,7 @@ a.badge:hover {
  * The carried card.
  *
  * Lifted rather than merely moved: a slight tilt and a heavier shadow are what make it read
- * as picked up rather than as a duplicate that appeared. `cursor: grabbing` because the real
- * handle is under the pointer but this element is what the pointer is over.
+ * as picked up rather than as a duplicate that appeared.
  */
 .task-card.is-ghost {
   cursor: grabbing;
@@ -1681,9 +1710,6 @@ a.badge:hover {
   /* The overlay is outside the column, so it needs a width of its own. */
   width: 17rem;
   background: var(--surface-raised);
-}
-.task-card.is-ghost .drag-handle {
-  cursor: grabbing;
 }
 @media (prefers-reduced-motion: reduce) {
   .task-card.is-ghost {
@@ -1705,6 +1731,12 @@ a.badge:hover {
 }
 .task-card-title a {
   min-width: 0;
+}
+/* The face rides the first line of the title, not the middle of a wrapped one. */
+.task-card-title .avatar {
+  margin-left: auto;
+  align-self: flex-start;
+  flex: none;
 }
 
 /*
@@ -1876,17 +1908,6 @@ a.badge:hover {
   height: 100%;
   background: var(--ok);
   transition: width var(--transition-fast);
-}
-
-/* Assignee on the left, column select on the right — the two ends of "whose, and where". */
-.task-card-foot {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  margin-top: var(--space-2);
-}
-.task-card-foot .task-move {
-  margin-left: auto;
 }
 
 /*
@@ -2433,20 +2454,6 @@ a.badge:hover {
   align-items: baseline;
   margin-top: 0.2rem;
   font-size: 0.8rem;
-}
-.drag-handle {
-  border: none;
-  background: none;
-  color: var(--muted);
-  cursor: grab;
-  padding: 0 0.15rem;
-  line-height: 1.2;
-}
-.task-move {
-  font-size: 0.72rem;
-  padding: 0.05rem 0.15rem;
-  margin-left: auto; /* pushed to the right so badges read left-to-right */
-  max-width: 7rem;
 }
 .task-card-meta {
   width: 100%;

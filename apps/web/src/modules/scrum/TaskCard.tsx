@@ -1,4 +1,4 @@
-import { forwardRef, type CSSProperties, type ReactNode } from 'react';
+import { forwardRef, type CSSProperties, type HTMLAttributes } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Avatar } from '../../shell/ui/primitives.js';
@@ -16,12 +16,18 @@ const TYPE_MARK: Record<string, { mark: string; label: string }> = {
 /**
  * A card on the board.
  *
- * Three ways to act on it, because a board that only responds to a pointer is unusable
- * one-handed and untestable without one: drag it by the handle, move it with the column
- * select, or open it into the preview beside the board.
+ * The whole card is the grip. It used to be a six-dot handle beside a column select, which is
+ * two controls doing one job and neither of them the obvious one — you point at a card, you
+ * mean the card. Dragging is now the only way to change a column here, so the keyboard has to
+ * be able to do it too: the card is focusable, space picks it up, the arrows carry it across
+ * columns and space puts it down. That is the sortable keyboard sensor, not a second code
+ * path, so it cannot fall behind what the pointer does.
  *
- * The title is a button rather than a link now. It used to navigate to the task page, which
- * meant glancing at a card cost you the board you were reading. The page still exists and the
+ * The buttons inside still work, because the pointer sensor waits for six pixels of movement
+ * before it calls something a drag — under that it is a click and the button gets it.
+ *
+ * The title is a button rather than a link. It used to navigate to the task page, which meant
+ * glancing at a card cost you the board you were reading. The page still exists and the
  * preview links to it; this is the cheap look.
  *
  * What a card shows is ordered by what stops work rather than by what describes it: the
@@ -31,7 +37,6 @@ const TYPE_MARK: Record<string, { mark: string; label: string }> = {
 export interface TaskCardProps {
   task: Task;
   columns: Array<{ key: string; label: string }>;
-  onMove: (status: string) => void;
   /** Put this into the running sprint. Passed only while looking at the backlog. */
   onPull?: () => void;
   /** Open it in the preview beside the board. */
@@ -42,6 +47,16 @@ export interface TaskCardProps {
 export function TaskCard(props: TaskCardProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: props.task.id,
+    /*
+     * Not a button.
+     *
+     * dnd-kit calls a draggable `role="button"`, which was right while the grip was a button
+     * of its own and is wrong now that the whole card is the grip: the card contains real
+     * buttons, and a button inside a button is not a thing. `group` lets them nest honestly.
+     * The role is only ever announced — the keyboard sensor listens on the element itself and
+     * does not consult it.
+     */
+    attributes: { role: 'group', roleDescription: 'draggable card' },
   });
 
   return (
@@ -50,17 +65,7 @@ export function TaskCard(props: TaskCardProps) {
       dragging={isDragging}
       ref={setNodeRef}
       style={{ transform: CSS.Translate.toString(transform), transition }}
-      handle={
-        // Only the handle starts a drag, so the title stays clickable and selectable.
-        <button
-          className="drag-handle"
-          {...attributes}
-          {...listeners}
-          aria-label={`Move ${props.task.title}`}
-        >
-          ⠿
-        </button>
-      }
+      drag={{ ...attributes, ...listeners }}
     />
   );
 }
@@ -76,7 +81,7 @@ export function TaskCard(props: TaskCardProps) {
  * was clipping the card as well.
  */
 export function TaskCardGhost({ task, columns }: { task: Task; columns: TaskCardProps['columns'] }) {
-  return <CardBody task={task} columns={columns} onMove={() => undefined} isGhost />;
+  return <CardBody task={task} columns={columns} isGhost />;
 }
 
 const CardBody = forwardRef<
@@ -85,10 +90,11 @@ const CardBody = forwardRef<
     dragging?: boolean;
     isGhost?: boolean;
     style?: CSSProperties;
-    handle?: ReactNode;
+    /** Everything that makes the card a grip — dnd-kit's own attributes and listeners. */
+    drag?: HTMLAttributes<HTMLDivElement>;
   }
 >(function CardBody(
-  { task, columns, onMove, onPull, onOpen, selected, dragging, isGhost, style, handle },
+  { task, columns, onPull, onOpen, selected, dragging, isGhost, style, drag },
   ref,
 ) {
 
@@ -120,9 +126,7 @@ const CardBody = forwardRef<
     .join(' ');
 
   return (
-    <div ref={ref} className={classes} style={style}>
-      {handle ?? <span className="drag-handle" aria-hidden="true">⠿</span>}
-
+    <div ref={ref} className={classes} style={style} {...drag}>
       <div className="task-card-body">
         <div className="task-card-title">
           <span className={`task-type task-type-${task.type}`} title={type.label} aria-hidden="true">
@@ -137,6 +141,20 @@ const CardBody = forwardRef<
           >
             {task.title}
           </button>
+          {/*
+            Whose card this is, top right, where every board puts it.
+
+            It used to sit on a row of its own next to the column select. With the select gone
+            that row held one small circle and a lot of nothing, so the face moved up to the
+            only line that always exists.
+          */}
+          {task.assignee ? (
+            <Avatar id={task.assignee.id} name={task.assignee.displayName} size="sm" />
+          ) : (
+            <span className="avatar avatar-sm avatar-empty" title="Unassigned">
+              ?
+            </span>
+          )}
         </div>
 
         {/*
@@ -237,29 +255,6 @@ const CardBody = forwardRef<
               + sprint
             </button>
           )}
-        </div>
-
-        <div className="task-card-foot">
-          {/* Whose card this is — something the board could not say for as long as it existed. */}
-          {task.assignee ? (
-            <Avatar id={task.assignee.id} name={task.assignee.displayName} size="sm" />
-          ) : (
-            <span className="avatar avatar-sm avatar-empty" title="Unassigned">
-              ?
-            </span>
-          )}
-          <select
-            className="task-move"
-            value={task.status}
-            onChange={(e) => onMove(e.target.value)}
-            aria-label={`Column for ${task.title}`}
-          >
-            {columns.map((c) => (
-              <option key={c.key} value={c.key}>
-                {c.label}
-              </option>
-            ))}
-          </select>
         </div>
       </div>
     </div>

@@ -11,8 +11,13 @@ import {
   useSensors,
   type DragEndEvent,
   type DragStartEvent,
+  type KeyboardCoordinateGetter,
 } from '@dnd-kit/core';
-import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
 import { api } from '../../lib/api.js';
 import type { Project } from '../crm/types.js';
 import { Avatar } from '../../shell/ui/primitives.js';
@@ -42,11 +47,49 @@ import {
  */
 type Scope = 'sprint' | 'backlog' | 'all';
 
+/**
+ * Left and right change the column; up and down reorder within it.
+ *
+ * The stock sortable getter treats every droppable the same, and cards are droppables too —
+ * so "right" would find the card sitting a fraction of a pixel to the right in the same
+ * column and go there, and you pressed the key twice to move once. On a board the two axes
+ * mean different things: sideways is the status, downwards is the order. This says so.
+ *
+ * It hands the vertical keys straight back to the sortable getter rather than reimplementing
+ * ordering, because ordering is the part dnd-kit already gets right.
+ */
+const boardKeyboardCoordinates: KeyboardCoordinateGetter = (event, args) => {
+  if (event.code !== 'ArrowLeft' && event.code !== 'ArrowRight') {
+    return sortableKeyboardCoordinates(event, args);
+  }
+
+  const { collisionRect, droppableRects, droppableContainers } = args.context;
+  if (!collisionRect) return undefined;
+
+  const columns = droppableContainers
+    .getEnabled()
+    .flatMap((c) => {
+      const rect = String(c.id).startsWith('column:') ? droppableRects.get(c.id) : undefined;
+      return rect ? [rect] : [];
+    })
+    .sort((a, b) => a.left - b.left);
+
+  // Which column the card is over, by its middle — a card straddling a gap belongs to
+  // whichever column it mostly covers, which is what it looks like it belongs to.
+  const middle = collisionRect.left + collisionRect.width / 2;
+  const here = columns.findIndex((r) => middle >= r.left && middle <= r.right);
+  const next = columns[here + (event.code === 'ArrowRight' ? 1 : -1)];
+  if (here === -1 || !next) return undefined;
+
+  // Keep the inset and the height, so the card lands beside where it came from rather than
+  // snapping to the top of a column it has nothing to do with yet.
+  return { x: next.left + (collisionRect.left - columns[here]!.left), y: collisionRect.top };
+};
+
 function Column({
   column,
   tasks,
   columns,
-  onMove,
   onPull,
   onOpen,
   openId,
@@ -56,11 +99,6 @@ function Column({
   column: BoardColumn;
   tasks: Task[];
   columns: Array<{ key: string; label: string }>;
-  onMove: (
-    taskId: string,
-    status: string,
-    neighbours?: { beforeTaskId?: string | null; afterTaskId?: string | null },
-  ) => void;
   /** Offered only while looking at the backlog with a sprint to pull into. */
   onPull?: (taskId: string) => void;
   onOpen?: (taskId: string) => void;
@@ -149,7 +187,6 @@ function Column({
               key={task.id}
               task={task}
               columns={columns}
-              onMove={(status) => onMove(task.id, status)}
               onPull={onPull && (() => onPull(task.id))}
               onOpen={onOpen && (() => onOpen(task.id))}
               selected={openId === task.id}
@@ -223,7 +260,14 @@ export function Board() {
   const sensors = useSensors(
     // A small distance so a click on a card is not swallowed as a drag.
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(KeyboardSensor),
+    /*
+     * The keyboard has to be able to do this too.
+     *
+     * Dragging is the only way to change a column now that the per-card select is gone, so a
+     * board you cannot drag is a board you cannot use. Space picks a card up, the arrows
+     * carry it, space puts it down.
+     */
+    useSensor(KeyboardSensor, { coordinateGetter: boardKeyboardCoordinates }),
   );
 
   useEffect(() => {
@@ -785,7 +829,6 @@ export function Board() {
                           column={column}
                           tasks={byColumn.get(column.key) ?? []}
                           columns={board.columns}
-                          onMove={move}
                           onPull={sprint && scope === 'backlog' ? pull : undefined}
                           onOpen={setOpenId}
                           openId={openId}
@@ -836,7 +879,9 @@ export function Board() {
       )}
 
       <p className="muted board-hint">
-        Drag a card by its handle, or move it with the dropdown. Click a card to preview it.
+        Drag a card anywhere on it to move it, or click its title to preview it. From the
+        keyboard: <kbd>space</kbd> to pick a card up, <kbd>←</kbd> <kbd>→</kbd> to change
+        column, <kbd>↑</kbd> <kbd>↓</kbd> to reorder, <kbd>space</kbd> to drop.
         <kbd>n</kbd> new · <kbd>f</kbd> filter · <kbd>Esc</kbd> clear
       </p>
     </>
