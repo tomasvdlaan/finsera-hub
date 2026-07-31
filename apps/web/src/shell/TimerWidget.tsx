@@ -3,11 +3,12 @@ import { Link } from 'react-router-dom';
 import { api } from '../lib/api.js';
 import { Button } from './ui/primitives.js';
 import { elapsed, useRunningTimer } from './useRunningTimer.js';
+import { TargetPicker, type Target } from '../modules/time/TargetPicker.js';
 
 interface Project {
   id: string;
   name: string;
-  status?: string;
+  clientName?: string | null;
 }
 
 /**
@@ -25,7 +26,8 @@ interface Project {
 export function TimerWidget() {
   const { running, forgotten, busy, error, start, stop } = useRunningTimer();
   const [projects, setProjects] = useState<Project[]>([]);
-  const [projectId, setProjectId] = useState('');
+  const [clients, setClients] = useState<Array<{ id: string; name: string }>>([]);
+  const [target, setTarget] = useState<Target>({});
   const [picking, setPicking] = useState(false);
 
   /*
@@ -36,12 +38,13 @@ export function TimerWidget() {
    */
   useEffect(() => {
     if (!picking || projects.length > 0) return;
-    api
-      .get<Project[]>('/crm/projects')
-      .then((rows) => {
-        setProjects(rows);
-        // The commonest case is one active project; preselecting it makes Start a single click.
-        if (rows.length > 0) setProjectId((current) => current || rows[0]!.id);
+    Promise.all([
+      api.get<Project[]>('/crm/projects'),
+      api.get<Array<{ id: string; name: string }>>('/crm/clients'),
+    ])
+      .then(([p, c]) => {
+        setProjects(p);
+        setClients(c);
       })
       .catch(() => setProjects([]));
   }, [picking, projects.length]);
@@ -90,25 +93,16 @@ export function TimerWidget() {
 
   return (
     <div className="timer">
-      <select
-        aria-label="Project to log against"
-        value={projectId}
-        onChange={(e) => setProjectId(e.target.value)}
-      >
-        {projects.length === 0 && <option value="">No projects</option>}
-        {projects.map((p) => (
-          <option key={p.id} value={p.id}>
-            {p.name}
-          </option>
-        ))}
-      </select>
+      {/* The same three shapes the tracker offers — the rail must not be the place where
+          internal work is impossible to record. */}
+      <TargetPicker value={target} projects={projects} clients={clients} onChange={setTarget} />
       {error && <span className="timer-note error">{error}</span>}
       <div className="row">
         <Button
           size="sm"
           variant="primary"
-          disabled={busy || !projectId}
-          onClick={() => void start(projectId)}
+          disabled={busy}
+          onClick={() => void start(target)}
         >
           {busy ? 'Starting…' : 'Start'}
         </Button>

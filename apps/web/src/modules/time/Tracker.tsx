@@ -5,6 +5,7 @@ import { Badge, Button, Empty } from '../../shell/ui/primitives.js';
 import { elapsed, useRunningTimer } from '../../shell/useRunningTimer.js';
 import { notifyTimeChanged } from '../../shell/useDocumentTitle.js';
 import { formatClock, formatSpan, parseDuration, todayIso } from './duration.js';
+import { TargetPicker, type Target } from './TargetPicker.js';
 
 interface Project {
   id: string;
@@ -125,12 +126,13 @@ export function Tracker() {
   const [error, setError] = useState<string | null>(null);
 
   // What the clock will be started against, and what a manual entry is logged to.
-  const [projectId, setProjectId] = useState('');
+  const [target, setTarget] = useState<Target>({});
+  const [clients, setClients] = useState<Array<{ id: string; name: string }>>([]);
   const [description, setDescription] = useState('');
   const [manualStart, setManualStart] = useState('');
   const [manualEnd, setManualEnd] = useState('');
   const [manualDuration, setManualDuration] = useState('');
-  const [billable, setBillable] = useState(true);
+  const [billable, setBillable] = useState(false);
   const [saving, setSaving] = useState(false);
   /*
    * Re-renders once a second while something is running.
@@ -142,13 +144,14 @@ export function Tracker() {
 
   const load = useCallback(async () => {
     try {
-      const [recent, list] = await Promise.all([
+      const [recent, list, clientList] = await Promise.all([
         api.get<{ days: Day[] }>('/time/recent'),
         api.get<Project[]>('/crm/projects'),
+        api.get<Array<{ id: string; name: string }>>('/crm/clients'),
       ]);
       setDays(recent.days);
       setProjects(list);
-      setProjectId((current) => current || list[0]?.id || '');
+      setClients(clientList);
     } catch (e) {
       setError((e as Error).message);
     }
@@ -170,7 +173,6 @@ export function Tracker() {
   }, [running]);
 
   const logManually = async () => {
-    if (!projectId) return;
     setSaving(true);
     setError(null);
     try {
@@ -187,7 +189,7 @@ export function Tracker() {
        * amount of cleverness recovers the second one from a bare clock time.
        */
       await api.post('/time/entries', {
-        projectId,
+        ...target,
         // The day an entry belongs to is the day it started, which the browser gives us.
         workedOn: manualStart ? manualStart.slice(0, 10) : todayIso(),
         startedAt: manualStart ? new Date(manualStart).toISOString() : null,
@@ -278,22 +280,17 @@ export function Tracker() {
                 aria-label="What are you working on?"
                 onChange={(e) => setDescription(e.target.value)}
               />
-              <select
-                aria-label="Project"
-                value={projectId}
-                onChange={(e) => setProjectId(e.target.value)}
-              >
-                {projects.length === 0 && <option value="">No projects</option>}
-                {projects.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
+              <TargetPicker
+                value={target}
+                projects={projects}
+                clients={clients}
+                onChange={setTarget}
+                label="What is this against?"
+              />
               <Button
                 variant="primary"
-                disabled={busy || !projectId}
-                onClick={() => void start(projectId, description).then(() => setDescription(''))}
+                disabled={busy}
+                onClick={() => void start(target, description).then(() => setDescription(''))}
               >
                 {busy ? 'Starting…' : 'Start'}
               </Button>
@@ -326,17 +323,12 @@ export function Tracker() {
             aria-label="What did you work on?"
             onChange={(e) => setDescription(e.target.value)}
           />
-          <select
-            aria-label="Project"
-            value={projectId}
-            onChange={(e) => setProjectId(e.target.value)}
-          >
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
+          <TargetPicker
+            value={target}
+            projects={projects}
+            clients={clients}
+            onChange={setTarget}
+          />
           {/* Full instants. A shift that runs past midnight is two dates, and a bare clock
               time cannot express the second one. */}
           <input
@@ -371,7 +363,7 @@ export function Tracker() {
             />
             Billable
           </label>
-          <Button variant="primary" disabled={saving || !projectId} onClick={() => void logManually()}>
+          <Button variant="primary" disabled={saving} onClick={() => void logManually()}>
             {saving ? 'Logging…' : 'Log'}
           </Button>
         </div>

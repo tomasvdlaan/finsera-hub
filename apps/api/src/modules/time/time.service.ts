@@ -34,7 +34,9 @@ export function billingStatus(row: {
 }
 
 export interface CreateEntryInput {
-  projectId: string;
+  /** A project, a client, or neither — see the schema. At most one of these two. */
+  projectId?: string | null;
+  clientId?: string | null;
   /** Optional task; validated through the registry, so Time needs no SCRUM dependency. */
   taskId?: string | null;
   workedOn?: string; // ISO date; defaults to today or the start time's day
@@ -120,7 +122,7 @@ export class TimeService {
 
     if (running) await this.assertNoRunningEntry(personId);
 
-    const project = await this.crm.getProject(actor, input.projectId); // cross-module call
+    const target = await this.resolveTarget(actor, input.projectId, input.clientId);
     const taskId = await this.resolveTask(input.taskId);
 
     const id = this.registry.newId();
@@ -128,28 +130,46 @@ export class TimeService {
       await this.registry.register(tx, {
         id,
         entityType: 'time_entry',
-        displayName: this.displayName(project.name, minutes, input.description, running),
+        displayName: this.displayName(target.name, minutes, input.description, running),
         urlPath: `/time/entries/${id}`,
       });
 
       await tx.insert(entries).values({
         id,
         personId,
-        projectId: input.projectId,
+        projectId: target.projectId,
+        clientId: target.clientId,
         taskId,
         workedOn,
         startedAt,
         endedAt,
         minutes,
-        billable: input.billable ?? true,
+        /*
+         * Billable only when there is somewhere to send it, and true by default only on a
+         * project. Client-level work is usually scoping or account care, which is a cost of
+         * winning the work rather than the work; internal hours can never be sold at all.
+         * An explicit choice always wins where the target allows one.
+         */
+        billable:
+          (target.projectId !== null || target.clientId !== null) &&
+          (input.billable ?? target.projectId !== null),
         description: input.description ?? null,
       });
 
-      await this.links.createWithin(tx, actor, {
-        fromId: id,
-        toId: input.projectId,
-        kind: 'logged_against',
-      });
+      /*
+       * Linked to whatever it is against, when it is against anything.
+       *
+       * Internal hours have nothing to appear on a timeline of, so they get no link rather
+       * than a link to a placeholder — which is the whole point of not inventing one.
+       */
+      const linkTo = target.projectId ?? target.clientId;
+      if (linkTo) {
+        await this.links.createWithin(tx, actor, {
+          fromId: id,
+          toId: linkTo,
+          kind: 'logged_against',
+        });
+      }
 
       // Linked to the task as well, so hours show on the task's own timeline.
       if (taskId) {
@@ -191,6 +211,21 @@ export class TimeService {
       );
     }
 
+    /*
+     * Moving an hour between a project, a client and internal.
+     *
+     * Both ids are considered together: setting one has to clear the other, or the row would
+     * fail the database's check with a message nobody can act on.
+     */
+    const retarget = patch.projectId !== undefined || patch.clientId !== undefined;
+    const target = retarget
+      ? await this.resolveTarget(
+          actor,
+          patch.projectId === undefined ? before.projectId : patch.projectId,
+          patch.clientId === undefined ? before.clientId : patch.clientId,
+        )
+      : { projectId: before.projectId, clientId: before.clientId, name: '' };
+
     const startedAt =
       patch.startedAt === undefined ? before.startedAt : this.parseInstantOrNull(patch.startedAt);
     const endedAt =
@@ -208,12 +243,22 @@ export class TimeService {
       await tx
         .update(entries)
         .set({
-          projectId: patch.projectId ?? before.projectId,
+          projectId: target.projectId,
+          clientId: target.clientId,
           workedOn,
           startedAt,
           endedAt,
           minutes,
-          billable: patch.billable ?? before.billable,
+          /*
+           * Billable follows the target when the target moves.
+           *
+           * Retargeting an hour to internal has to clear billable, or the write fails the
+           * check constraint — and an hour moved off a project is one nobody meant to keep
+           * selling anyway.
+           */
+          billable:
+            (target.projectId !== null || target.clientId !== null) &&
+            (patch.billable ?? before.billable),
           description: patch.description === undefined ? before.description : patch.description,
           updatedAt: new Date(),
         })
@@ -324,12 +369,8 @@ export class TimeService {
       )
       .orderBy(desc(entries.workedOn), desc(entries.startedAt), desc(entries.createdAt));
 
-    const projects = await this.projectNames(actor, rows.map((r) => r.projectId));
-    const decorated = rows.map((r) => ({
-      ...this.decorate(r),
-      projectName: projects.get(r.projectId)?.name ?? '(unavailable)',
-      clientName: projects.get(r.projectId)?.clientName ?? null,
-    }));
+    const label = await this.labelsFor(actor, rows);
+    const decorated = rows.map((r) => ({ ...this.decorate(r), ...label(r) }));
 
     // Grouped here rather than in the browser: the day totals are the point of the grouping,
     // and a total computed twice is a total that eventually disagrees with itself.
@@ -369,15 +410,11 @@ export class TimeService {
       .where(and(eq(entries.personId, personId), eq(entries.workedOn, date)))
       .orderBy(asc(entries.startedAt), asc(entries.createdAt));
 
-    const projects = await this.projectNames(actor, rows.map((r) => r.projectId));
+    const label = await this.labelsFor(actor, rows);
 
     return {
       date,
-      entries: rows.map((r) => ({
-        ...this.decorate(r),
-        projectName: projects.get(r.projectId)?.name ?? '(unavailable)',
-        clientName: projects.get(r.projectId)?.clientName ?? null,
-      })),
+      entries: rows.map((r) => ({ ...this.decorate(r), ...label(r) })),
       totalMinutes: rows.reduce((sum, r) => sum + this.effectiveMinutes(r), 0),
       billableMinutes: rows
         .filter((r) => r.billable)
@@ -390,11 +427,13 @@ export class TimeService {
     await this.require(actor, 'time.entries.write_own');
     const row = await this.runningEntry(actor.userId);
     if (!row) return { running: null };
-    const projects = await this.projectNames(actor, [row.projectId]);
+    const label = await this.labelsFor(actor, [row]);
     return {
       running: {
         ...this.decorate(row),
-        projectName: projects.get(row.projectId)?.name ?? '(unavailable)',
+        ...label(row),
+        // What the clock says it is against, whichever of the three shapes it is.
+        projectName: label(row).targetName,
       },
     };
   }
@@ -410,23 +449,34 @@ export class TimeService {
     const sunday = addDays(monday, 6);
     const week = await this.entriesBetween(personId, monday, sunday);
 
-    const projects = await this.projectNames(actor, week.map((e) => e.projectId));
-    const projectIds = [...new Set(week.map((e) => e.projectId))];
+    /*
+     * The week grid is one row per thing worked on, and "thing" now includes a client and
+     * internal. Keyed by whichever id an entry carries, with a fixed key for the hours that
+     * carry neither — otherwise a fortnight of internal work would collapse into a row
+     * labelled "(unavailable)" and look like a bug.
+     */
+    const label = await this.labelsFor(actor, week);
+    const keyOf = (e: { projectId: string | null; clientId: string | null }) =>
+      e.projectId ?? e.clientId ?? 'internal';
+    const keys = [...new Set(week.map(keyOf))];
 
-    const rows = projectIds.map((id) => ({
+    const rows = keys.map((id) => {
+      const first = week.find((e) => keyOf(e) === id)!;
+      return {
       id,
-      name: projects.get(id)?.name ?? '(unavailable)',
-      clientName: projects.get(id)?.clientName ?? null,
+      name: label(first).targetName,
+      clientName: label(first).clientName,
       days: Object.fromEntries(
         Array.from({ length: 7 }, (_, i) => {
           const day = addDays(monday, i);
           const minutes = week
-            .filter((e) => e.projectId === id && e.workedOn === day)
+            .filter((e) => keyOf(e) === id && e.workedOn === day)
             .reduce((sum, e) => sum + this.effectiveMinutes(e), 0);
           return [day, minutes];
         }),
       ),
-    }));
+      };
+    });
 
     return {
       weekOf: monday,
@@ -593,6 +643,35 @@ export class TimeService {
    * time is computed live — otherwise a timer running since this morning would show as
    * zero in every total.
    */
+  /**
+   * What an hour is against, checked once.
+   *
+   * Both ids are validated through the owning module rather than by a foreign key, for the
+   * reason `taskId` gives: Time may not depend on CRM. Passing both is refused here as well
+   * as by the database, because the caller deserves a sentence rather than a constraint name.
+   */
+  private async resolveTarget(
+    actor: Actor,
+    projectId?: string | null,
+    clientId?: string | null,
+  ): Promise<{ projectId: string | null; clientId: string | null; name: string }> {
+    if (projectId && clientId) {
+      throw new BadRequestException(
+        'An entry is against a project or a client, not both — the project already has one',
+      );
+    }
+    if (projectId) {
+      const project = await this.crm.getProject(actor, projectId);
+      return { projectId, clientId: null, name: project.name };
+    }
+    if (clientId) {
+      const client = await this.crm.getClient(actor, clientId);
+      return { projectId: null, clientId, name: client.name };
+    }
+    // Internal: admin, bookkeeping, our own product. Nobody to bill and nothing to look up.
+    return { projectId: null, clientId: null, name: 'Internal' };
+  }
+
   private effectiveMinutes(row: {
     minutes: number | null;
     startedAt: Date | null;
@@ -616,6 +695,58 @@ export class TimeService {
   }
 
   /** Project names come from CRM's service — one call per distinct project. */
+  /**
+   * What to call a set of entries, whatever they are against.
+   *
+   * One helper because there are four places that render a list of hours and three shapes an
+   * hour can have — and a name resolved four different ways is four chances for a project to
+   * read as "(unavailable)" on one screen and fine on another.
+   */
+  private async labelsFor(
+    actor: Actor,
+    rows: Array<{ projectId: string | null; clientId: string | null }>,
+  ) {
+    const projects = await this.projectNames(
+      actor,
+      rows.map((r) => r.projectId).filter((id): id is string => id !== null),
+    );
+    const clients = await this.clientNames(
+      actor,
+      rows.map((r) => r.clientId).filter((id): id is string => id !== null),
+    );
+
+    return (row: { projectId: string | null; clientId: string | null }) => {
+      if (row.projectId) {
+        const p = projects.get(row.projectId);
+        return {
+          projectName: p?.name ?? '(unavailable)',
+          clientName: p?.clientName ?? null,
+          targetName: p?.name ?? '(unavailable)',
+        };
+      }
+      if (row.clientId) {
+        const name = clients.get(row.clientId) ?? '(unavailable)';
+        return { projectName: null, clientName: name, targetName: name };
+      }
+      // Nothing to look up, and a name anyway — a blank cell reads as a bug.
+      return { projectName: null, clientName: null, targetName: 'Internal' };
+    };
+  }
+
+  private async clientNames(actor: Actor, clientIds: string[]) {
+    const map = new Map<string, string>();
+    await Promise.all(
+      [...new Set(clientIds)].map(async (id) => {
+        try {
+          map.set(id, (await this.crm.getClient(actor, id)).name);
+        } catch {
+          /* unreadable for this actor — rendered as unavailable */
+        }
+      }),
+    );
+    return map;
+  }
+
   private async projectNames(actor: Actor, projectIds: string[]) {
     const unique = [...new Set(projectIds)];
     const map = new Map<string, { name: string; clientName: string | null }>();

@@ -47,6 +47,7 @@ describe('TimeService', () => {
   let crm: CrmService;
   let time: TimeService;
   let projectId: string;
+  let clientId: string;
 
   beforeEach(async () => {
     await resetDb();
@@ -64,6 +65,7 @@ describe('TimeService', () => {
       budgetHours: 40,
     });
     projectId = project.id;
+    clientId = client.id;
   });
 
   // ── logging ──
@@ -390,5 +392,81 @@ describe('TimeService', () => {
         personId: crypto.randomUUID(),
       }),
     ).rejects.toThrow(/capability/);
+  });
+
+
+  /**
+   * What an hour is allowed to point at.
+   *
+   * Both ids were once required, which forced every hour onto a billable project of a paying
+   * customer — and the visible result was Finsera registering itself as its own client and
+   * opening a time-and-materials project to log building this platform against. A fake customer
+   * and a fake sale, in the pipeline and the burn reports, because the schema left nowhere else
+   * for the time to go.
+   */
+  describe('what an hour is against', () => {
+    it('records work on a project, billable by default', async () => {
+      const entry = await time.createEntry(actor, { projectId, workedOn: MONDAY, minutes: 60 });
+      expect(entry.projectId).toBe(projectId);
+      expect(entry.clientId).toBeNull();
+      expect(entry.billable).toBe(true);
+    });
+
+    /** Scoping, pre-sales, account care — real work for a client with no project yet. */
+    it('records work for a client with no project', async () => {
+      const entry = await time.createEntry(actor, { clientId, workedOn: MONDAY, minutes: 30 });
+      expect(entry.clientId).toBe(clientId);
+      expect(entry.projectId).toBeNull();
+      // Not billable by default: winning the work is a cost of the work, not the work.
+      expect(entry.billable).toBe(false);
+    });
+
+    it('records internal work against nothing at all', async () => {
+      const entry = await time.createEntry(actor, { workedOn: MONDAY, minutes: 120 });
+      expect(entry.projectId).toBeNull();
+      expect(entry.clientId).toBeNull();
+      expect(entry.billable).toBe(false);
+    });
+
+    it('refuses a project and a client at once', async () => {
+      // The project already has a client; storing a second one lets them disagree.
+      await expect(
+        time.createEntry(actor, { projectId, clientId, workedOn: MONDAY, minutes: 60 }),
+      ).rejects.toThrow(/not both/i);
+    });
+
+    /**
+     * The invariant the revenue figures rest on.
+     *
+     * An unattributed hour marked billable is an hour the business believes it can invoice and
+     * cannot. Enforced by the database as well as here.
+     */
+    it('will not mark an unattributed hour billable', async () => {
+      const entry = await time.createEntry(actor, { workedOn: MONDAY, minutes: 60, billable: true });
+      expect(entry.billable).toBe(false);
+    });
+
+    it('clears billable when an hour is moved off its project', async () => {
+      const entry = await time.createEntry(actor, { projectId, workedOn: MONDAY, minutes: 60 });
+      expect(entry.billable).toBe(true);
+
+      const moved = await time.updateEntry(actor, entry.id, { projectId: null });
+      expect(moved.projectId).toBeNull();
+      expect(moved.billable).toBe(false);
+    });
+
+    it('moves an hour from a project to a client', async () => {
+      const entry = await time.createEntry(actor, { projectId, workedOn: MONDAY, minutes: 60 });
+      const moved = await time.updateEntry(actor, entry.id, { projectId: null, clientId });
+      expect(moved.clientId).toBe(clientId);
+      expect(moved.projectId).toBeNull();
+    });
+
+    it('names internal hours rather than leaving them blank', async () => {
+      await time.createEntry(actor, { workedOn: MONDAY, minutes: 60 });
+      const day = await time.getDay(actor, { date: MONDAY });
+      // A blank cell where a project name goes reads as a failure to load.
+      expect(day.entries[0]!.targetName).toBe('Internal');
+    });
   });
 });

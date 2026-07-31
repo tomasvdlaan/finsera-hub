@@ -35,7 +35,25 @@ export const entries = time.table(
     id: uuid('id').primaryKey(), // same value as core.entities.id
 
     personId: uuid('person_id').notNull(),
-    projectId: uuid('project_id').notNull(),
+    /**
+     * What these hours are against — a project, a client, or neither.
+     *
+     * Both were once required, which forced every hour to belong to a billable project of a
+     * paying customer. The visible consequence was Finsera registering itself as its own
+     * client and opening a time-and-materials project called "Dashboard" to log building
+     * this platform against: a fake customer and a fake sale, in the pipeline and the burn
+     * reports, because there was nowhere else for the time to go.
+     *
+     * Three shapes now, and at most one of these two is ever set (see the check below):
+     *   projectId  — work on a project. The only shape `draftFromHours` can invoice.
+     *   clientId   — work for a client with no project yet: scoping, pre-sales, account care.
+     *   neither    — internal. Admin, bookkeeping, our own product.
+     *
+     * Registry ids rather than foreign keys, for the reason `taskId` gives below: Time may
+     * not depend on CRM. Both are validated through the registry.
+     */
+    projectId: uuid('project_id'),
+    clientId: uuid('client_id'),
     /**
      * Optional task these hours belong to.
      *
@@ -50,7 +68,16 @@ export const entries = time.table(
     endedAt: timestamp('ended_at', { withTimezone: true }),
     minutes: integer('minutes'), // null while running
 
-    billable: boolean('billable').notNull().default(true),
+    /**
+     * Defaults to false now.
+     *
+     * It defaulted to true, which was right when every hour belonged to a customer project
+     * and is wrong the moment internal work can be recorded: an admin afternoon that arrives
+     * pre-marked billable overstates what can actually be invoiced, and the figure it inflates
+     * is the one the business is run on. The tracker sets it explicitly when there is a
+     * project, which is the case where "billable" is a safe guess.
+     */
+    billable: boolean('billable').notNull().default(false),
     description: text('description'), // optional on purpose — required notes kill adoption
 
     /**
@@ -85,6 +112,28 @@ export const entries = time.table(
       .on(t.personId)
       .where(sql`${t.startedAt} IS NOT NULL AND ${t.endedAt} IS NULL`),
 
+    /*
+     * A project or a client, never both.
+     *
+     * The client of a project is the project's own business, so storing it twice would let
+     * an hour claim to be on Acme's project and for Vandenberg — and the pair would drift
+     * the first time a project moved. Internal work sets neither.
+     */
+    check(
+      'entries_one_target',
+      sql`${t.projectId} IS NULL OR ${t.clientId} IS NULL`,
+    ),
+    /*
+     * Only hours with somewhere to send them can be billable.
+     *
+     * The database enforces this rather than the service, because it is the invariant the
+     * revenue figures rest on: an unattributed hour marked billable is an hour the business
+     * believes it can invoice and cannot.
+     */
+    check(
+      'entries_billable_needs_target',
+      sql`${t.billable} = false OR ${t.projectId} IS NOT NULL OR ${t.clientId} IS NOT NULL`,
+    ),
     check('entries_minutes_positive', sql`${t.minutes} IS NULL OR ${t.minutes} > 0`),
     check('entries_minutes_sane', sql`${t.minutes} IS NULL OR ${t.minutes} <= 1440`),
 

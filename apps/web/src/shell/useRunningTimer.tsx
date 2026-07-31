@@ -79,12 +79,14 @@ function useTimerState() {
   }, [running]);
 
   const start = useCallback(
-    async (projectId: string, description?: string) => {
+    async (target: { projectId?: string | null; clientId?: string | null }, description?: string) => {
       setBusy(true);
       setError(null);
       try {
         await api.post('/time/entries', {
-          projectId,
+          // A project, a client, or neither — the clock does not care which.
+          projectId: target.projectId ?? null,
+          clientId: target.clientId ?? null,
           workedOn: new Date().toISOString().slice(0, 10),
           // A start with no end *is* the running entry — there is no separate timer record.
           startedAt: new Date().toISOString(),
