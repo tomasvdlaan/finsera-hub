@@ -1665,6 +1665,31 @@ a.badge:hover {
 .task-card.dragging {
   opacity: 0.4;
 }
+/*
+ * The carried card.
+ *
+ * Lifted rather than merely moved: a slight tilt and a heavier shadow are what make it read
+ * as picked up rather than as a duplicate that appeared. `cursor: grabbing` because the real
+ * handle is under the pointer but this element is what the pointer is over.
+ */
+.task-card.is-ghost {
+  cursor: grabbing;
+  box-shadow: var(--shadow-3);
+  transform: rotate(1.5deg);
+  /* It follows the pointer directly; the drag itself must not be animated. */
+  transition: none;
+  /* The overlay is outside the column, so it needs a width of its own. */
+  width: 17rem;
+  background: var(--surface-raised);
+}
+.task-card.is-ghost .drag-handle {
+  cursor: grabbing;
+}
+@media (prefers-reduced-motion: reduce) {
+  .task-card.is-ghost {
+    transform: none;
+  }
+}
 
 /*
  * The card, expanded.

@@ -1,3 +1,4 @@
+import { forwardRef, type CSSProperties, type ReactNode } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Avatar } from '../../shell/ui/primitives.js';
@@ -27,14 +28,7 @@ const TYPE_MARK: Record<string, { mark: string; label: string }> = {
  * blocker first, then how long it has sat still, then the picture, then everything that is
  * merely true about it.
  */
-export function TaskCard({
-  task,
-  columns,
-  onMove,
-  onPull,
-  onOpen,
-  selected,
-}: {
+export interface TaskCardProps {
   task: Task;
   columns: Array<{ key: string; label: string }>;
   onMove: (status: string) => void;
@@ -43,10 +37,60 @@ export function TaskCard({
   /** Open it in the preview beside the board. */
   onOpen?: () => void;
   selected?: boolean;
-}) {
+}
+
+export function TaskCard(props: TaskCardProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: task.id,
+    id: props.task.id,
   });
+
+  return (
+    <CardBody
+      {...props}
+      dragging={isDragging}
+      ref={setNodeRef}
+      style={{ transform: CSS.Translate.toString(transform), transition }}
+      handle={
+        // Only the handle starts a drag, so the title stays clickable and selectable.
+        <button
+          className="drag-handle"
+          {...attributes}
+          {...listeners}
+          aria-label={`Move ${props.task.title}`}
+        >
+          ⠿
+        </button>
+      }
+    />
+  );
+}
+
+/**
+ * The card as it looks while being carried.
+ *
+ * Rendered into dnd-kit's `DragOverlay`, which portals it to the document root — which is the
+ * point. `verticalListSortingStrategy` only positions items within one list, so the moment a
+ * card crossed into another column it stopped being transformed and sat frozen at its origin
+ * while the pointer carried on without it. An overlay is the documented answer for a board
+ * with more than one column, and it incidentally escapes `.board`'s scroll container, which
+ * was clipping the card as well.
+ */
+export function TaskCardGhost({ task, columns }: { task: Task; columns: TaskCardProps['columns'] }) {
+  return <CardBody task={task} columns={columns} onMove={() => undefined} isGhost />;
+}
+
+const CardBody = forwardRef<
+  HTMLDivElement,
+  TaskCardProps & {
+    dragging?: boolean;
+    isGhost?: boolean;
+    style?: CSSProperties;
+    handle?: ReactNode;
+  }
+>(function CardBody(
+  { task, columns, onMove, onPull, onOpen, selected, dragging, isGhost, style, handle },
+  ref,
+) {
 
   const estimate = hours(task.estimateMinutes);
   const overdue = isOverdue(task);
@@ -65,7 +109,8 @@ export function TaskCard({
   const classes = [
     'task-card',
     `task-card-${task.type}`,
-    isDragging && 'dragging',
+    dragging && 'dragging',
+    isGhost && 'is-ghost',
     stale && `age-${stale}`,
     task.blockedReason && 'is-blocked',
     selected && 'is-selected',
@@ -75,15 +120,8 @@ export function TaskCard({
     .join(' ');
 
   return (
-    <div
-      ref={setNodeRef}
-      className={classes}
-      style={{ transform: CSS.Translate.toString(transform), transition }}
-    >
-      {/* Only the handle starts a drag, so the title stays clickable and selectable. */}
-      <button className="drag-handle" {...attributes} {...listeners} aria-label={`Move ${task.title}`}>
-        ⠿
-      </button>
+    <div ref={ref} className={classes} style={style}>
+      {handle ?? <span className="drag-handle" aria-hidden="true">⠿</span>}
 
       <div className="task-card-body">
         <div className="task-card-title">
@@ -226,4 +264,4 @@ export function TaskCard({
       </div>
     </div>
   );
-}
+});

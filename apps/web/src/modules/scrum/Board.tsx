@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react
 import { Link, useSearchParams } from 'react-router-dom';
 import {
   DndContext,
+  DragOverlay,
   KeyboardSensor,
   PointerSensor,
   closestCorners,
@@ -9,6 +10,7 @@ import {
   useSensor,
   useSensors,
   type DragEndEvent,
+  type DragStartEvent,
 } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { api } from '../../lib/api.js';
@@ -16,7 +18,7 @@ import type { Project } from '../crm/types.js';
 import { Avatar } from '../../shell/ui/primitives.js';
 import { parseQuickAdd } from './quickAdd.js';
 import { SprintBar } from './SprintBar.js';
-import { TaskCard } from './TaskCard.js';
+import { TaskCard, TaskCardGhost } from './TaskCard.js';
 import { TaskPreview } from './TaskPreview.js';
 import {
   PRIORITIES,
@@ -215,6 +217,8 @@ export function Board() {
   const [filters, setFilters] = useState<Filters>(NO_FILTERS);
   const [lane, setLane] = useState<Lane>('none');
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  /** The card currently being carried, so the overlay has something to draw. */
+  const [carried, setCarried] = useState<Task | null>(null);
 
   const sensors = useSensors(
     // A small distance so a click on a card is not swallowed as a drag.
@@ -434,7 +438,12 @@ export function Board() {
     }
   };
 
+  const onDragStart = (event: DragStartEvent) => {
+    setCarried(tasks.find((t) => t.id === String(event.active.id)) ?? null);
+  };
+
   const onDragEnd = (event: DragEndEvent) => {
+    setCarried(null);
     const taskId = String(event.active.id);
     const over = event.over?.id ? String(event.over.id) : null;
     if (!over) return;
@@ -744,7 +753,13 @@ export function Board() {
 
       {board && (
         <div className={openId ? 'board-stage has-preview' : 'board-stage'}>
-          <DndContext sensors={sensors} collisionDetection={closestCorners} onDragEnd={onDragEnd}>
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCorners}
+            onDragStart={onDragStart}
+            onDragEnd={onDragEnd}
+            onDragCancel={() => setCarried(null)}
+          >
             <div className="board-lanes">
               {lanes.map((swim) => {
                 const byColumn = columnsOf(swim.tasks);
@@ -793,6 +808,17 @@ export function Board() {
                 <p className="muted">Nothing matches those filters.</p>
               )}
             </div>
+
+            {/*
+              The card you are actually carrying.
+              
+              Portalled to the document root by dnd-kit, which is what lets it cross columns
+              and escape `.board`'s scroll container — the original stays in place, dimmed, so
+              the column keeps its shape while you decide.
+            */}
+            <DragOverlay dropAnimation={{ duration: 180, easing: 'cubic-bezier(0.2, 0, 0, 1)' }}>
+              {carried && board && <TaskCardGhost task={carried} columns={board.columns} />}
+            </DragOverlay>
           </DndContext>
 
           {openId && (
