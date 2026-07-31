@@ -211,7 +211,6 @@ const CardBody = forwardRef<
           {task.priority !== 'normal' && (
             <span className={`badge priority-${task.priority}`}>{task.priority}</span>
           )}
-          {task.storyPoints != null && <span className="badge">{task.storyPoints} pts</span>}
           {estimate != null && <span className="muted">{estimate}h</span>}
           {task.dueOn && (
             <span className={overdue ? 'error' : 'muted'}>

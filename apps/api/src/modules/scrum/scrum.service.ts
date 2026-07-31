@@ -34,7 +34,6 @@ export interface CreateTaskInput {
   status?: string;
   assigneeId?: string | null;
   estimateMinutes?: number | null;
-  storyPoints?: number | null;
   priority?: string;
   /** story | bug | chore | spike. See validType for why the vocabulary is closed. */
   type?: string;
@@ -355,7 +354,6 @@ export class ScrumService {
   ): Promise<Omit<SprintSummary, 'returnedToBacklog'>> {
     const rows = await this.db
       .select({
-        storyPoints: tasks.storyPoints,
         estimateMinutes: tasks.estimateMinutes,
         status: tasks.status,
         completedAt: tasks.completedAt,
@@ -378,20 +376,13 @@ export class ScrumService {
 
     return {
       // The unit it could honestly report at the time, frozen. A backlog that was half
-      // pointed then does not become fully pointed later because somebody tidied up.
-      unit:
-        rows.length > 0 && rows.every((t) => t.storyPoints !== null)
-          ? 'points'
-          : rows.length > 0 && rows.every((t) => t.estimateMinutes !== null)
-            ? 'minutes'
-            : 'count',
+      // estimated then does not become fully estimated later because somebody tidied up.
+      unit: rows.length > 0 && rows.every((t) => t.estimateMinutes !== null) ? 'minutes' : 'count',
       committed: {
-        points: total(rows, (t) => t.storyPoints),
         minutes: total(rows, (t) => t.estimateMinutes),
         cards: rows.length,
       },
       completed: {
-        points: total(done, (t) => t.storyPoints),
         minutes: total(done, (t) => t.estimateMinutes),
         cards: done.length,
       },
@@ -410,7 +401,6 @@ export class ScrumService {
 
     const rows = await this.db
       .select({
-        storyPoints: tasks.storyPoints,
         estimateMinutes: tasks.estimateMinutes,
         status: tasks.status,
         completedAt: tasks.completedAt,
@@ -425,7 +415,6 @@ export class ScrumService {
     const sum = (pick: (t: (typeof rows)[number]) => number | null, only?: boolean) =>
       rows.reduce((n, t) => (only && !isDone(t) ? n : n + (pick(t) ?? 0)), 0);
 
-    const allPointed = rows.length > 0 && rows.every((t) => t.storyPoints !== null);
     const allEstimated = rows.length > 0 && rows.every((t) => t.estimateMinutes !== null);
 
     const today = new Date().toISOString().slice(0, 10);
@@ -438,9 +427,8 @@ export class ScrumService {
     );
 
     return {
-      /** Which of the three below a screen should show. Never a mixture. */
-      unit: allPointed ? ('points' as const) : allEstimated ? ('minutes' as const) : ('count' as const),
-      points: { done: sum((t) => t.storyPoints, true), total: sum((t) => t.storyPoints) },
+      /** Which of the two below a screen should show. Never a mixture. */
+      unit: allEstimated ? ('minutes' as const) : ('count' as const),
       minutes: { done: sum((t) => t.estimateMinutes, true), total: sum((t) => t.estimateMinutes) },
       cards: { done: rows.filter(isDone).length, total: rows.length },
       blocked: rows.filter((t) => t.blockedSince !== null && !isDone(t)).length,
@@ -501,7 +489,6 @@ export class ScrumService {
         status,
         assigneeId,
         estimateMinutes: input.estimateMinutes ?? null,
-        storyPoints: input.storyPoints ?? null,
         priority: this.validPriority(input.priority),
         type: this.validType(input.type),
         labels: input.labels ?? [],
@@ -578,7 +565,6 @@ export class ScrumService {
           assigneeId,
           estimateMinutes:
             patch.estimateMinutes === undefined ? before.estimateMinutes : patch.estimateMinutes,
-          storyPoints: patch.storyPoints === undefined ? before.storyPoints : patch.storyPoints,
           priority: patch.priority ? this.validPriority(patch.priority) : before.priority,
           type: patch.type ? this.validType(patch.type) : before.type,
           labels: patch.labels ?? before.labels,
@@ -1238,7 +1224,6 @@ export class ScrumService {
       CREATE VIEW scrum.v_tasks AS
       SELECT t.id, t.project_id, t.title, t.status, t.priority, t.assignee_id,
              t.estimate_minutes, t.estimate_minutes / 60.0 AS estimate_hours,
-             t.story_points,
              t.due_on, t.parent_id, t.sprint_id,
              (t.completed_at IS NOT NULL) AS completed, t.completed_at,
              -- Blocked, and for how long. The duration is what an insight rule can act on;
@@ -1258,17 +1243,18 @@ export class ScrumService {
       CREATE VIEW scrum.v_sprints AS
       SELECT s.id, s.project_id, s.name, s.goal, s.starts_on, s.ends_on, s.state,
              -- Was a bare count that included archived cards, so a sprint's size grew every
-             -- time somebody tidied up. Done vs total, and points, are what a review reads.
+             -- time somebody tidied up. Done vs total, in cards and in estimated minutes,
+             -- is what a review reads.
              (SELECT count(*) FROM scrum.tasks t
                WHERE t.sprint_id = s.id AND t.archived_at IS NULL) AS task_count,
              (SELECT count(*) FROM scrum.tasks t
                WHERE t.sprint_id = s.id AND t.archived_at IS NULL
                  AND t.completed_at IS NOT NULL) AS done_count,
-             (SELECT coalesce(sum(t.story_points), 0) FROM scrum.tasks t
-               WHERE t.sprint_id = s.id AND t.archived_at IS NULL) AS points_total,
-             (SELECT coalesce(sum(t.story_points), 0) FROM scrum.tasks t
+             (SELECT coalesce(sum(t.estimate_minutes), 0) FROM scrum.tasks t
+               WHERE t.sprint_id = s.id AND t.archived_at IS NULL) AS minutes_total,
+             (SELECT coalesce(sum(t.estimate_minutes), 0) FROM scrum.tasks t
                WHERE t.sprint_id = s.id AND t.archived_at IS NULL
-                 AND t.completed_at IS NOT NULL) AS points_done
+                 AND t.completed_at IS NOT NULL) AS minutes_done
         FROM scrum.sprints s
     `);
   }

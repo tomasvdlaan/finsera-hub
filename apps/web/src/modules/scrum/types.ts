@@ -26,7 +26,6 @@ export interface Task {
   assigneeId: string | null;
   estimateMinutes: number | null;
   /** Beside minutes, not instead of them. See the column comment in scrum.schema.ts. */
-  storyPoints: number | null;
   priority: 'low' | 'normal' | 'high' | 'urgent';
   /**
    * story | bug | chore | spike.
@@ -94,9 +93,8 @@ export const ageTone = (days: number): 'stale' | 'old' | null =>
   days >= 14 ? 'old' : days >= 5 ? 'stale' : null;
 
 export interface SprintProgress {
-  /** Which of the three a screen should show. Decided server-side so every screen agrees. */
-  unit: 'points' | 'minutes' | 'count';
-  points: { done: number; total: number };
+  /** Which of the two a screen should show. Decided server-side so every screen agrees. */
+  unit: 'minutes' | 'count';
   minutes: { done: number; total: number };
   cards: { done: number; total: number };
   blocked: number;
@@ -111,9 +109,9 @@ export interface SprintProgress {
  * sweep. Null while a sprint is still open.
  */
 export interface SprintSummary {
-  unit: 'points' | 'minutes' | 'count';
-  committed: { points: number; minutes: number; cards: number };
-  completed: { points: number; minutes: number; cards: number };
+  unit: 'minutes' | 'count';
+  committed: { minutes: number; cards: number };
+  completed: { minutes: number; cards: number };
   /** Completed cards by kind. The retrospective's one useful sentence. */
   byType: Record<string, number>;
   returnedToBacklog: number;
@@ -135,7 +133,6 @@ export interface Sprint {
 
 /** What a closed sprint delivered, in the unit it could honestly report at the time. */
 export function deliveredLabel(s: SprintSummary): string {
-  if (s.unit === 'points') return `${s.completed.points} of ${s.committed.points} pts`;
   if (s.unit === 'minutes') {
     const h = (m: number) => Math.round((m / 60) * 10) / 10;
     return `${h(s.completed.minutes)}h of ${h(s.committed.minutes)}h`;
@@ -145,11 +142,7 @@ export function deliveredLabel(s: SprintSummary): string {
 
 /** The delivered figure alone, for comparing one sprint against the next. */
 export const deliveredValue = (s: SprintSummary): number =>
-  s.unit === 'points'
-    ? s.completed.points
-    : s.unit === 'minutes'
-      ? Math.round((s.completed.minutes / 60) * 10) / 10
-      : s.completed.cards;
+  s.unit === 'minutes' ? Math.round((s.completed.minutes / 60) * 10) / 10 : s.completed.cards;
 
 /**
  * How much of what it took on a sprint finished, as a fraction.
@@ -159,11 +152,9 @@ export const deliveredValue = (s: SprintSummary): number =>
  */
 export function deliveredFraction(s: SprintSummary): number | null {
   const { completed, committed } =
-    s.unit === 'points'
-      ? { completed: s.completed.points, committed: s.committed.points }
-      : s.unit === 'minutes'
-        ? { completed: s.completed.minutes, committed: s.committed.minutes }
-        : { completed: s.completed.cards, committed: s.committed.cards };
+    s.unit === 'minutes'
+      ? { completed: s.completed.minutes, committed: s.committed.minutes }
+      : { completed: s.completed.cards, committed: s.committed.cards };
   return committed > 0 ? Math.min(1, completed / committed) : null;
 }
 
@@ -174,14 +165,12 @@ export function deliveredFraction(s: SprintSummary): number | null {
  * 0 of 0, which every naive percentage renders as complete.
  */
 export function sprintFraction(p: SprintProgress): number | null {
-  const { done, total } =
-    p.unit === 'points' ? p.points : p.unit === 'minutes' ? p.minutes : p.cards;
+  const { done, total } = p.unit === 'minutes' ? p.minutes : p.cards;
   return total > 0 ? Math.min(1, done / total) : null;
 }
 
 /** What the progress says, in words, naming its unit so nobody has to guess. */
 export function sprintProgressLabel(p: SprintProgress): string {
-  if (p.unit === 'points') return `${p.points.done} of ${p.points.total} pts`;
   if (p.unit === 'minutes') {
     const h = (m: number) => Math.round((m / 60) * 10) / 10;
     return `${h(p.minutes.done)}h of ${h(p.minutes.total)}h`;

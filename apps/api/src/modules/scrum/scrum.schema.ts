@@ -69,17 +69,17 @@ export const boards = scrum.table('boards', {
  * what was missed is destroyed by the act of finishing.
  *
  * `committed` is everything that was in it at the end; `completed` is the part that landed.
- * Both carry all three units so a later screen can compare like with like, and `unit` records
- * which one the sprint could honestly report at the time — a backlog that was half-pointed
- * then does not become fully pointed later because somebody tidied up.
+ * Both carry both units so a later screen can compare like with like, and `unit` records which
+ * one the sprint could honestly report at the time — a backlog that was half-estimated then
+ * does not become fully estimated later because somebody tidied up.
  *
  * `byType` counts only completed cards. It exists for the one sentence a retrospective
  * actually wants: two fifths of this went on bugs nobody planned.
  */
 export interface SprintSummary {
-  unit: 'points' | 'minutes' | 'count';
-  committed: { points: number; minutes: number; cards: number };
-  completed: { points: number; minutes: number; cards: number };
+  unit: 'minutes' | 'count';
+  committed: { minutes: number; cards: number };
+  completed: { minutes: number; cards: number };
   /** Completed cards by kind — story, bug, chore, spike. */
   byType: Record<string, number>;
   returnedToBacklog: number;
@@ -129,20 +129,16 @@ export const tasks = scrum.table(
      * this remains the estimate the money side of the platform reads.
      */
     estimateMinutes: integer('estimate_minutes'),
-    /**
-     * Story points, added beside minutes rather than instead of them.
+    /*
+     * There was a `story_points` column here, and it is gone.
      *
-     * The two answer different questions and neither converts to the other: minutes say what
-     * a card will cost, points say how big it feels relative to the others. Points exist to
-     * launder estimation bias across several estimators and converge through velocity, so for
-     * one person they are a unit with a sample size of one — kept because sprint progress in
-     * points is what a SCRUM team reads, and because a half-pointed backlog still reports
-     * something true through minutes.
-     *
-     * If a sprint or two goes by with these never set, the honest move is to drop the column
-     * rather than keep a field the UI has to apologise for.
+     * It was added beside minutes with an explicit condition attached: "if a sprint or two goes
+     * by with these never set, the honest move is to drop the column rather than keep a field
+     * the UI has to apologise for." Eleven cards were created and not one was ever pointed,
+     * while ten of the eleven carried an estimate — so the condition was met and the column
+     * went. Minutes are the platform's one unit for effort, comparable against hours logged
+     * and the project budget, which points never were.
      */
-    storyPoints: integer('story_points'),
     priority: text('priority').notNull().default('normal'),
     /**
      * story | bug | chore | spike.
@@ -196,12 +192,6 @@ export const tasks = scrum.table(
     check(
       'tasks_estimate_sane',
       sql`${t.estimateMinutes} IS NULL OR (${t.estimateMinutes} > 0 AND ${t.estimateMinutes} <= 100000)`,
-    ),
-    // Zero is a real answer — a card that turns out to be nothing — but a hundred is not an
-    // estimate, it is a card that should have been split.
-    check(
-      'tasks_points_sane',
-      sql`${t.storyPoints} IS NULL OR (${t.storyPoints} >= 0 AND ${t.storyPoints} <= 100)`,
     ),
     // A task cannot be its own parent; deeper cycles are checked in the service.
     check('tasks_not_own_parent', sql`${t.parentId} IS NULL OR ${t.parentId} <> ${t.id}`),

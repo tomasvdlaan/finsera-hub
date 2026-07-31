@@ -20,7 +20,6 @@ const TYPE_TONE: Record<string, string> = {
 };
 
 const UNIT_WORD: Record<SprintSummary['unit'], string> = {
-  points: 'points',
   minutes: 'hours',
   count: 'cards',
 };
@@ -73,7 +72,7 @@ function TypeMix({ byType }: { byType: Record<string, number> }) {
  * card and never added up.
  *
  * Velocity is only shown across sprints that reported the same unit. A run of "13, 8, 4"
- * where the first two are points and the third is cards is not a trend, it is three numbers
+ * where the first two are hours and the third is cards is not a trend, it is three numbers
  * in a row — and averaging them would be worse than saying nothing.
  */
 export function SprintHistory() {
@@ -120,7 +119,7 @@ export function SprintHistory() {
    * Velocity, only where it means something.
    *
    * Sprints are grouped into consecutive runs that agree on a unit, and the most recent run
-   * with at least two sprints in it wins. Comparing three points against four cards is not a
+   * with at least two sprints in it wins. Comparing three hours against four cards is not a
    * comparison, and a chart that draws the line anyway lies quietly.
    *
    * Skipping past a shorter, more recent run rather than giving up on it: one sprint where

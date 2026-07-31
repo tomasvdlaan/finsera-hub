@@ -145,14 +145,14 @@ describe('ScrumService sprints', () => {
       projectId,
       title: 'Not going to happen',
       sprintId: created.id,
-      storyPoints: 5,
+      estimateMinutes: 300,
       type: 'story',
     });
     const landed = await scrum.createTask(actor, {
       projectId,
       title: 'Did happen',
       sprintId: created.id,
-      storyPoints: 3,
+      estimateMinutes: 180,
       type: 'bug',
     });
     await scrum.moveTask(actor, landed.id, { status: 'done' });
@@ -160,8 +160,8 @@ describe('ScrumService sprints', () => {
     const closed = await scrum.completeSprint(actor, created.id);
     const summary = (await scrum.getSprint(actor, created.id)).summary!;
 
-    expect(summary.committed).toMatchObject({ points: 8, cards: 2 });
-    expect(summary.completed).toMatchObject({ points: 3, cards: 1 });
+    expect(summary.committed).toMatchObject({ minutes: 480, cards: 2 });
+    expect(summary.completed).toMatchObject({ minutes: 180, cards: 1 });
     expect(summary.returnedToBacklog).toBe(1);
     // The retrospective sentence: what kind of work actually got delivered.
     expect(summary.byType).toEqual({ bug: 1 });
@@ -183,13 +183,13 @@ describe('ScrumService sprints', () => {
     await scrum.moveTask(actor, a.id, { status: 'done' });
     await scrum.completeSprint(actor, created.id);
 
-    // Nothing was pointed or estimated at the time, so it could only ever report cards.
+    // Nothing was estimated at the time, so it could only ever report cards.
     const summary = (await scrum.getSprint(actor, created.id)).summary!;
     expect(summary.unit).toBe('count');
     expect(summary.completed.cards).toBe(1);
 
-    // Pointing the survivor afterwards must not retro-fit a unit onto a closed sprint.
-    await scrum.updateTask(actor, a.id, { storyPoints: 8 });
+    // Estimating the survivor afterwards must not retro-fit a unit onto a closed sprint.
+    await scrum.updateTask(actor, a.id, { estimateMinutes: 480 });
     expect((await scrum.getSprint(actor, created.id)).summary!.unit).toBe('count');
   });
 
@@ -208,38 +208,30 @@ describe('ScrumService sprints', () => {
 
   // ── the unit, which is the part that can quietly lie ──
 
-  it('reports points only when every card has them', async () => {
-    const created = await sprint();
-    await scrum.createTask(actor, { projectId, title: 'A', sprintId: created.id, storyPoints: 3 });
-    const b = await scrum.createTask(actor, {
-      projectId,
-      title: 'B',
-      sprintId: created.id,
-      storyPoints: 5,
-    });
-    await scrum.moveTask(actor, b.id, { status: 'done' });
-
-    const { progress } = await scrum.getSprint(actor, created.id);
-    expect(progress.unit).toBe('points');
-    expect(progress.points).toEqual({ done: 5, total: 8 });
-  });
-
-  it('falls back to hours when nothing is pointed', async () => {
+  it('reports hours only when every card is estimated', async () => {
     const created = await sprint();
     await scrum.createTask(actor, {
       projectId,
       title: 'A',
       sprintId: created.id,
-      estimateMinutes: 120,
+      estimateMinutes: 180,
     });
+    const b = await scrum.createTask(actor, {
+      projectId,
+      title: 'B',
+      sprintId: created.id,
+      estimateMinutes: 300,
+    });
+    await scrum.moveTask(actor, b.id, { status: 'done' });
+
     const { progress } = await scrum.getSprint(actor, created.id);
     expect(progress.unit).toBe('minutes');
-    expect(progress.minutes.total).toBe(120);
+    expect(progress.minutes).toEqual({ done: 300, total: 480 });
   });
 
-  it('counts cards rather than mixing units on a half-pointed sprint', async () => {
+  it('counts cards rather than mixing units on a half-estimated sprint', async () => {
     const created = await sprint();
-    await scrum.createTask(actor, { projectId, title: 'A', sprintId: created.id, storyPoints: 3 });
+    await scrum.createTask(actor, { projectId, title: 'A', sprintId: created.id });
     await scrum.createTask(actor, {
       projectId,
       title: 'B',
@@ -257,7 +249,7 @@ describe('ScrumService sprints', () => {
   it('counts cards for an empty sprint rather than claiming a full one', async () => {
     const created = await sprint();
     const { progress } = await scrum.getSprint(actor, created.id);
-    // 0 of 0 points would render as 100% complete on any progress bar.
+    // 0 of 0 hours would render as 100% complete on any progress bar.
     expect(progress.unit).toBe('count');
     expect(progress.cards).toEqual({ done: 0, total: 0 });
   });

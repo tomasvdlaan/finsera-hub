@@ -50,12 +50,13 @@ export const scrumManifest = defineManifest({
     {
       view: 'scrum.v_tasks',
       description:
-        'Tasks with status, estimate in minutes and points, completion, and whether and for ' +
-        'how long they are blocked.',
+        'Tasks with status, estimate in minutes, completion, and whether and for how long ' +
+        'they are blocked.',
     },
     {
       view: 'scrum.v_sprints',
-      description: 'Sprints with their goal, dates, state, and cards and points done vs total.',
+      description:
+        'Sprints with their goal, dates, state, and cards and estimated minutes done vs total.',
     },
   ],
 
