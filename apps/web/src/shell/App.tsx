@@ -14,6 +14,7 @@ import { api } from '../lib/api.js';
 import { webModules } from '../modules/index.js';
 import type { NavItem } from '../modules/types.js';
 import { AssistantPage } from './AssistantPage.js';
+import { StarredAnswers } from './StarredAnswers.js';
 import { CommandBar } from './CommandBar.js';
 import { Sidebar, type SidebarCounts } from './Sidebar.js';
 import { LiveMeetingProvider } from './LiveMeeting.js';
@@ -217,6 +218,8 @@ function Shell() {
             <Route key={path} path={path} element={<Component />} />
           ))}
           <Route path="/assistant" element={<AssistantPage />} />
+          {/* Before the :id route, or "starred" is read as a conversation id. */}
+          <Route path="/assistant/starred" element={<StarredAnswers />} />
           <Route path="/assistant/:id" element={<AssistantPage />} />
           <Route path="/platform/modules" element={<Modules />} />
           <Route path="/platform/settings" element={<Settings />} />

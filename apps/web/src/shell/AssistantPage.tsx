@@ -7,10 +7,14 @@ import {
   ConversationView,
   listConversations,
   useConversation,
+  type ConversationQuery,
   type ConversationSummary,
+  type Folder,
+  type SavedView,
+  type Tag,
 } from './conversation/index.js';
 import { api } from '../lib/api.js';
-import { ConversationList, type Folder } from './ConversationList.js';
+import { ConversationList } from './ConversationList.js';
 
 /**
  * The assistant, with room and a memory.
@@ -31,21 +35,23 @@ export function AssistantPage() {
   const { turns, conversationId, busy, waited, error, ask, open, reset, stop, regenerate } =
     useConversation();
   const [folders, setFolders] = useState<Folder[]>([]);
+  const [tags, setTags] = useState<Tag[]>([]);
+  const [views, setViews] = useState<SavedView[]>([]);
+  const [query, setQuery] = useState<ConversationQuery>({});
   const [history, setHistory] = useState<ConversationSummary[]>([]);
   const bottom = useRef<HTMLDivElement>(null);
 
   useDocumentTitle('Assistant');
 
   const refreshHistory = useCallback(() => {
-    listConversations()
+    listConversations(query)
       .then(setHistory)
       // The list is a convenience; failing to load it must not take the page down.
       .catch(() => setHistory([]));
-    api
-      .get<Folder[]>('/assistant/folders')
-      .then(setFolders)
-      .catch(() => setFolders([]));
-  }, []);
+    api.get<Folder[]>('/assistant/folders').then(setFolders).catch(() => setFolders([]));
+    api.get<Tag[]>('/assistant/tags').then(setTags).catch(() => setTags([]));
+    api.get<SavedView[]>('/assistant/views').then(setViews).catch(() => setViews([]));
+  }, [query]);
 
   useEffect(refreshHistory, [refreshHistory]);
 
@@ -121,6 +127,10 @@ export function AssistantPage() {
       <ConversationList
         history={history}
         folders={folders}
+        tags={tags}
+        views={views}
+        query={query}
+        onQuery={setQuery}
         activeId={id ?? conversationId}
         onOpen={(cid) => navigate(`/assistant/${cid}`)}
         onChanged={refreshHistory}
@@ -141,6 +151,23 @@ export function AssistantPage() {
           waited={waited}
           onStop={stop}
           onRegenerate={() => void regenerate()}
+          onStar={(turn) =>
+            void api
+              .post(`/assistant/messages/${turn.messageId}/mark`, { starred: !turn.starred })
+              .then(() => {
+                if (id) void open(id);
+              })
+          }
+          onSplit={(turn) =>
+            void api
+              .post(`/assistant/conversations/${conversationId}/split`, {
+                messageId: turn.messageId,
+              })
+              .then((r) => {
+                refreshHistory();
+                navigate(`/assistant/${(r as { id: string }).id}`);
+              })
+          }
         />
         )}
         <div ref={bottom} />

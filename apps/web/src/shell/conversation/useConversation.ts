@@ -24,6 +24,15 @@ export interface Reference {
 export interface Turn {
   role: 'user' | 'assistant';
   content: string;
+  /**
+   * The stored message, when there is one.
+   *
+   * Absent on a turn that has only just streamed — it is written after the answer completes,
+   * so starring or splitting is offered on reopened threads and on completed answers rather
+   * than on something that does not exist in the database yet.
+   */
+  messageId?: string;
+  starred?: boolean;
   toolCalls?: ToolCall[];
   references?: Reference[];
   pending?: boolean;
@@ -49,8 +58,51 @@ export interface ConversationSummary {
   id: string;
   title: string | null;
   folderId: string | null;
+  subjectId: string | null;
   pinnedAt: string | null;
+  archivedAt: string | null;
   updatedAt: string;
+  /** Why a search matched, when there was a search. */
+  snippet: string | null;
+  tags: Tag[];
+  /** The record this thread is about, named through the registry. */
+  subject: { id: string; entityType: string; displayName: string; urlPath: string } | null;
+}
+
+export interface Tag {
+  id: string;
+  name: string;
+  colour: string | null;
+}
+
+export interface Folder {
+  id: string;
+  name: string;
+  parentId: string | null;
+  position: number;
+  colour: string | null;
+  emoji: string | null;
+}
+
+/** Everything the list can be narrowed by. A saved search stores one of these. */
+export interface ConversationQuery {
+  q?: string;
+  folderId?: string | 'none';
+  tagId?: string;
+  subjectId?: string;
+  usedTool?: string;
+  since?: string;
+  until?: string;
+  pinnedOnly?: boolean;
+  includeArchived?: boolean;
+  archivedOnly?: boolean;
+  sort?: 'recent' | 'oldest' | 'title';
+}
+
+export interface SavedView {
+  id: string;
+  name: string;
+  query: ConversationQuery;
 }
 
 /**
@@ -105,10 +157,12 @@ export function useConversation() {
       const res = await api.get<{
         id: string;
         messages: Array<{
+          id: string;
           role: 'user' | 'assistant';
           content: string;
           toolCalls?: ToolCall[];
           references?: Reference[];
+          starredAt?: string | null;
         }>;
       }>(`/assistant/conversations/${id}`);
       setConversationId(res.id);
@@ -116,6 +170,10 @@ export function useConversation() {
         res.messages.map((m) => ({
           role: m.role,
           content: m.content,
+          // Carried so a reopened answer can be starred or split from — the two actions that
+          // need the row in the database, not the text on screen.
+          messageId: m.id,
+          starred: Boolean(m.starredAt),
           toolCalls: m.toolCalls,
           references: m.references,
         })),
@@ -271,7 +329,12 @@ export function useConversation() {
 }
 
 /** Every conversation this user has had. The endpoint has existed since the assistant did. */
-export async function listConversations(query?: string): Promise<ConversationSummary[]> {
-  const q = query?.trim() ? `?q=${encodeURIComponent(query.trim())}` : '';
-  return api.get<ConversationSummary[]>(`/assistant/conversations${q}`);
+export async function listConversations(query: ConversationQuery = {}): Promise<ConversationSummary[]> {
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries(query)) {
+    if (v === undefined || v === null || v === '' || v === false) continue;
+    params.set(k, String(v));
+  }
+  const qs = params.toString();
+  return api.get<ConversationSummary[]>(`/assistant/conversations${qs ? `?${qs}` : ''}`);
 }

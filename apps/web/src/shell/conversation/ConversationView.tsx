@@ -77,6 +77,8 @@ export function ConversationView({
   compact,
   onStop,
   onRegenerate,
+  onStar,
+  onSplit,
 }: {
   turns: Turn[];
   busy?: boolean;
@@ -87,6 +89,10 @@ export function ConversationView({
   /** Give up on the answer in flight, keeping whatever arrived. */
   onStop?: () => void;
   onRegenerate?: () => void;
+  /** Keep this answer, away from the thread it is buried in. */
+  onStar?: (turn: Turn) => void;
+  /** Cut the thread here, where the subject changed. */
+  onSplit?: (turn: Turn) => void;
 }) {
   const last = turns.length - 1;
   return (
@@ -135,6 +141,17 @@ export function ConversationView({
               {i === last && onRegenerate && !busy && (
                 <button type="button" className="link-button" onClick={onRegenerate}>
                   try again
+                </button>
+              )}
+              {onStar && turn.messageId && (
+                <button type="button" className="link-button" onClick={() => onStar(turn)}>
+                  {turn.starred ? 'unstar' : 'star'}
+                </button>
+              )}
+              {/* Not on the first answer: a split there would move the whole thread. */}
+              {onSplit && turn.messageId && i > 1 && (
+                <button type="button" className="link-button" onClick={() => onSplit(turn)}>
+                  split here
                 </button>
               )}
             </div>

@@ -26,15 +26,30 @@ const PATHS: Record<string, string> = {
   search: 'M21 21l-4.3-4.3M17 10.5a6.5 6.5 0 1 1-13 0 6.5 6.5 0 0 1 13 0Z',
   settings: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 7 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0-1.1-2.7H1a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 2.6 7a1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H7a1.6 1.6 0 0 0 1-1.5V1a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V7a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1Z',
   dot: 'M12 12h.01',
+
+  // Added for the conversation list, where a row has room for a glyph and not for a word.
+  pin: 'M9 3h6l-1 6 4 4v2H6v-2l4-4zM12 15v6',
+  archive: 'M3 7h18v3H3zM5 10v10h14V10M10 14h4',
+  trash: 'M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13M10 11v6M14 11v6',
+  pencil: 'M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17z',
+  download: 'M12 4v10M8 11l4 3 4-3M4 19h16',
+  star: 'm12 4 2.4 5 5.6.8-4 3.9 1 5.5-5-2.6-5 2.6 1-5.5-4-3.9 5.6-.8z',
+  scissors: 'M6.5 8.5 20 20M6.5 15.5 20 4M9 6a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0ZM9 18a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0Z',
+  plus: 'M12 5v14M5 12h14',
+  more: 'M6 12h.01M12 12h.01M18 12h.01',
+  chevron: 'm9 6 6 6-6 6',
+  check: 'M4 12.5 9 18 20 6',
+  x: 'M6 6l12 12M18 6 6 18',
+  compass: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18ZM15.5 8.5l-2 5-5 2 2-5z',
 };
 
-export function Icon({ name }: { name?: string }) {
+export function Icon({ name, size = 16 }: { name?: string; size?: number }) {
   return (
     <svg
       className="nav-icon"
       viewBox="0 0 24 24"
-      width="16"
-      height="16"
+      width={size}
+      height={size}
       fill="none"
       stroke="currentColor"
       strokeWidth="1.7"
