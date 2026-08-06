@@ -14,17 +14,33 @@ const rule = (name: string) => {
  * a database — and severity is what decides whether a rule can ever reach the front door.
  */
 describe('insight severities', () => {
-  it('lets stalled work reach the attention queue', () => {
+  it('lets aging work reach the attention queue', () => {
     // It was 'info', the only rule in the file that was, and the only rule about work rather
     // than money — so the front door's action queue could contain nothing but money. This is
     // the assertion that stops that being reintroduced.
-    const fortnight = rule('task_stalled').toCandidate({
+    const fortnight = rule('task_aging_wip').toCandidate({
       id: crypto.randomUUID(),
       title: 'A task',
       status: 'in_progress',
-      days_still: 14,
+      current_flow: 'active',
+      has_history: true,
+      days_in_flight: 14,
     });
     expect(fortnight.severity).toBe('attention');
+  });
+
+  it('says "at most" for a card whose age is inferred rather than measured', () => {
+    // Cards created before the transitions table have no start to measure from, so the age is
+    // bounded by when they were made. Printing that as a measurement would be a small lie.
+    const inferred = rule('task_aging_wip').toCandidate({
+      id: crypto.randomUUID(),
+      title: 'Older than the table',
+      status: 'in_progress',
+      current_flow: 'active',
+      has_history: false,
+      days_in_flight: 20,
+    });
+    expect(inferred.title).toMatch(/in flight at most 20 days/);
   });
 
   it('lets a blocker reach the attention queue quickly', () => {
@@ -36,9 +52,9 @@ describe('insight severities', () => {
       project_name: 'Power BI',
     });
 
-    // Faster than task_stalled's fortnight on purpose. A stalled task might have been quietly
-    // dropped; a blocker is a thing somebody wrote down as being in the way, so somebody
-    // already knows what needs to happen.
+    // Faster than aging work's fortnight on purpose. An old card might just be big; a blocker
+    // is a thing somebody wrote down as being in the way, so somebody already knows what
+    // needs to happen.
     expect(candidate.severity).toBe('attention');
     expect(candidate.subjectType).toBe('task');
     expect(candidate.title).toMatch(/blocked for 3 days/);
@@ -55,15 +71,62 @@ describe('insight severities', () => {
     expect(candidate.severity).toBe('urgent');
   });
 
-  it('escalates work that has been stuck a month', () => {
-    const month = rule('task_stalled').toCandidate({
+  it('escalates work that has been in flight a month', () => {
+    const month = rule('task_aging_wip').toCandidate({
       id: crypto.randomUUID(),
       title: 'A task',
       status: 'waiting_on_client',
-      days_still: 31,
+      current_flow: 'waiting',
+      has_history: true,
+      days_in_flight: 31,
     });
     // A fortnight is a nudge; a month is a decision about whether the work is still happening.
     expect(month.severity).toBe('urgent');
+  });
+
+  it('turns a sprint ending with work open into something you are told', () => {
+    // The first thing that has ever read scrum.v_sprints, which has been created on every
+    // boot since the module shipped and queried by exactly one test.
+    const friday = rule('sprint_ending_soon_with_open_work').toCandidate({
+      id: crypto.randomUUID(),
+      name: 'Sprint 4',
+      ends_on: '2026-08-14',
+      task_count: 9,
+      done_count: 4,
+      days_left: 0,
+      open_count: 5,
+      project_name: 'Power BI',
+    });
+    expect(friday.severity).toBe('urgent');
+    expect(friday.subjectType).toBe('sprint');
+    expect(friday.title).toMatch(/ends today with 5 open/);
+  });
+
+  it('names the client sitting on work', () => {
+    // "We are blocked on them" becomes evidence when a deadline slips, which is the whole
+    // reason waiting-on-client is a default column.
+    const waiting = rule('waiting_on_client_too_long').toCandidate({
+      id: crypto.randomUUID(),
+      title: 'Supplier page',
+      days_waiting: 9,
+      project_name: 'Power BI',
+      client_name: 'DocHorse',
+    });
+    expect(waiting.title).toMatch(/DocHorse has had "Supplier page" for 9 days/);
+    expect(waiting.severity).toBe('attention');
+  });
+
+  it('tells you a task is past its due date, which nothing ever did', () => {
+    const overdue = rule('task_overdue').toCandidate({
+      id: crypto.randomUUID(),
+      title: 'Model the spend dataset',
+      status: 'in_progress',
+      due_on: '2026-07-30',
+      days_over: 7,
+      project_name: 'Power BI',
+    });
+    expect(overdue.severity).toBe('urgent');
+    expect(overdue.title).toMatch(/was due 7 days ago/);
   });
 
   it('has no rule that can never be seen', () => {

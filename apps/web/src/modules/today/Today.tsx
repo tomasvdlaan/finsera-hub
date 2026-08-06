@@ -72,6 +72,8 @@ function subjectPath(i: Insight): string | null {
       return `/crm/clients/${i.subjectId}`;
     case 'task':
       return `/scrum/tasks/${i.subjectId}`;
+    case 'sprint':
+      return `/scrum/sprints/${i.subjectId}`;
     case 'meeting':
       return `/meetings/${i.subjectId}`;
     default:

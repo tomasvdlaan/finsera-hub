@@ -23,6 +23,7 @@ import {
   flowOf,
   boards,
   sprints,
+  sprintCapacity,
   sprintScopeChanges,
   taskTransitions,
   tasks,
@@ -367,6 +368,93 @@ export class ScrumService {
     });
 
     return this.getSprint(actor, id);
+  }
+
+  /**
+   * Correct a sprint after it exists.
+   *
+   * Name, dates and goal were frozen at creation, which is a strange thing to freeze: the goal
+   * is the field the planning dialog itself calls "the thing most worth writing", and a goal
+   * you cannot sharpen once the sprint is a day old is a goal you will not bother writing.
+   * Sprints run late and get extended too, and pretending otherwise only means the dates lie.
+   *
+   * `state` is not patchable here. Starting and finishing are their own operations because
+   * each does more than set a column — one stamps a beginning, the other freezes a summary
+   * and hands work back to the backlog.
+   */
+  async updateSprint(
+    actor: Actor,
+    id: string,
+    patch: { name?: string; goal?: string | null; startsOn?: string; endsOn?: string },
+  ) {
+    await this.require(actor, 'scrum.board.manage');
+    const before = await this.rawSprint(id);
+
+    const name = patch.name === undefined ? before.name : patch.name.trim();
+    if (!name) throw new BadRequestException('A sprint needs a name');
+    const startsOn = patch.startsOn ?? before.startsOn;
+    const endsOn = patch.endsOn ?? before.endsOn;
+    if (endsOn < startsOn) throw new BadRequestException('A sprint cannot end before it starts');
+
+    const goal = patch.goal === undefined ? before.goal : patch.goal?.trim() || null;
+
+    await this.db.transaction(async (tx) => {
+      await tx
+        .update(sprints)
+        .set({ name, goal, startsOn, endsOn, updatedAt: new Date() })
+        .where(eq(sprints.id, id));
+
+      if (name !== before.name) {
+        await this.registry.updateDisplay(tx, id, { displayName: name });
+      }
+
+      await this.audit.record(tx, {
+        actorId: actor.userId,
+        action: 'sprint.update',
+        entityType: 'sprint',
+        entityId: id,
+        detail: { before: { name: before.name, goal: before.goal }, after: { name, goal } },
+      });
+      await this.events.publish(tx, {
+        name: 'sprint.updated',
+        entityType: 'sprint',
+        entityId: id,
+        actorId: actor.userId,
+        payload: { projectId: before.projectId, goalChanged: goal !== before.goal },
+      });
+    });
+
+    return this.getSprint(actor, id);
+  }
+
+  /**
+   * Delete a sprint that should not exist.
+   *
+   * Only while it is planned. A sprint that has run is evidence — its transitions, its scope
+   * changes and its summary are what a retrospective argues from, and deleting it would take
+   * that with it. This is for the one created by a mis-click.
+   */
+  async deleteSprint(actor: Actor, id: string): Promise<void> {
+    await this.require(actor, 'scrum.board.manage');
+    const sprint = await this.rawSprint(id);
+    if (sprint.state !== 'planned') {
+      throw new BadRequestException(
+        'That sprint has run. Finish it instead — its history is what a retrospective reads.',
+      );
+    }
+
+    await this.db.transaction(async (tx) => {
+      // The FK is ON DELETE SET NULL, so any card sitting in it returns to the backlog.
+      await tx.delete(sprints).where(eq(sprints.id, id));
+      await this.registry.softDelete(tx, id);
+      await this.audit.record(tx, {
+        actorId: actor.userId,
+        action: 'sprint.delete',
+        entityType: 'sprint',
+        entityId: id,
+        detail: { name: sprint.name },
+      });
+    });
   }
 
   /**
@@ -888,6 +976,103 @@ export class ScrumService {
         movedBy: actor.userId,
       });
     }
+  }
+
+  /**
+   * Who is carrying what in a sprint, and against what if anything.
+   *
+   * Load is knowable today from assignee and estimate. With one user it reports one row and an
+   * "unassigned" line — which is the genuinely useful output right now, because it says the
+   * sprint has no owners and that happens to be true of ten of eleven cards.
+   *
+   * `capacityMinutes` is null when nobody typed one, and the caller must render that as a
+   * number with no bar. Defaulting to a forty-hour week would produce a denominator nobody
+   * chose, and a bar drawn against an invented denominator is worse than no bar: it looks
+   * like a measurement.
+   */
+  async sprintLoad(actor: Actor, sprintId: string) {
+    await this.require(actor, 'scrum.tasks.read');
+    const sprint = await this.rawSprint(sprintId);
+    const board = await this.getBoardRaw(sprint.projectId);
+    const doneKeys = (board?.columns ?? DEFAULT_COLUMNS).filter((c) => c.isDone).map((c) => c.key);
+
+    const [rows, capacity] = await Promise.all([
+      this.db
+        .select({
+          assigneeId: tasks.assigneeId,
+          estimateMinutes: tasks.estimateMinutes,
+          status: tasks.status,
+          completedAt: tasks.completedAt,
+        })
+        .from(tasks)
+        .where(and(eq(tasks.sprintId, sprintId), isNull(tasks.archivedAt))),
+      this.db
+        .select({ userId: sprintCapacity.userId, minutes: sprintCapacity.minutes })
+        .from(sprintCapacity)
+        .where(eq(sprintCapacity.sprintId, sprintId)),
+    ]);
+
+    const open = (t: (typeof rows)[number]) =>
+      t.completedAt === null && !doneKeys.includes(t.status);
+    const people = await this.peopleFor(rows.map((r) => r.assigneeId));
+    const capacityOf = new Map(capacity.map((c) => [c.userId, c.minutes]));
+
+    const byPerson = new Map<string, { minutes: number; cards: number }>();
+    let unassignedCards = 0;
+    let unassignedMinutes = 0;
+    for (const t of rows) {
+      if (!open(t)) continue;
+      if (!t.assigneeId) {
+        unassignedCards += 1;
+        unassignedMinutes += t.estimateMinutes ?? 0;
+        continue;
+      }
+      const acc = byPerson.get(t.assigneeId) ?? { minutes: 0, cards: 0 };
+      acc.minutes += t.estimateMinutes ?? 0;
+      acc.cards += 1;
+      byPerson.set(t.assigneeId, acc);
+    }
+
+    // Anyone with a capacity row belongs in the list even carrying nothing — "Ilse has 16
+    // hours and no cards" is the sentence planning exists to produce.
+    for (const c of capacity) if (!byPerson.has(c.userId)) byPerson.set(c.userId, { minutes: 0, cards: 0 });
+
+    return {
+      people: [...byPerson.entries()]
+        .map(([userId, load]) => ({
+          userId,
+          name: people.get(userId)?.displayName ?? 'Someone who has left',
+          minutes: load.minutes,
+          cards: load.cards,
+          capacityMinutes: capacityOf.get(userId) ?? null,
+        }))
+        .sort((a, b) => b.minutes - a.minutes),
+      unassigned: { cards: unassignedCards, minutes: unassignedMinutes },
+    };
+  }
+
+  /** Set, or clear, how much time somebody has for this sprint. */
+  async setCapacity(actor: Actor, sprintId: string, userId: string, minutes: number | null) {
+    await this.require(actor, 'scrum.board.manage');
+    await this.rawSprint(sprintId);
+    await this.resolveUser(userId);
+
+    if (minutes === null) {
+      await this.db
+        .delete(sprintCapacity)
+        .where(and(eq(sprintCapacity.sprintId, sprintId), eq(sprintCapacity.userId, userId)));
+      return;
+    }
+    if (!Number.isInteger(minutes) || minutes <= 0) {
+      throw new BadRequestException('Capacity is a whole number of minutes, more than zero');
+    }
+    await this.db
+      .insert(sprintCapacity)
+      .values({ sprintId, userId, minutes })
+      .onConflictDoUpdate({
+        target: [sprintCapacity.sprintId, sprintCapacity.userId],
+        set: { minutes, updatedAt: new Date() },
+      });
   }
 
   private async rawSprint(id: string) {
@@ -1695,6 +1880,16 @@ export class ScrumService {
         status: t.status,
         priority: t.priority,
         estimateHours: t.estimateMinutes ? +(t.estimateMinutes / 60).toFixed(2) : null,
+        /*
+         * The assignee, id and all.
+         *
+         * Without it the model has no way to obtain a user uuid, so asked to give a card to
+         * somebody it will invent one — and `scrum_create_task` now accepts an assignee, which
+         * turns that from a harmless mistake into a rejected write or a wrong one.
+         */
+        assignee: t.assignee ? { id: t.assignee.id, name: t.assignee.displayName } : null,
+        blocked: t.blockedReason ?? null,
+        sprintId: t.sprintId,
       })),
     };
   }
@@ -1702,6 +1897,72 @@ export class ScrumService {
   async createTaskTool(actor: Actor, input: CreateTaskInput) {
     const task = await this.createTask(actor, input, { aiInitiated: true });
     return { id: task.id, title: task.title, status: task.status };
+  }
+
+  /**
+   * The sprint as a paragraph.
+   *
+   * Trimmed hard on purpose: a model reading a sprint wants the goal, the shape of the
+   * progress and the names of what is stuck, not every field. The blocked list is included
+   * because "will we make it" is nearly always answered by it.
+   */
+  async sprintStatusTool(actor: Actor, input: { projectId: string }) {
+    const active = await this.activeSprint(input.projectId);
+    if (!active) return { running: false as const };
+
+    const [sprint, load, cards] = await Promise.all([
+      this.getSprint(actor, active.id),
+      this.sprintLoad(actor, active.id),
+      this.sprintCards(actor, active.id),
+    ]);
+    const blocked = await this.listTasks(actor, { projectId: input.projectId, sprintId: active.id });
+
+    return {
+      running: true as const,
+      name: sprint.name,
+      goal: sprint.goal,
+      endsOn: sprint.endsOn,
+      day: sprint.progress.days,
+      unit: sprint.progress.unit,
+      done: sprint.progress.unit === 'minutes' ? sprint.progress.minutes : sprint.progress.cards,
+      unfinished: cards.unfinished,
+      blocked: blocked
+        .filter((t) => t.blockedReason)
+        .map((t) => ({ title: t.title, reason: t.blockedReason })),
+      load: load.people.map((p) => ({
+        name: p.name,
+        hours: Math.round((p.minutes / 60) * 10) / 10,
+        // Null rather than a default, so the model cannot report a percentage of a number
+        // nobody chose.
+        capacityHours: p.capacityMinutes ? Math.round((p.capacityMinutes / 60) * 10) / 10 : null,
+      })),
+      unassignedCards: load.unassigned.cards,
+    };
+  }
+
+  /** Flow, in hours, with the "not enough data yet" verdict kept rather than flattened. */
+  async flowTool(actor: Actor, input: { projectId: string }) {
+    const flow = await this.flow(actor, input.projectId);
+    const asHours = (m: number | null) => (m === null ? null : Math.round((m / 60) * 10) / 10);
+    return {
+      cycleTime: {
+        finishedCards: flow.cycle.n,
+        // The refusal travels with the numbers. Without it a model reading p50: null next to
+        // a sample list will helpfully average the list and present it as a median.
+        enoughToGeneralise: flow.cycle.meaningful,
+        medianHours: asHours(flow.cycle.p50),
+        p85Hours: asHours(flow.cycle.p85),
+      },
+      inFlight: flow.aging.slice(0, 10).map((a) => ({
+        title: a.title,
+        days: Math.round((a.minutes / 1440) * 10) / 10,
+        waitingOnClient: a.waiting,
+        measured: a.measured,
+      })),
+      waitingOnClient: { hours: asHours(flow.waiting.minutes), spells: flow.waiting.spells },
+      finishedPerWeek: flow.throughput,
+      cardsWithoutHistory: flow.excluded,
+    };
   }
 
   async moveTaskTool(actor: Actor, input: { taskId: string; status: string }) {
@@ -1792,7 +2053,14 @@ export class ScrumService {
       .from(users)
       .where(eq(users.id, userId))
       .limit(1);
-    if (!user) throw new BadRequestException('Assignee must be an existing user');
+    if (!user) {
+      // Naming the cause matters: users appear the first time they sign in, so a colleague
+      // who has not logged in yet simply is not here, and "must be an existing user" reads
+      // like a bug rather than an instruction.
+      throw new BadRequestException(
+        'They have to sign in once before work can be assigned to them.',
+      );
+    }
     return user.id;
   }
 

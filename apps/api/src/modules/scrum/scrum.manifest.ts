@@ -27,6 +27,10 @@ export const scrumManifest = defineManifest({
     { name: 'task.unblocked', description: 'A task stopped being blocked.' },
     { name: 'sprint.started', description: 'A sprint became active.' },
     {
+      name: 'sprint.updated',
+      description: 'A sprint was renamed, re-dated, or had its goal changed.',
+    },
+    {
       name: 'sprint.completed',
       description: 'A sprint was closed; unfinished cards returned to the backlog.',
     },
@@ -112,6 +116,13 @@ export const scrumManifest = defineManifest({
         priority: z.enum(PRIORITIES).optional(),
         dueOn: z.string().optional(),
         parentId: z.string().uuid().optional(),
+        // All three were accepted by CreateTaskInput and absent from the schema, so the
+        // assistant could not put a card in a sprint, say what kind of work it was, or give
+        // it to anybody — capture from a conversation always landed as an unowned story in
+        // the backlog.
+        sprintId: z.string().uuid().optional(),
+        type: z.enum(['story', 'bug', 'chore', 'spike']).optional(),
+        assigneeId: z.string().uuid().optional(),
       }),
       outputSchema: z.object({ id: z.string(), title: z.string() }),
       permission: 'scrum.tasks.write',
@@ -126,6 +137,31 @@ export const scrumManifest = defineManifest({
       permission: 'scrum.tasks.write',
       riskClass: 'write:draft',
       handler: 'moveTaskTool',
+    },
+
+    {
+      name: 'scrum_sprint_status',
+      description:
+        "The sprint running on a project: its goal, how far through it is, what is blocked, " +
+        "and who is carrying what. Use for 'how is the sprint going?' or 'will we make it?'.",
+      inputSchema: z.object({ projectId: z.string().uuid() }),
+      outputSchema: z.object({}),
+      permission: 'scrum.tasks.read',
+      riskClass: 'read',
+      handler: 'sprintStatusTool',
+    },
+
+    {
+      name: 'scrum_flow_metrics',
+      description:
+        'How long work on a project actually takes: time from start to done, what is oldest ' +
+        'right now, how much time has been spent waiting on the client, and how many cards ' +
+        "are finished per week. Use for 'are we getting faster?' or 'what is stuck?'.",
+      inputSchema: z.object({ projectId: z.string().uuid() }),
+      outputSchema: z.object({}),
+      permission: 'scrum.tasks.read',
+      riskClass: 'read',
+      handler: 'flowTool',
     },
   ],
 });

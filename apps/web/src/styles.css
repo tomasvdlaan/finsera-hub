@@ -4433,3 +4433,13 @@ button.nav-me:hover { background: var(--surface); }
   width: 100%;
   resize: vertical;
 }
+
+/* Load against capacity, when somebody has said what their capacity is. */
+.load-meter {
+  flex: 1;
+  min-width: 6rem;
+  max-width: 14rem;
+}
+.meter-fill.is-over {
+  background: var(--error);
+}

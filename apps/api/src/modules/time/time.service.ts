@@ -893,7 +893,11 @@ export class TimeService {
     await this.db.execute(sql`DROP VIEW IF EXISTS time.v_weekly_totals CASCADE`);
     await this.db.execute(sql`
       CREATE VIEW time.v_entries AS
-      SELECT e.id, e.person_id, e.project_id, e.worked_on,
+      SELECT e.id, e.person_id, e.project_id,
+             -- Published so hours can be joined to the card they were spent on. The column has
+             -- existed since the module shipped and the view never selected it, which meant no
+             -- reporting query and no insight rule could compare an estimate to what it took.
+             e.task_id, e.worked_on,
              e.started_at, e.ended_at, e.minutes, e.minutes / 60.0 AS hours,
              e.billable, e.description, e.invoice_id, e.invoiced_at, e.created_at,
              (e.started_at IS NOT NULL AND e.ended_at IS NULL) AS running

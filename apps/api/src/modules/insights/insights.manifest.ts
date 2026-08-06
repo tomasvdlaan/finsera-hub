@@ -36,7 +36,7 @@ export const insightsManifest = defineManifest({
     {
       name: 'insights_list',
       description:
-        'Things the platform has noticed and nobody has dealt with: overdue invoices, unanswered quotes, contract notice deadlines, budgets nearly spent, work left uninvoiced, stalled tasks. Ordered most urgent first.',
+        'Things the platform has noticed and nobody has dealt with: overdue invoices, unanswered quotes, contract notice deadlines, budgets nearly spent, work left uninvoiced, cards that have been in flight too long, blocked cards, work sitting with a client, tasks past their due date, and sprints ending with a lot still open. Ordered most urgent first.',
       inputSchema: z.object({
         status: z.enum(['open', 'dismissed', 'resolved']).optional(),
         rule: z.string().optional(),

@@ -30,6 +30,8 @@ export function subjectPath(insight: Insight): string | null {
       return `/crm/projects/${insight.subjectId}`;
     case 'task':
       return `/scrum/tasks/${insight.subjectId}`;
+    case 'sprint':
+      return `/scrum/sprints/${insight.subjectId}`;
     default:
       return null;
   }

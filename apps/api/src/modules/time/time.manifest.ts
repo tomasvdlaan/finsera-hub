@@ -33,7 +33,11 @@ export const timeManifest = defineManifest({
   widgets: [{ slot: 'entity-page', component: 'time:project-burn' }],
 
   reportingViews: [
-    { view: 'time.v_entries', description: 'Time entries with person, project, and billability.' },
+    {
+      view: 'time.v_entries',
+      description:
+        'Time entries with person, project, the task they were logged against, and billability.',
+    },
     { view: 'time.v_weekly_totals', description: 'Minutes per person per week, billable split.' },
   ],
 

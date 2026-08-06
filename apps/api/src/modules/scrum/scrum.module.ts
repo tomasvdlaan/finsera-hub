@@ -44,5 +44,11 @@ export class ScrumModule implements OnModuleInit {
     this.aiTools.bind('scrum_move_task', (actor: Actor, input) =>
       this.scrum.moveTaskTool(actor, input as { taskId: string; status: string }),
     );
+    this.aiTools.bind('scrum_sprint_status', (actor: Actor, input) =>
+      this.scrum.sprintStatusTool(actor, input as { projectId: string }),
+    );
+    this.aiTools.bind('scrum_flow_metrics', (actor: Actor, input) =>
+      this.scrum.flowTool(actor, input as { projectId: string }),
+    );
   }
 }

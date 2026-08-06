@@ -8,6 +8,7 @@ import {
   jsonb,
   numeric,
   pgSchema,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -330,5 +331,36 @@ export const sprintScopeChanges = scrum.table(
   (t) => [
     index('sprint_scope_changes_sprint_idx').on(t.sprintId, t.at),
     check('sprint_scope_change_valid', sql`${t.change} IN ('added','removed')`),
+  ],
+);
+
+/**
+ * How much time somebody has for one sprint.
+ *
+ * Per sprint rather than per person, because it is not a property of a person: holidays,
+ * client work and a week of interviews all move it, and a number stored on a user is a number
+ * that goes stale the first time any of those happen. Per sprint it gets typed once, during
+ * planning, into the `## Capacity` heading that has always existed and has always been empty.
+ *
+ * Never in `core.users` — scrum does not write core's user table — and never as global config,
+ * which is the same staleness with more ceremony.
+ *
+ * A person with no row here has no denominator, and the UI shows their load without one. That
+ * is the point: a fabricated forty-hour week is worse than no bar at all, because the bar
+ * looks authoritative and the number underneath it was invented.
+ */
+export const sprintCapacity = scrum.table(
+  'sprint_capacity',
+  {
+    sprintId: uuid('sprint_id')
+      .notNull()
+      .references(() => sprints.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id').notNull(),
+    minutes: integer('minutes').notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.sprintId, t.userId] }),
+    check('sprint_capacity_sane', sql`${t.minutes} > 0 AND ${t.minutes} <= 100000`),
   ],
 );

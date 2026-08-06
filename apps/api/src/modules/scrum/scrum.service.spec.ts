@@ -384,7 +384,7 @@ describe('ScrumService blockers', () => {
         reason: 'Waiting on a sign-off',
         blockedOnUserId: crypto.randomUUID(),
       }),
-    ).rejects.toThrow(/existing user/i);
+    ).rejects.toThrow(/sign in once/i);
   });
 
   it('can wait on a real person', async () => {
@@ -1082,5 +1082,190 @@ describe('ScrumService sprint scope', () => {
     const { progress } = await scrum.getSprint(actor, sprintId);
     expect(progress.days.elapsed).toBe(1);
     expect(progress.days.total).toBe(12);
+  });
+});
+
+/**
+ * A sprint you can correct.
+ *
+ * Name, dates and goal were frozen at creation — the goal above all, which the planning dialog
+ * calls "the thing most worth writing" and which nothing could then rewrite.
+ */
+describe('ScrumService sprint editing', () => {
+  let scrum: ScrumService;
+  let registry: RegistryService;
+  let projectId: string;
+  let sprintId: string;
+
+  beforeEach(async () => {
+    await resetDb();
+    await truncate(
+      sql`TRUNCATE scrum.tasks, scrum.sprints, scrum.boards, crm.projects, crm.contacts, crm.clients CASCADE`,
+    );
+    await seedUser(actor.userId, 'admin');
+
+    const manifests = new ManifestRegistry();
+    for (const m of [crmManifest, timeManifest, scrumManifest]) manifests.register(m);
+    manifests.seal();
+
+    registry = new RegistryService(testDb, manifests);
+    const permissions = new PermissionService(testDb, manifests);
+    const audit = new AuditService();
+    const links = new LinkService(testDb, registry, permissions, audit, manifests);
+    const bus = new EventBus(manifests);
+    const crm = new CrmService(testDb, registry, permissions, audit, bus, links);
+    const time = new TimeService(testDb, registry, permissions, audit, bus, links, crm);
+    scrum = new ScrumService(testDb, registry, permissions, audit, bus, links, crm, time);
+
+    const client = await crm.createClient(actor, { name: 'DocHorse', status: 'active' });
+    const project = await crm.createProject(actor, {
+      clientId: client.id,
+      name: 'Power BI',
+      billingModel: 'time_and_materials',
+    });
+    projectId = project.id;
+    await scrum.getBoard(actor, projectId);
+    const sprint = await scrum.createSprint(actor, {
+      projectId,
+      name: 'Sprint 1',
+      startsOn: '2026-08-03',
+      endsOn: '2026-08-14',
+    });
+    sprintId = sprint.id;
+  });
+
+  it('sharpens a goal that was written badly the first time', async () => {
+    const updated = await scrum.updateSprint(actor, sprintId, { goal: 'Ship the supplier page' });
+    expect(updated.goal).toBe('Ship the supplier page');
+  });
+
+  it('renames it everywhere, not only in its own table', async () => {
+    // The registry is what search, links and the chat card read. A name that changed in one
+    // place and not the other is worse than a name that never changed.
+    await scrum.updateSprint(actor, sprintId, { name: 'Supplier sprint' });
+    expect((await registry.resolveOne(sprintId))?.displayName).toBe('Supplier sprint');
+  });
+
+  it('lets a sprint that ran long say so', async () => {
+    const updated = await scrum.updateSprint(actor, sprintId, { endsOn: '2026-08-21' });
+    expect(updated.endsOn).toBe('2026-08-21');
+    expect(updated.progress.days.total).toBe(19);
+  });
+
+  it('still refuses dates that run backwards', async () => {
+    await expect(
+      scrum.updateSprint(actor, sprintId, { endsOn: '2026-08-01' }),
+    ).rejects.toThrow(/cannot end before it starts/i);
+  });
+
+  it('deletes a sprint created by mistake and hands its cards back', async () => {
+    const t = await scrum.createTask(actor, { projectId, title: 'Wrong sprint', sprintId });
+    await scrum.deleteSprint(actor, sprintId);
+    expect((await scrum.getTask(actor, t.id)).sprintId).toBeNull();
+    expect(await scrum.listSprints(actor, { projectId })).toEqual([]);
+  });
+
+  it('refuses to delete one that has run', async () => {
+    // Its transitions, its scope changes and its summary are what a retrospective argues
+    // from. Deleting the sprint would take all of that with it.
+    await scrum.startSprint(actor, sprintId);
+    await expect(scrum.deleteSprint(actor, sprintId)).rejects.toThrow(/has run/i);
+  });
+});
+
+/**
+ * Per-person load.
+ *
+ * Buildable today; the denominator is not. A capacity nobody typed must stay absent rather
+ * than become a default, because a bar drawn against an invented number looks like a fact.
+ */
+describe('ScrumService sprint load', () => {
+  let scrum: ScrumService;
+  let projectId: string;
+  let sprintId: string;
+
+  beforeEach(async () => {
+    await resetDb();
+    await truncate(
+      sql`TRUNCATE scrum.tasks, scrum.sprints, scrum.boards, crm.projects, crm.contacts, crm.clients CASCADE`,
+    );
+    await seedUser(actor.userId, 'admin');
+
+    const manifests = new ManifestRegistry();
+    for (const m of [crmManifest, timeManifest, scrumManifest]) manifests.register(m);
+    manifests.seal();
+
+    const registry = new RegistryService(testDb, manifests);
+    const permissions = new PermissionService(testDb, manifests);
+    const audit = new AuditService();
+    const links = new LinkService(testDb, registry, permissions, audit, manifests);
+    const bus = new EventBus(manifests);
+    const crm = new CrmService(testDb, registry, permissions, audit, bus, links);
+    const time = new TimeService(testDb, registry, permissions, audit, bus, links, crm);
+    scrum = new ScrumService(testDb, registry, permissions, audit, bus, links, crm, time);
+
+    const client = await crm.createClient(actor, { name: 'DocHorse', status: 'active' });
+    const project = await crm.createProject(actor, {
+      clientId: client.id,
+      name: 'Power BI',
+      billingModel: 'time_and_materials',
+    });
+    projectId = project.id;
+    await scrum.getBoard(actor, projectId);
+    sprintId = (
+      await scrum.createSprint(actor, {
+        projectId,
+        name: 'Sprint 1',
+        startsOn: '2026-08-03',
+        endsOn: '2026-08-14',
+      })
+    ).id;
+  });
+
+  it('reports no denominator when nobody typed a capacity', async () => {
+    await scrum.createTask(actor, {
+      projectId,
+      title: 'Mine',
+      sprintId,
+      assigneeId: actor.userId,
+      estimateMinutes: 240,
+    });
+    const load = await scrum.sprintLoad(actor, sprintId);
+    expect(load.people[0]).toMatchObject({ minutes: 240, cards: 1, capacityMinutes: null });
+  });
+
+  it('uses the capacity once somebody types one', async () => {
+    await scrum.setCapacity(actor, sprintId, actor.userId, 960);
+    const load = await scrum.sprintLoad(actor, sprintId);
+    expect(load.people[0]).toMatchObject({ capacityMinutes: 960, cards: 0 });
+  });
+
+  it('counts unassigned work separately, because that is the useful sentence today', async () => {
+    // Ten of eleven cards on the real board have no assignee. "Unassigned: 10" says the sprint
+    // has no owners, which is worth knowing and which a per-person list alone would hide.
+    await scrum.createTask(actor, { projectId, title: 'Nobody', sprintId, estimateMinutes: 60 });
+    const load = await scrum.sprintLoad(actor, sprintId);
+    expect(load.unassigned).toEqual({ cards: 1, minutes: 60 });
+    expect(load.people).toEqual([]);
+  });
+
+  it('leaves finished work out of the load', async () => {
+    const t = await scrum.createTask(actor, {
+      projectId,
+      title: 'Done already',
+      sprintId,
+      assigneeId: actor.userId,
+      estimateMinutes: 120,
+    });
+    await scrum.moveTask(actor, t.id, { status: 'done' });
+    const load = await scrum.sprintLoad(actor, sprintId);
+    expect(load.people).toEqual([]);
+  });
+
+  it('says why a colleague cannot be assigned work yet', async () => {
+    // Users appear the first time they sign in. "Must be an existing user" reads like a bug.
+    await expect(
+      scrum.createTask(actor, { projectId, title: 'For Ilse', assigneeId: crypto.randomUUID() }),
+    ).rejects.toThrow(/sign in once/i);
   });
 });

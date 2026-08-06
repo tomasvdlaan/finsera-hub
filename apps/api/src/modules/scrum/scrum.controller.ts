@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query } from '@nestjs/common';
 import type { Actor } from '@platform/contracts';
 import { CurrentActor } from '../../core/auth/current-actor.decorator.js';
 import { ScrumService, type CreateTaskInput } from './scrum.service.js';
@@ -133,6 +133,40 @@ export class ScrumController {
     body: { projectId: string; name: string; goal?: string | null; startsOn: string; endsOn: string },
   ) {
     return this.scrum.createSprint(actor, body);
+  }
+
+  /** Correct a sprint: its name, its goal, or the dates it turned out to run between. */
+  @Patch('sprints/:id')
+  updateSprint(
+    @CurrentActor() actor: Actor,
+    @Param('id') id: string,
+    @Body() body: { name?: string; goal?: string | null; startsOn?: string; endsOn?: string },
+  ) {
+    return this.scrum.updateSprint(actor, id, body);
+  }
+
+  /** Remove one created by mistake. Refused once it has run — that is evidence. */
+  @Delete('sprints/:id')
+  async deleteSprint(@CurrentActor() actor: Actor, @Param('id') id: string) {
+    await this.scrum.deleteSprint(actor, id);
+    return { deleted: true };
+  }
+
+  /** Who is carrying what, and against what capacity if anybody typed one. */
+  @Get('sprints/:id/load')
+  sprintLoad(@CurrentActor() actor: Actor, @Param('id') id: string) {
+    return this.scrum.sprintLoad(actor, id);
+  }
+
+  @Put('sprints/:id/capacity/:userId')
+  async setCapacity(
+    @CurrentActor() actor: Actor,
+    @Param('id') id: string,
+    @Param('userId') userId: string,
+    @Body() body: { minutes: number | null },
+  ) {
+    await this.scrum.setCapacity(actor, id, userId, body.minutes);
+    return this.scrum.sprintLoad(actor, id);
   }
 
   @Post('sprints/:id/start')

@@ -260,6 +260,13 @@
       "when": 1786015431382,
       "tag": "0036_sprint_timestamps_and_scope",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1786016382330,
+      "tag": "0037_sprint_capacity",
+      "breakpoints": true
     }
   ]
 }

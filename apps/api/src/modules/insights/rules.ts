@@ -220,38 +220,165 @@ export const RULES: Rule[] = [
   },
 
   {
-    name: 'task_stalled',
-    description: 'An in-progress task has not moved for 14 days.',
+    /*
+     * Replaces `task_stalled`, which keyed off `updated_at`.
+     *
+     * That is the signal `scrum.schema.ts` explicitly calls backwards: correcting a title
+     * moves `updated_at`, so the card nobody has touched in a fortnight looked freshly worked
+     * on, and the one somebody renamed looked busy. It was the wrong question asked of the
+     * wrong column, and the transitions have known the right answer since they were added.
+     *
+     * Aging is measured from the first time work started, not from the last column change, so
+     * a card bouncing between review and in progress cannot keep resetting its own clock.
+     */
+    name: 'task_aging_wip',
+    description: 'A card has been in flight for a fortnight without finishing.',
     query: sql`
-      SELECT t.id, t.title, t.status, p.name AS project_name,
-             (CURRENT_DATE - t.updated_at::date)::int AS days_still
-        FROM scrum.v_tasks t
-        LEFT JOIN crm.v_projects p ON p.id = t.project_id
-       WHERE t.status IN ('in_progress', 'waiting_on_client')
-         AND CURRENT_DATE - t.updated_at::date >= 14
+      SELECT f.task_id AS id, f.title, f.status, f.current_flow, f.has_history,
+             (f.age_minutes / 1440)::int AS days_in_flight,
+             p.name AS project_name
+        FROM scrum.v_task_flow f
+        LEFT JOIN crm.v_projects p ON p.id = f.project_id
+       WHERE f.age_minutes IS NOT NULL
+         AND f.age_minutes >= 14 * 1440
     `,
     toCandidate: (r) => ({
-      key: `task_stalled:${String(r.id)}`,
-      rule: 'task_stalled',
+      key: `task_aging_wip:${String(r.id)}`,
+      rule: 'task_aging_wip',
       subjectId: String(r.id),
       subjectType: 'task',
-      /*
-       * Was 'info', and it was the only rule in the file that was — which made it the only
-       * rule that could never reach the front door, because "Needs you" shows urgent and
-       * attention. It is also the only rule about work rather than about money, so the
-       * platform's action queue was structurally incapable of containing a task.
-       *
-       * Graduated rather than flat: a fortnight is a nudge, a month is a decision about
-       * whether the work is still happening.
-       */
-      severity: n(r.days_still) >= 30 ? 'urgent' : 'attention',
-      title: `"${String(r.title)}" has not moved in ${n(r.days_still)} days`,
+      // A fortnight is a nudge; a month is a decision about whether it is still happening.
+      severity: n(r.days_in_flight) >= 30 ? 'urgent' : 'attention',
+      title:
+        `"${String(r.title)}" has been in flight ` +
+        `${r.has_history ? '' : 'at most '}${n(r.days_in_flight)} days`,
       detail:
-        String(r.status) === 'waiting_on_client'
-          ? `Still waiting on the client${r.project_name ? ` for ${String(r.project_name)}` : ''} — worth a nudge.`
-          : `In progress${r.project_name ? ` on ${String(r.project_name)}` : ''} since then.`,
-      facts: { status: r.status, daysStill: n(r.days_still), projectName: r.project_name },
-      magnitude: n(r.days_still),
+        String(r.current_flow) === 'waiting'
+          ? `Waiting on the client${r.project_name ? ` for ${String(r.project_name)}` : ''} — worth a nudge.`
+          : `Started that long ago${r.project_name ? ` on ${String(r.project_name)}` : ''} and not finished.`,
+      facts: {
+        status: r.status,
+        daysInFlight: n(r.days_in_flight),
+        measured: r.has_history,
+        projectName: r.project_name,
+      },
+      magnitude: n(r.days_in_flight),
+    }),
+  },
+
+  {
+    /*
+     * `due_on` has been published in `v_tasks` since the view existed and read by nothing.
+     * The board draws an "overdue" chip from it client-side; nothing ever told you.
+     */
+    name: 'task_overdue',
+    description: 'A task is past the date it was due.',
+    query: sql`
+      SELECT t.id, t.title, t.status, t.due_on,
+             (CURRENT_DATE - t.due_on)::int AS days_over,
+             p.name AS project_name
+        FROM scrum.v_tasks t
+        LEFT JOIN crm.v_projects p ON p.id = t.project_id
+       WHERE t.due_on IS NOT NULL
+         AND NOT t.completed
+         AND t.due_on < CURRENT_DATE
+    `,
+    toCandidate: (r) => ({
+      key: `task_overdue:${String(r.id)}`,
+      rule: 'task_overdue',
+      subjectId: String(r.id),
+      subjectType: 'task',
+      severity: n(r.days_over) >= 7 ? 'urgent' : 'attention',
+      title: `"${String(r.title)}" was due ${n(r.days_over)} days ago`,
+      detail: `${r.project_name ? `${String(r.project_name)} — ` : ''}still in ${String(
+        r.status,
+      ).replace(/_/g, ' ')}. Either it moves or the date does.`,
+      facts: { status: r.status, dueOn: r.due_on, daysOver: n(r.days_over) },
+      magnitude: n(r.days_over),
+    }),
+  },
+
+  {
+    /*
+     * The first thing that has ever read `scrum.v_sprints`.
+     *
+     * The view has been created on every boot since the module shipped, declared in the
+     * manifest, and queried by exactly one test. A sprint ending on Friday with a third of it
+     * open is the single most useful thing a scrum master says out loud, and it is a WHERE
+     * clause.
+     */
+    name: 'sprint_ending_soon_with_open_work',
+    description: 'A sprint ends within two days with a good deal of it unfinished.',
+    query: sql`
+      SELECT s.id, s.name, s.ends_on, s.task_count, s.done_count,
+             (s.ends_on - CURRENT_DATE)::int AS days_left,
+             (s.task_count - s.done_count)::int AS open_count,
+             p.name AS project_name
+        FROM scrum.v_sprints s
+        LEFT JOIN crm.v_projects p ON p.id = s.project_id
+       WHERE s.state = 'active'
+         AND s.ends_on - CURRENT_DATE BETWEEN 0 AND 2
+         AND s.task_count > 0
+         AND (s.task_count - s.done_count)::numeric / s.task_count > 0.3
+    `,
+    toCandidate: (r) => ({
+      key: `sprint_ending:${String(r.id)}`,
+      rule: 'sprint_ending_soon_with_open_work',
+      subjectId: String(r.id),
+      subjectType: 'sprint',
+      // On the last day it is not advice any more.
+      severity: n(r.days_left) === 0 ? 'urgent' : 'attention',
+      title: `${String(r.name)} ends ${n(r.days_left) === 0 ? 'today' : `in ${n(r.days_left)} days`} with ${n(r.open_count)} open`,
+      detail:
+        `${n(r.done_count)} of ${n(r.task_count)} done` +
+        `${r.project_name ? ` on ${String(r.project_name)}` : ''}. ` +
+        'Decide now what carries over, rather than discovering it on Friday.',
+      facts: {
+        daysLeft: n(r.days_left),
+        open: n(r.open_count),
+        total: n(r.task_count),
+        projectName: r.project_name,
+      },
+      // Days are small numbers next to euros, so this is scaled the way action items are.
+      magnitude: n(r.open_count) * 100,
+    }),
+  },
+
+  {
+    /*
+     * The charter's thesis as an insight.
+     *
+     * "Waiting on client" was made a default column because it is the state work spends most
+     * time in and the one nobody records — which turns "we are blocked on them" from a feeling
+     * into evidence when a deadline slips. Evidence nobody is shown is not evidence.
+     */
+    name: 'waiting_on_client_too_long',
+    description: 'Work has sat with a client for over a week.',
+    query: sql`
+      SELECT f.task_id AS id, f.title,
+             (f.age_minutes / 1440)::int AS days_waiting,
+             p.name AS project_name, cl.name AS client_name
+        FROM scrum.v_task_flow f
+        LEFT JOIN crm.v_projects p ON p.id = f.project_id
+        LEFT JOIN crm.v_clients cl ON cl.id = p.client_id
+       WHERE f.current_flow = 'waiting'
+         AND f.age_minutes IS NOT NULL
+         AND f.age_minutes >= 7 * 1440
+    `,
+    toCandidate: (r) => ({
+      key: `waiting_client:${String(r.id)}`,
+      rule: 'waiting_on_client_too_long',
+      subjectId: String(r.id),
+      subjectType: 'task',
+      severity: n(r.days_waiting) >= 21 ? 'urgent' : 'attention',
+      title: `${r.client_name ? String(r.client_name) : 'A client'} has had "${String(r.title)}" for ${n(r.days_waiting)} days`,
+      detail: `${r.project_name ? `${String(r.project_name)} — ` : ''}nothing here is yours to move, but a fortnight of silence is worth a nudge.`,
+      facts: {
+        daysWaiting: n(r.days_waiting),
+        clientName: r.client_name,
+        projectName: r.project_name,
+      },
+      magnitude: n(r.days_waiting),
     }),
   },
 

@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import type { EntityRef } from '@platform/contracts';
 import { Links } from '../../shell/Links.js';
 import { Timeline } from '../../shell/Timeline.js';
-import { Empty } from '../../shell/ui/primitives.js';
+import { Avatar, Button, Empty } from '../../shell/ui/primitives.js';
+import { useDialog } from '../../shell/ui/Dialog.js';
+import { useToast } from '../../shell/ui/Toast.js';
+import { EditableField } from '../crm/EditableField.js';
 import { useDocumentTitle } from '../../shell/useDocumentTitle.js';
 import {
   deliveredFraction,
@@ -15,6 +18,18 @@ import {
   type Sprint,
   type Task,
 } from './types.js';
+
+interface SprintLoad {
+  people: Array<{
+    userId: string;
+    name: string;
+    minutes: number;
+    cards: number;
+    /** Null when nobody typed one. Rendered as a number with no bar, never as a default. */
+    capacityMinutes: number | null;
+  }>;
+  unassigned: { cards: number; minutes: number };
+}
 
 const ref = (id: string, entityType: string, displayName: string, urlPath: string): EntityRef => ({
   id,
@@ -39,9 +54,22 @@ export function SprintDetail() {
   const [sprint, setSprint] = useState<Sprint | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [candidates, setCandidates] = useState<EntityRef[]>([]);
+  const [teamLoad, setTeamLoad] = useState<SprintLoad | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [error, setError] = useState<string>();
+  const navigate = useNavigate();
+  const { confirm } = useDialog();
+  const toast = useToast();
   useDocumentTitle(sprint?.name ?? 'Sprint');
+
+  const patch = async (body: Record<string, unknown>) => {
+    try {
+      await api.patch(`/scrum/sprints/${id}`, body);
+      load();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
 
   const load = useCallback(() => {
     if (!id) return;
@@ -55,6 +83,10 @@ export function SprintDetail() {
       })
       .then(setTasks)
       .catch((e: Error) => setError(e.message));
+    api
+      .get<SprintLoad>(`/scrum/sprints/${id}/load`)
+      .then(setTeamLoad)
+      .catch(() => setTeamLoad(null));
   }, [id]);
 
   useEffect(load, [load]);
@@ -96,8 +128,57 @@ export function SprintDetail() {
       <h1>{sprint.name}</h1>
       <p className="muted">
         {sprint.startsOn} → {sprint.endsOn} · {sprint.state}
+        {sprint.startedAt && ` · started ${sprint.startedAt.slice(0, 10)}`}
       </p>
-      {sprint.goal ? <p>{sprint.goal}</p> : <p className="muted">No goal was written.</p>}
+
+      {/*
+        Correctable, which it was not.
+
+        The goal especially: the planning dialog calls it "the thing most worth writing", and a
+        goal you cannot sharpen once the sprint is a day old is one you will not bother with.
+      */}
+      <EditableField label="Name" value={sprint.name} onSave={(v) => patch({ name: v })} />
+      <EditableField
+        label="Goal"
+        value={sprint.goal}
+        placeholder="One sentence. What is this fortnight for?"
+        onSave={(v) => patch({ goal: v || null })}
+      />
+      <div className="row">
+        <EditableField
+          label="Starts"
+          value={sprint.startsOn}
+          onSave={(v) => patch({ startsOn: v })}
+        />
+        <EditableField
+          label="Ends"
+          value={sprint.endsOn}
+          onSave={(v) => patch({ endsOn: v })}
+        />
+      </div>
+
+      {/* Only while it is planned: once a sprint has run, its history is what a retro reads. */}
+      {sprint.state === 'planned' && (
+        <Button
+          variant="ghost"
+          onClick={() =>
+            void (async () => {
+              const go = await confirm({
+                title: `Delete ${sprint.name}?`,
+                body: 'It has not started. Anything in it goes back to the backlog.',
+                confirmLabel: 'Delete sprint',
+                destructive: true,
+              });
+              if (!go) return;
+              await api.del(`/scrum/sprints/${id}`);
+              toast.ok('Sprint deleted');
+              navigate(`/scrum/sprints?projectId=${sprint.projectId}`);
+            })()
+          }
+        >
+          Delete
+        </Button>
+      )}
 
       <section>
         <h2>{summary ? 'Delivered' : 'Progress'}</h2>
@@ -118,6 +199,60 @@ export function SprintDetail() {
         )}
         {!summary && progress.blocked > 0 && (
           <p className="error">{progress.blocked} blocked.</p>
+        )}
+      </section>
+
+      {/*
+        Who is carrying what.
+
+        Nobody with a capacity gets a bar; everybody else gets a number and no bar, which is
+        the honest rendering of "we never said how much time you had". A default forty-hour
+        week here would draw a bar against a denominator nobody chose.
+      */}
+      <section>
+        <h2>Load</h2>
+        {teamLoad && (teamLoad.people.length > 0 || teamLoad.unassigned.cards > 0) ? (
+          <ul className="flow-list">
+            {teamLoad.people.map((p) => (
+              <li key={p.userId}>
+                <Avatar id={p.userId} name={p.name} size="sm" />
+                <strong>{p.name}</strong>
+                <span className="muted">
+                  {hours(p.minutes)}h across {p.cards} {p.cards === 1 ? 'card' : 'cards'}
+                </span>
+                {p.capacityMinutes != null ? (
+                  <span
+                    className="meter load-meter"
+                    aria-label={`${hours(p.minutes)}h of ${hours(p.capacityMinutes)}h`}
+                  >
+                    <span
+                      className={
+                        p.minutes > p.capacityMinutes ? 'meter-fill is-over' : 'meter-fill'
+                      }
+                      style={{ width: `${Math.min(100, (p.minutes / p.capacityMinutes) * 100)}%` }}
+                    />
+                  </span>
+                ) : (
+                  <span className="muted">· no capacity set</span>
+                )}
+              </li>
+            ))}
+            {teamLoad.unassigned.cards > 0 && (
+              <li>
+                <span className="avatar avatar-sm avatar-empty" aria-hidden="true">
+                  ?
+                </span>
+                <strong>Unassigned</strong>
+                <span className="muted">
+                  {teamLoad.unassigned.cards}{' '}
+                  {teamLoad.unassigned.cards === 1 ? 'card' : 'cards'}
+                  {teamLoad.unassigned.minutes > 0 && `, ${hours(teamLoad.unassigned.minutes)}h`}
+                </span>
+              </li>
+            )}
+          </ul>
+        ) : (
+          <Empty>Nothing open in this sprint.</Empty>
         )}
       </section>
 
