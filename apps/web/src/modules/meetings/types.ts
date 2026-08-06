@@ -34,6 +34,8 @@ export interface Note {
   title: string;
   clientId: string | null;
   projectId: string | null;
+  /** The sprint this ceremony was about, when it was about one. */
+  sprintId: string | null;
   meetingDate: string;
   body: string;
   template: string | null;

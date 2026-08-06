@@ -5,7 +5,9 @@ import { Comments } from '../../shell/Comments.js';
 import { useDialog } from '../../shell/ui/Dialog.js';
 import { Timeline } from '../../shell/Timeline.js';
 import type { Client } from '../crm/types.js';
+import type { Sprint } from '../scrum/types.js';
 import { LivePanel } from './LivePanel.js';
+import { PlanTheSprint, SprintLine } from './PlanTheSprint.js';
 import { RichEditor } from './RichEditor.js';
 import { Transcripts } from './Transcripts.js';
 import type { NoteDetail as Detail } from './types.js';
@@ -67,6 +69,7 @@ export function NoteDetail() {
   const navigate = useNavigate();
   const [note, setNote] = useState<Detail | null>(null);
   const [client, setClient] = useState<Client | null>(null);
+  const [sprint, setSprint] = useState<Sprint | null>(null);
   const [projects, setProjects] = useState<Array<{ id: string; name: string }>>([]);
   const [people, setPeople] = useState<Array<{ id: string; displayName: string }>>([]);
   const [error, setError] = useState<string | null>(null);
@@ -84,6 +87,7 @@ export function NoteDetail() {
        * its action points and attendees cannot touch the text at all.
        */
       if (n.clientId) setClient(await api.get<Client>(`/crm/clients/${n.clientId}`));
+      setSprint(n.sprintId ? await api.get<Sprint>(`/scrum/sprints/${n.sprintId}`) : null);
     } catch (e) {
       setError((e as Error).message);
     }
@@ -174,6 +178,23 @@ export function NoteDetail() {
       </div>
 
       {error && <p className="error">{error}</p>}
+
+      {/*
+        Planning that writes to the board.
+
+        Only on a planning note, and only until it has produced one — after that the panel is
+        a link, because the decision has been made and re-offering it invites a second sprint
+        nobody meant to create.
+      */}
+      {note.template === 'sprint_planning' && note.projectId && !note.sprintId && (
+        <PlanTheSprint noteId={id!} projectId={note.projectId} onPlanned={load} />
+      )}
+      {note.sprintId && sprint && (
+        <section>
+          <h2>Sprint</h2>
+          <SprintLine sprint={sprint} />
+        </section>
+      )}
 
       <section>
         <h2>Agenda</h2>

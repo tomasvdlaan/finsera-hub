@@ -572,3 +572,220 @@ describe('MeetingsService', () => {
     });
   });
 });
+
+/**
+ * A ceremony that touches the board.
+ *
+ * Five ceremony notes existed in the database with a null project — and therefore no board, no
+ * timeline and no way to become work — because the button that starts one never sent it.
+ */
+describe('MeetingsService ceremonies and sprints', () => {
+  let crm: CrmService;
+  let scrum: ScrumService;
+  let meetings: MeetingsService;
+  let projectId: string;
+  let sprintId: string;
+
+  beforeEach(async () => {
+    await resetDb();
+    await truncate(sql`TRUNCATE meetings.note_chunks, meetings.action_items, meetings.attendees,
+                   meetings.agenda_items, meetings.notes, scrum.tasks, scrum.sprints,
+                   scrum.boards, crm.projects, crm.contacts, crm.clients CASCADE`);
+    await seedUser(actor.userId, 'admin');
+
+    const manifests = new ManifestRegistry();
+    for (const m of [crmManifest, timeManifest, scrumManifest, meetingsManifest]) {
+      manifests.register(m);
+    }
+    manifests.seal();
+
+    const registry = new RegistryService(testDb, manifests);
+    const permissions = new PermissionService(testDb, manifests);
+    const audit = new AuditService();
+    const links = new LinkService(testDb, registry, permissions, audit, manifests);
+    const bus = new EventBus(manifests);
+    crm = new CrmService(testDb, registry, permissions, audit, bus, links);
+    const time = new TimeService(testDb, registry, permissions, audit, bus, links, crm);
+    scrum = new ScrumService(testDb, registry, permissions, audit, bus, links, crm, time);
+    const docs = new NoteDocService();
+    meetings = new MeetingsService(
+      testDb, registry, permissions, audit, bus, links,
+      new EmbeddingService(), crm, scrum, new UserService(testDb), docs,
+    );
+
+    const client = await crm.createClient(actor, { name: 'DocHorse', status: 'active' });
+    const project = await crm.createProject(actor, {
+      clientId: client.id,
+      name: 'Power BI',
+      billingModel: 'time_and_materials',
+    });
+    projectId = project.id;
+    await scrum.getBoard(actor, projectId);
+    const sprint = await scrum.createSprint(actor, {
+      projectId,
+      name: 'Sprint 1',
+      startsOn: '2026-08-03',
+      endsOn: '2026-08-14',
+    });
+    sprintId = sprint.id;
+  });
+
+  it('takes the project from the sprint, so naming one is enough', async () => {
+    const note = await meetings.create(actor, {
+      title: 'Daily stand-up',
+      template: 'daily_standup',
+      sprintId,
+    });
+    expect(note.sprintId).toBe(sprintId);
+    expect(note.projectId).toBe(projectId);
+  });
+
+  it('puts the ceremony on the sprint it was about', async () => {
+    const note = await meetings.create(actor, { title: 'Retro', template: 'retrospective', sprintId });
+    const { rows } = await testDb.execute<{ to_id: string }>(sql`
+      SELECT to_id FROM core.links WHERE from_id = ${note.id}
+    `);
+    expect(rows.map((r) => r.to_id)).toContain(sprintId);
+  });
+
+  it('lands an accepted action point in the running sprint', async () => {
+    // Every one of these used to go to the backlog, so a commitment made out loud during a
+    // sprint arrived somewhere nobody was looking.
+    await scrum.startSprint(actor, sprintId);
+    const note = await meetings.create(actor, { title: 'Stand-up', template: 'daily_standup', sprintId });
+    const withItem = await meetings.addActionItem(actor, note.id, { text: 'Chase the credentials' });
+    const item = withItem.actionItems.at(-1)!;
+
+    await meetings.acceptActionItem(actor, note.id, item.id);
+    const tasks = await scrum.listTasks(actor, { projectId });
+    expect(tasks.find((t) => t.title === 'Chase the credentials')?.sprintId).toBe(sprintId);
+  });
+
+  it('opens a stand-up already knowing what moved and what is stuck', async () => {
+    /*
+     * The whole point of the stage.
+     *
+     * Three stand-ups were held and every body was still the empty headings it was seeded
+     * with — not laziness, but because the note was asking for a transcription of what the
+     * board already knew.
+     */
+    await scrum.startSprint(actor, sprintId);
+    const shipped = await scrum.createTask(actor, { projectId, title: 'Model the spend dataset' });
+    await scrum.moveTask(actor, shipped.id, { status: 'in_progress' });
+    const stuck = await scrum.createTask(actor, { projectId, title: 'Supplier page' });
+    await scrum.blockTask(actor, stuck.id, { reason: 'waiting on credentials' });
+
+    const note = await meetings.create(actor, {
+      title: 'Daily stand-up',
+      template: 'daily_standup',
+      sprintId,
+      attendees: [{ name: 'Test User' }],
+    });
+
+    // Yesterday, filled in from the transitions rather than from anybody's memory.
+    expect(note.body).toMatch(/### Test User[\s\S]*Model the spend dataset/);
+    // Today left blank: the only thing a stand-up is actually for.
+    expect(note.body).toContain('- Today: ');
+    // The blocker, with its reason, under its own heading.
+    expect(note.body).toContain('waiting on credentials');
+    expect(note.body).not.toContain('_Nothing is recorded as blocked._');
+  });
+
+  it('gives a block to somebody who worked but was not added to the note', async () => {
+    // The board knew what they did. Listing only attendees would have dropped it silently.
+    await scrum.startSprint(actor, sprintId);
+    const t = await scrum.createTask(actor, { projectId, title: 'Overnight fix' });
+    await scrum.moveTask(actor, t.id, { status: 'in_progress' });
+
+    const note = await meetings.create(actor, {
+      title: 'Stand-up',
+      template: 'daily_standup',
+      sprintId,
+      attendees: [{ name: 'Somebody Else' }],
+    });
+    expect(note.body).toContain('### Somebody Else');
+    expect(note.body).toMatch(/### Test User[\s\S]*Overnight fix/);
+  });
+
+  it('falls back to the plain template when there is no board to read', async () => {
+    // A stand-up with no project is still a stand-up. An error here would mean the ceremony
+    // depended on the digest, and it is the other way round.
+    const note = await meetings.create(actor, {
+      title: 'Loose stand-up',
+      template: 'daily_standup',
+      attendees: [{ name: 'Test User' }],
+    });
+    expect(note.projectId).toBeNull();
+    expect(note.body).toContain('### Test User');
+    expect(note.body).toContain('## Round the table');
+  });
+
+  it('opens a review on what the sprint actually contained', async () => {
+    await scrum.startSprint(actor, sprintId);
+    const landed = await scrum.createTask(actor, { projectId, title: 'Spend dataset', sprintId });
+    await scrum.createTask(actor, { projectId, title: 'Supplier page', sprintId });
+    await scrum.moveTask(actor, landed.id, { status: 'done' });
+
+    const note = await meetings.create(actor, {
+      title: 'Sprint review',
+      template: 'sprint_review',
+      sprintId,
+    });
+    expect(note.body).toMatch(/## Finished\n\n- Spend dataset/);
+    expect(note.body).toMatch(/## Not finished\n\n- Supplier page/);
+    // Feedback stays blank: it is the part a review is actually for.
+    expect(note.body).toMatch(/## Feedback\n/);
+  });
+
+  it('opens a retrospective on whether the last one changed anything', async () => {
+    /*
+     * The habit that makes retrospectives worth holding, and the one thing the platform could
+     * not support: retro actions were ordinary backlog cards, so nothing could ask after them.
+     */
+    await scrum.startSprint(actor, sprintId);
+    const first = await meetings.create(actor, {
+      title: 'Retro',
+      template: 'retrospective',
+      sprintId,
+    });
+    const withItem = await meetings.addActionItem(actor, first.id, {
+      text: 'Write estimates down before starting',
+    });
+    await meetings.acceptActionItem(actor, first.id, withItem.actionItems.at(-1)!.id);
+
+    const next = await meetings.create(actor, {
+      title: 'Retro two',
+      template: 'retrospective',
+      sprintId,
+    });
+    expect(next.body).toContain('## Last time we said we would');
+    expect(next.body).toContain('- [ ] Write estimates down before starting');
+  });
+
+  it('ticks a retro action off once it is done', async () => {
+    await scrum.startSprint(actor, sprintId);
+    const retro = await meetings.create(actor, { title: 'Retro', template: 'retrospective', sprintId });
+    const withItem = await meetings.addActionItem(actor, retro.id, { text: 'Cap WIP at two' });
+    const accepted = await meetings.acceptActionItem(actor, retro.id, withItem.actionItems.at(-1)!.id);
+    const taskId = accepted.actionItems.at(-1)!.taskId!;
+    await scrum.moveTask(actor, taskId, { status: 'done' });
+
+    const next = await meetings.create(actor, { title: 'Retro two', template: 'retrospective', sprintId });
+    expect(next.body).toContain('- [x] Cap WIP at two');
+  });
+
+  it('sends it to the backlog instead when that sprint has already closed', async () => {
+    // A completed sprint's summary is frozen. Attaching a card afterwards would leave the
+    // record and the board disagreeing about what was in it.
+    await scrum.startSprint(actor, sprintId);
+    const note = await meetings.create(actor, { title: 'Retro', template: 'retrospective', sprintId });
+    await scrum.completeSprint(actor, sprintId);
+
+    const withItem = await meetings.addActionItem(actor, note.id, { text: 'Write the runbook' });
+    const item = withItem.actionItems.at(-1)!;
+    await meetings.acceptActionItem(actor, note.id, item.id);
+
+    const tasks = await scrum.listTasks(actor, { projectId });
+    expect(tasks.find((t) => t.title === 'Write the runbook')?.sprintId).toBeNull();
+  });
+});

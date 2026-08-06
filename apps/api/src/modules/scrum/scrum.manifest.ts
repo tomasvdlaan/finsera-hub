@@ -14,6 +14,8 @@ export const scrumManifest = defineManifest({
   structuralRefs: [
     { from: 'task', toType: 'project', required: true },
     { from: 'task', toType: 'task', required: false }, // an epic is a parent task
+    // Required: a sprint without a project belongs to nothing and appears on no timeline.
+    { from: 'sprint', toType: 'project', required: true },
   ],
 
   publishes: [

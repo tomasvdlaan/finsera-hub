@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { TEMPLATES, TEMPLATE_LIST, bodyFor } from './templates.js';
+import {
+  TEMPLATES,
+  TEMPLATE_LIST,
+  bodyFor,
+  standupBody,
+  type BoardDigest,
+} from './templates.js';
 
 /**
  * The shape a ceremony starts in.
@@ -52,5 +58,61 @@ describe('the ceremonies', () => {
     // A missing one would silently render as no timebox rather than as an error.
     expect(TEMPLATE_LIST.every((t) => t.timeboxMinutes > 0)).toBe(true);
     expect(TEMPLATES.daily_standup.timeboxMinutes).toBe(15);
+  });
+});
+
+/**
+ * A stand-up that already knows what happened.
+ *
+ * Pure, so the shape of the note is checked without a board, a database or a clock. The
+ * digest is the seam: scrum fills it in, and nothing here has heard of scrum.
+ */
+describe('standupBody', () => {
+  const standup = TEMPLATES.daily_standup!;
+  const empty: BoardDigest = { sprintGoal: null, people: [], blocked: [] };
+
+  it('writes the sprint goal under its own heading', () => {
+    const body = standupBody(standup, [], { ...empty, sprintGoal: 'Ship the supplier page' });
+    expect(body).toMatch(/## Sprint goal\n\nShip the supplier page/);
+  });
+
+  it('fills yesterday from what a person actually moved, and leaves today blank', () => {
+    // Today is the one thing the board cannot know and the only thing worth saying out loud.
+    const body = standupBody(standup, [{ name: 'Tomas' }], {
+      ...empty,
+      people: [{ name: 'Tomas', moved: ['Model the spend dataset'], doing: ['Supplier page'] }],
+    });
+    expect(body).toContain('### Tomas');
+    expect(body).toMatch(/- Yesterday:\n {2}- Model the spend dataset/);
+    expect(body).toContain('- Today: \n');
+    expect(body).toMatch(/- In flight:\n {2}- Supplier page/);
+  });
+
+  it('gives an attendee the board knows nothing about the blank block they had before', () => {
+    const body = standupBody(standup, [{ name: 'Newcomer' }], empty);
+    expect(body).toContain('### Newcomer');
+    expect(body).toContain('- Yesterday: ');
+    expect(body).toContain('- In flight: nothing');
+  });
+
+  it('says so when nothing is blocked, rather than leaving the heading bare', () => {
+    // An empty heading reads as "not filled in yet". A sentence reads as an answer.
+    expect(standupBody(standup, [], empty)).toContain('_Nothing is recorded as blocked._');
+  });
+
+  it('names blockers with their reason and their age', () => {
+    const body = standupBody(standup, [], {
+      ...empty,
+      blocked: [{ title: 'Supplier page', reason: 'waiting on credentials', days: 4 }],
+    });
+    expect(body).toContain('- **Supplier page** — waiting on credentials _(4d)_');
+  });
+
+  it('leaves bodyFor exactly as it was', () => {
+    // The two answer different questions: what does this template start as, versus what does
+    // this stand-up open with. Only the second one reads a board.
+    expect(bodyFor(standup, [{ name: 'Tomas' }])).toBe(
+      [standup.body.trimEnd(), '', standup.perAttendee!.replace(/\{name\}/g, 'Tomas')].join('\n'),
+    );
   });
 });

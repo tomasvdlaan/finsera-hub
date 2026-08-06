@@ -4412,3 +4412,12 @@ button.nav-me:hover { background: var(--surface); }
 .column-flow {
   font-size: var(--text-xs);
 }
+
+/* What a ceremony is about, sat above the buttons that start one. */
+.ceremony-context {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+  font-size: var(--text-sm);
+}

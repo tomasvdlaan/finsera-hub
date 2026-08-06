@@ -1,0 +1,3 @@
+ALTER TABLE "scrum"."boards" ALTER COLUMN "columns" SET DEFAULT '[{"key":"to_do","label":"To do","isDone":false,"flow":"queue"},{"key":"in_progress","label":"In progress","isDone":false,"flow":"active"},{"key":"waiting_on_client","label":"Waiting on client","isDone":false,"flow":"waiting"},{"key":"review","label":"Review","isDone":false,"flow":"active"},{"key":"done","label":"Done","isDone":true,"flow":"done"}]'::jsonb;--> statement-breakpoint
+ALTER TABLE "meetings"."notes" ADD COLUMN "sprint_id" uuid;--> statement-breakpoint
+CREATE INDEX "notes_sprint_idx" ON "meetings"."notes" USING btree ("sprint_id");

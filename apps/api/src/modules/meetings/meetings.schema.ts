@@ -59,6 +59,15 @@ export const notes = meetings.table(
     /** Registry ids, not FKs — the same cross-module rule as everywhere else. */
     clientId: uuid('client_id'),
     projectId: uuid('project_id'),
+    /**
+     * The sprint this ceremony was about.
+     *
+     * Stored rather than derived from the project and the date, because the two ceremonies
+     * that matter most are held outside the sprint they concern: a retrospective for sprint 4
+     * runs on day one of sprint 5, and planning for sprint 5 runs before it starts. Date-in-
+     * window would attach both to the wrong one, confidently.
+     */
+    sprintId: uuid('sprint_id'),
 
     meetingDate: date('meeting_date').notNull(),
     startedAt: timestamp('started_at', { withTimezone: true }),
@@ -90,6 +99,7 @@ export const notes = meetings.table(
   (t) => [
     index('notes_client_idx').on(t.clientId),
     index('notes_project_idx').on(t.projectId),
+    index('notes_sprint_idx').on(t.sprintId),
     index('notes_date_idx').on(t.meetingDate),
     check('notes_status_valid', sql`${t.status} IN ('draft','final')`),
     check(

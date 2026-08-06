@@ -238,6 +238,16 @@ export class MeetingsController {
     return this.meetings.create(actor, body);
   }
 
+  /** Attach this note to a sprint — used by planning the moment it creates one. */
+  @Post(':id/sprint')
+  linkSprint(
+    @CurrentActor() actor: Actor,
+    @Param('id') id: string,
+    @Body() body: { sprintId: string },
+  ) {
+    return this.meetings.linkToSprint(actor, id, body.sprintId);
+  }
+
   @Patch(':id')
   update(
     @CurrentActor() actor: Actor,

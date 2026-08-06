@@ -94,9 +94,14 @@ export class ScrumController {
   //
   // The table has existed since migration 0006 with nothing to create a row in it.
 
+  /** Sprints for one project, or — with no project — every one in a given state. */
   @Get('sprints')
-  sprints(@CurrentActor() actor: Actor, @Query('projectId') projectId: string) {
-    return this.scrum.listSprints(actor, projectId);
+  sprints(
+    @CurrentActor() actor: Actor,
+    @Query('projectId') projectId?: string,
+    @Query('state') state?: string,
+  ) {
+    return this.scrum.listSprints(actor, { projectId, state });
   }
 
   /** The one running on a project, with its progress. Null when a project runs a flow board. */

@@ -188,3 +188,146 @@ export function bodyFor(template: Template, attendees: Array<{ name: string }> =
   const blocks = attendees.map((a) => template.perAttendee!.replace(/\{name\}/g, a.name));
   return [template.body.trimEnd(), '', ...blocks].join('\n');
 }
+
+/**
+ * What the board knows on the morning of a stand-up.
+ *
+ * Declared here rather than imported from scrum, so meetings owns the shape it renders and the
+ * dependency stays one way. Scrum fills it in; this file never asks scrum anything.
+ */
+export interface BoardDigest {
+  /** The running sprint's goal, verbatim. */
+  sprintGoal: string | null;
+  /** Per person: what they moved since the last stand-up, and what they have in flight. */
+  people: Array<{ name: string; moved: string[]; doing: string[] }>;
+  blocked: Array<{ title: string; reason: string; days: number }>;
+}
+
+/** Insert content directly under a heading, leaving the template's own structure alone. */
+function under(body: string, heading: string, content: string): string {
+  const lines = body.split('\n');
+  const at = lines.findIndex((l) => l.trim() === heading);
+  if (at === -1) return body;
+  lines.splice(at + 1, 0, '', content);
+  return lines.join('\n');
+}
+
+/**
+ * A stand-up note that already knows what happened.
+ *
+ * The headings this fills were seeded empty and stayed empty — three stand-ups were held and
+ * every body was still `## Round the table` with nothing under it. That is not laziness: the
+ * board already knew what moved, who is stuck and for how long, so the note was asking for a
+ * transcription rather than for anything new. It now arrives with the transcription done and
+ * only the parts a person has to supply — today's intent, and the decisions — left blank.
+ *
+ * A separate function rather than a branch inside `bodyFor`, which stays byte-identical: that
+ * one is the answer to "what does this template start as", which is still a real question with
+ * a different answer.
+ *
+ * Pure. The digest is passed in, so the shape of a stand-up is testable without a database.
+ */
+export function standupBody(
+  template: Template,
+  attendees: Array<{ name: string }>,
+  digest: BoardDigest,
+): string {
+  const list = (items: string[]) => items.map((t) => `  - ${t}`).join('\n');
+  const key = (name: string) => name.trim().toLowerCase();
+
+  /*
+   * Everyone in the room, plus anyone the board saw move something.
+   *
+   * Attendees alone would silently drop a colleague who worked yesterday and has not been
+   * added to today's note — the board knew, and the round-the-table would not have said so.
+   * Matching is by name because that is all an attendee has; normalised, so a stray capital
+   * does not produce two blocks for one person.
+   */
+  const names = [...attendees.map((a) => a.name)];
+  for (const p of digest.people) {
+    if (!names.some((n) => key(n) === key(p.name))) names.push(p.name);
+  }
+
+  const blocks = names.map((name) => {
+    const person = digest.people.find((p) => key(p.name) === key(name));
+    const moved = person?.moved ?? [];
+    const doing = person?.doing ?? [];
+    return [
+      `### ${name}`,
+      '',
+      // Filled from what they actually moved; "Today" stays blank because it is the one
+      // thing the board cannot know and the only thing a stand-up is really for.
+      moved.length > 0 ? `- Yesterday:\n${list(moved)}` : '- Yesterday: ',
+      '- Today: ',
+      doing.length > 0 ? `- In flight:\n${list(doing)}` : '- In flight: nothing',
+      '',
+    ].join('\n');
+  });
+
+  let body = template.body;
+  if (digest.sprintGoal) body = under(body, '## Sprint goal', digest.sprintGoal);
+  if (blocks.length > 0) body = under(body, '## Round the table', blocks.join('\n'));
+  body = under(
+    body,
+    '## Blockers',
+    digest.blocked.length > 0
+      ? digest.blocked
+          .map((b) => `- **${b.title}** — ${b.reason} _(${b.days}d)_`)
+          .join('\n')
+      : '_Nothing is recorded as blocked._',
+  );
+  return body;
+}
+
+/** What a sprint contained, for the review that discusses it. Filled in by scrum. */
+export interface ReviewDigest {
+  name: string;
+  goal: string | null;
+  finished: string[];
+  unfinished: string[];
+}
+
+/** What the last retrospective promised, and whether it happened. */
+export interface RetroDigest {
+  actions: Array<{ title: string; done: boolean }>;
+}
+
+/**
+ * A sprint review that opens on what actually happened.
+ *
+ * `## Finished` and `## Not finished` are the two lists the board has had all along, and the
+ * review asked somebody to read them off a screen and type them in again. Feedback and what it
+ * changes stay blank, because those are the parts a review is for.
+ */
+export function reviewBody(template: Template, digest: ReviewDigest): string {
+  const list = (items: string[], empty: string) =>
+    items.length > 0 ? items.map((t) => `- ${t}`).join('\n') : `_${empty}_`;
+
+  let body = template.body;
+  body = under(body, '## Finished', list(digest.finished, 'Nothing was finished.'));
+  body = under(
+    body,
+    '## Not finished',
+    list(digest.unfinished, 'Everything that was taken on landed.'),
+  );
+  return digest.goal ? `_Sprint goal: ${digest.goal}_\n\n${body}` : body;
+}
+
+/**
+ * A retrospective that starts by holding the last one to account.
+ *
+ * The single most valuable habit in SCRUM and the one this platform could not support: retro
+ * actions became ordinary backlog cards, indistinguishable from work, so the next retro had no
+ * way to ask whether any of them happened. A retro that cannot ask that is a conversation.
+ */
+export function retroBody(template: Template, digest: RetroDigest): string {
+  if (digest.actions.length === 0) return template.body;
+  const lines = digest.actions.map((a) => `- [${a.done ? 'x' : ' '}] ${a.title}`);
+  return [
+    '## Last time we said we would',
+    '',
+    ...lines,
+    '',
+    template.body,
+  ].join('\n');
+}

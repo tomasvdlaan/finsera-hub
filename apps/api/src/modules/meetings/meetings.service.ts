@@ -11,11 +11,19 @@ import { PermissionService } from '../../core/permissions/permission.service.js'
 import { RegistryService } from '../../core/registry/registry.service.js';
 import { chunkText } from '../../core/text/chunk.js';
 import { CrmService } from '../crm/crm.service.js';
-import { ScrumService } from '../scrum/scrum.service.js';
+import { RETRO_LABEL, ScrumService } from '../scrum/scrum.service.js';
 import { headingsOf, markdownToDoc } from '@platform/note-doc';
 import { appendMarkdown, replaceSectionMarkdown } from './doc/note-edit.js';
 import { NoteDocService } from './doc/note-doc.service.js';
-import { TEMPLATES, bodyFor, type TemplateName } from './templates.js';
+import {
+  TEMPLATES,
+  bodyFor,
+  retroBody,
+  reviewBody,
+  standupBody,
+  type Template,
+  type TemplateName,
+} from './templates.js';
 import {
   actionItems,
   agendaItems,
@@ -38,6 +46,8 @@ export interface CreateNoteInput {
   title: string;
   clientId?: string | null;
   projectId?: string | null;
+  /** The sprint this ceremony is about. Fills projectId in when one is not given. */
+  sprintId?: string | null;
   meetingDate?: string;
   template?: TemplateName;
   body?: string;
@@ -74,6 +84,51 @@ export class MeetingsService {
 
   // ── notes ──────────────────────────────────────────────────
 
+  /**
+   * The body a note opens with.
+   *
+   * Seeded once, at creation, and never afterwards: past this point the note-doc authority
+   * owns the body, and a later write would fight whatever is being typed into it.
+   *
+   * Degrades to exactly what the template said on its own — a stand-up with no project has no
+   * board to read, and an empty round-the-table is a worse outcome than an error only if you
+   * think the ceremony is about the note.
+   */
+  private async seedBody(
+    actor: Actor,
+    template: Template,
+    attendees: Array<{ name: string }>,
+    projectId: string | null,
+    sprintId: string | null,
+  ): Promise<string> {
+    if (!projectId) return bodyFor(template, attendees);
+    try {
+      if (template === TEMPLATES.sprint_review && sprintId) {
+        return reviewBody(template, await this.scrum.sprintCards(actor, sprintId));
+      }
+      if (template === TEMPLATES.retrospective) {
+        return retroBody(template, { actions: await this.scrum.retroActions(actor, projectId) });
+      }
+      if (template !== TEMPLATES.daily_standup) return bodyFor(template, attendees);
+
+      // Since the last stand-up on this project, falling back to yesterday when it is the
+      // first — "what happened since we last spoke" is the question, not "what happened today".
+      const [previous] = await this.db
+        .select({ createdAt: notes.createdAt })
+        .from(notes)
+        .where(and(eq(notes.projectId, projectId), eq(notes.template, 'daily_standup')))
+        .orderBy(desc(notes.createdAt))
+        .limit(1);
+      const since = previous?.createdAt ?? new Date(Date.now() - 86_400_000);
+      const digest = await this.scrum.standupDigest(actor, projectId, since, sprintId);
+      return standupBody(template, attendees, digest);
+    } catch {
+      // The note matters more than the digest. A board that cannot be read gives you the
+      // headings you would have had anyway rather than a failed ceremony.
+      return bodyFor(template, attendees);
+    }
+  }
+
   async create(actor: Actor, input: CreateNoteInput, origin: { aiInitiated?: boolean } = {}) {
     await this.require(actor, 'meetings.write');
     if (!input.title?.trim()) throw new BadRequestException('A note needs a title');
@@ -84,9 +139,25 @@ export class MeetingsService {
     }
     if (input.clientId) await this.crm.getClient(actor, input.clientId);
 
+    /*
+     * A sprint implies its project, so saying which sprint is enough.
+     *
+     * Every ceremony note in the database had a null project, because the button that starts
+     * one never sent it — and a note with no project cannot become a task, cannot reach a
+     * timeline and cannot find a board. Deriving the project from the sprint means the one
+     * field anybody would actually pick carries the rest.
+     */
+    const sprint = input.sprintId ? await this.scrum.getSprint(actor, input.sprintId) : null;
+    const projectId = input.projectId ?? sprint?.projectId ?? null;
+    if (projectId && !sprint) await this.crm.getProject(actor, projectId);
+
     const meetingDate = input.meetingDate ?? new Date().toISOString().slice(0, 10);
     // A stand-up gets a block per person, which needs the attendees the note is created with.
-    const body = input.body ?? (template ? bodyFor(template, input.attendees ?? []) : '');
+    const body =
+      input.body ??
+      (template
+        ? await this.seedBody(actor, template, input.attendees ?? [], projectId, sprint?.id ?? null)
+        : '');
     const agenda = input.agenda ?? template?.agenda ?? [];
 
     const id = this.registry.newId();
@@ -102,7 +173,8 @@ export class MeetingsService {
         id,
         title: input.title.trim(),
         clientId: input.clientId ?? null,
-        projectId: input.projectId ?? null,
+        projectId,
+        sprintId: sprint?.id ?? null,
         meetingDate,
         body,
         template: input.template ?? null,
@@ -140,10 +212,17 @@ export class MeetingsService {
           kind: 'met_with',
         });
       }
-      if (input.projectId) {
+      if (projectId) {
         await this.links.createWithin(tx, actor, {
           fromId: id,
-          toId: input.projectId,
+          toId: projectId,
+          kind: 'about',
+        });
+      }
+      if (sprint) {
+        await this.links.createWithin(tx, actor, {
+          fromId: id,
+          toId: sprint.id,
           kind: 'about',
         });
       }
@@ -181,6 +260,49 @@ export class MeetingsService {
    * exists to end. So an ordinary body update is pushed into the open document instead, and
    * reaches every editor as a change like any other.
    */
+  /**
+   * Attach a note to a sprint after the fact.
+   *
+   * Its own method rather than a field on the patch, because it does more than set a column:
+   * the note picks up the sprint's project if it had none, and gets a link so it appears on
+   * the sprint's timeline. A planning note uses this the moment it creates the sprint it was
+   * about — which is the point at which the ceremony stops being a document.
+   */
+  async linkToSprint(actor: Actor, noteId: string, sprintId: string) {
+    await this.require(actor, 'meetings.write');
+    const note = await this.raw(noteId);
+    const sprint = await this.scrum.getSprint(actor, sprintId);
+
+    await this.db.transaction(async (tx) => {
+      await tx
+        .update(notes)
+        .set({
+          sprintId: sprint.id,
+          projectId: note.projectId ?? sprint.projectId,
+          updatedAt: new Date(),
+        })
+        .where(eq(notes.id, noteId));
+
+      await this.links.createWithin(tx, actor, { fromId: noteId, toId: sprint.id, kind: 'about' });
+      if (!note.projectId) {
+        await this.links.createWithin(tx, actor, {
+          fromId: noteId,
+          toId: sprint.projectId,
+          kind: 'about',
+        });
+      }
+      await this.audit.record(tx, {
+        actorId: actor.userId,
+        action: 'meeting_note.link_sprint',
+        entityType: 'meeting_note',
+        entityId: noteId,
+        detail: { sprintId: sprint.id },
+      });
+    });
+
+    return this.get(actor, noteId);
+  }
+
   async update(
     actor: Actor,
     id: string,
@@ -535,12 +657,38 @@ export class MeetingsService {
       );
     }
 
+    /*
+     * Work raised inside a sprint belongs to that sprint.
+     *
+     * Every action point ever accepted landed in the backlog, because no sprint was passed —
+     * so a commitment made out loud during a sprint arrived somewhere nobody was looking at.
+     *
+     * Not when the sprint has closed, though: a completed sprint's summary is frozen at the
+     * moment it closed, and attaching a card afterwards would leave the record disagreeing
+     * with the board about what was in it. Those go to the backlog, which is the truth.
+     */
+    const sprint = note.sprintId ? await this.scrum.getSprint(actor, note.sprintId) : null;
+    const sprintId = sprint && sprint.state !== 'completed' ? sprint.id : undefined;
+
+    /*
+     * A retrospective produces commitments, not features.
+     *
+     * Marked so the next retrospective can open by asking whether they happened — which is the
+     * only mechanism in SCRUM that changes how a team works, and which was impossible while a
+     * retro action was indistinguishable from any other card. A chore because that is what it
+     * is: work that improves how the work is done.
+     */
+    const fromRetro = note.template === 'retrospective';
+
     const task = await this.scrum.createTask(actor, {
       projectId: note.projectId,
       title: item.text,
       description: `From the meeting note "${note.title}" (${note.meetingDate}).`,
       assigneeId: item.assigneeId ?? undefined,
       dueOn: item.dueOn ?? undefined,
+      sprintId,
+      type: fromRetro ? 'chore' : undefined,
+      labels: fromRetro ? [RETRO_LABEL] : undefined,
     });
 
     await this.db.transaction(async (tx) => {

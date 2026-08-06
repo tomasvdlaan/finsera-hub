@@ -16,6 +16,13 @@ interface OpenAction {
   meetingDate: string;
 }
 
+interface OpenSprint {
+  id: string;
+  name: string;
+  projectId: string;
+  state: 'planned' | 'active' | 'completed';
+}
+
 interface ActiveSession {
   noteId: string;
   startedAt: string;
@@ -80,6 +87,9 @@ export function NoteList() {
   const [title, setTitle] = useState('');
   const [clientId, setClientId] = useState('');
   const [me, setMe] = useState<{ displayName: string } | null>(null);
+  const [sprints, setSprints] = useState<OpenSprint[]>([]);
+  /** What the next ceremony is about: `sprint:<id>` or `project:<id>`. */
+  const [context, setContext] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -100,6 +110,17 @@ export function NoteList() {
     load();
     api.get<Client[]>('/crm/clients').then(setClients).catch(() => setClients([]));
     api.get<Project[]>('/crm/projects').then(setProjects).catch(() => setProjects([]));
+    /*
+     * Running *and* planned.
+     *
+     * Filtering to active alone meant the sprint you had just finished planning was invisible
+     * to the picker until somebody started it — so the ceremony that created it could not be
+     * followed by one about it. A closed sprint is a different matter: nothing new is about it.
+     */
+    api
+      .get<OpenSprint[]>('/scrum/sprints')
+      .then((all) => setSprints(all.filter((s) => s.state !== 'completed')))
+      .catch(() => setSprints([]));
     api.get<Template[]>('/meetings/templates').then(setTemplates).catch(() => setTemplates([]));
     // Your own name, so a stand-up's per-person block is headed with it rather than "me".
     api.get<{ displayName: string }>('/core/me').then(setMe).catch(() => setMe(null));
@@ -110,6 +131,19 @@ export function NoteList() {
     [clients],
   );
   const noteById = useMemo(() => new Map(notes.map((n) => [n.id, n])), [notes]);
+  const projectName = useMemo(() => new Map(projects.map((p) => [p.id, p.name])), [projects]);
+
+  /*
+   * Default to the running sprint when there is exactly one, which is the ordinary morning.
+   * Only ever sets a default — once you have chosen, it stops interfering.
+   */
+  useEffect(() => {
+    if (context) return;
+    const running = sprints.filter((s) => s.state === 'active');
+    const pick = running.length === 1 ? running[0] : sprints.length === 1 ? sprints[0] : null;
+    if (pick) setContext(`sprint:${pick.id}`);
+    else if (sprints.length === 0 && projects.length === 1) setContext(`project:${projects[0]!.id}`);
+  }, [sprints, projects, context]);
 
   const ceremonies = useMemo(
     () =>
@@ -131,9 +165,22 @@ export function NoteList() {
     setBusy(t.name);
     setError(null);
     try {
+      /*
+       * What the ceremony is about, which this never sent.
+       *
+       * Every ceremony note in the database had a null project — not through neglect, but
+       * because this call only ever posted a title, a template and an attendee. A note with
+       * no project cannot turn an action point into a task, cannot find a board and appears
+       * on nobody's timeline, so the ceremony left no trace anywhere but itself.
+       *
+       * Naming a sprint is enough: the server fills the project in from it.
+       */
+      const [kind, id] = context.split(':');
       const note = await api.post<Note>('/meetings', {
         title: `${t.label} — ${new Date().toISOString().slice(0, 10)}`,
         template: t.name,
+        sprintId: kind === 'sprint' ? id : null,
+        projectId: kind === 'project' ? id : null,
         // Yourself, so the per-person block has a heading and the consent gate has somebody
         // to ask. Anyone else gets added in the room.
         attendees: [{ name: me?.displayName ?? 'Me' }],
@@ -204,6 +251,32 @@ export function NoteList() {
 
       <section>
         <h2>Start</h2>
+        {/*
+          One control rather than a branch.
+
+          The alternative was to guess — use the only running sprint, otherwise the only
+          project, otherwise ask — which is three behaviours for the reader to hold and a
+          modal on the unlucky path. A select that is already right on the common day costs
+          one glance and is never surprising.
+        */}
+        <label className="ceremony-context">
+          <span className="muted">About</span>
+          <select value={context} onChange={(e) => setContext(e.target.value)}>
+            {sprints.map((s) => (
+              <option key={s.id} value={`sprint:${s.id}`}>
+                {s.name} · {projectName.get(s.projectId) ?? 'sprint'}
+                {s.state === 'planned' ? ' (not started)' : ''}
+              </option>
+            ))}
+            {projects.map((p) => (
+              <option key={p.id} value={`project:${p.id}`}>
+                {p.name}
+                {sprints.some((s) => s.projectId === p.id) ? ' (no sprint)' : ''}
+              </option>
+            ))}
+            <option value="">Nothing in particular</option>
+          </select>
+        </label>
         <div className="ceremony-row">
           {ceremonies.map((t) => (
             <button

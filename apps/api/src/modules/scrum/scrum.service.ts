@@ -53,6 +53,15 @@ export interface CreateTaskInput {
 /** Gap between ranks, so a card can always be dropped between two others without a rewrite. */
 const RANK_STEP = 1000;
 
+/**
+ * The label that marks a card as something a retrospective decided to change.
+ *
+ * A reserved label rather than a column or a type, because a retro action *is* a card — it is
+ * worked on, estimated and finished like any other. What it needs is to be findable, so the
+ * next retro can open by asking whether the last one's promises landed.
+ */
+export const RETRO_LABEL = 'retro';
+
 interface FlowRow extends Record<string, unknown> {
   task_id: string;
   title: string;
@@ -232,13 +241,26 @@ export class ScrumService {
    * `boards.uses_sprints` was false on every board. This is the code that was missing.
    */
 
-  async listSprints(actor: Actor, projectId: string) {
+  /**
+   * Sprints, for one project or across all of them.
+   *
+   * The project became optional so a screen that is not about a single project — the meetings
+   * hub, deciding which sprint a ceremony is for — can ask "what is running anywhere" without
+   * one request per project.
+   */
+  async listSprints(actor: Actor, filter: { projectId?: string; state?: string } = {}) {
     await this.require(actor, 'scrum.tasks.read');
-    await this.crm.getProject(actor, projectId);
+    if (filter.projectId) await this.crm.getProject(actor, filter.projectId);
+
+    const where = [
+      filter.projectId ? eq(sprints.projectId, filter.projectId) : undefined,
+      filter.state ? eq(sprints.state, filter.state) : undefined,
+    ].filter(Boolean);
+
     return this.db
       .select()
       .from(sprints)
-      .where(eq(sprints.projectId, projectId))
+      .where(where.length > 0 ? and(...where) : undefined)
       .orderBy(desc(sprints.startsOn));
   }
 
@@ -268,6 +290,21 @@ export class ScrumService {
 
     const id = this.registry.newId();
     await this.db.transaction(async (tx) => {
+      /*
+       * A sprint is an entity, and until now it only said so in the manifest.
+       *
+       * `scrum.manifest.ts` has declared the type, its display template and its URL since the
+       * module was written, and nothing ever registered one — so a sprint could not be
+       * searched, linked, mentioned, or put on a timeline, and the URL it advertised resolved
+       * to nothing. Tasks have done this since their first line; sprints were simply missed.
+       */
+      await this.registry.register(tx, {
+        id,
+        entityType: 'sprint',
+        displayName: name,
+        urlPath: `/scrum/sprints/${id}`,
+      });
+
       await tx.insert(sprints).values({
         id,
         projectId: input.projectId,
@@ -283,6 +320,13 @@ export class ScrumService {
         .update(boards)
         .set({ usesSprints: true, updatedAt: new Date() })
         .where(eq(boards.projectId, input.projectId));
+
+      // Mirrors the task pattern, so a sprint reaches the project and client timelines.
+      await this.links.createWithin(tx, actor, {
+        fromId: id,
+        toId: input.projectId,
+        kind: 'belongs_to',
+      });
 
       await this.audit.record(tx, {
         actorId: actor.userId,
@@ -616,6 +660,138 @@ export class ScrumService {
       throughput: weekly(finished.map((r) => finishedAt(r)!)),
       reopened: all.filter((r) => r.reopen_count > 0).length,
     };
+  }
+
+  /**
+   * What the board can say at a stand-up, as plain data.
+   *
+   * Returns a shape meetings declares, not one scrum exports, so the dependency stays one way:
+   * scrum has never heard of a meeting and does not start now. It answers the two questions the
+   * round-the-table is actually asking — what moved since last time, and what is stuck — from
+   * the transitions, which know, rather than from `updated_at`, which does not.
+   */
+  async standupDigest(actor: Actor, projectId: string, since: Date, sprintId?: string | null) {
+    await this.require(actor, 'scrum.tasks.read');
+    const board = await this.getBoardRaw(projectId);
+    const activeKeys = (board?.columns ?? DEFAULT_COLUMNS)
+      .filter((c, i) => flowOf(c, i) === 'active')
+      .map((c) => c.key);
+
+    const [sprint, moved, live] = await Promise.all([
+      // The sprint the note says it is about, not merely whichever one is running: a stand-up
+      // held on the morning a sprint starts is about a sprint that has not started yet.
+      sprintId ? this.rawSprint(sprintId) : this.activeSprint(projectId),
+      this.db
+        .select({ title: tasks.title, to: taskTransitions.toStatus, by: taskTransitions.movedBy })
+        .from(taskTransitions)
+        .innerJoin(tasks, eq(tasks.id, taskTransitions.taskId))
+        .where(
+          and(
+            eq(tasks.projectId, projectId),
+            isNull(tasks.archivedAt),
+            sql`${taskTransitions.at} >= ${since.toISOString()}`,
+          ),
+        )
+        .orderBy(asc(taskTransitions.at)),
+      this.db
+        .select({
+          title: tasks.title,
+          status: tasks.status,
+          assigneeId: tasks.assigneeId,
+          blockedReason: tasks.blockedReason,
+          blockedSince: tasks.blockedSince,
+        })
+        .from(tasks)
+        .where(and(eq(tasks.projectId, projectId), isNull(tasks.archivedAt), isNull(tasks.completedAt))),
+    ]);
+
+    const people = await this.peopleFor([
+      ...moved.map((m) => m.by),
+      ...live.map((t) => t.assigneeId),
+    ]);
+    const nameOf = (id: string | null) => (id ? (people.get(id)?.displayName ?? null) : null);
+
+    const byName = new Map<string, { name: string; moved: string[]; doing: string[] }>();
+    const entry = (name: string) => {
+      if (!byName.has(name)) byName.set(name, { name, moved: [], doing: [] });
+      return byName.get(name)!;
+    };
+    for (const m of moved) {
+      const name = nameOf(m.by);
+      // Deduped: a card walked through three columns overnight is one thing that happened.
+      if (name && !entry(name).moved.includes(m.title)) entry(name).moved.push(m.title);
+    }
+    for (const t of live) {
+      const name = nameOf(t.assigneeId);
+      if (name && activeKeys.includes(t.status)) entry(name).doing.push(t.title);
+    }
+
+    return {
+      sprintGoal: sprint?.goal ?? null,
+      people: [...byName.values()],
+      blocked: live
+        .filter((t) => t.blockedReason !== null)
+        .map((t) => ({
+          title: t.title,
+          reason: t.blockedReason!,
+          days: t.blockedSince
+            ? Math.floor((Date.now() - t.blockedSince.getTime()) / 86_400_000)
+            : 0,
+        })),
+    };
+  }
+
+  /**
+   * What a sprint contained, for the review that discusses it.
+   *
+   * Read live rather than from the frozen summary, because a review is normally held while the
+   * sprint is still open — the summary does not exist until it closes, and by then the meeting
+   * is over. The summary's job is the opposite: to survive the closing.
+   */
+  async sprintCards(actor: Actor, sprintId: string) {
+    await this.require(actor, 'scrum.tasks.read');
+    const sprint = await this.rawSprint(sprintId);
+    const board = await this.getBoardRaw(sprint.projectId);
+    const doneKeys = (board?.columns ?? DEFAULT_COLUMNS).filter((c) => c.isDone).map((c) => c.key);
+
+    const rows = await this.db
+      .select({ title: tasks.title, status: tasks.status, completedAt: tasks.completedAt })
+      .from(tasks)
+      .where(and(eq(tasks.sprintId, sprintId), isNull(tasks.archivedAt)))
+      .orderBy(asc(tasks.rank));
+
+    const done = (t: (typeof rows)[number]) =>
+      t.completedAt !== null || doneKeys.includes(t.status);
+    return {
+      name: sprint.name,
+      goal: sprint.goal,
+      finished: rows.filter(done).map((t) => t.title),
+      unfinished: rows.filter((t) => !done(t)).map((t) => t.title),
+    };
+  }
+
+  /**
+   * What the last retrospective said it would change, and whether it happened.
+   *
+   * The one question a retrospective has to open with and the only one nothing could answer.
+   * Retro actions became ordinary backlog cards, indistinguishable from work, so the next
+   * retro had no way to ask — and a retro that cannot ask is a conversation, not a mechanism.
+   */
+  async retroActions(actor: Actor, projectId: string) {
+    await this.require(actor, 'scrum.tasks.read');
+    const rows = await this.db
+      .select({ title: tasks.title, completedAt: tasks.completedAt, createdAt: tasks.createdAt })
+      .from(tasks)
+      .where(
+        and(
+          eq(tasks.projectId, projectId),
+          isNull(tasks.archivedAt),
+          sql`${RETRO_LABEL} = ANY(${tasks.labels})`,
+        ),
+      )
+      .orderBy(desc(tasks.createdAt))
+      .limit(10);
+    return rows.map((t) => ({ title: t.title, done: t.completedAt !== null }));
   }
 
   private async rawSprint(id: string) {

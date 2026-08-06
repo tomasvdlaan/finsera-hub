@@ -776,3 +776,78 @@ describe('ScrumService flow', () => {
     expect(rows[0]?.disagreements).toBe(0);
   });
 });
+
+/**
+ * A sprint as a thing the platform knows about.
+ *
+ * The manifest declared the entity, its display template and its URL from the first commit,
+ * and `createSprint` never registered one — so the type existed and no instance of it did.
+ */
+describe('ScrumService sprint registration', () => {
+  let scrum: ScrumService;
+  let registry: RegistryService;
+  let projectId: string;
+
+  beforeEach(async () => {
+    await resetDb();
+    await truncate(
+      sql`TRUNCATE scrum.tasks, scrum.sprints, scrum.boards, crm.projects, crm.contacts, crm.clients CASCADE`,
+    );
+    await seedUser(actor.userId, 'admin');
+
+    const manifests = new ManifestRegistry();
+    for (const m of [crmManifest, timeManifest, scrumManifest]) manifests.register(m);
+    manifests.seal();
+
+    registry = new RegistryService(testDb, manifests);
+    const permissions = new PermissionService(testDb, manifests);
+    const audit = new AuditService();
+    const links = new LinkService(testDb, registry, permissions, audit, manifests);
+    const bus = new EventBus(manifests);
+    const crm = new CrmService(testDb, registry, permissions, audit, bus, links);
+    const time = new TimeService(testDb, registry, permissions, audit, bus, links, crm);
+    scrum = new ScrumService(testDb, registry, permissions, audit, bus, links, crm, time);
+
+    const client = await crm.createClient(actor, { name: 'DocHorse', status: 'active' });
+    const project = await crm.createProject(actor, {
+      clientId: client.id,
+      name: 'Power BI',
+      billingModel: 'time_and_materials',
+    });
+    projectId = project.id;
+    await scrum.getBoard(actor, projectId);
+  });
+
+  it('registers a sprint so it can be found and pointed at', async () => {
+    const sprint = await scrum.createSprint(actor, {
+      projectId,
+      name: 'Sprint 1',
+      startsOn: '2026-08-03',
+      endsOn: '2026-08-14',
+    });
+
+    const entity = await registry.resolveOne(sprint.id);
+    expect(entity).toMatchObject({
+      entityType: 'sprint',
+      displayName: 'Sprint 1',
+      // The URL the manifest has advertised all along, now resolving to a real page.
+      urlPath: `/scrum/sprints/${sprint.id}`,
+    });
+  });
+
+  it('puts a sprint on its project timeline', async () => {
+    // Without the link a sprint belongs to nothing: it would never appear beside the client
+    // and project it was run for, which is the only reason this module owns a board at all.
+    const sprint = await scrum.createSprint(actor, {
+      projectId,
+      name: 'Sprint 1',
+      startsOn: '2026-08-03',
+      endsOn: '2026-08-14',
+    });
+
+    const { rows } = await testDb.execute<{ to_id: string; link_kind: string }>(sql`
+      SELECT to_id, link_kind FROM core.links WHERE from_id = ${sprint.id}
+    `);
+    expect(rows).toEqual([{ to_id: projectId, link_kind: 'belongs_to' }]);
+  });
+});
