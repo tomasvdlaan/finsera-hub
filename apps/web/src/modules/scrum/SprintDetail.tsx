@@ -105,6 +105,12 @@ export function SprintDetail() {
           <span className="meter-fill" style={{ width: `${(fraction ?? 0) * 100}%` }} />
         </span>
         <p>{summary ? deliveredLabel(summary) : sprintProgressLabel(progress)}</p>
+        {summary && (summary.scope?.added ?? 0) > 0 && (
+          <p className="muted">
+            {summary.scope.added} arrived after it started
+            {summary.scope.removed > 0 && `, ${summary.scope.removed} were pulled back out`}.
+          </p>
+        )}
         {summary && summary.returnedToBacklog > 0 && (
           <p className="muted">
             {summary.returnedToBacklog} went back to the backlog when it closed.

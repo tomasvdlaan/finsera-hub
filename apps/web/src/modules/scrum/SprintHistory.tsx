@@ -260,6 +260,19 @@ export function SprintHistory() {
 
                   <TypeMix byType={s.summary.byType} />
 
+                  {/*
+                    What turned up after it started.
+
+                    The sentence a retrospective argues about, and one the end state cannot
+                    reconstruct: eight committed and eight delivered reads the same whether
+                    five were planned or three arrived on the Wednesday.
+                  */}
+                  {(s.summary.scope?.added ?? 0) > 0 && (
+                    <p className="muted sprint-returned">
+                      {s.summary.scope.added} of these arrived after it started
+                      {s.summary.scope.removed > 0 && `, and ${s.summary.scope.removed} left`}.
+                    </p>
+                  )}
                   {s.summary.returnedToBacklog > 0 && (
                     <p className="muted sprint-returned">
                       {s.summary.returnedToBacklog}{' '}

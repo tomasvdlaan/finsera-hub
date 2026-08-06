@@ -96,6 +96,21 @@ export const boards = scrum.table('boards', {
   projectId: uuid('project_id').primaryKey(), // registry id of a CRM project
   columns: jsonb('columns').$type<BoardColumn[]>().notNull().default(DEFAULT_COLUMNS),
   usesSprints: boolean('uses_sprints').notNull().default(false),
+  /**
+   * What "done" and "ready" mean here, in your own words.
+   *
+   * Plain text, enforced by nothing. A per-column checklist that gates a move is the workflow
+   * automation the charter lists among its non-goals, and with a team this size the checklist
+   * lives in somebody's head anyway — what it does not do is survive that person being on
+   * holiday, or get read out at a planning meeting.
+   *
+   * So: written down where the board is configured, shown where the decision is made, and
+   * copied into the planning and review notes so the ceremony reads it. The one rule that is
+   * actually checked — a card called done with an estimate and no hours logged against it —
+   * lives in the move warnings, because it is the one a machine can tell.
+   */
+  definitionOfDone: text('definition_of_done'),
+  definitionOfReady: text('definition_of_ready'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -123,6 +138,8 @@ export interface SprintSummary {
   completed: { minutes: number; cards: number };
   /** Completed cards by kind — story, bug, chore, spike. */
   byType: Record<string, number>;
+  /** Cards that arrived, or were pulled out, after the sprint started. */
+  scope: { added: number; removed: number };
   returnedToBacklog: number;
   days: { total: number; overran: boolean };
   closedAt: string;
@@ -138,6 +155,15 @@ export const sprints = scrum.table(
     startsOn: date('starts_on').notNull(),
     endsOn: date('ends_on').notNull(),
     state: text('state').notNull().default('planned'),
+    /**
+     * When it actually began and ended, as opposed to when it was meant to.
+     *
+     * `starts_on` is a plan made at creation. A sprint started two days late and closed three
+     * days early reports nonsense against it — "day 12 of 10" — which is why the sprint bar
+     * carried a three-state workaround including a case for day zero. These are the facts.
+     */
+    startedAt: timestamp('started_at', { withTimezone: true }),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
     /** Written once, when the sprint is completed. Null for anything still open. */
     summary: jsonb('summary').$type<SprintSummary>(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -270,4 +296,39 @@ export const taskTransitions = scrum.table(
     at: timestamp('at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('task_transitions_task_idx').on(t.taskId, t.at)],
+);
+
+/**
+ * Cards that arrived in, or left, a sprint after it started.
+ *
+ * The thing that most reliably kills a sprint, and nothing recorded it. `SprintSummary` freezes
+ * the end state, so a sprint that took on eight and finished eight looks identical whether it
+ * planned eight or planned five and absorbed three more on the Wednesday — and the second one is
+ * the story a retrospective needs.
+ *
+ * Its own table rather than `task_transitions`, which means "which column, when" and would have
+ * to relax `to_status NOT NULL` to carry this; rather than `core.events`, which is an outbox and
+ * would let a retention policy quietly delete the history; and rather than the audit log, which
+ * is append-only and correct but publishes no view, so no insight rule could ever read it.
+ *
+ * It also has to outlive `completeSprint` nulling `sprint_id` on everything unfinished, which is
+ * the same reason the summary is stored at all.
+ */
+export const sprintScopeChanges = scrum.table(
+  'sprint_scope_changes',
+  {
+    id: uuid('id').primaryKey(),
+    sprintId: uuid('sprint_id')
+      .notNull()
+      .references(() => sprints.id, { onDelete: 'cascade' }),
+    taskId: uuid('task_id').notNull(),
+    /** added | removed. */
+    change: text('change').notNull(),
+    at: timestamp('at', { withTimezone: true }).notNull().defaultNow(),
+    movedBy: uuid('moved_by').notNull(),
+  },
+  (t) => [
+    index('sprint_scope_changes_sprint_idx').on(t.sprintId, t.at),
+    check('sprint_scope_change_valid', sql`${t.change} IN ('added','removed')`),
+  ],
 );

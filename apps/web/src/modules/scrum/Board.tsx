@@ -19,6 +19,7 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { api } from '../../lib/api.js';
+import { useToast } from '../../shell/ui/Toast.js';
 import type { Project } from '../crm/types.js';
 import { Avatar } from '../../shell/ui/primitives.js';
 import { parseQuickAdd } from './quickAdd.js';
@@ -89,6 +90,7 @@ const boardKeyboardCoordinates: KeyboardCoordinateGetter = (event, args) => {
 function Column({
   column,
   tasks,
+  wip,
   columns,
   onPull,
   onOpen,
@@ -98,6 +100,14 @@ function Column({
 }: {
   column: BoardColumn;
   tasks: Task[];
+  /**
+   * How many cards are really in this column, filters and lanes ignored.
+   *
+   * `tasks` is what is on screen. Counting the limit against that meant narrowing to one
+   * person, or to bugs, made a column look within its limit — the number moved when the view
+   * moved. This is the same count the server checks on a drop.
+   */
+  wip: number;
   columns: Array<{ key: string; label: string }>;
   /** Offered only while looking at the backlog with a sprint to pull into. */
   onPull?: (taskId: string) => void;
@@ -118,7 +128,7 @@ function Column({
    * that turns the number red gets argued with, which is the conversation the limit is for.
    */
   const limit = column.wipLimit ?? null;
-  const over = limit != null && tasks.length > limit;
+  const over = limit != null && wip > limit;
 
   /*
    * Collapsed, a column becomes a spine.
@@ -158,9 +168,18 @@ function Column({
           ‹
         </button>
         <strong>{column.label}</strong>
+        {/*
+          A limited column counts itself, not the view.
+
+          Without a limit the number answers "how many am I looking at", which is what a filter
+          is for. With one it has to answer "how close is this to its limit", and that question
+          does not change because you narrowed to bugs — reading 1/2 while three cards sit
+          there is the number lying in the flattering direction. When the two differ, both are
+          shown rather than picking one and hoping.
+        */}
         <span className={over ? 'error' : 'muted'}>
-          {tasks.length}
-          {limit != null && ` / ${limit}`}
+          {limit != null ? `${wip} / ${limit}` : tasks.length}
+          {limit != null && wip !== tasks.length && ` · ${tasks.length} shown`}
           {estimate > 0 && ` · ${hours(estimate)}h`}
         </span>
       </div>
@@ -256,6 +275,7 @@ export function Board() {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   /** The card currently being carried, so the overlay has something to draw. */
   const [carried, setCarried] = useState<Task | null>(null);
+  const toast = useToast();
 
   const sensors = useSensors(
     // A small distance so a click on a card is not swallowed as a drag.
@@ -336,6 +356,21 @@ export function Board() {
     void load();
     if (projectId) setParams({ projectId }, { replace: true });
   }, [load, projectId, setParams]);
+
+  /*
+   * The real occupancy of each column, before any filter touches it.
+   *
+   * Counted the way the server counts it on a drop — open, not archived, not a subtask — so
+   * the number beside a limit means the same thing on both sides of the wire.
+   */
+  const wipOf = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const t of tasks) {
+      if (t.completedAt || t.parentId) continue;
+      counts.set(t.status, (counts.get(t.status) ?? 0) + 1);
+    }
+    return counts;
+  }, [tasks]);
 
   const inScope = useMemo(() => {
     if (!sprint || scope === 'all') return tasks;
@@ -453,7 +488,19 @@ export function Board() {
     const previous = tasks;
     setTasks((current) => current.map((t) => (t.id === taskId ? { ...t, status } : t)));
     try {
-      await api.post(`/scrum/tasks/${taskId}/move`, { status, ...neighbours });
+      const moved = await api.post<{ warnings?: Array<{ message: string }> }>(
+        `/scrum/tasks/${taskId}/move`,
+        { status, ...neighbours },
+      );
+      /*
+       * Said, not refused — and now said by the server rather than only drawn by the browser.
+       *
+       * The move has already happened by the time this shows. The point of a WIP limit is to
+       * make starting a fifth thing feel like a decision, not to stop the person who is
+       * dealing with something urgent; the breach is recorded in the audit log either way, so
+       * a retrospective can count them.
+       */
+      for (const w of moved?.warnings ?? []) toast.fail(w.message);
       await load();
     } catch (e) {
       setTasks(previous); // the server refused; show the truth
@@ -831,6 +878,7 @@ export function Board() {
                           key={column.key}
                           column={column}
                           tasks={byColumn.get(column.key) ?? []}
+                          wip={wipOf.get(column.key) ?? 0}
                           columns={board.columns}
                           onPull={sprint && scope === 'backlog' ? pull : undefined}
                           onOpen={setOpenId}

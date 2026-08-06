@@ -246,6 +246,20 @@
       "when": 1786013303007,
       "tag": "0034_note_sprint",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1786015408741,
+      "tag": "0035_board_definitions",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1786015431382,
+      "tag": "0036_sprint_timestamps_and_scope",
+      "breakpoints": true
     }
   ]
 }

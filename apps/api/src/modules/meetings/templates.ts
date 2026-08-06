@@ -285,6 +285,8 @@ export interface ReviewDigest {
   goal: string | null;
   finished: string[];
   unfinished: string[];
+  /** What this board says "done" means. Copied in so the ceremony reads it. */
+  definitionOfDone: string | null;
 }
 
 /** What the last retrospective promised, and whether it happened. */
@@ -310,7 +312,18 @@ export function reviewBody(template: Template, digest: ReviewDigest): string {
     '## Not finished',
     list(digest.unfinished, 'Everything that was taken on landed.'),
   );
-  return digest.goal ? `_Sprint goal: ${digest.goal}_\n\n${body}` : body;
+  /*
+   * The definition of done, at the top of the meeting that decides what is done.
+   *
+   * Written where the board is configured and read nowhere, which is the usual fate of a
+   * definition of done. Copying it here is the whole enforcement mechanism, and deliberately
+   * so — a checklist that gates a move is the workflow automation the charter rules out.
+   */
+  const preamble = [
+    digest.goal ? `_Sprint goal: ${digest.goal}_` : null,
+    digest.definitionOfDone ? `> **Done means:** ${digest.definitionOfDone}` : null,
+  ].filter(Boolean);
+  return preamble.length > 0 ? `${preamble.join('\n\n')}\n\n${body}` : body;
 }
 
 /**

@@ -4421,3 +4421,15 @@ button.nav-me:hover { background: var(--surface); }
   margin-bottom: var(--space-3);
   font-size: var(--text-sm);
 }
+
+/* What done and ready mean, side by side where the board is configured. */
+.definitions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  gap: var(--space-3);
+  margin: var(--space-4) 0;
+}
+.definitions textarea {
+  width: 100%;
+  resize: vertical;
+}

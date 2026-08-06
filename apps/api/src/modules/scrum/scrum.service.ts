@@ -23,6 +23,7 @@ import {
   flowOf,
   boards,
   sprints,
+  sprintScopeChanges,
   taskTransitions,
   tasks,
   type BoardColumn,
@@ -48,6 +49,13 @@ export interface CreateTaskInput {
   dueOn?: string | null;
   parentId?: string | null;
   sprintId?: string | null;
+}
+
+/** Something worth saying about a move, said instead of refusing it. */
+export interface TaskWarning {
+  code: 'wip_exceeded' | 'done_without_hours';
+  column: string;
+  message: string;
 }
 
 /** Gap between ranks, so a card can always be dropped between two others without a rewrite. */
@@ -162,13 +170,26 @@ export class ScrumService {
       .returning();
     return created
       ? { ...created, columns: withFlow(created.columns) }
-      : { projectId, columns: DEFAULT_COLUMNS, usesSprints: false };
+      : {
+          // The unsaved fallback for a board whose insert lost a race. Same shape as a real
+          // row, so callers never have to know which one they got.
+          projectId,
+          columns: DEFAULT_COLUMNS,
+          usesSprints: false,
+          definitionOfDone: null,
+          definitionOfReady: null,
+        };
   }
 
   async updateBoard(
     actor: Actor,
     projectId: string,
-    patch: { columns?: BoardColumn[]; usesSprints?: boolean },
+    patch: {
+      columns?: BoardColumn[];
+      usesSprints?: boolean;
+      definitionOfDone?: string | null;
+      definitionOfReady?: string | null;
+    },
   ) {
     await this.require(actor, 'scrum.board.manage');
     const board = await this.getBoard(actor, projectId);
@@ -225,6 +246,14 @@ export class ScrumService {
       .set({
         columns: patch.columns ?? board.columns,
         usesSprints: patch.usesSprints ?? board.usesSprints,
+        definitionOfDone:
+          patch.definitionOfDone === undefined
+            ? board.definitionOfDone
+            : patch.definitionOfDone?.trim() || null,
+        definitionOfReady:
+          patch.definitionOfReady === undefined
+            ? board.definitionOfReady
+            : patch.definitionOfReady?.trim() || null,
         updatedAt: new Date(),
       })
       .where(eq(boards.projectId, projectId));
@@ -364,7 +393,7 @@ export class ScrumService {
     await this.db.transaction(async (tx) => {
       await tx
         .update(sprints)
-        .set({ state: 'active', updatedAt: new Date() })
+        .set({ state: 'active', startedAt: new Date(), updatedAt: new Date() })
         .where(eq(sprints.id, id));
       await this.audit.record(tx, {
         actorId: actor.userId,
@@ -440,6 +469,7 @@ export class ScrumService {
         .update(sprints)
         .set({
           state: 'completed',
+          completedAt: new Date(),
           summary: { ...summary, returnedToBacklog: returned.length },
           updatedAt: new Date(),
         })
@@ -514,6 +544,11 @@ export class ScrumService {
     const byType: Record<string, number> = {};
     for (const t of done) byType[t.type] = (byType[t.type] ?? 0) + 1;
 
+    const scope = await this.db
+      .select({ change: sprintScopeChanges.change })
+      .from(sprintScopeChanges)
+      .where(eq(sprintScopeChanges.sprintId, sprint.id));
+
     const day = 86_400_000;
     const today = new Date().toISOString().slice(0, 10);
 
@@ -530,6 +565,16 @@ export class ScrumService {
         cards: done.length,
       },
       byType,
+      /*
+       * What turned up after it started, and what was pulled back out.
+       *
+       * Without this a sprint that planned five and absorbed three more on the Wednesday reads
+       * exactly like one that planned eight — the end state is identical and the story is not.
+       */
+      scope: {
+        added: scope.filter((c) => c.change === 'added').length,
+        removed: scope.filter((c) => c.change === 'removed').length,
+      },
       days: {
         total: Math.round((Date.parse(sprint.endsOn) - Date.parse(sprint.startsOn)) / day) + 1,
         overran: today > sprint.endsOn,
@@ -538,7 +583,13 @@ export class ScrumService {
     };
   }
 
-  async sprintProgress(sprint: { id: string; projectId: string; startsOn: string; endsOn: string }) {
+  async sprintProgress(sprint: {
+    id: string;
+    projectId: string;
+    startsOn: string;
+    endsOn: string;
+    startedAt?: Date | null;
+  }) {
     const board = await this.getBoardRaw(sprint.projectId);
     const doneKeys = (board?.columns ?? DEFAULT_COLUMNS).filter((c) => c.isDone).map((c) => c.key);
 
@@ -564,9 +615,18 @@ export class ScrumService {
     const day = 86_400_000;
     const totalDays =
       Math.round((Date.parse(sprint.endsOn) - Date.parse(sprint.startsOn)) / day) + 1;
+    /*
+     * Counted from when it actually started, falling back to the plan.
+     *
+     * `starts_on` is a date somebody picked at creation. A sprint started two days late spent
+     * two of its days not existing, and reporting "day 5 of 10" for it is simply wrong.
+     */
+    const from = sprint.startedAt
+      ? sprint.startedAt.toISOString().slice(0, 10)
+      : sprint.startsOn;
     const elapsedDays = Math.min(
       totalDays,
-      Math.max(0, Math.round((Date.parse(today) - Date.parse(sprint.startsOn)) / day) + 1),
+      Math.max(0, Math.round((Date.parse(today) - Date.parse(from)) / day) + 1),
     );
 
     return {
@@ -767,6 +827,7 @@ export class ScrumService {
       goal: sprint.goal,
       finished: rows.filter(done).map((t) => t.title),
       unfinished: rows.filter((t) => !done(t)).map((t) => t.title),
+      definitionOfDone: board?.definitionOfDone ?? null,
     };
   }
 
@@ -792,6 +853,41 @@ export class ScrumService {
       .orderBy(desc(tasks.createdAt))
       .limit(10);
     return rows.map((t) => ({ title: t.title, done: t.completedAt !== null }));
+  }
+
+  /**
+   * A card arriving in or leaving a running sprint.
+   *
+   * Only while it is running. Putting a card into a sprint that has not started is planning —
+   * recording that as scope change would bury the three cards that actually turned up on the
+   * Wednesday under twenty that were always going to be there.
+   */
+  private async recordScopeChange(
+    tx: Parameters<Parameters<Database['transaction']>[0]>[0],
+    actor: Actor,
+    taskId: string,
+    from: string | null,
+    to: string | null,
+  ): Promise<void> {
+    for (const [sprintId, change] of [
+      [from, 'removed'] as const,
+      [to, 'added'] as const,
+    ]) {
+      if (!sprintId) continue;
+      const [sprint] = await tx
+        .select({ state: sprints.state })
+        .from(sprints)
+        .where(eq(sprints.id, sprintId))
+        .limit(1);
+      if (sprint?.state !== 'active') continue;
+      await tx.insert(sprintScopeChanges).values({
+        id: this.registry.newId(),
+        sprintId,
+        taskId,
+        change,
+        movedBy: actor.userId,
+      });
+    }
   }
 
   private async rawSprint(id: string) {
@@ -877,6 +973,10 @@ export class ScrumService {
         movedBy: actor.userId,
       });
 
+      // A card created straight into a running sprint arrived mid-sprint just as surely as
+      // one dragged in — an action point accepted during a stand-up takes exactly this path.
+      if (input.sprintId) await this.recordScopeChange(tx, actor, id, null, input.sprintId);
+
       // Mirror the structural ref so tasks reach the project and client timelines.
       await this.links.createWithin(tx, actor, {
         fromId: id,
@@ -944,6 +1044,11 @@ export class ScrumService {
           updatedAt: new Date(),
         })
         .where(eq(tasks.id, id));
+
+      const nextSprintId = patch.sprintId === undefined ? before.sprintId : patch.sprintId;
+      if (nextSprintId !== before.sprintId) {
+        await this.recordScopeChange(tx, actor, id, before.sprintId, nextSprintId);
+      }
 
       if (title !== before.title) {
         await this.registry.updateDisplay(tx, id, { displayName: title });
@@ -1032,6 +1137,8 @@ export class ScrumService {
     else rank = await this.nextRank(task.projectId, input.status);
 
     const wasDone = Boolean(task.completedAt);
+    const warnings =
+      input.status === task.status ? [] : await this.warningsFor(task, column, board.columns);
 
     await this.db.transaction(async (tx) => {
       await tx
@@ -1049,7 +1156,19 @@ export class ScrumService {
         action: 'task.move',
         entityType: 'task',
         entityId: id,
-        detail: { from: task.status, to: input.status },
+        detail: {
+          from: task.status,
+          to: input.status,
+          /*
+           * The breach, recorded.
+           *
+           * A soft limit that leaves no trace changes nothing — you get a toast, you carry on,
+           * and by the retrospective nobody can say whether it happened once or eleven times.
+           * "We broke the limit eleven times this sprint" is a fact worth arguing about, and
+           * this is the only place it can come from.
+           */
+          ...(warnings.length > 0 ? { warnings: warnings.map((w) => w.code) } : {}),
+        },
       });
 
       if (input.status !== task.status) {
@@ -1082,7 +1201,87 @@ export class ScrumService {
       }
     });
 
-    return this.getTask(actor, id);
+    return { ...(await this.getTask(actor, id)), warnings };
+  }
+
+  /**
+   * What is worth saying about a move without refusing it.
+   *
+   * Never throws, on purpose. Two written decisions already argue for advisory limits, and
+   * they are right: the person who most needs to break one is dealing with something urgent,
+   * and a board that fights them is a board they stop using. The gap was not soft-versus-hard
+   * — it was that the check lived inside a React render, so the API and the assistant walked
+   * straight past it.
+   */
+  private async warningsFor(
+    task: { id: string; projectId: string; estimateMinutes: number | null },
+    column: BoardColumn,
+    columns: BoardColumn[],
+  ): Promise<TaskWarning[]> {
+    const warnings: TaskWarning[] = [];
+    const index = columns.findIndex((c) => c.key === column.key);
+
+    // A limit on a queue is a filing rule, not a work-in-progress limit.
+    if (column.wipLimit != null && flowOf(column, index) === 'active') {
+      const count = await this.wipCount(task.projectId, column.key, task.id);
+      if (count + 1 > column.wipLimit) {
+        warnings.push({
+          code: 'wip_exceeded',
+          column: column.key,
+          message:
+            `${column.label} is limited to ${column.wipLimit} and this makes ${count + 1}. ` +
+            'Finishing something there beats starting another.',
+        });
+      }
+    }
+
+    /*
+     * The one Definition-of-Done check worth enforcing in a shop that bills by the hour.
+     *
+     * Not a checklist builder — the charter lists workflow automation among its non-goals, and
+     * with a team this size the checklist is in somebody's head. But a card marked done with
+     * an estimate against it and no hours logged means either the work was not tracked or it
+     * was not done, and both are worth a sentence before the invoice.
+     */
+    if (column.isDone && task.estimateMinutes != null) {
+      const logged = await this.time.minutesForTask(task.id);
+      if (logged === 0) {
+        warnings.push({
+          code: 'done_without_hours',
+          column: column.key,
+          message: 'Nothing was logged against this, though it carries an estimate.',
+        });
+      }
+    }
+
+    return warnings;
+  }
+
+  /**
+   * How many cards are really in a column.
+   *
+   * One definition, used by the limit and by the count the board prints beside it. The board
+   * used to count whatever its filters had left on screen, so narrowing to one person made a
+   * column look within its limit — the number moved when the view moved.
+   *
+   * Subtasks do not count: a checklist item under a card is not a separate piece of work in
+   * progress, and counting them would make any card with a checklist breach its own column.
+   */
+  private async wipCount(projectId: string, status: string, excludeId?: string): Promise<number> {
+    const [row] = await this.db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(tasks)
+      .where(
+        and(
+          eq(tasks.projectId, projectId),
+          eq(tasks.status, status),
+          isNull(tasks.archivedAt),
+          isNull(tasks.completedAt),
+          isNull(tasks.parentId),
+          excludeId ? sql`${tasks.id} <> ${excludeId}` : undefined,
+        ),
+      );
+    return row?.n ?? 0;
   }
 
   /**
@@ -1507,7 +1706,13 @@ export class ScrumService {
 
   async moveTaskTool(actor: Actor, input: { taskId: string; status: string }) {
     const task = await this.moveTask(actor, input.taskId, { status: input.status });
-    return { id: task.id, status: task.status };
+    // The warning goes to the model too. It walked past the limit entirely while the check
+    // lived in a React render, and a limit only one of two callers can see is not a limit.
+    return {
+      id: task.id,
+      status: task.status,
+      ...(task.warnings.length > 0 ? { warnings: task.warnings.map((w) => w.message) } : {}),
+    };
   }
 
   // ── internals ──────────────────────────────────────────────

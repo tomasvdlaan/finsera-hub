@@ -26,6 +26,9 @@ export interface Board {
   projectId: string;
   columns: BoardColumn[];
   usesSprints: boolean;
+  /** What "done" and "ready" mean here, in your own words. Enforced by nothing. */
+  definitionOfDone: string | null;
+  definitionOfReady: string | null;
 }
 
 export interface Task {
@@ -130,6 +133,8 @@ export interface SprintSummary {
   unit: 'minutes' | 'count';
   committed: { minutes: number; cards: number };
   completed: { minutes: number; cards: number };
+  /** Cards that arrived, or were pulled out, after the sprint started. */
+  scope: { added: number; removed: number };
   /** Completed cards by kind. The retrospective's one useful sentence. */
   byType: Record<string, number>;
   returnedToBacklog: number;
@@ -145,6 +150,9 @@ export interface Sprint {
   startsOn: string;
   endsOn: string;
   state: 'planned' | 'active' | 'completed';
+  /** When it really began and ended, as opposed to the dates it was planned for. */
+  startedAt: string | null;
+  completedAt: string | null;
   progress: SprintProgress;
   summary: SprintSummary | null;
 }

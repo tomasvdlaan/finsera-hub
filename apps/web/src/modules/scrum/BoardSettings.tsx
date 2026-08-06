@@ -43,6 +43,8 @@ export function BoardSettings() {
   const [projectId, setProjectId] = useState(params.get('projectId') ?? '');
   const [columns, setColumns] = useState<Draft[]>([]);
   const [saved, setSaved] = useState<BoardColumn[]>([]);
+  const [dod, setDod] = useState('');
+  const [dor, setDor] = useState('');
   const [counts, setCounts] = useState<Map<string, number>>(new Map());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -68,6 +70,8 @@ export function BoardSettings() {
       ]);
       setSaved(board.columns);
       setColumns(board.columns.map((c) => ({ ...c, existing: true })));
+      setDod(board.definitionOfDone ?? '');
+      setDor(board.definitionOfReady ?? '');
       const tally = new Map<string, number>();
       for (const t of tasks) tally.set(t.status, (tally.get(t.status) ?? 0) + 1);
       setCounts(tally);
@@ -168,7 +172,11 @@ export function BoardSettings() {
           wipLimit: c.wipLimit ?? null,
         };
       });
-      await api.patch(`/scrum/boards/${projectId}`, { columns: payload });
+      await api.patch(`/scrum/boards/${projectId}`, {
+        columns: payload,
+        definitionOfDone: dod,
+        definitionOfReady: dor,
+      });
       toast.ok('Board saved');
       await load();
     } catch (e) {
@@ -351,7 +359,7 @@ export function BoardSettings() {
             disabled={busy || !dirty || problems.length > 0}
             onClick={() => void save()}
           >
-            {busy ? 'Saving…' : 'Save columns'}
+            {busy ? 'Saving…' : 'Save board'}
           </Button>
           <Button variant="ghost" disabled={!dirty} onClick={() => void load()}>
             Discard changes

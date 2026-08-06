@@ -851,3 +851,236 @@ describe('ScrumService sprint registration', () => {
     expect(rows).toEqual([{ to_id: projectId, link_kind: 'belongs_to' }]);
   });
 });
+
+/**
+ * Limits that hold.
+ *
+ * The WIP check existed only inside a React render, so the API and the assistant walked past
+ * it — and the number the board printed beside the limit was counted from whatever its filters
+ * had left on screen, which meant narrowing the view could put a column back under its limit.
+ */
+describe('ScrumService warnings', () => {
+  let scrum: ScrumService;
+  let projectId: string;
+
+  beforeEach(async () => {
+    await resetDb();
+    await truncate(
+      sql`TRUNCATE scrum.tasks, scrum.sprints, scrum.boards, crm.projects, crm.contacts, crm.clients CASCADE`,
+    );
+    await seedUser(actor.userId, 'admin');
+
+    const manifests = new ManifestRegistry();
+    for (const m of [crmManifest, timeManifest, scrumManifest]) manifests.register(m);
+    manifests.seal();
+
+    const registry = new RegistryService(testDb, manifests);
+    const permissions = new PermissionService(testDb, manifests);
+    const audit = new AuditService();
+    const links = new LinkService(testDb, registry, permissions, audit, manifests);
+    const bus = new EventBus(manifests);
+    const crm = new CrmService(testDb, registry, permissions, audit, bus, links);
+    const time = new TimeService(testDb, registry, permissions, audit, bus, links, crm);
+    scrum = new ScrumService(testDb, registry, permissions, audit, bus, links, crm, time);
+
+    const client = await crm.createClient(actor, { name: 'DocHorse', status: 'active' });
+    const project = await crm.createProject(actor, {
+      clientId: client.id,
+      name: 'Power BI',
+      billingModel: 'time_and_materials',
+    });
+    projectId = project.id;
+    await scrum.updateBoard(actor, projectId, {
+      columns: [
+        { key: 'to_do', label: 'To do', isDone: false, flow: 'queue', wipLimit: 1 },
+        { key: 'in_progress', label: 'In progress', isDone: false, flow: 'active', wipLimit: 2 },
+        { key: 'done', label: 'Done', isDone: true, flow: 'done' },
+      ],
+    });
+  });
+
+  const start = async (title: string) => {
+    const t = await scrum.createTask(actor, { projectId, title });
+    return scrum.moveTask(actor, t.id, { status: 'in_progress' });
+  };
+
+  it('warns on the card that breaks the limit, and still moves it', async () => {
+    await start('One');
+    await start('Two');
+    const third = await start('Three');
+
+    expect(third.warnings.map((w) => w.code)).toEqual(['wip_exceeded']);
+    expect(third.warnings[0]!.message).toMatch(/limited to 2 and this makes 3/);
+    // Said, not refused: the person who most needs to break a limit is dealing with something
+    // urgent, and a board that fights them is a board they stop using.
+    expect(third.status).toBe('in_progress');
+  });
+
+  it('records the breach, so a retrospective can count them', async () => {
+    // A warning that leaves no trace changes nothing — you dismiss the toast and by the retro
+    // nobody can say whether it happened once or eleven times.
+    await start('One');
+    await start('Two');
+    const third = await start('Three');
+
+    const { rows } = await testDb.execute<{ detail: { warnings?: string[] } }>(sql`
+      SELECT detail FROM core.audit_log
+       WHERE entity_id = ${third.id} AND action = 'task.move'
+       ORDER BY created_at DESC LIMIT 1
+    `);
+    expect(rows[0]?.detail.warnings).toEqual(['wip_exceeded']);
+  });
+
+  it('does not count a subtask against its column', async () => {
+    // A checklist item under a card is not a separate thing in progress; counting them would
+    // make any card with a checklist breach its own column.
+    const parent = await start('Parent');
+    const child = await scrum.createTask(actor, { projectId, title: 'Child', parentId: parent.id });
+    await scrum.moveTask(actor, child.id, { status: 'in_progress' });
+    const second = await start('Second');
+    expect(second.warnings).toEqual([]);
+  });
+
+  it('ignores a limit on a queue column, which is a filing rule not a limit', async () => {
+    const a = await scrum.createTask(actor, { projectId, title: 'A' });
+    await scrum.createTask(actor, { projectId, title: 'B' });
+    // to_do has a limit of 1 and now holds two — but nothing there is being worked on.
+    const moved = await scrum.moveTask(actor, a.id, { status: 'to_do' });
+    expect(moved.warnings).toEqual([]);
+  });
+
+  it('says when a card is called done with an estimate and no hours against it', async () => {
+    // In a shop that bills by the hour this is the Definition of Done breach that happens:
+    // either the work was not tracked or it was not done, and both matter before the invoice.
+    const t = await scrum.createTask(actor, { projectId, title: 'Billed?', estimateMinutes: 120 });
+    const done = await scrum.moveTask(actor, t.id, { status: 'done' });
+    expect(done.warnings.map((w) => w.code)).toContain('done_without_hours');
+  });
+
+  it('says nothing about an unestimated card reaching done', async () => {
+    const t = await scrum.createTask(actor, { projectId, title: 'No estimate' });
+    const done = await scrum.moveTask(actor, t.id, { status: 'done' });
+    expect(done.warnings).toEqual([]);
+  });
+
+  it('reorders within a column without re-warning', async () => {
+    // Moving a card about inside a column it is already in has not started anything.
+    await start('One');
+    await start('Two');
+    const third = await start('Three');
+    const again = await scrum.moveTask(actor, third.id, { status: 'in_progress' });
+    expect(again.warnings).toEqual([]);
+  });
+});
+
+/**
+ * Scope change, and when a sprint really ran.
+ *
+ * A sprint that planned five and absorbed three more on the Wednesday looked identical to one
+ * that planned eight: `SprintSummary` freezes the end state, and nothing recorded the arrivals.
+ */
+describe('ScrumService sprint scope', () => {
+  let scrum: ScrumService;
+  let projectId: string;
+  let sprintId: string;
+
+  beforeEach(async () => {
+    await resetDb();
+    await truncate(
+      sql`TRUNCATE scrum.tasks, scrum.sprints, scrum.boards, crm.projects, crm.contacts, crm.clients CASCADE`,
+    );
+    await seedUser(actor.userId, 'admin');
+
+    const manifests = new ManifestRegistry();
+    for (const m of [crmManifest, timeManifest, scrumManifest]) manifests.register(m);
+    manifests.seal();
+
+    const registry = new RegistryService(testDb, manifests);
+    const permissions = new PermissionService(testDb, manifests);
+    const audit = new AuditService();
+    const links = new LinkService(testDb, registry, permissions, audit, manifests);
+    const bus = new EventBus(manifests);
+    const crm = new CrmService(testDb, registry, permissions, audit, bus, links);
+    const time = new TimeService(testDb, registry, permissions, audit, bus, links, crm);
+    scrum = new ScrumService(testDb, registry, permissions, audit, bus, links, crm, time);
+
+    const client = await crm.createClient(actor, { name: 'DocHorse', status: 'active' });
+    const project = await crm.createProject(actor, {
+      clientId: client.id,
+      name: 'Power BI',
+      billingModel: 'time_and_materials',
+    });
+    projectId = project.id;
+    await scrum.getBoard(actor, projectId);
+    const sprint = await scrum.createSprint(actor, {
+      projectId,
+      name: 'Sprint 1',
+      startsOn: '2026-08-03',
+      endsOn: '2026-08-14',
+    });
+    sprintId = sprint.id;
+  });
+
+  it('does not call filling a planned sprint a scope change', async () => {
+    // Putting cards into a sprint that has not started is planning. Recording it would bury
+    // the three that turned up on the Wednesday under twenty that were always going to.
+    const t = await scrum.createTask(actor, { projectId, title: 'Planned in' });
+    await scrum.updateTask(actor, t.id, { sprintId });
+    await scrum.startSprint(actor, sprintId);
+    await scrum.completeSprint(actor, sprintId);
+
+    const summary = (await scrum.getSprint(actor, sprintId)).summary!;
+    expect(summary.scope).toEqual({ added: 0, removed: 0 });
+  });
+
+  it('records a card that arrives after the sprint started', async () => {
+    await scrum.startSprint(actor, sprintId);
+    const late = await scrum.createTask(actor, { projectId, title: 'Turned up Wednesday' });
+    await scrum.updateTask(actor, late.id, { sprintId });
+    await scrum.completeSprint(actor, sprintId);
+
+    const summary = (await scrum.getSprint(actor, sprintId)).summary!;
+    expect(summary.scope).toEqual({ added: 1, removed: 0 });
+  });
+
+  it('records a card created straight into a running sprint', async () => {
+    // An action point accepted during a stand-up takes exactly this path — it never passes
+    // through updateTask, so watching only that would have missed half the arrivals.
+    await scrum.startSprint(actor, sprintId);
+    await scrum.createTask(actor, { projectId, title: 'From the stand-up', sprintId });
+    await scrum.completeSprint(actor, sprintId);
+
+    expect((await scrum.getSprint(actor, sprintId)).summary!.scope.added).toBe(1);
+  });
+
+  it('records a card pulled back out mid-sprint', async () => {
+    await scrum.startSprint(actor, sprintId);
+    const t = await scrum.createTask(actor, { projectId, title: 'Second thoughts', sprintId });
+    await scrum.updateTask(actor, t.id, { sprintId: null });
+    await scrum.completeSprint(actor, sprintId);
+
+    expect((await scrum.getSprint(actor, sprintId)).summary!.scope).toEqual({
+      added: 1,
+      removed: 1,
+    });
+  });
+
+  it('survives the sprint detaching everything unfinished when it closes', async () => {
+    // The same reason the summary is stored at all: closing nulls sprint_id, so anything
+    // derived from the live tables afterwards reports a clean sweep.
+    await scrum.startSprint(actor, sprintId);
+    await scrum.createTask(actor, { projectId, title: 'Never finished', sprintId });
+    await scrum.completeSprint(actor, sprintId);
+
+    expect((await scrum.getSprint(actor, sprintId)).summary!.scope.added).toBe(1);
+  });
+
+  it('counts elapsed days from when the sprint actually started', async () => {
+    // starts_on is a plan. A sprint started late spent those days not existing, and reporting
+    // them as elapsed is how "day 12 of 10" happens.
+    await scrum.startSprint(actor, sprintId);
+    const { progress } = await scrum.getSprint(actor, sprintId);
+    expect(progress.days.elapsed).toBe(1);
+    expect(progress.days.total).toBe(12);
+  });
+});

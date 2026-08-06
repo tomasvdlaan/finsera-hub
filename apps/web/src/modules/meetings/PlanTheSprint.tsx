@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { Empty } from '../../shell/ui/primitives.js';
-import { hours, type Sprint, type Task } from '../scrum/types.js';
+import { hours, type Board, type Sprint, type Task } from '../scrum/types.js';
 
 /** The coming Monday, and a fortnight from it — the dates a planning meeting nearly always means. */
 function defaultDates(): { startsOn: string; endsOn: string } {
@@ -35,6 +35,7 @@ export function PlanTheSprint({
   onPlanned: () => void;
 }) {
   const [backlog, setBacklog] = useState<Task[]>([]);
+  const [ready, setReady] = useState<string | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [name, setName] = useState('');
   const [goal, setGoal] = useState('');
@@ -47,6 +48,12 @@ export function PlanTheSprint({
       .get<Task[]>(`/scrum/tasks?projectId=${projectId}`)
       .then((ts) => setBacklog(ts.filter((t) => !t.sprintId)))
       .catch(() => setBacklog([]));
+    // What "ready" means, beside the list where you decide what comes in — which is the only
+    // moment it is any use.
+    api
+      .get<Board>(`/scrum/boards/${projectId}`)
+      .then((b) => setReady(b.definitionOfReady))
+      .catch(() => setReady(null));
     // A name nobody has to think about. It is renameable, and "Sprint 5" is what it would
     // have been called anyway.
     api
@@ -136,6 +143,7 @@ export function PlanTheSprint({
         </label>
 
         <h3>Coming in</h3>
+        {ready && <p className="muted">Ready means: {ready}</p>}
         {backlog.length === 0 ? (
           <Empty>
             Nothing in the backlog. Cards can be pulled in later from the board.
