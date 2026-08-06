@@ -135,20 +135,39 @@ export class OrchestratorService {
     const system = await this.systemPrompt(actor, input.context?.entityId);
 
     let result: GenerateResult | undefined;
-    for await (const event of this.llm.stream({
-      role: 'strong',
-      system,
-      messages: [...history, { role: 'user', content: question }],
-      tools,
-      maxSteps: 8,
-      model: input.model,
-    })) {
-      if (event.type === 'done') result = event.result;
-      // The conversation id goes out with the first event a caller sees, so a client that
-      // is interrupted mid-answer still knows which thread to reopen.
-      else yield { ...event, conversationId };
+    try {
+      for await (const event of this.llm.stream({
+        role: 'strong',
+        system,
+        messages: [...history, { role: 'user', content: question }],
+        tools,
+        maxSteps: 8,
+        model: input.model,
+      })) {
+        if (event.type === 'done') result = event.result;
+        // The conversation id goes out with the first event a caller sees, so a client that
+        // is interrupted mid-answer still knows which thread to reopen.
+        else yield { ...event, conversationId };
+      }
+      if (!result) throw new Error('The model stream ended without a result.');
+    } catch (error) {
+      /*
+       * A question that failed is still a question that was asked.
+       *
+       * Both messages used to be written only after a successful generation, so an answer that
+       * broke took the question down with it: you watched an error appear, reopened the thread
+       * and found nothing there at all — not the failure, not what you had typed. That is the
+       * worst moment to lose somebody's words, because it is the moment they most want to try
+       * again with them.
+       *
+       * So the exchange is recorded first and the error is re-thrown after. The failure is
+       * stored as the assistant's turn, which keeps every question paired with a reply and
+       * means the history assembly downstream does not have to learn about half-turns.
+       */
+      const failure = error instanceof Error ? error.message : String(error);
+      await this.record(conversationId, question, `**That did not work.** ${failure}`, [], []);
+      throw error;
     }
-    if (!result) throw new Error('The model stream ended without a result.');
 
     const answer =
       result.text.trim() ||
@@ -156,33 +175,7 @@ export class OrchestratorService {
 
     const references = await this.collectReferences(actor, invocations, answer);
 
-    await this.db.transaction(async (tx) => {
-      await tx.insert(messages).values([
-        { id: uuidv7(), conversationId, role: 'user', content: question, toolCalls: [] },
-        {
-          id: uuidv7(),
-          conversationId,
-          role: 'assistant',
-          content: answer,
-          toolCalls: invocations.map((i) => ({
-            // `toolName`, matching what the live answer returns and what every reader
-            // expects. It was written as `tool` and read as `toolName`, so a conversation
-            // showed which tools it used until the moment you reloaded it, and then showed a
-            // row of blank chips instead. Old rows are normalised on read; see readToolCalls.
-            toolName: i.toolName,
-            module: i.module,
-            riskClass: i.riskClass,
-            executed: i.executed,
-            reason: i.reason ?? null,
-          })),
-          references,
-        },
-      ]);
-      await tx
-        .update(conversations)
-        .set({ updatedAt: new Date() })
-        .where(eq(conversations.id, conversationId));
-    });
+    await this.record(conversationId, question, answer, invocations, references);
 
     this.logger.log(
       `ask: ${result.steps} step(s), ${invocations.length} tool call(s), ` +
@@ -1037,6 +1030,48 @@ export class OrchestratorService {
    * return, and an answer could be presented as preceding its own question. The ids are
    * uuidv7, minted in sequence, so they order the pair correctly.
    */
+  /**
+   * One exchange, written down.
+   *
+   * Shared by the success and the failure path so they cannot drift — the version that only
+   * existed on the happy path is exactly why a failed question left no trace.
+   */
+  private async record(
+    conversationId: string,
+    question: string,
+    answer: string,
+    invocations: ToolInvocation[],
+    references: unknown[],
+  ): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      await tx.insert(messages).values([
+        { id: uuidv7(), conversationId, role: 'user', content: question, toolCalls: [] },
+        {
+          id: uuidv7(),
+          conversationId,
+          role: 'assistant',
+          content: answer,
+          toolCalls: invocations.map((i) => ({
+            // `toolName`, matching what the live answer returns and what every reader
+            // expects. It was written as `tool` and read as `toolName`, so a conversation
+            // showed which tools it used until the moment you reloaded it, and then showed a
+            // row of blank chips instead. Old rows are normalised on read; see readToolCalls.
+            toolName: i.toolName,
+            module: i.module,
+            riskClass: i.riskClass,
+            executed: i.executed,
+            reason: i.reason ?? null,
+          })),
+          references,
+        },
+      ]);
+      await tx
+        .update(conversations)
+        .set({ updatedAt: new Date() })
+        .where(eq(conversations.id, conversationId));
+    });
+  }
+
   private async history(conversationId: string): Promise<ModelMessage[]> {
     const rows = await this.db
       .select({ role: messages.role, content: messages.content })

@@ -172,6 +172,41 @@ describe('AI spine', () => {
     ]);
   });
 
+  /*
+   * The bug this prevents.
+   *
+   * A tool result is not the end of anything — the SDK turns it into a tool message and
+   * re-validates the entire conversation against `ModelMessage[]` before the next step. A
+   * `Date` fails that, and the failure is reported against the *messages*: "the messages do
+   * not match the ModelMessage[] schema", which points at the history rather than at the tool
+   * that poisoned it. It looked intermittent and unrelated to whatever had been asked.
+   *
+   * Nearly every tool here returns rows straight from Drizzle, and every timestamptz column in
+   * one is a Date, so the assistant broke on any question that made the model look at a task.
+   */
+  it('hands the model data, not objects that only exist in this process', async () => {
+    const registry = build();
+    const at = new Date('2026-08-06T09:00:00.000Z');
+    registry.bind('demo_list_items', async () => ({
+      items: [{ id: 'a', createdAt: at, completedAt: null, note: undefined }],
+      counted: 3n,
+    }));
+
+    const { tools } = await registry.buildToolSet(admin);
+    const result = (await tools['demo_list_items']!.execute!({}, {} as never)) as {
+      items: Array<Record<string, unknown>>;
+      counted: unknown;
+    };
+
+    expect(result.items[0]!.createdAt).toBe('2026-08-06T09:00:00.000Z');
+    // Nulls survive — "not finished" is a fact worth sending.
+    expect(result.items[0]!.completedAt).toBeNull();
+    // `undefined` does not, which is what JSON does and what the schema expects.
+    expect(result.items[0]).not.toHaveProperty('note');
+    // A count from Postgres can arrive as a bigint, which JSON.stringify throws on.
+    expect(result.counted).toBe('3');
+  });
+
   it('never offers a restricted tool', async () => {
     const registry = build();
     registry.bind('demo_send_invoice', async () => ({ sent: true }));

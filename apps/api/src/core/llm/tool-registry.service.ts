@@ -19,6 +19,32 @@ export interface ToolInvocation {
 }
 
 /**
+ * A tool result as data, with nothing in it that only exists in this process.
+ *
+ * Every tool result becomes part of the next request: the SDK turns it into a tool message and
+ * re-validates the whole conversation against `ModelMessage[]` before the following step. A
+ * `Date` fails that validation, and the failure is reported against the *messages* — "the
+ * messages do not match the ModelMessage[] schema" — which points at the history rather than
+ * at the tool that poisoned it.
+ *
+ * That made it look intermittent and unrelated to the board. It is neither: nearly every tool
+ * here hands back rows straight from Drizzle, and every `timestamptz` column in one is a Date.
+ * `scrum_task_detail` alone carries six of them. Ask a question that made the model look at a
+ * task and the next step of the answer died.
+ *
+ * Serialising once, here, fixes it for every tool at the same time and cannot be forgotten by
+ * the next one somebody writes. Dates become ISO strings, which is what a model can read
+ * anyway; `undefined` disappears, which is what JSON does; and bigint is stringified rather
+ * than throwing, since a count from Postgres can arrive as one.
+ */
+function plainJson(value: unknown): unknown {
+  if (value === undefined) return null;
+  return JSON.parse(
+    JSON.stringify(value, (_key, v: unknown) => (typeof v === 'bigint' ? v.toString() : v)),
+  );
+}
+
+/**
  * Turns manifest `aiTools` declarations into an AI SDK tool set (AI plan §3.1).
  *
  * Two rules are enforced HERE, in code, rather than left to the model's judgement:
@@ -105,7 +131,7 @@ export class AiToolRegistry {
             };
           }
 
-          const result = await executor(actor, input);
+          const result = plainJson(await executor(actor, input));
           invocation.executed = true;
           invocation.result = result;
           invocations.push(invocation);

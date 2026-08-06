@@ -156,3 +156,112 @@ describe('conversation history', () => {
     ]);
   });
 });
+
+/**
+ * A question that failed is still a question that was asked.
+ *
+ * Both messages were written only after a successful generation, so an answer that broke took
+ * the question down with it: you watched an error appear, reopened the thread, and found
+ * nothing at all — not the failure, not the words you had typed. That is the worst moment to
+ * lose somebody's sentence, because it is the moment they most want it back.
+ */
+describe('a failed exchange', () => {
+  let orchestrator: OrchestratorService;
+
+  /** A model that answers, for proving the thread still works after a failure. */
+  const workingModel = () =>
+    new MockLanguageModelV4({
+      doStream: async () =>
+        ({
+          stream: new ReadableStream({
+            start(controller) {
+              controller.enqueue({ type: 'text-start', id: 't' });
+              controller.enqueue({ type: 'text-delta', id: 't', delta: 'ok' });
+              controller.enqueue({ type: 'text-end', id: 't' });
+              controller.enqueue({
+                type: 'finish',
+                finishReason: { unified: 'stop', raw: undefined },
+                usage: {
+                  inputTokens: { total: 1, noCache: 1, cacheRead: undefined, cacheWrite: undefined },
+                  outputTokens: { total: 1, text: 1, reasoning: undefined },
+                },
+              });
+              controller.close();
+            },
+          }),
+        }) as never,
+    });
+
+  /** A model that dies the way the real one did: mid-stream, after the request went out. */
+  const brokenModel = () =>
+    new MockLanguageModelV4({
+      doStream: async () =>
+        ({
+          stream: new ReadableStream({
+            start(controller) {
+              controller.enqueue({
+                type: 'error',
+                error: new Error('The messages do not match the ModelMessage[] schema'),
+              });
+              controller.close();
+            },
+          }),
+        }) as never,
+    });
+
+  beforeEach(async () => {
+    await resetDb();
+    await testDb.execute(sql`TRUNCATE core.conversations CASCADE`);
+    await seedUser(me.userId, 'admin');
+
+    const m = new ManifestRegistry();
+    m.register(defineManifest({ name: 'fixture', version: '1.0.0' }));
+    m.seal();
+    const permissions = new PermissionService(testDb, m);
+    orchestrator = new OrchestratorService(
+      testDb,
+      new LlmService(),
+      new AiToolRegistry(m, permissions),
+      new RegistryService(testDb, m),
+      permissions,
+    );
+  });
+
+  it('keeps the question, and says what went wrong, when generation fails', async () => {
+    await expect(
+      orchestrator.ask(me, { message: 'What is open on Power BI?', model: brokenModel() }),
+    ).rejects.toThrow(/ModelMessage/);
+
+    const [conversation] = await orchestrator.listConversations(me);
+    const { messages: rows } = await orchestrator.getConversation(me, conversation!.id);
+
+    expect(rows.map((r) => r.role)).toEqual(['user', 'assistant']);
+    expect(rows[0]!.content).toBe('What is open on Power BI?');
+    expect(rows[1]!.content).toMatch(/did not work/i);
+    expect(rows[1]!.content).toMatch(/ModelMessage/);
+  });
+
+  it('leaves the thread able to carry on afterwards', async () => {
+    // The failure is stored as the assistant's turn, so every question still has a reply in
+    // front of the next one — the history assembly never has to learn about half-turns.
+    await expect(
+      orchestrator.ask(me, { message: 'First try', model: brokenModel() }),
+    ).rejects.toThrow();
+    const [conversation] = await orchestrator.listConversations(me);
+
+    const second = await orchestrator.ask(me, {
+      message: 'Second try',
+      conversationId: conversation!.id,
+      model: workingModel(),
+    });
+    expect(second.answer).toBe('ok');
+
+    const { messages: rows } = await orchestrator.getConversation(me, conversation!.id);
+    expect(rows.map((r) => r.content)).toEqual([
+      'First try',
+      expect.stringMatching(/did not work/i),
+      'Second try',
+      'ok',
+    ]);
+  });
+});
