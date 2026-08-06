@@ -9,6 +9,7 @@ import { ManifestRegistry } from '../../../core/manifest/manifest.registry.js';
 import { PermissionService } from '../../../core/permissions/permission.service.js';
 import { RegistryService } from '../../../core/registry/registry.service.js';
 import { resetDb, seedUser, testDb, truncate } from '../../../test/db.js';
+import { settle, waitFor } from '../../../test/wait.js';
 import { crmManifest } from '../../crm/crm.manifest.js';
 import { CrmService } from '../../crm/crm.service.js';
 import { scrumManifest } from '../../scrum/scrum.manifest.js';
@@ -284,7 +285,7 @@ describe('LiveRunner', () => {
 
     live.transcribeSegment.mockResolvedValueOnce('word '.repeat(300));
     await events.onSegment(segment('Marieke', '7'));
-    await new Promise((r) => setTimeout(r, 40));
+    await waitFor(() => live.extract.mock.calls.length > 0, { label: 'the extraction pass' });
     expect(live.extract).toHaveBeenCalledOnce();
   });
 
@@ -299,7 +300,7 @@ describe('LiveRunner', () => {
 
     live.transcribeSegment.mockResolvedValueOnce('word '.repeat(300));
     await events.onSegment(segment('Marieke', '7'));
-    await new Promise((r) => setTimeout(r, 40));
+    await waitFor(() => live.extract.mock.calls.length > 0, { label: 'the extraction pass' });
 
     const result = await runner.stop(actor, note.id);
     expect(result.saved).toBe(true);
@@ -356,7 +357,7 @@ describe('LiveRunner', () => {
     const events = runner.eventsFor(actor, note.id, session);
 
     await events.onSegment(segment('Marieke', '7'));
-    await new Promise((r) => setTimeout(r, 30));
+    await settle();
     expect(conversation.reply).not.toHaveBeenCalled();
   });
 
@@ -374,7 +375,9 @@ describe('LiveRunner', () => {
     const session = sessions.get(note.id)!.live;
     const events = runner.eventsFor(actor, note.id, session);
     await events.onSegment(segment('Marieke', '7'));
-    await new Promise((r) => setTimeout(r, 50));
+    await waitFor(() => vi.mocked(joined.speak).mock.calls.length > 0, {
+      label: 'the assistant to speak',
+    });
 
     expect(joined.speak).toHaveBeenCalledWith(expect.any(Buffer), 'audio/mp3');
     // What the assistant said belongs in the record, attributed to it.
@@ -389,7 +392,7 @@ describe('LiveRunner', () => {
 
     const session = sessions.get(note.id)!.live;
     await runner.eventsFor(actor, note.id, session).onSegment(segment('Marieke', '7'));
-    await new Promise((r) => setTimeout(r, 30));
+    await settle();
 
     expect(conversation.reply).not.toHaveBeenCalled();
   });

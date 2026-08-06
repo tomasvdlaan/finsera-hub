@@ -1,4 +1,4 @@
-import { Logger } from '@nestjs/common';
+import { Logger, type OnModuleDestroy } from '@nestjs/common';
 import {
   OnGatewayConnection,
   OnGatewayDisconnect,
@@ -66,7 +66,7 @@ const graceMs = (): number => Number(process.env.LIVE_RECONNECT_GRACE_MS ?? RECO
  * anything unknown, so an older tab survives a newer server.
  */
 @WebSocketGateway({ path: '/api/meetings/live' })
-export class LiveGateway implements OnGatewayConnection, OnGatewayDisconnect {
+export class LiveGateway implements OnGatewayConnection, OnGatewayDisconnect, OnModuleDestroy {
   private readonly logger = new Logger(LiveGateway.name);
   private readonly clients = new Map<WebSocket, Client>();
   /** Sessions waiting for their source to return, by note id. */
@@ -122,7 +122,14 @@ export class LiveGateway implements OnGatewayConnection, OnGatewayDisconnect {
           source: running.live.source,
           startedAt: running.live.startedAt.toISOString(),
         });
-        socket.on('message', (raw: Buffer) => void this.onMessage(socket, raw));
+        socket.on('message', (raw: Buffer) =>
+          // Returned rather than voided. `ws` ignores it, but `void` on a rejecting promise is
+          // an unhandled rejection that surfaces as a process warning at best — and it left a
+          // test no way to know the handler had finished except to guess at a duration.
+          this.onMessage(socket, raw).catch((error: unknown) =>
+            this.logger.error(`Live message failed: ${String(error)}`),
+          ),
+        );
         this.logger.log(`Live session for ${noteId} picked back up`);
         return;
       }
@@ -169,7 +176,14 @@ export class LiveGateway implements OnGatewayConnection, OnGatewayDisconnect {
       });
       this.logger.log(`Live session started for note ${noteId}`);
 
-      socket.on('message', (raw: Buffer) => void this.onMessage(socket, raw));
+      socket.on('message', (raw: Buffer) =>
+          // Returned rather than voided. `ws` ignores it, but `void` on a rejecting promise is
+          // an unhandled rejection that surfaces as a process warning at best — and it left a
+          // test no way to know the handler had finished except to guess at a duration.
+          this.onMessage(socket, raw).catch((error: unknown) =>
+            this.logger.error(`Live message failed: ${String(error)}`),
+          ),
+        );
     } catch (error) {
       this.send(socket, { type: 'error', message: (error as Error).message });
       socket.close();
@@ -205,6 +219,20 @@ export class LiveGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }, graceMs());
     // Not unref'd: this timer is the only thing that will ever write the meeting down.
     this.pendingFinish.set(noteId, timer);
+  }
+
+  /**
+   * Disarm every pending finish.
+   *
+   * A grace timer outlives whatever armed it — that is its whole purpose — so a process that
+   * stops caring about these sessions has to say so, or the timer fires into a world that has
+   * moved on. In tests that meant a write landing during the next file's setup, holding a lock
+   * on the audit log while it tried to truncate it; in production it is what a graceful
+   * shutdown wants before the pool closes.
+   */
+  onModuleDestroy(): void {
+    for (const timer of this.pendingFinish.values()) clearTimeout(timer);
+    this.pendingFinish.clear();
   }
 
   private cancelFinish(noteId: string): void {

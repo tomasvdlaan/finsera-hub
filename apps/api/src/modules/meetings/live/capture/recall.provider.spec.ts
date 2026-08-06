@@ -27,17 +27,17 @@ const participantEvent = (event: string, id: string, name: string) =>
   Buffer.from(JSON.stringify({ event, data: { participant: { id, name } } }));
 
 class FakeSocket {
-  private handlers = new Map<string, (raw: Buffer) => void>();
+  private handlers = new Map<string, (raw: Buffer) => unknown>();
   closed = false;
-  on(event: string, handler: (raw: Buffer) => void) {
+  on(event: string, handler: (raw: Buffer) => unknown) {
     this.handlers.set(event, handler);
   }
   close() {
     this.closed = true;
   }
+  /** Deliver, and wait for it to be handled — the provider returns the handler's promise. */
   async deliver(raw: Buffer) {
-    this.handlers.get('message')?.(raw);
-    await new Promise((r) => setTimeout(r, 20));
+    await this.handlers.get('message')?.(raw);
   }
 }
 

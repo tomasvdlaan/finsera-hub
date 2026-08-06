@@ -165,7 +165,14 @@ export class RecallSession implements CaptureSession {
   attach(socket: WebSocket): void {
     this.socket = socket;
     this.events.onReady({ sessionId: this.id, joinedAt: this.startedAt });
-    socket.on('message', (raw: Buffer) => void this.onMessage(raw));
+    // Returned rather than voided, for the same two reasons as the live gateway: `void` on a
+    // rejecting promise is an unhandled rejection, and a caller that cannot await the handler
+    // has to guess how long it takes.
+    socket.on('message', (raw: Buffer) =>
+      this.onMessage(raw).catch((error: unknown) =>
+        this.logger.error(`Recall message failed: ${String(error)}`),
+      ),
+    );
     socket.on('close', () => this.events.onEnded('The bot disconnected'));
   }
 

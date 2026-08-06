@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Actor } from '@platform/contracts';
 import { sql } from 'drizzle-orm';
 import { AuditService } from '../../../core/audit/audit.service.js';
@@ -10,6 +10,7 @@ import { ManifestRegistry } from '../../../core/manifest/manifest.registry.js';
 import { PermissionService } from '../../../core/permissions/permission.service.js';
 import { RegistryService } from '../../../core/registry/registry.service.js';
 import { resetDb, seedUser, testDb, truncate } from '../../../test/db.js';
+import { waitFor } from '../../../test/wait.js';
 import { crmManifest } from '../../crm/crm.manifest.js';
 import { CrmService } from '../../crm/crm.service.js';
 import { scrumManifest } from '../../scrum/scrum.manifest.js';
@@ -40,7 +41,7 @@ class FakeSocket {
   readyState = 1;
   readonly sent: Array<Record<string, unknown>> = [];
   closed = false;
-  private handler?: (raw: Buffer) => void;
+  private handler?: (raw: Buffer) => unknown;
 
   send(payload: string) {
     this.sent.push(JSON.parse(payload) as Record<string, unknown>);
@@ -49,14 +50,18 @@ class FakeSocket {
     this.closed = true;
     this.readyState = 3;
   }
-  on(event: string, handler: (raw: Buffer) => void) {
+  on(event: string, handler: (raw: Buffer) => unknown) {
     if (event === 'message') this.handler = handler;
   }
-  /** Deliver a client message, as the ws library would. */
+  /**
+   * Deliver a client message, as the ws library would — and wait for it to be handled.
+   *
+   * `ws` ignores what its listener returns, so this used to sleep thirty milliseconds and hope.
+   * The gateway now returns the handler's promise, which makes this exact rather than likely,
+   * and removes the guess from underneath every test in the file.
+   */
   async deliver(message: Record<string, unknown>) {
-    this.handler?.(Buffer.from(JSON.stringify(message)));
-    // The handler is async and not awaited by ws; give it a turn to finish.
-    await new Promise((r) => setTimeout(r, 30));
+    await this.handler?.(Buffer.from(JSON.stringify(message)));
   }
   messagesOfType(type: string) {
     return this.sent.filter((m) => m.type === type);
@@ -193,6 +198,20 @@ describe('LiveGateway', () => {
     projectId = project.id;
   });
 
+  /*
+   * Disarm before leaving.
+   *
+   * A test that disconnects without waiting leaves a grace timer armed, and forty milliseconds
+   * later it fires — into whatever is running by then. That was a write landing in the middle
+   * of the next file's `resetDb`, holding a lock on `core.audit_log` while `ALTER TABLE` waited
+   * for it, until the hook gave up at ten seconds. The failure surfaced two files away from its
+   * cause, as a duplicate key on a user nobody had managed to truncate.
+   */
+  afterEach(() => {
+    gateway.onModuleDestroy();
+    delete process.env.LIVE_RECONNECT_GRACE_MS;
+  });
+
   const noteWithConsent = async (consented = true) => {
     const note = await meetings.create(actor, {
       title: 'Voortgang',
@@ -290,7 +309,7 @@ describe('LiveGateway', () => {
     // One long segment crosses the threshold in a single step.
     live.transcribeSegment.mockResolvedValueOnce('word '.repeat(300));
     await socket.deliver({ type: 'audio', data: Buffer.from('x').toString('base64') });
-    await new Promise((r) => setTimeout(r, 60));
+    await waitFor(() => live.extract.mock.calls.length > 0, { label: 'the extraction pass' });
 
     expect(live.extract).toHaveBeenCalledOnce();
     expect(socket.messagesOfType('proposals')).toHaveLength(1);
@@ -336,7 +355,11 @@ describe('LiveGateway', () => {
     await socket.deliver({ type: 'audio', data: Buffer.from('x').toString('base64') });
 
     await gateway.handleDisconnect(socket as never);
-    await new Promise((r) => setTimeout(r, 120));
+    // The note being written down, not the session leaving the register: the register is
+    // cleared a moment first, so waiting on it reads the note too early.
+    await waitFor(async () => (await meetings.get(actor, note.id)).endedAt !== null, {
+      label: 'the abandoned meeting to be written down',
+    });
 
     // The grace window is what makes a reload survivable, and the timer at the end of it is
     // now the only thing that will ever write an abandoned meeting down. A session left on
@@ -355,7 +378,7 @@ describe('LiveGateway', () => {
     // a meeting you can never record again without a restart.
     vi.spyOn(meetings, 'update').mockRejectedValueOnce(new Error('database gone'));
     await gateway.handleDisconnect(socket as never);
-    await new Promise((r) => setTimeout(r, 120));
+    await waitFor(() => !sessions.active.includes(note.id), { label: 'the grace window to lapse' });
 
     expect(sessions.active).not.toContain(note.id);
   });
@@ -525,7 +548,7 @@ describe('LiveGateway', () => {
 
     const ran = vi.spyOn(behaviourRuns, 'run').mockResolvedValue([]);
     await socket.deliver({ type: 'audio', data: Buffer.from('x').toString('base64') });
-    await new Promise((r) => setTimeout(r, 40));
+    await waitFor(() => ran.mock.calls.length > 0, { label: 'the behaviour run' });
 
     expect(ran).toHaveBeenCalled();
     expect(ran.mock.calls[0]![0]).toBe('utterance');
@@ -554,7 +577,7 @@ describe('LiveGateway', () => {
 
     live.transcribeSegment.mockResolvedValueOnce('word '.repeat(300));
     await socket.deliver({ type: 'audio', data: Buffer.from('x').toString('base64') });
-    await new Promise((r) => setTimeout(r, 60));
+    await waitFor(() => live.extract.mock.calls.length > 0, { label: 'the extraction pass' });
     await socket.deliver({ type: 'stop' });
 
     const saved = await meetings.get(actor, note.id);
@@ -584,7 +607,7 @@ describe('LiveGateway', () => {
 
     live.transcribeSegment.mockResolvedValueOnce('word '.repeat(300));
     await socket.deliver({ type: 'audio', data: Buffer.from('x').toString('base64') });
-    await new Promise((r) => setTimeout(r, 60));
+    await waitFor(() => live.extract.mock.calls.length > 0, { label: 'the extraction pass' });
     await socket.deliver({ type: 'stop' });
 
     const tasks = await testDb.execute(sql`SELECT id FROM scrum.tasks`);
@@ -599,7 +622,12 @@ describe('LiveGateway', () => {
 
     // A crashed tab should not also lose the meeting — it costs the grace window, no more.
     await gateway.handleDisconnect(socket as never);
-    await new Promise((r) => setTimeout(r, 120));
+    // The transcript, not the register: deregistering happens a moment before the write, so
+    // waiting on the session alone would read the table too early — which is precisely the
+    // race that made this file flaky in the first place, just with a shorter fuse.
+    await waitFor(async () => (await meetings.listTranscripts(actor, note.id)).length > 0, {
+      label: 'the transcript to be written',
+    });
 
     const [transcript] = await meetings.listTranscripts(actor, note.id);
     expect(JSON.stringify(transcript!.lines)).toContain('We should add supplier drill-down.');
