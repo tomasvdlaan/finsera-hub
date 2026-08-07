@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { PageHeader } from '../../shell/ui/layout.js';
+import { SectionTabs } from '../../shell/useNav.js';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import type { Client } from '../crm/types.js';
@@ -83,6 +84,7 @@ export function ContractList() {
       <PageHeader
         title="Contracts"
         subtitle="What has been agreed, and when it lapses. Notice deadlines are worked out from today — nothing changes state on its own, so a date passing is shown, not acted on."
+        tabs={<SectionTabs section="money" />}
       />
 
       {needsAttention.length > 0 && (

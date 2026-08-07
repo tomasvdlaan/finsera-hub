@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { PageHeader } from '../../shell/ui/layout.js';
+import { SectionTabs } from '../../shell/useNav.js';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { useDocumentTitle } from '../../shell/useDocumentTitle.js';
@@ -44,6 +45,7 @@ export function Money() {
       <PageHeader
         title="Money"
         subtitle="Invoicing, quotes, contracts and the numbers. Nothing here needs attention daily — when something does, it appears on Today."
+        tabs={<SectionTabs section="money" />}
       />
 
       {error && <p className="error">{error}</p>}

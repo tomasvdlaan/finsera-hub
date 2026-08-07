@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { StatTile } from '../../shell/ui/data.js';
 import { PageHeader } from '../../shell/ui/layout.js';
+import { SectionTabs } from '../../shell/useNav.js';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { InsightRow, type Insight } from '../insights/Insights.js';
@@ -113,6 +114,7 @@ export function Overview() {
       <PageHeader
         title="Overview"
         subtitle="Every number here is read from what the modules publish — nothing is recalculated, so this cannot disagree with the invoice or timesheet behind it."
+        tabs={<SectionTabs section="money" />}
       />
 
       {insights && insights.total > 0 && (

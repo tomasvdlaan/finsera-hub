@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, NavLink } from 'react-router-dom';
 
 /**
  * How wide a page is allowed to be, decided by what kind of page it is.
@@ -88,6 +88,40 @@ export function PageHeader({
       {meta && <div className="page-meta">{meta}</div>}
       {tabs && <nav className="page-tabs">{tabs}</nav>}
     </header>
+  );
+}
+
+/**
+ * The pages that live under this one.
+ *
+ * A tab strip rather than more rows in the rail. Six anchors in the sidebar is the number a
+ * person can hold; the finance pages are four of them on their own, and every one is a place
+ * you go *from* the money page rather than instead of it.
+ *
+ * A tab whose path is the prefix of another tab's matches exactly — `/money` is the start of
+ * `/money/invoices`, and without `end` the hub lights up alongside whichever child you are on.
+ * Derived rather than taken on trust from the ordering, which is declared across four manifests
+ * that cannot see each other.
+ */
+export function SubNav({
+  items,
+}: {
+  items: Array<{ label: string; to: string }>;
+}) {
+  if (items.length < 2) return null;
+  return (
+    <>
+      {items.map((i) => (
+        <NavLink
+          key={i.to}
+          to={i.to}
+          end={items.some((o) => o.to.startsWith(`${i.to}/`))}
+          className={({ isActive }) => (isActive ? 'page-tab active' : 'page-tab')}
+        >
+          {i.label}
+        </NavLink>
+      ))}
+    </>
   );
 }
 

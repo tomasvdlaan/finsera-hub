@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { PageHeader } from '../../shell/ui/layout.js';
+import { SectionTabs } from '../../shell/useNav.js';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import type { Client, Project } from '../crm/types.js';
@@ -59,6 +60,7 @@ export function InvoiceList() {
       <PageHeader
         title="Invoices"
         subtitle="Drafts are free to edit and void. Issuing allocates the legal number and freezes the invoice — corrections after that are credit notes."
+        tabs={<SectionTabs section="money" />}
       />
 
       {open.length > 0 && (

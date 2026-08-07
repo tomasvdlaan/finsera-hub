@@ -23,6 +23,7 @@ import { LivePill } from './LivePill.js';
 import { Page, PageHeader } from './ui/layout.js';
 import { MeetingChatProvider } from './MeetingChat.js';
 import { Moved, MOVED_ROOTS } from './moved.js';
+import { NavProvider } from './useNav.js';
 import { Modules } from './Modules.js';
 import { Settings } from './Settings.js';
 import { DialogProvider } from './ui/Dialog.js';
@@ -53,7 +54,7 @@ const SHELL_ITEMS: NavItem[] = [
   // "All work" rather than "Work": it sits in a section called Work, next to a page called
   // Board, and three of the four things in there are work. The name has to say which one.
   { label: 'All work', path: '/work', module: 'shell', icon: 'columns', section: 'work', order: 3 },
-  { label: 'Money', path: '/money', module: 'shell', icon: 'receipt', section: 'money', order: 1 },
+  { label: 'Money', path: '/money', module: 'shell', icon: 'receipt', section: 'money', order: 0 },
   { label: 'Organisation', path: '/settings', module: 'shell', icon: 'settings', section: 'setup', order: 1 },
   { label: 'Platform modules', path: '/settings/modules', module: 'shell', icon: 'columns', section: 'setup', order: 3 },
 ];
@@ -175,6 +176,8 @@ function Shell() {
         socket, and closing that socket from the audio source is how the server learns the
         meeting is over — so navigating away ended and finalised it. See LiveMeeting.tsx.
       */}
+      {/* So a hub page can list the pages that live under it — see useNav.tsx. */}
+      <NavProvider nav={[...SHELL_ITEMS, ...nav]}>
       <LiveMeetingProvider>
       <MeetingChatProvider>
       {/* Above the router: the clock has to survive navigation, and the rail and the tracker
@@ -250,6 +253,7 @@ function Shell() {
       </RunningTimerProvider>
       </MeetingChatProvider>
       </LiveMeetingProvider>
+      </NavProvider>
     </BrowserRouter>
   );
 }

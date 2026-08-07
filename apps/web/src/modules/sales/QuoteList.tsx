@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { PageHeader } from '../../shell/ui/layout.js';
+import { SectionTabs } from '../../shell/useNav.js';
 import { Link } from 'react-router-dom';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../lib/api.js';
@@ -72,6 +73,7 @@ export function QuoteList() {
       <PageHeader
         title="Quotes"
         subtitle="Drafts are free to change. Sending numbers the quote and freezes it, so the version a client agreed to stays exactly as they read it — changes after that are a revision."
+        tabs={<SectionTabs section="money" />}
       />
 
       {open.length > 0 && (
