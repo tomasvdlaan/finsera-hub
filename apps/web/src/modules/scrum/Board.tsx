@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { PageHeader } from '../../shell/ui/layout.js';
-import { Link, useSearchParams } from 'react-router-dom';
+import { BoardTabs } from './BoardTabs.js';
+import { useSearchParams } from 'react-router-dom';
 import {
   DndContext,
   DragOverlay,
@@ -627,34 +628,24 @@ export function Board() {
 
   return (
     <>
-      <h1>Board</h1>
-
-      <div className="row">
-        <select
-          value={projectId}
-          onChange={(e) => setProjectId(e.target.value)}
-          aria-label="Project"
-        >
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
-        <span className="muted">
-          {shown.filter((t) => !t.completedAt).length} open of {shown.length}
-        </span>
-        {/* Pushed to the far end: you configure a board rarely and read it constantly. */}
-        <Link to={`/board/flow?projectId=${projectId}`} className="muted board-settings-link">
-          Flow
-        </Link>
-        <Link to={`/board/sprints?projectId=${projectId}`} className="muted">
-          Sprints
-        </Link>
-        <Link to={`/board/settings?projectId=${projectId}`} className="muted">
-          Columns
-        </Link>
-      </div>
+      <PageHeader
+        title="Board"
+        subtitle={`${shown.filter((t) => !t.completedAt).length} open of ${shown.length}`}
+        tabs={<BoardTabs projectId={projectId} />}
+        actions={
+          <select
+            value={projectId}
+            onChange={(e) => setProjectId(e.target.value)}
+            aria-label="Project"
+          >
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        }
+      />
 
       <SprintBar projectId={projectId} active={sprint} planned={planned} onChange={load} />
 

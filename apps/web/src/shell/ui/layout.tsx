@@ -102,12 +102,18 @@ export function PageHeader({
  * `/money/invoices`, and without `end` the hub lights up alongside whichever child you are on.
  * Derived rather than taken on trust from the ordering, which is declared across four manifests
  * that cannot see each other.
+ *
+ * Compared on the pathname alone. The board's tabs carry `?projectId=` — losing which project
+ * you were looking at is the one thing a tab strip must never do — and a naive prefix test on
+ * the whole string finds no nesting at all, so every tab would be `end={false}` and Board would
+ * light up on Flow.
  */
 export function SubNav({
   items,
 }: {
   items: Array<{ label: string; to: string }>;
 }) {
+  const path = (to: string) => to.split('?')[0] ?? to;
   if (items.length < 2) return null;
   return (
     <>
@@ -115,7 +121,7 @@ export function SubNav({
         <NavLink
           key={i.to}
           to={i.to}
-          end={items.some((o) => o.to.startsWith(`${i.to}/`))}
+          end={items.some((o) => path(o.to).startsWith(`${path(i.to)}/`))}
           className={({ isActive }) => (isActive ? 'page-tab active' : 'page-tab')}
         >
           {i.label}

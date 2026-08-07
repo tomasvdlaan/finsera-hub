@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { PageHeader } from '../../shell/ui/layout.js';
+import { BoardTabs } from './BoardTabs.js';
 import { useSearchParams } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { Empty, Panel } from '../../shell/ui/primitives.js';
@@ -163,10 +164,7 @@ export function SprintHistory() {
 
   return (
     <>
-      <PageHeader
-        title="Sprints"
-        back={{ to: `/board?projectId=${projectId}`, label: 'Board' }}
-      />
+      <PageHeader title="Sprints" tabs={<BoardTabs projectId={projectId} />} />
 
       <div className="row">
         <select value={projectId} onChange={(e) => setProjectId(e.target.value)} aria-label="Project">
