@@ -131,7 +131,9 @@ export class TimeService {
         id,
         entityType: 'time_entry',
         displayName: this.displayName(target.name, minutes, input.description, running),
-        urlPath: `/time/entries/${id}`,
+        // An hour is read in its day, not on a page of its own. `/time/entries/:id` was an
+        // address nothing served, on nineteen live rows.
+        urlPath: `/time?date=${workedOn}`,
       });
 
       await tx.insert(entries).values({

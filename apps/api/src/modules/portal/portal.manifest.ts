@@ -25,7 +25,7 @@ export const portalManifest = defineManifest({
     {
       type: 'portal_user',
       displayTemplate: '{email}',
-      urlPattern: '/settings/portal-users',
+      urlPattern: '/crm/clients/:id',
       // Granting a client a login is the one capability members do not hold by default, so
       // the list of who has one is admin-only to see as well.
       readPermission: 'portal.admin',

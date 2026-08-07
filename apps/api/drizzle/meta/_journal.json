@@ -267,6 +267,13 @@
       "when": 1786016382330,
       "tag": "0037_sprint_capacity",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1786016382331,
+      "tag": "0038_repair_dead_urls",
+      "breakpoints": true
     }
   ]
 }

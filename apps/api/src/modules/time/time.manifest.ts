@@ -12,7 +12,7 @@ export const timeManifest = defineManifest({
   name: 'time',
   version: '0.1.0',
 
-  entities: [{ type: 'time_entry', displayTemplate: '{description}', urlPattern: '/time/entries/:id', readPermission: 'time.entries.read_all' }],
+  entities: [{ type: 'time_entry', displayTemplate: '{description}', urlPattern: '/time', readPermission: 'time.entries.read_all' }],
 
   structuralRefs: [{ from: 'time_entry', toType: 'project', required: true }],
 

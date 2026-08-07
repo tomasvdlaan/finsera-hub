@@ -14,7 +14,7 @@ export const crmManifest = defineManifest({
 
   entities: [
     { type: 'client', displayTemplate: '{name}', urlPattern: '/crm/clients/:id', readPermission: 'crm.clients.read' },
-    { type: 'contact', displayTemplate: '{name}', urlPattern: '/crm/contacts/:id', readPermission: 'crm.clients.read' },
+    { type: 'contact', displayTemplate: '{name}', urlPattern: '/crm/clients/:id', readPermission: 'crm.clients.read' },
     { type: 'project', displayTemplate: '{name}', urlPattern: '/crm/projects/:id', readPermission: 'crm.projects.read' },
   ],
 

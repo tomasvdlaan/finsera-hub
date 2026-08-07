@@ -1,0 +1,81 @@
+#!/usr/bin/env node
+/**
+ * Every URL the backend advertises must be a page the frontend serves.
+ *
+ * `entities[].urlPattern` is not documentation — it is written into `core.entities.urlPath` on
+ * every row, and the timeline, the link picker, search and the assistant's citations all
+ * navigate straight to that stored string. A pattern with no route behind it is a record that
+ * is findable, mentionable, and lands on "not found" when you click it. Nothing tells you;
+ * that is what this is for.
+ *
+ * Deliberately a script rather than a test. The two halves live in different packages with
+ * different test runners, and the check is a string comparison across a boundary neither side
+ * can import across.
+ */
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
+
+const API = 'apps/api/src';
+const WEB = 'apps/web/src';
+
+/** Every `path:` and `urlPattern:` a manifest declares. */
+function declared() {
+  const found = [];
+  const files = [
+    ...readdirSync(join(API, 'modules'), { withFileTypes: true })
+      .filter((d) => d.isDirectory())
+      .map((d) => join(API, 'modules', d.name, `${d.name}.manifest.ts`)),
+    join(API, 'shell', 'shell.manifest.ts'),
+  ];
+  for (const file of files) {
+    let src;
+    try {
+      src = readFileSync(file, 'utf8');
+    } catch {
+      continue;
+    }
+    for (const m of src.matchAll(/(?:urlPattern|path):\s*'(\/[^']*)'/g)) {
+      found.push({ url: m[1], file });
+    }
+  }
+  return found;
+}
+
+/** Every route the web app actually renders, from the module tables and the shell. */
+function served() {
+  const routes = new Set();
+  const add = (src) => {
+    for (const m of src.matchAll(/path:\s*'(\/[^']*)'/g)) routes.add(m[1]);
+    for (const m of src.matchAll(/<Route path="([^"]+)"/g)) routes.add(m[1]);
+  };
+  for (const d of readdirSync(join(WEB, 'modules'), { withFileTypes: true })) {
+    if (!d.isDirectory()) continue;
+    try {
+      add(readFileSync(join(WEB, 'modules', d.name, 'index.ts'), 'utf8'));
+    } catch {
+      /* a module without a route table is fine */
+    }
+  }
+  add(readFileSync(join(WEB, 'shell', 'App.tsx'), 'utf8'));
+  return routes;
+}
+
+/** `:id` matches `:id`, `:noteId`, and so on — the parameter's name is not part of the URL. */
+const shape = (url) => url.replace(/:[A-Za-z0-9_]+/g, ':x');
+
+const routes = new Set([...served()].map(shape));
+const orphans = declared().filter((d) => !routes.has(shape(d.url)));
+
+if (orphans.length > 0) {
+  console.error(
+    `\n${orphans.length} URL${orphans.length === 1 ? '' : 's'} declared by a manifest with no route behind ${orphans.length === 1 ? 'it' : 'them'}:\n`,
+  );
+  for (const o of orphans) console.error(`  ${o.url.padEnd(28)} ${o.file}`);
+  console.error(
+    '\nEach of these is written into core.entities.urlPath and is reachable from search,\n' +
+      'the timeline, the link picker and the assistant. Clicking one lands on "not found".\n',
+  );
+  process.exit(1);
+}
+
+console.log(`✔ every declared URL has a route (${routes.size} routes checked)`);

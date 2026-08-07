@@ -273,7 +273,15 @@ export class CrmService {
         id,
         entityType: 'contact',
         displayName: name,
-        urlPath: `/crm/contacts/${id}`,
+        /*
+         * Where a contact is actually read: on its client's page.
+         *
+         * This was `/crm/contacts/${id}`, an address no page has ever served. `urlPath` is
+         * not documentation — it is written into `core.entities` per row and the timeline,
+         * the link picker, search and every assistant citation navigate straight to it. So a
+         * contact was findable, mentionable, and landed on "not found" when clicked.
+         */
+        urlPath: `/crm/clients/${input.clientId}`,
       });
       await tx.insert(contacts).values({
         id,
