@@ -50,12 +50,25 @@ export type SettingDef =
   | { key: string; label: string; type: 'project' | 'client'; default?: string }
   | { key: string; label: string; type: 'count'; min: number; max: number; default: number };
 
+/**
+ * Which kind of record an entity-page widget belongs on.
+ *
+ * Without this the slot is not enough to place anything: "quotes for this client" and "open
+ * cards on this project" are both `entity-page`, and a page that rendered every entity-page
+ * widget would put a client's quotes on a project. Declared as a list because one widget
+ * genuinely can serve two — a file is filed under either.
+ */
+export type EntityKind = 'client' | 'project';
+
 export interface WidgetProps {
   /** What this placement was configured with, defaults already applied. */
   settings: Record<string, string>;
   /** Present only in the `entity-page` slot: the record whose page this is. */
   entityId?: string;
+  /** Which kind of page that is. Only a widget serving more than one needs to look. */
+  entityType?: EntityKind;
 }
+
 
 export interface WidgetDef {
   /** What the picker calls it. */
@@ -80,6 +93,8 @@ export interface WidgetDef {
    * error, and reasonably conclude the dashboard is broken.
    */
   permission?: string;
+  /** Required in the `entity-page` slot, meaningless in the `dashboard` one. */
+  entityTypes?: EntityKind[];
   settings?: SettingDef[];
 }
 

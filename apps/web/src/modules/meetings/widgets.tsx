@@ -63,8 +63,14 @@ export const meetingsWidgets: Record<string, WidgetDef> = {
     title: 'Meetings',
     description: 'Recent meetings with this client.',
     slot: 'entity-page',
+    entityTypes: ['client'],
     defaultSpan: 6,
     permission: 'meetings.read',
-    Component: ({ entityId }) => (entityId ? <ClientNotesWidget clientId={entityId} /> : null),
+    Component: ({ entityId }) =>
+      entityId ? (
+        <Card title="Meetings">
+          <ClientNotesWidget clientId={entityId} />
+        </Card>
+      ) : null,
   },
 };

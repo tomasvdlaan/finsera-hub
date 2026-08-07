@@ -241,6 +241,7 @@ export const scrumWidgets: Record<string, WidgetDef> = {
     title: 'Open cards',
     description: "This project's unfinished work.",
     slot: 'entity-page',
+    entityTypes: ['project'],
     defaultSpan: 6,
     permission: 'scrum.tasks.read',
     Component: ({ entityId }) => {

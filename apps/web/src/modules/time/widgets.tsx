@@ -92,6 +92,7 @@ export const timeWidgets: Record<string, WidgetDef> = {
     title: 'Budget burn',
     description: 'Hours spent against the hours sold, for one project.',
     slot: 'entity-page',
+    entityTypes: ['project'],
     defaultSpan: 6,
     permission: 'time.read',
     Component: ({ entityId }) => {

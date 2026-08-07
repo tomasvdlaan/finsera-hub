@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { PageHeader } from '../../shell/ui/layout.js';
+import { EntityWidgets } from '../../shell/ui/EntityWidgets.js';
 import { Link, useParams } from 'react-router-dom';
 import type { EntityRef } from '@platform/contracts';
 import { api } from '../../lib/api.js';
@@ -7,9 +8,6 @@ import { cents, euros } from '../../lib/money.js';
 import { Comments } from '../../shell/Comments.js';
 import { Links } from '../../shell/Links.js';
 import { Timeline } from '../../shell/Timeline.js';
-import { DocumentsWidget } from '../docs/DocumentsWidget.js';
-import { OpenTasksWidget } from '../scrum/OpenTasksWidget.js';
-import { ProjectBurn } from '../time/ProjectBurn.js';
 import { EditableField } from './EditableField.js';
 import {
   PROJECT_STATUSES,
@@ -159,24 +157,14 @@ export function ProjectDetail() {
         {error && <p className="error">{error}</p>}
       </section>
 
-      <section data-span={6}>
-        <h2>Budget burn</h2>
-        <p className="muted">
-          Contributed by the Time module through its manifest — this page gained the widget
-          without CRM changing.
-        </p>
-        <ProjectBurn projectId={id} />
-      </section>
+      {/*
+        Contributed by whichever modules declare a project widget.
 
-      <section>
-        <h2>Tasks</h2>
-        <OpenTasksWidget projectId={id} />
-      </section>
-
-      <section data-span={6}>
-        <h2>Documents</h2>
-        <DocumentsWidget projectId={id} />
-      </section>
+        The line that used to sit above the burn chart said this page "gained the widget
+        without CRM changing", which was a claim about a mechanism that had never been built —
+        the component was imported by name three lines below it. It is true now.
+      */}
+      <EntityWidgets entityId={id} entityType="project" />
 
       <section>
         <h2>Discussion</h2>

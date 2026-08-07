@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { PageHeader } from '../../shell/ui/layout.js';
+import { EntityWidgets } from '../../shell/ui/EntityWidgets.js';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { Comments } from '../../shell/Comments.js';
@@ -7,11 +8,6 @@ import { useDialog } from '../../shell/ui/Dialog.js';
 import { useToast } from '../../shell/ui/Toast.js';
 import { Links } from '../../shell/Links.js';
 import { Timeline } from '../../shell/Timeline.js';
-import { ClientInvoicesWidget } from '../billing/ClientInvoicesWidget.js';
-import { ClientNotesWidget } from '../meetings/ClientNotesWidget.js';
-import { ClientContractsWidget } from '../sales/ClientContractsWidget.js';
-import { ClientQuotesWidget } from '../sales/ClientQuotesWidget.js';
-import { DocumentsWidget } from '../docs/DocumentsWidget.js';
 import { PortalUsers } from '../portal/PortalUsers.js';
 import { EditableField } from './EditableField.js';
 import type { EntityRef } from '@platform/contracts';
@@ -219,25 +215,14 @@ export function ClientDetail() {
         </div>
       </section>
 
-      <section>
-        <h2>Meetings</h2>
-        <ClientNotesWidget clientId={id} />
-      </section>
+      {/*
+        Whatever the installed modules have to say about this client.
 
-      <section data-span={6}>
-        <h2>Contracts</h2>
-        <ClientContractsWidget clientId={id} />
-      </section>
-
-      <section data-span={6}>
-        <h2>Quotes</h2>
-        <ClientQuotesWidget clientId={id} />
-      </section>
-
-      <section data-span={6}>
-        <h2>Invoices</h2>
-        <ClientInvoicesWidget clientId={id} />
-      </section>
+        Five widget components used to be imported by name here, which meant CRM had to know
+        that billing, sales, docs and meetings exist — the exact coupling every manifest in
+        this codebase is arranged to avoid, sitting in one of the two pages people open most.
+      */}
+      <EntityWidgets entityId={id} entityType="client" />
 
       <section>
         <PortalUsers clientId={client.id} />
@@ -298,11 +283,6 @@ export function ClientDetail() {
             ))}
           </ul>
         )}
-      </section>
-
-      <section data-span={6}>
-        <h2>Documents</h2>
-        <DocumentsWidget clientId={id} />
       </section>
 
       <section>
