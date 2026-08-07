@@ -4443,3 +4443,53 @@ button.nav-me:hover { background: var(--surface); }
 .meter-fill.is-over {
   background: var(--error);
 }
+
+/*
+ * What it is thinking about, while it thinks.
+ *
+ * Quiet on purpose: this is scaffolding around an answer, not the answer. It has to be
+ * readable at a glance and forgettable the moment the words arrive.
+ */
+.turn-thinking {
+  margin: var(--space-2) 0;
+}
+.thinking-line {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  font-style: italic;
+  /* One line, always: a status that reflows the page as it changes is worse than no status. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* A slow pulse — enough to read as live, not enough to pull the eye off the answer. */
+.thinking-line::before {
+  content: '';
+  display: inline-block;
+  width: 0.4rem;
+  height: 0.4rem;
+  margin-right: var(--space-2);
+  border-radius: 50%;
+  background: var(--accent);
+  animation: thinking-pulse 1.6s ease-in-out infinite;
+}
+@keyframes thinking-pulse {
+  0%, 100% { opacity: 0.25; }
+  50% { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .thinking-line::before { animation: none; opacity: 0.6; }
+}
+.turn-thinking details {
+  margin-top: var(--space-1);
+}
+.turn-thinking summary {
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+.turn-thinking details[open] {
+  font-size: var(--text-sm);
+  border-left: 2px solid var(--border);
+  padding-left: var(--space-3);
+}

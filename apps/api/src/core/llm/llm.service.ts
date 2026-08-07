@@ -50,6 +50,8 @@ export interface GenerateResult {
  */
 export type GenerationEvent =
   | { type: 'text'; delta: string }
+  /** The model's own working-out, while it is still working it out. */
+  | { type: 'thinking'; delta: string }
   | { type: 'tool'; toolName: string }
   | { type: 'done'; result: GenerateResult };
 
@@ -71,6 +73,21 @@ export type GenerationEvent =
  */
 const CACHE_THE_PREFIX = {
   anthropic: { cacheControl: { type: 'ephemeral' as const, ttl: '1h' as const } },
+  /*
+   * Ask Gemini to say what it is thinking.
+   *
+   * Off by default, and the silence it leaves is most of the wait: measured on a real
+   * two-tool answer, nothing at all reached the client for the first 3.1 seconds, then a tool
+   * chip, then another 5.7 seconds of nothing, then the entire answer in 57 milliseconds. A
+   * reader watching a caret blink for nine seconds has no way to tell thinking from hung.
+   *
+   * With this on, the first thought summary arrives at 2.6 seconds and reads like a heading —
+   * "Defining the project scope" — which is exactly the amount of detail worth showing.
+   *
+   * Inert on Anthropic, which takes its own key; both are declared so switching provider does
+   * not silently change what the reader sees.
+   */
+  google: { thinkingConfig: { includeThoughts: true } },
 };
 
 /** The four numbers, defaulted — a provider that reports nothing must not become NaN. */
@@ -246,6 +263,10 @@ export class LlmService {
     for await (const part of result.fullStream) {
       if (part.type === 'text-delta') {
         yield { type: 'text', delta: part.text };
+      } else if (part.type === 'reasoning-delta') {
+        // Forwarded, never accumulated into the answer: this is the working-out, and it is
+        // shown while it happens rather than kept.
+        yield { type: 'thinking', delta: part.text };
       } else if (part.type === 'tool-call') {
         toolCalls.push({ toolName: part.toolName, input: part.input });
         yield { type: 'tool', toolName: part.toolName };

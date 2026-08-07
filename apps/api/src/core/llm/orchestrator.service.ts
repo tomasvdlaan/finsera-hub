@@ -31,6 +31,14 @@ export interface AskInput {
 /** What a streamed ask emits. `done` carries exactly what the blocking call returns. */
 export type AskEvent =
   | { type: 'text'; delta: string; conversationId: string }
+  /**
+   * What the model is working through, while it works through it.
+   *
+   * Passed on and not stored. It is the reasoning, not the answer — keeping it would put a
+   * model's rough draft in the record beside a reply somebody is going to act on, and the two
+   * do not carry the same weight. It exists so a nine-second wait reads as thinking.
+   */
+  | { type: 'thinking'; delta: string; conversationId: string }
   | { type: 'tool'; toolName: string; conversationId: string }
   | { type: 'done'; result: AskResult };
 

@@ -45,11 +45,20 @@ export interface Turn {
    * typing.
    */
   running?: string[];
+  /**
+   * What the model said it was working through, while it was working through it.
+   *
+   * Live only, and deliberately not stored: it is a rough draft, and keeping it beside a
+   * reply somebody is going to act on gives the two the same weight. It exists because most
+   * of a real answer is a wait — measured at nine seconds, of which the words took 57ms.
+   */
+  thinking?: string;
 }
 
 /** What the server sends while it is working. */
 type AskEvent =
   | { type: 'text'; delta: string; conversationId: string }
+  | { type: 'thinking'; delta: string; conversationId: string }
   | { type: 'tool'; toolName: string; conversationId: string }
   | { type: 'done'; result: { conversationId: string; answer: string; toolCalls?: ToolCall[]; references?: Reference[] } }
   | { type: 'error'; message: string };
@@ -239,6 +248,9 @@ export function useConversation() {
           if (event.type === 'text') {
             setConversationId(event.conversationId);
             fill((t) => ({ ...t, content: t.content + event.delta }));
+          } else if (event.type === 'thinking') {
+            setConversationId(event.conversationId);
+            fill((t) => ({ ...t, thinking: (t.thinking ?? '') + event.delta }));
           } else if (event.type === 'tool') {
             setConversationId(event.conversationId);
             fill((t) => ({ ...t, running: [...(t.running ?? []), event.toolName] }));
@@ -252,11 +264,15 @@ export function useConversation() {
             }
             // The server's own text replaces what was streamed: identical in practice, and
             // authoritative when it is not — it is what was written to the database.
-            fill(() => ({
+            fill((t) => ({
               role: 'assistant',
               content: result.answer,
               toolCalls: result.toolCalls,
               references: result.references,
+              // Carried past `done` rather than cleared: it stays expandable for the rest of
+              // the session. It is not stored, so a reload is where it ends — which is the
+              // right lifetime for a rough draft.
+              thinking: t.thinking,
             }));
           }
         }
@@ -271,7 +287,7 @@ export function useConversation() {
          */
         if (aborted && stopped.current) {
           stopped.current = false;
-          fill((t) => ({ ...t, pending: false, running: undefined }));
+          fill((t) => ({ ...t, pending: false, running: undefined, thinking: undefined }));
           return;
         }
         const text = aborted
