@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../lib/api.js';
+import { cents, euros } from '../../lib/money.js';
 import { useDialog } from '../../shell/ui/Dialog.js';
 import { useToast } from '../../shell/ui/Toast.js';
 import { getUser } from '../../lib/auth.js';
@@ -249,11 +250,19 @@ export function QuoteDetail() {
               value={quote.validUntil}
               onSave={(v) => patch({ validUntil: v })}
             />
+            {/*
+              Euros, like every other money field in the app.
+
+              This read "Hourly rate (cents)" and took the raw integer: you typed 13500 to mean
+              €135, inches below a euro-denominated line editor, and the value is copied onto
+              the project when the quote is accepted. One slipped zero was a €13.50 engagement
+              on a signed document — the highest consequence per character in the codebase.
+            */}
             <EditableField
-              label="Hourly rate (cents)"
-              value={quote.hourlyRateCents == null ? null : String(quote.hourlyRateCents)}
+              label="Hourly rate (€)"
+              value={euros(quote.hourlyRateCents)}
               placeholder="Becomes the project rate when accepted"
-              onSave={(v) => patch({ hourlyRateCents: v ? Number(v) : null })}
+              onSave={(v) => patch({ hourlyRateCents: cents(v) })}
             />
             <EditableField
               label="Notes"

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import type { EntityRef } from '@platform/contracts';
 import { api } from '../../lib/api.js';
+import { cents, euros } from '../../lib/money.js';
 import { Comments } from '../../shell/Comments.js';
 import { Links } from '../../shell/Links.js';
 import { Timeline } from '../../shell/Timeline.js';
@@ -56,12 +57,6 @@ export function ProjectDetail() {
   };
 
   /** Euro string → integer cents. Money never becomes a float on the way to the API. */
-  const cents = (v: string | null) => {
-    if (!v) return null;
-    const parsed = Number(v.replace(',', '.'));
-    return Number.isFinite(parsed) ? Math.round(parsed * 100) : null;
-  };
-  const euros = (c: number | null) => (c == null ? null : (c / 100).toFixed(2));
 
   const setStatus = async (status: string) => {
     await api.patch(`/crm/projects/${id}`, { status });

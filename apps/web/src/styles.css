@@ -12,6 +12,13 @@
    * links and of every SaaS chrome ever made, so it says nothing; green next to money and
    * hours reads as considered rather than default.
    */
+  /*
+   * Consumed at two sites and never declared, so both relied on their inline fallback.
+   * Deliberately system-only: a named webfont would render differently on the two machines
+   * that use this, and would invite somebody to "just add the file" later.
+   */
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+
   --brand: #1f5f4f;
   --brand-deep: #143f34;
   --brand-bright: #2c7d68;
@@ -396,10 +403,6 @@ h3 {
   background: var(--accent-bg);
   color: var(--brand);
   font-weight: 650;
-}
-/* Sections give the rail a shape: a heading you skip past, not thirteen equal lines. */
-.nav-section + .nav-section {
-  margin-top: 0.6rem;
 }
 .nav-section-label {
   font-size: 0.6875rem;
@@ -922,7 +925,7 @@ ol {
 .rich-editor .tiptap ol { padding-left: 1.4rem; list-style: revert; }
 .rich-editor .tiptap ul[data-type='taskList'] { list-style: none; padding-left: 0.2rem; }
 .rich-editor .tiptap ul[data-type='taskList'] li { display: flex; gap: 0.45rem; align-items: flex-start; }
-.rich-editor .tiptap mark { background: var(--warning, #c8912f); color: inherit; padding: 0 0.15rem; }
+.rich-editor .tiptap mark { background: var(--warning); color: inherit; padding: 0 0.15rem; }
 .rich-editor .tiptap blockquote {
   border-left: 3px solid var(--border);
   padding-left: 0.8rem;
@@ -955,7 +958,7 @@ ol {
   display: block;
 }
 .rich-editor .tiptap img.ProseMirror-selectednode {
-  outline: 2px solid var(--accent, #4a7dbd);
+  outline: 2px solid var(--accent);
 }
 
 /* Live transcript: scrolls on its own so the page does not grow for two hours. */
@@ -1055,10 +1058,10 @@ ul.insights li.insight {
   background: var(--surface);
 }
 li.insight.sev-urgent {
-  border-left-color: var(--danger, #d05a5a);
+  border-left-color: var(--danger);
 }
 li.insight.sev-attention {
-  border-left-color: var(--warning, #c8912f);
+  border-left-color: var(--warning);
 }
 li.insight.sev-info {
   border-left-color: var(--border);
@@ -1077,6 +1080,23 @@ li.insight.sev-info {
   gap: 0.75rem;
   margin: 0.5rem 0 1rem;
 }
+/*
+ * The row of tiles at the top of a dashboard.
+ *
+ * `.stat-row` was used on /today, /money and /platform/modules and defined nowhere, so four
+ * tiles carrying the most important numbers in the product fell back to block layout and
+ * stacked full-width down the left of a 1440px screen. That single missing rule is most of
+ * what "the dashboard is bland and flat" was describing.
+ *
+ * Interim: Stage 3 replaces both this and `.stats` with a real StatTile.
+ */
+.stat-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: var(--space-3);
+  margin: var(--space-3) 0 var(--space-5);
+}
+
 /*
  * Declared twice before, 240 lines apart, with different padding and a hardcoded 6px
  * radius in the first — so every .stat on the site silently rendered the second block and
@@ -1135,14 +1155,14 @@ li.insight.sev-info {
   font-weight: 600;
 }
 .stat-value.urgent {
-  color: var(--danger, #d05a5a);
+  color: var(--danger);
 }
 
 /* An inline bar. Deliberately not a charting library — enough to see shape. */
 .bar {
   display: inline-block;
   height: 0.7rem;
-  background: var(--accent, #4a7dbd);
+  background: var(--accent);
   border-radius: 2px;
   min-width: 2px;
 }
@@ -1170,7 +1190,7 @@ a.badge:hover {
   border-color: var(--muted);
 }
 .badge.billed {
-  color: var(--ok, #2f7d4f);
+  color: var(--ok);
   border-color: currentColor;
 }
 
@@ -1757,7 +1777,7 @@ a.badge:hover {
   justify-content: center;
   font-size: 0.65rem;
   font-weight: 700;
-  font-family: var(--font-mono, ui-monospace, monospace);
+  font-family: var(--font-mono);
   border: 1px solid currentColor;
   /* Tinted, not filled: four saturated squares per column would compete with the blocker
      chip, which is the one thing on a card that should shout. */
@@ -2102,7 +2122,7 @@ a.badge:hover {
   font-size: var(--text-xs);
 }
 .board-hint kbd {
-  font-family: var(--font-mono, ui-monospace, monospace);
+  font-family: var(--font-mono);
   font-size: 0.75em;
   border: 1px solid var(--border);
   border-bottom-width: 2px;
@@ -2459,8 +2479,8 @@ a.badge:hover {
   width: 100%;
 }
 .priority-high {
-  border-color: #d97706;
-  color: #d97706;
+  border-color: var(--warning);
+  color: var(--warning);
 }
 .priority-urgent {
   border-color: var(--error);
@@ -2883,13 +2903,6 @@ a.badge:hover {
 .room-proposal {
   border-left: 3px solid var(--accent);
 }
-.room-answer {
-  padding: var(--space-3);
-  border-radius: var(--radius);
-  background: var(--accent-bg);
-  margin-bottom: var(--space-2);
-  font-size: var(--text-sm);
-}
 .room-ask {
   margin-bottom: 0;
 }
@@ -3145,13 +3158,6 @@ a.badge:hover {
   font-size: var(--text-sm);
 }
 .live-terms dt { color: var(--muted); }
-/* A question you asked, above the answer to it. */
-.room-asked {
-  padding: var(--space-2) var(--space-3);
-  border-left: 3px solid var(--border-strong);
-  margin-bottom: var(--space-1);
-  font-size: var(--text-sm);
-}
 .room-asked p, .room-answer p { margin: 0 0 var(--space-1); }
 .room-ask .room-answer { margin-bottom: var(--space-3); }
 
@@ -3790,39 +3796,6 @@ button.nav-me:hover { background: var(--surface); }
     animation: none;
   }
 }
-
-/* ── the conversation list ─────────────────────────────────────────────── */
-.conversation-search {
-  width: 100%;
-  margin: var(--space-2) 0 var(--space-3);
-  font-size: var(--text-sm);
-}
-.conversation-row {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-}
-.conversation-row .nav-row {
-  flex: 1;
-  min-width: 0;
-}
-/*
- * The ⋯ appears on approach.
- *
- * A permanent one on every row is a column of dots down the sidebar, which reads as clutter
- * and competes with the titles — the thing you are actually scanning.
- */
-.row-menu-trigger {
-  border: 0;
-  background: none;
-  color: var(--muted);
-  cursor: pointer;
-  padding: 0 var(--space-1);
-  border-radius: var(--radius-sm);
-  opacity: 0;
-  transition: opacity var(--transition-fast);
-}
 .conversation-row:hover .row-menu-trigger,
 .folder-head:hover .row-menu-trigger,
 .row-menu-trigger:focus-visible,
@@ -3864,43 +3837,6 @@ button.nav-me:hover { background: var(--surface); }
   border: 0;
   border-top: 1px solid var(--border);
   margin: var(--space-1) 0;
-}
-.pin-mark {
-  color: var(--accent);
-  font-size: 0.6em;
-  flex: none;
-}
-.conversation-folder {
-  margin-bottom: var(--space-2);
-}
-.folder-head {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-}
-.folder-toggle {
-  flex: 1;
-  text-align: left;
-  background: none;
-  border: 0;
-  color: var(--muted);
-  font: inherit;
-  font-size: var(--text-xs);
-  text-transform: uppercase;
-  letter-spacing: var(--track-label);
-  font-weight: 700;
-  padding: var(--space-2) 0;
-  cursor: pointer;
-  min-width: 0;
-}
-.folder-empty {
-  font-size: var(--text-xs);
-  padding-left: var(--space-4);
-}
-.new-folder {
-  margin-top: var(--space-3);
-  font-size: var(--text-sm);
 }
 
 /* ── answer actions ───────────────────────────────────────────────────── */
