@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { PageHeader } from '../../shell/ui/layout.js';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { useDialog } from '../../shell/ui/Dialog.js';
@@ -88,16 +89,17 @@ export function InvoiceDetail() {
 
   return (
     <>
-      <p>
-        <Link to="/billing">← Invoices</Link>
-        {client && (
+      <PageHeader
+        title={title}
+        back={{ to: "/billing", label: 'Invoices' }}
+        meta={
           <>
-            {' · '}
+          {client && (
             <Link to={`/crm/clients/${client.id}`}>{client.name}</Link>
+          )}
           </>
-        )}
-      </p>
-      <h1>{title}</h1>
+        }
+      />
 
       <div className="row">
         <Status value={invoice.status} />

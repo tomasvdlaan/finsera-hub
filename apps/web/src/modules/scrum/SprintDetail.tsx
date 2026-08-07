@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { PageHeader } from '../../shell/ui/layout.js';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import type { EntityRef } from '@platform/contracts';
@@ -122,10 +123,10 @@ export function SprintDetail() {
 
   return (
     <>
-      <p>
-        <Link to={`/scrum/sprints?projectId=${sprint.projectId}`}>← Sprints</Link>
-      </p>
-      <h1>{sprint.name}</h1>
+      <PageHeader
+        title={sprint.name}
+        back={{ to: `/scrum/sprints?projectId=${sprint.projectId}`, label: 'Sprints' }}
+      />
       <p className="muted">
         {sprint.startsOn} → {sprint.endsOn} · {sprint.state}
         {sprint.startedAt && ` · started ${sprint.startedAt.slice(0, 10)}`}

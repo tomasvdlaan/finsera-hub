@@ -20,6 +20,7 @@ import { Sidebar, type SidebarCounts } from './Sidebar.js';
 import { LiveMeetingProvider } from './LiveMeeting.js';
 import { RunningTimerProvider } from './useRunningTimer.js';
 import { LivePill } from './LivePill.js';
+import { Page, PageHeader } from './ui/layout.js';
 import { MeetingChatProvider } from './MeetingChat.js';
 import { Modules } from './Modules.js';
 import { Settings } from './Settings.js';
@@ -74,11 +75,10 @@ function NotFound({ home }: { home: string }) {
   useDocumentTitle('Not found');
   return (
     <div>
-      <h1>Not found</h1>
-      <p className="muted">
-        There is no page at this address. It may have been renamed, or the link that brought
-        you here may be stale.
-      </p>
+      <PageHeader
+        title="Not found"
+        subtitle="There is no page at this address. It may have been renamed, or the link that brought you here may be stale."
+      />
       <p>
         <Link to={home}>Go back to the start</Link>
       </p>
@@ -214,16 +214,27 @@ function Shell() {
           }
         >
           <Route path="/" element={<Navigate to={home} replace />} />
-          {chromed.map(({ path, Component }) => (
-            <Route key={path} path={path} element={<Component />} />
+          {chromed.map(({ path, Component, width }) => (
+            <Route
+              key={path}
+              path={path}
+              // Wrapped here rather than inside each page: the grid is a property of being a
+              // page, and thirty components each remembering to opt in is thirty chances to
+              // forget. A page that says nothing gets the sensible middle width.
+              element={
+                <Page width={width}>
+                  <Component />
+                </Page>
+              }
+            />
           ))}
-          <Route path="/assistant" element={<AssistantPage />} />
+          <Route path="/assistant" element={<Page><AssistantPage /></Page>} />
           {/* Before the :id route, or "starred" is read as a conversation id. */}
-          <Route path="/assistant/starred" element={<StarredAnswers />} />
-          <Route path="/assistant/:id" element={<AssistantPage />} />
-          <Route path="/platform/modules" element={<Modules />} />
-          <Route path="/platform/settings" element={<Settings />} />
-          <Route path="*" element={<NotFound home={home} />} />
+          <Route path="/assistant/starred" element={<Page><StarredAnswers /></Page>} />
+          <Route path="/assistant/:id" element={<Page><AssistantPage /></Page>} />
+          <Route path="/platform/modules" element={<Page><Modules /></Page>} />
+          <Route path="/platform/settings" element={<Page width="read"><Settings /></Page>} />
+          <Route path="*" element={<Page><NotFound home={home} /></Page>} />
         </Route>
 
         {bare.map(({ path, Component }) => (

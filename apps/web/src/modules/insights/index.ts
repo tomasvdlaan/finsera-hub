@@ -3,5 +3,5 @@ import { Insights } from './Insights.js';
 
 export const insightsWebModule: WebModule = {
   name: 'insights',
-  routes: [{ path: '/insights', Component: Insights }],
+  routes: [{ path: '/insights', Component: Insights, width: 'wide' }],
 };

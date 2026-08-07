@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { PageHeader } from '../../shell/ui/layout.js';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 
@@ -104,12 +105,10 @@ export function Insights() {
 
   return (
     <>
-      <h1>Insights</h1>
-      <p className="muted">
-        Things worth a look. Nothing here has been acted on — no message was sent and no
-        record changed. An insight whose cause goes away disappears on its own; dismissing
-        one keeps it hidden for as long as it stays true.
-      </p>
+      <PageHeader
+        title="Insights"
+        subtitle="Things worth a look. Nothing here has been acted on — no message was sent and no record changed. An insight whose cause goes away disappears on its own; dismissing one keeps it hidden for as long as it stays true."
+      />
 
       <div className="row">
         {(['open', 'dismissed', 'resolved'] as const).map((s) => (

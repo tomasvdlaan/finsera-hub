@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { PageHeader } from '../../shell/ui/layout.js';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import {
@@ -60,13 +61,11 @@ export function Timesheet() {
 
   return (
     <>
-      <p>
-        <Link to="/time">← Back to day view</Link>
-      </p>
-      <h1>Week of {week.weekOf}</h1>
-      <p className="muted">
-        Read-only overview. Click any day to open it and edit the entries behind it.
-      </p>
+      <PageHeader
+        title={`Week of ${week.weekOf}`}
+        subtitle="Read-only overview. Click any day to open it and edit the entries behind it."
+        back={{ to: '/time', label: 'Back to day view' }}
+      />
 
       <div className="row">
         <button onClick={() => setWeekOf(shiftWeek(week.weekOf, -1))}>← Previous</button>

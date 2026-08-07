@@ -7,8 +7,8 @@ import { Room } from './Room.js';
 export const meetingsWebModule: WebModule = {
   name: 'meetings',
   routes: [
-    { path: '/meetings', Component: NoteList },
-    { path: '/meetings/:id', Component: NoteDetail },
+    { path: '/meetings', Component: NoteList, width: 'wide' },
+    { path: '/meetings/:id', Component: NoteDetail, width: 'read' },
     /*
      * The room takes the viewport.
      *

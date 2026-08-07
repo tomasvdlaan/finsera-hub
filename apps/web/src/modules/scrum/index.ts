@@ -10,10 +10,10 @@ import { TaskDetail } from './TaskDetail.js';
 export const scrumWebModule: WebModule = {
   name: 'scrum',
   routes: [
-    { path: '/scrum', Component: Board },
+    { path: '/scrum', Component: Board, width: 'wide' },
     // Not in the rail: you configure a board occasionally and from the board itself.
-    { path: '/scrum/settings', Component: BoardSettings },
-    { path: '/scrum/sprints', Component: SprintHistory },
+    { path: '/scrum/settings', Component: BoardSettings, width: 'read' },
+    { path: '/scrum/sprints', Component: SprintHistory, width: 'wide' },
     // The manifest has advertised this URL since the module was written.
     { path: '/scrum/sprints/:id', Component: SprintDetail },
     { path: '/scrum/flow', Component: Flow },

@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
+import { PageHeader } from '../../shell/ui/layout.js';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { CLIENT_STATUSES, humanise, type Client, type ClientStatus } from './types.js';
@@ -53,11 +54,10 @@ export function ClientList() {
 
   return (
     <>
-      <h1>Clients</h1>
-      <p className="muted">
-        Prospects and customers are the same record at different stages — the pipeline is this
-        list, grouped by status.
-      </p>
+      <PageHeader
+        title="Clients"
+        subtitle="Prospects and customers are the same record at different stages — the pipeline is this list, grouped by status."
+      />
 
       <form onSubmit={(e) => void create(e)} className="row">
         <input

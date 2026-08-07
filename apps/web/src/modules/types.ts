@@ -24,6 +24,14 @@ export interface RouteDeclaration {
   path: string;
   Component: ComponentType;
   /**
+   * How wide this page is allowed to be.
+   *
+   * Declared per route rather than per component so the shell can wrap every page in the
+   * grid without each of thirty pages remembering to. `'wide'` is for a table or a board,
+   * `'read'` for a form or a document; omitted is the sensible middle.
+   */
+  width?: 'default' | 'wide' | 'read';
+  /**
    * How much of the shell this page wants around it.
    *
    * Omitted means the usual thing: sidebar, status bar, assistant panel, and a padded

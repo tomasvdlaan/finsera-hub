@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { PageHeader } from '../../shell/ui/layout.js';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { useDocumentTitle } from '../../shell/useDocumentTitle.js';
@@ -100,7 +101,7 @@ export function Flow() {
       <p>
         <Link to="/scrum">← Board</Link>
       </p>
-      <h1>Flow</h1>
+      <PageHeader title="Flow" />
 
       <select
         value={projectId ?? ''}

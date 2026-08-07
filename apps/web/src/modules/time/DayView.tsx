@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { PageHeader } from '../../shell/ui/layout.js';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { TIME_CHANGED, notifyTimeChanged } from '../../shell/useDocumentTitle.js';
@@ -189,7 +190,7 @@ export function DayView() {
 
   return (
     <>
-      <h1>Time — {day.date}</h1>
+      <PageHeader title={`Time — ${day.date}`} />
 
       <div className="row">
         <button onClick={() => setDate(shiftDay(date, -1))}>← Previous day</button>

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { PageHeader } from '../../shell/ui/layout.js';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { Comments } from '../../shell/Comments.js';
@@ -126,16 +127,17 @@ export function NoteDetail() {
 
   return (
     <>
-      <p>
-        <Link to="/meetings">← Meetings</Link>
-        {client && (
+      <PageHeader
+        title={note.title}
+        back={{ to: "/meetings", label: 'Meetings' }}
+        meta={
           <>
-            {' · '}
+          {client && (
             <Link to={`/crm/clients/${client.id}`}>{client.name}</Link>
+          )}
           </>
-        )}
-      </p>
-      <h1>{note.title}</h1>
+        }
+      />
 
       <div className="row">
         <Status value={note.status} />
@@ -356,10 +358,7 @@ export function NoteDetail() {
               <li key={item.id} className="muted">
                 <Status value={item.status} /> {item.text}
                 {item.taskId && (
-                  <>
-                    {' · '}
-                    <Link to={`/scrum/tasks/${item.taskId}`}>open the task</Link>
-                  </>
+                  <Link to={`/scrum/tasks/${item.taskId}`}>open the task</Link>
                 )}
               </li>
             ))}

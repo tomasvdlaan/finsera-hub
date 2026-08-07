@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { PageHeader } from '../../shell/ui/layout.js';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import type { Client, Project } from '../crm/types.js';
@@ -55,11 +56,10 @@ export function InvoiceList() {
 
   return (
     <>
-      <h1>Invoices</h1>
-      <p className="muted">
-        Drafts are free to edit and void. Issuing allocates the legal number and freezes the
-        invoice — corrections after that are credit notes.
-      </p>
+      <PageHeader
+        title="Invoices"
+        subtitle="Drafts are free to edit and void. Issuing allocates the legal number and freezes the invoice — corrections after that are credit notes."
+      />
 
       {open.length > 0 && (
         <p>

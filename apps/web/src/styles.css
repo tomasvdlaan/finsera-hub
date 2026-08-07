@@ -653,22 +653,127 @@ main {
      a wide table pushed the whole page sideways and scrolled the sidebar off-screen.
      This lets .grid-scroll do its job instead. */
   min-width: 0;
-  /* Generous rather than absent: past this, layout stops being usable and starts being
-     a hike from one side of the screen to the other. */
-  max-width: 1600px;
+  /*
+   * The width cap moved onto `.page`.
+   *
+   * A single number here could only ever be right for one kind of page: 1600px is a hike
+   * across a form and a cage around a five-column board. `main` now measures itself so the
+   * blocks inside can ask how much room they have.
+   */
+  container-type: inline-size;
 }
+
+/*
+ * The page: twelve columns, and a width that depends on what it is.
+ *
+ * Before this every page was one column of full-width blocks, so a 1440px screen showed a
+ * stack of boxes each holding three hundred pixels of ink with a thousand to its right. A
+ * grid means a block can say it wants five columns and mean it.
+ */
+.page {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: var(--space-4);
+  align-content: start;
+  margin-inline: auto;
+  width: 100%;
+}
+.page[data-width='default'] { max-width: 90rem; }
+.page[data-width='wide'] { max-width: 120rem; }
+.page[data-width='read'] { max-width: 46rem; }
+
+/* Anything that has not said otherwise takes the whole row, which is what it did before. */
+.page > * { grid-column: span 12; }
+.page > [data-span='3'] { grid-column: span 3; }
+.page > [data-span='4'] { grid-column: span 4; }
+.page > [data-span='5'] { grid-column: span 5; }
+.page > [data-span='6'] { grid-column: span 6; }
+.page > [data-span='7'] { grid-column: span 7; }
+.page > [data-span='8'] { grid-column: span 8; }
+.page > [data-span='9'] { grid-column: span 9; }
+
+/*
+ * Below this the columns are narrower than the words in them, so they stop being columns.
+ * A container query rather than a media query: the assistant rail and the board preview both
+ * narrow `main` without touching the window.
+ */
+@container (max-width: 60rem) {
+  .page > * { grid-column: span 12 !important; }
+}
+
+/* `section` brings its own top margin, which the grid gap already provides. */
+.page > section { margin-top: 0; }
 
 /*
  * Prose is capped, layout is not.
  *
- * A single width for the whole page cannot serve both: 72ch keeps a paragraph readable,
- * and a five-column board squeezed into 72ch is unusable. So the constraint lives on the
- * text rather than on the page.
+ * 72ch keeps a paragraph readable; a five-column board squeezed into 72ch is unusable. So the
+ * constraint lives on the text rather than on the page.
  */
-main > p,
-main > section > p,
-main > h1 + p {
+main p,
+.page > section > p {
   max-width: 72ch;
+}
+
+/* ── The top of a page ──────────────────────────────────────────────────────
+ *
+ * One component, because thirty pages each hand-rolled this and disagreed: list pages opened
+ * on a title then a muted paragraph, detail pages opened on a row of back-links and put the
+ * title second, and actions appeared either beside the title or below the fold depending on
+ * who wrote the page.
+ */
+.page-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+.page-back {
+  font-size: var(--text-sm);
+  color: var(--muted);
+  text-decoration: none;
+  width: fit-content;
+}
+.page-back:hover {
+  color: var(--accent);
+}
+.page-header-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+.page-header-title h1 {
+  margin: 0;
+}
+.page-subtitle {
+  margin: var(--space-1) 0 0;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  max-width: 72ch;
+}
+/* Verbs, right-aligned, primary last — where the eye finishes reading the row. */
+.page-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+/* Facts about the record, not things you can do to it. */
+.page-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+.page-tabs {
+  display: flex;
+  gap: var(--space-1);
+  border-bottom: 1px solid var(--border);
+  margin-top: var(--space-2);
 }
 /*
  * A panel, not a band.

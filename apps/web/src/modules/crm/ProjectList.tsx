@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { PageHeader } from '../../shell/ui/layout.js';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import {
@@ -94,10 +95,10 @@ export function ProjectList() {
 
   return (
     <>
-      <h1>Projects</h1>
-      <p className="muted">
-        Billing model is per project — time &amp; materials, fixed fee, or retainer.
-      </p>
+      <PageHeader
+        title="Projects"
+        subtitle="Billing model is per project — time &amp; materials, fixed fee, or retainer."
+      />
 
       <form onSubmit={(e) => void create(e)}>
         <div className="row">

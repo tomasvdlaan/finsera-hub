@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { PageHeader } from '../../shell/ui/layout.js';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { cents, euros } from '../../lib/money.js';
@@ -140,22 +141,20 @@ export function QuoteDetail() {
 
   return (
     <>
-      <p>
-        <Link to="/sales">← Quotes</Link>
-        {client && (
+      <PageHeader
+        title={quote.number ?? 'Draft quote'}
+        back={{ to: "/sales", label: 'Quotes' }}
+        meta={
           <>
-            {' · '}
+          {client && (
             <Link to={`/crm/clients/${client.id}`}>{client.name}</Link>
-          </>
-        )}
-        {quote.supersedesQuoteId && (
-          <>
-            {' · '}
+          )}
+          {quote.supersedesQuoteId && (
             <Link to={`/sales/quotes/${quote.supersedesQuoteId}`}>supersedes v{quote.version - 1}</Link>
+          )}
           </>
-        )}
-      </p>
-      <h1>{quote.number ?? 'Draft quote'}</h1>
+        }
+      />
 
       <div className="row">
         <Status value={quote.status} />

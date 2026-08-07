@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
+import { PageHeader } from '../../shell/ui/layout.js';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { Comments } from '../../shell/Comments.js';
@@ -115,10 +116,10 @@ export function ClientDetail() {
 
   return (
     <>
-      <p>
-        <Link to="/crm/clients">← Clients</Link>
-      </p>
-      <h1>{client.name}</h1>
+      <PageHeader
+        title={client.name}
+        back={{ to: "/crm/clients", label: 'Clients' }}
+      />
 
       <p className="muted">
         {/* Read-only, audited, and served by the same projection the portal uses — so what

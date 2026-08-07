@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { PageHeader } from '../../shell/ui/layout.js';
+import { useSearchParams } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { Button, Panel } from '../../shell/ui/primitives.js';
 import { useToast } from '../../shell/ui/Toast.js';
@@ -208,10 +209,10 @@ export function BoardSettings() {
 
   return (
     <>
-      <p>
-        <Link to={`/scrum?projectId=${projectId}`}>← Board</Link>
-      </p>
-      <h1>Board settings</h1>
+      <PageHeader
+        title="Board settings"
+        back={{ to: `/scrum?projectId=${projectId}`, label: 'Board' }}
+      />
 
       <div className="row">
         <select value={projectId} onChange={(e) => setProjectId(e.target.value)} aria-label="Project">

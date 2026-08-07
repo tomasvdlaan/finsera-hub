@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { PageHeader } from '../../shell/ui/layout.js';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import type { Client } from '../crm/types.js';
@@ -79,11 +80,10 @@ export function ContractList() {
 
   return (
     <>
-      <h1>Contracts</h1>
-      <p className="muted">
-        What has been agreed, and when it lapses. Notice deadlines are worked out from
-        today — nothing changes state on its own, so a date passing is shown, not acted on.
-      </p>
+      <PageHeader
+        title="Contracts"
+        subtitle="What has been agreed, and when it lapses. Notice deadlines are worked out from today — nothing changes state on its own, so a date passing is shown, not acted on."
+      />
 
       {needsAttention.length > 0 && (
         <p className="error">

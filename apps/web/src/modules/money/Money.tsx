@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { PageHeader } from '../../shell/ui/layout.js';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { useDocumentTitle } from '../../shell/useDocumentTitle.js';
@@ -40,11 +41,10 @@ export function Money() {
 
   return (
     <>
-      <h1>Money</h1>
-      <p className="muted">
-        Invoicing, quotes, contracts and the numbers. Nothing here needs attention daily — when
-        something does, it appears on Today.
-      </p>
+      <PageHeader
+        title="Money"
+        subtitle="Invoicing, quotes, contracts and the numbers. Nothing here needs attention daily — when something does, it appears on Today."
+      />
 
       {error && <p className="error">{error}</p>}
 

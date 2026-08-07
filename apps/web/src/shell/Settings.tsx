@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
+import { PageHeader } from './ui/layout.js';
 import { api } from '../lib/api.js';
 import { Button, Field } from './ui/primitives.js';
 
@@ -62,11 +63,10 @@ export function Settings() {
 
   return (
     <>
-      <h1>Organisation</h1>
-      <p className="muted">
-        These details print on every invoice and quote. They are legally required on invoices —
-        an invoice without the sender&rsquo;s KvK and BTW numbers is not a valid invoice.
-      </p>
+      <PageHeader
+        title="Organisation"
+        subtitle="These details print on every invoice and quote. They are legally required on invoices — an invoice without the sender&rsquo;s KvK and BTW numbers is not a valid invoice."
+      />
 
       {!ready && (
         <p className="error">

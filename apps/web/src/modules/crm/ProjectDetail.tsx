@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { PageHeader } from '../../shell/ui/layout.js';
 import { Link, useParams } from 'react-router-dom';
 import type { EntityRef } from '@platform/contracts';
 import { api } from '../../lib/api.js';
@@ -70,16 +71,17 @@ export function ProjectDetail() {
 
   return (
     <>
-      <p>
-        <Link to="/crm/projects">← Projects</Link>
-        {client && (
+      <PageHeader
+        title={project.name}
+        back={{ to: "/crm/projects", label: 'Projects' }}
+        meta={
           <>
-            {' · '}
+          {client && (
             <Link to={`/crm/clients/${client.id}`}>{client.name}</Link>
+          )}
           </>
-        )}
-      </p>
-      <h1>{project.name}</h1>
+        }
+      />
 
       <div className="row">
         <select value={project.status} onChange={(e) => void setStatus(e.target.value)}>

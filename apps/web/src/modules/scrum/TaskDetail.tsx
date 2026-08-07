@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { PageHeader } from '../../shell/ui/layout.js';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import type { EntityRef } from '@platform/contracts';
 import { api } from '../../lib/api.js';
@@ -143,16 +144,17 @@ export function TaskDetail() {
 
   return (
     <>
-      <p>
-        <Link to={`/scrum?projectId=${task.projectId}`}>← Board</Link>
-        {project && (
+      <PageHeader
+        title={task.title}
+        back={{ to: `/scrum?projectId=${task.projectId}`, label: 'Board' }}
+        meta={
           <>
-            {' · '}
+          {project && (
             <Link to={`/crm/projects/${project.id}`}>{project.name}</Link>
+          )}
           </>
-        )}
-      </p>
-      <h1>{task.title}</h1>
+        }
+      />
 
       <div className="row">
         {board && (

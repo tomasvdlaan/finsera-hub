@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { PageHeader } from './ui/layout.js';
 import { api } from '../lib/api.js';
 
 interface Subscriber {
@@ -58,12 +59,10 @@ export function Modules() {
 
   return (
     <>
-      <h1>Platform modules</h1>
-      <p className="muted">
-        Generated from each module&rsquo;s manifest — the same declarations the core reads at
-        startup to assemble navigation, permissions, events and the assistant&rsquo;s tools. It
-        cannot drift from the running system.
-      </p>
+      <PageHeader
+        title="Platform modules"
+        subtitle="Generated from each module&rsquo;s manifest — the same declarations the core reads at startup to assemble navigation, permissions, events and the assistant&rsquo;s tools. It cannot drift from the running system."
+      />
 
       <div className="stat-row">
         <Stat label="Modules" value={modules.length} />

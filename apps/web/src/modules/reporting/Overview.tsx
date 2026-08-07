@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { PageHeader } from '../../shell/ui/layout.js';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { InsightRow, type Insight } from '../insights/Insights.js';
@@ -106,11 +107,10 @@ export function Overview() {
 
   return (
     <>
-      <h1>Overview</h1>
-      <p className="muted">
-        Every number here is read from what the modules publish — nothing is recalculated,
-        so this cannot disagree with the invoice or timesheet behind it.
-      </p>
+      <PageHeader
+        title="Overview"
+        subtitle="Every number here is read from what the modules publish — nothing is recalculated, so this cannot disagree with the invoice or timesheet behind it."
+      />
 
       {insights && insights.total > 0 && (
         <section>

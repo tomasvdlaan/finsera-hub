@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { PageHeader } from '../../shell/ui/layout.js';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
   DndContext,
@@ -619,8 +620,7 @@ export function Board() {
   if (projects.length === 0) {
     return (
       <>
-        <h1>Board</h1>
-        <p className="muted">Create a project first — a board belongs to one.</p>
+        <PageHeader title="Board" subtitle="Create a project first — a board belongs to one." />
       </>
     );
   }

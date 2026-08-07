@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { PageHeader } from '../../shell/ui/layout.js';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { useDocumentTitle } from '../../shell/useDocumentTitle.js';
@@ -86,11 +87,10 @@ export function Work() {
 
   return (
     <>
-      <h1>Work</h1>
-      <p className="muted">
-        Every open card across all projects. Drag within a project on its own board — this is
-        for seeing the whole plate at once.
-      </p>
+      <PageHeader
+        title="Work"
+        subtitle="Every open card across all projects. Drag within a project on its own board — this is for seeing the whole plate at once."
+      />
 
       <div className="row">
         <select value={projectFilter} onChange={(e) => setProjectFilter(e.target.value)}>

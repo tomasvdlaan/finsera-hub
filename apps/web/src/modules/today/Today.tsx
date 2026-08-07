@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { PageHeader } from '../../shell/ui/layout.js';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { useDocumentTitle } from '../../shell/useDocumentTitle.js';
@@ -172,7 +173,7 @@ export function Today() {
 
   return (
     <>
-      <h1>Today</h1>
+      <PageHeader title="Today" />
 
       {errors.length > 0 && (
         <p className="muted">Some of this could not be loaded: {errors.join(' · ')}</p>

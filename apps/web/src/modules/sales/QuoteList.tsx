@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { PageHeader } from '../../shell/ui/layout.js';
 import { Link } from 'react-router-dom';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../lib/api.js';
@@ -68,11 +69,10 @@ export function QuoteList() {
 
   return (
     <>
-      <h1>Quotes</h1>
-      <p className="muted">
-        Drafts are free to change. Sending numbers the quote and freezes it, so the version a
-        client agreed to stays exactly as they read it — changes after that are a revision.
-      </p>
+      <PageHeader
+        title="Quotes"
+        subtitle="Drafts are free to change. Sending numbers the quote and freezes it, so the version a client agreed to stays exactly as they read it — changes after that are a revision."
+      />
 
       {open.length > 0 && (
         <p>

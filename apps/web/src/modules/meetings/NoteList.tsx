@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { PageHeader } from '../../shell/ui/layout.js';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { useDocumentTitle } from '../../shell/useDocumentTitle.js';
@@ -228,7 +229,7 @@ export function NoteList() {
 
   return (
     <>
-      <h1>Meetings</h1>
+      <PageHeader title="Meetings" />
       {error && <p className="error">{error}</p>}
 
       {/* Something is being recorded. Nothing else on this page matters as much. */}

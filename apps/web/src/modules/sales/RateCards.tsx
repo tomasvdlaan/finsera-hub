@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { PageHeader } from '../../shell/ui/layout.js';
 import { api } from '../../lib/api.js';
 import { useDialog } from '../../shell/ui/Dialog.js';
 import { useToast } from '../../shell/ui/Toast.js';
@@ -142,12 +143,10 @@ export function RateCards() {
 
   return (
     <>
-      <h1>Rate cards</h1>
-      <p className="muted">
-        What an hour costs, and since when. An indexation adds a rate rather than replacing
-        one, so last year&rsquo;s price still has an answer. Applying a rate writes it onto a
-        project — that is the only thing here that changes what gets invoiced.
-      </p>
+      <PageHeader
+        title="Rate cards"
+        subtitle="What an hour costs, and since when. An indexation adds a rate rather than replacing one, so last year&rsquo;s price still has an answer. Applying a rate writes it onto a project — that is the only thing here that changes what gets invoiced."
+      />
 
       <form onSubmit={(e) => void createCard(e)}>
         <div className="row">

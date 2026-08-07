@@ -6,7 +6,7 @@ import { InvoiceList } from './InvoiceList.js';
 export const billingWebModule: WebModule = {
   name: 'billing',
   routes: [
-    { path: '/billing', Component: InvoiceList },
+    { path: '/billing', Component: InvoiceList, width: 'wide' },
     { path: '/billing/invoices/:id', Component: InvoiceDetail },
   ],
   chatWidgets: { invoice: InvoiceChatCard },

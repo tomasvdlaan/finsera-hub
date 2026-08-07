@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { PageHeader } from '../../shell/ui/layout.js';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { Badge, Button, Empty } from '../../shell/ui/primitives.js';
@@ -405,7 +406,7 @@ export function Tracker() {
 
   return (
     <>
-      <h1>Time</h1>
+      <PageHeader title="Time" />
 
       <div className="tracker-top">
         {/*

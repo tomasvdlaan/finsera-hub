@@ -8,9 +8,9 @@ import { ProjectList } from './ProjectList.js';
 export const crmWebModule: WebModule = {
   name: 'crm',
   routes: [
-    { path: '/crm/clients', Component: ClientList },
+    { path: '/crm/clients', Component: ClientList, width: 'wide' },
     { path: '/crm/clients/:id', Component: ClientDetail },
-    { path: '/crm/projects', Component: ProjectList },
+    { path: '/crm/projects', Component: ProjectList, width: 'wide' },
     { path: '/crm/projects/:id', Component: ProjectDetail },
   ],
   chatWidgets: {

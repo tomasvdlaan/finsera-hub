@@ -7,5 +7,5 @@ import { Work } from './Work.js';
  */
 export const workWebModule: WebModule = {
   name: 'work',
-  routes: [{ path: '/work', Component: Work }],
+  routes: [{ path: '/work', Component: Work, width: 'wide' }],
 };
