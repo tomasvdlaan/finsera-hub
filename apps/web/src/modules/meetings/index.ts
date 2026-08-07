@@ -1,4 +1,5 @@
 import type { WebModule } from '../types.js';
+import { meetingsWidgets } from './widgets.js';
 import { NoteChatCard } from './NoteChatCard.js';
 import { NoteDetail } from './NoteDetail.js';
 import { NoteList } from './NoteList.js';
@@ -20,4 +21,5 @@ export const meetingsWebModule: WebModule = {
     { path: '/meetings/:id/room', Component: Room, chrome: 'bare' },
   ],
   chatWidgets: { meeting_note: NoteChatCard },
+  widgets: meetingsWidgets
 };

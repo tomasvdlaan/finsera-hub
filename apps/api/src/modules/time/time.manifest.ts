@@ -30,7 +30,11 @@ export const timeManifest = defineManifest({
 
   navigation: [{ label: 'Timesheet', path: '/time', icon: 'clock', section: 'time', order: 1 }],
 
-  widgets: [{ slot: 'entity-page', component: 'time:project-burn' }],
+  widgets: [
+    { slot: 'entity-page', component: 'time:project-burn' },
+    { slot: 'dashboard', component: 'time:logged-today' },
+    { slot: 'dashboard', component: 'time:fortnight' },
+  ],
 
   reportingViews: [
     {

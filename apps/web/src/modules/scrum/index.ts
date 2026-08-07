@@ -1,4 +1,5 @@
 import type { WebModule } from '../types.js';
+import { scrumWidgets } from './widgets.js';
 import { Board } from './Board.js';
 import { BoardSettings } from './BoardSettings.js';
 import { Flow } from './Flow.js';
@@ -20,4 +21,5 @@ export const scrumWebModule: WebModule = {
     { path: '/tasks/:id', Component: TaskDetail },
   ],
   chatWidgets: { task: TaskChatCard },
+  widgets: scrumWidgets
 };

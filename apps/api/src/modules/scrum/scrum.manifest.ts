@@ -48,7 +48,15 @@ export const scrumManifest = defineManifest({
 
   navigation: [{ label: 'Board', path: '/board', icon: 'columns', section: 'work', order: 2 }],
 
-  widgets: [{ slot: 'entity-page', component: 'scrum:open-tasks' }],
+  widgets: [
+    { slot: 'entity-page', component: 'scrum:open-tasks' },
+    { slot: 'dashboard', component: 'scrum:in-progress' },
+    { slot: 'dashboard', component: 'scrum:waiting-on-client' },
+    { slot: 'dashboard', component: 'scrum:overdue' },
+    { slot: 'dashboard', component: 'scrum:doing' },
+    { slot: 'dashboard', component: 'scrum:waiting-list' },
+    { slot: 'dashboard', component: 'scrum:board-mix' },
+  ],
 
   chatWidgets: [{ entityType: 'task', component: 'scrum:task-card' }],
 

@@ -1,4 +1,5 @@
 import type { WebModule } from '../types.js';
+import { docsWidgets } from './widgets.js';
 import { DocumentChatCard } from './DocumentChatCard.js';
 import { DocumentDetail } from './DocumentDetail.js';
 import { DocumentList } from './DocumentList.js';
@@ -10,4 +11,5 @@ export const docsWebModule: WebModule = {
     { path: '/docs/documents/:id', Component: DocumentDetail, width: 'read' },
   ],
   chatWidgets: { document: DocumentChatCard },
+  widgets: docsWidgets
 };

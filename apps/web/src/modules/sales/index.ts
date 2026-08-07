@@ -1,4 +1,5 @@
 import type { WebModule } from '../types.js';
+import { salesWidgets } from './widgets.js';
 import { ContractChatCard } from './ContractChatCard.js';
 import { ContractDetail } from './ContractDetail.js';
 import { ContractList } from './ContractList.js';
@@ -18,4 +19,5 @@ export const salesWebModule: WebModule = {
     { path: '/money/rate-cards', Component: RateCards, width: 'read' },
   ],
   chatWidgets: { quote: QuoteChatCard, contract: ContractChatCard },
+  widgets: salesWidgets
 };

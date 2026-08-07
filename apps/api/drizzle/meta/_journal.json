@@ -281,6 +281,13 @@
       "when": 1786016382332,
       "tag": "0039_rename_urls",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1786016382333,
+      "tag": "0040_dashboards",
+      "breakpoints": true
     }
   ]
 }

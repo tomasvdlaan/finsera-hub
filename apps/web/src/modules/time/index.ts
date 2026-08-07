@@ -1,5 +1,6 @@
 import { Tracker } from './Tracker.js';
 import type { WebModule } from '../types.js';
+import { timeWidgets } from './widgets.js';
 import { Timesheet } from './Timesheet.js';
 
 export const timeWebModule: WebModule = {
@@ -8,4 +9,5 @@ export const timeWebModule: WebModule = {
     { path: '/time', Component: Tracker, width: 'wide' },
     { path: '/time/week', Component: Timesheet, width: 'wide' },
   ],
+  widgets: timeWidgets
 };

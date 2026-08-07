@@ -6,6 +6,7 @@ import { AssistantController } from './assistant.controller.js';
 import { coreManifest } from './shell.manifest.js';
 import { SearchService } from './search.service.js';
 import { ShellController } from './shell.controller.js';
+import { DashboardService } from '../core/registry/dashboard.service.js';
 import { TimelineService, type RecentQuery } from './timeline.service.js';
 
 /**
@@ -17,7 +18,7 @@ import { TimelineService, type RecentQuery } from './timeline.service.js';
  */
 @Module({
   controllers: [ShellController, AssistantController],
-  providers: [TimelineService, SearchService],
+  providers: [TimelineService, SearchService, DashboardService],
   exports: [TimelineService],
 })
 export class ShellModule implements OnModuleInit, OnApplicationBootstrap {

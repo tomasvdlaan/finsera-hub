@@ -5315,3 +5315,112 @@ main table:not(.grid) [data-align='action'] {
   grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
   gap: var(--space-3);
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * THE DASHBOARD
+ *
+ * A placement is a grid child that holds a widget's own Card, so the widget keeps its
+ * padding, tone and radius and the frame around it only exists while editing.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+.placed { display: flex; flex-direction: column; min-width: 0; position: relative; }
+.placed > .card { flex: 1; }
+/*
+ * Editing changes the cursor and lifts the tools, and does nothing else.
+ *
+ * The widget keeps rendering its real contents rather than becoming a grey box: a layout you
+ * arrange against placeholders is one you have to go and check afterwards.
+ */
+.placed[data-editing] { cursor: grab; }
+.placed[data-editing]:active { cursor: grabbing; }
+.placed[data-editing] > .card { outline: 1px dashed var(--border-strong); outline-offset: 3px; }
+.placed[data-dragging] { opacity: 0.45; z-index: 2; }
+
+.placed-tools {
+  position: absolute;
+  top: -12px;
+  right: 8px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-2);
+}
+.placed-name {
+  font-size: var(--text-2xs);
+  color: var(--muted);
+  padding: 0 var(--space-2);
+  max-width: 9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.placed-tools button {
+  border: 0;
+  background: none;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: var(--text-xs);
+  padding: 4px 7px;
+  border-radius: var(--radius-pill);
+  line-height: 1;
+}
+.placed-tools button:hover { background: var(--surface-sunken); color: var(--text); }
+.placed-tools button:last-child:hover { color: var(--danger); }
+
+/*
+ * The library and the settings sheet, which are the same shape.
+ *
+ * A panel anchored to the right rather than a centred modal: adding a widget is something you
+ * do while looking at the dashboard to see where it should go, and a modal covers exactly the
+ * thing you are deciding about.
+ */
+.drawer {
+  position: fixed;
+  top: var(--space-4);
+  right: var(--space-4);
+  bottom: var(--space-4);
+  width: min(24rem, calc(100vw - 2 * var(--space-4)));
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-5);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-3);
+  overflow-y: auto;
+}
+.drawer-head { display: flex; align-items: center; justify-content: space-between; }
+.drawer-head h2 { font-size: var(--text-md); margin: 0; }
+.drawer-head button {
+  border: 0;
+  background: none;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: var(--text-base);
+  padding: var(--space-2);
+}
+.drawer-body { display: grid; gap: var(--space-4); }
+
+.library { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
+.library button {
+  width: 100%;
+  text-align: left;
+  display: grid;
+  gap: 2px;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  cursor: pointer;
+}
+.library button:hover { border-color: var(--accent); }
+.library strong { font-size: var(--text-sm); }
+/* The description says what the widget tells you, not what it is made of — so it is the line
+   that decides whether somebody adds it, and it gets room to be a sentence. */
+.library span { font-size: var(--text-xs); line-height: var(--leading-norm); }

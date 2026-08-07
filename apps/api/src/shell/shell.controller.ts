@@ -18,6 +18,7 @@ import { CommentService } from '../core/comments/comment.service.js';
 import { CurrentActor } from '../core/auth/current-actor.decorator.js';
 import { Public } from '../core/auth/public.decorator.js';
 import { UserService } from '../core/auth/user.service.js';
+import { DashboardService } from '../core/registry/dashboard.service.js';
 import { INTERNAL_ROLE, PORTAL_ROLE, roleClaims, rolesFrom } from '../core/auth/roles.js';
 import { EventDispatcher } from '../core/events/event-dispatcher.service.js';
 import { LinkService } from '../core/links/link.service.js';
@@ -37,6 +38,7 @@ export class ShellController {
     private readonly timeline: TimelineService,
     private readonly dispatcher: EventDispatcher,
     private readonly settings: SettingsService,
+    private readonly dashboards: DashboardService,
   ) {}
 
   /** The organisation's own legal details — printed on every invoice and quote. */
@@ -161,6 +163,28 @@ export class ShellController {
    * rather than one per client. The shell still names no module: it reads `section` from
    * the manifest and knows nothing about what is in it.
    */
+  /**
+   * This person's dashboard, and how to change it.
+   *
+   * On the shell rather than in a module, for the same reason the navigation is: a dashboard is
+   * composed of blocks from many modules and belongs to none of them, and putting it inside one
+   * would make every other module's widgets that module's business.
+   */
+  @Get('dashboard')
+  dashboard(@CurrentActor() actor: Actor) {
+    return this.dashboards.get(actor);
+  }
+
+  @Put('dashboard')
+  saveDashboard(@CurrentActor() actor: Actor, @Body() body: { layout: unknown }) {
+    return this.dashboards.save(actor, body?.layout);
+  }
+
+  @Delete('dashboard')
+  resetDashboard(@CurrentActor() actor: Actor) {
+    return this.dashboards.reset(actor);
+  }
+
   @Get('navigation')
   navigation() {
     return this.manifests
