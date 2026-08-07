@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { PageHeader } from '../../shell/ui/layout.js';
+import { DataTable, MetricRow, StatTile } from '../../shell/ui/data.js';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { useDocumentTitle } from '../../shell/useDocumentTitle.js';
@@ -180,60 +181,46 @@ export function Today() {
       )}
 
       {/* Work, in the space the money tiles used to occupy. */}
-      <div className="stat-row">
-        <div className="stat">
-          <Link to="/work">
-            <div className="muted">In progress</div>
-            <div className={`stat-value${doing.length === 0 ? ' is-zero' : ''}`}>{doing.length}</div>
-          </Link>
-        </div>
-        <div className="stat">
-          <Link to="/work">
-            <div className="muted">Waiting on a client</div>
-            <div className={`stat-value${waiting.length === 0 ? ' is-zero' : ''}`}>{waiting.length}</div>
-          </Link>
-        </div>
-        <div className="stat">
-          <Link to="/work">
-            <div className="muted">Overdue</div>
-            <div className={`stat-value${overdue.length > 0 ? ' urgent' : ' is-zero'}`}>
-              {overdue.length}
-            </div>
-          </Link>
-        </div>
-        <div className="stat">
-          <Link to="/time">
-            <div className="muted">Logged today</div>
-            <div className={`stat-value${loggedToday === 0 ? ' is-zero' : ''}`}>{hours(loggedToday)}</div>
-          </Link>
-        </div>
-      </div>
+      <MetricRow>
+        <StatTile label="In progress" value={doing.length} wrap={(b) => <Link to="/work">{b}</Link>} />
+        <StatTile label="Waiting on a client" value={waiting.length} wrap={(b) => <Link to="/work">{b}</Link>} />
+        <StatTile label="Overdue" value={overdue.length} tone="urgent" wrap={(b) => <Link to="/work">{b}</Link>} />
+        <StatTile label="Logged today" value={hours(loggedToday)} wrap={(b) => <Link to="/time">{b}</Link>} />
+      </MetricRow>
 
       {(workItems.length > 0 || moneyItems.length > 0) && (
         <section>
           <h2>Needs you</h2>
           {workItems.length === 0 && <Empty>Nothing about the work itself.</Empty>}
           {workItems.length > 0 && (
-            <table>
-              <tbody>
-                {workItems.map((i) => {
-                  const path = subjectPath(i);
-                  return (
-                    <tr key={i.id}>
-                      <td style={{ width: '1%', whiteSpace: 'nowrap' }}>
-                        <span className={`tag${i.severity === 'urgent' ? ' overdue' : ''}`}>
-                          {i.severity}
-                        </span>
-                      </td>
-                      <td>
+            <DataTable
+              caption="Work needing a decision"
+              rows={workItems}
+              rowKey={(i) => i.id}
+              columns={[
+                {
+                  key: 'severity',
+                  align: 'action',
+                  render: (i) => (
+                    <span className={`tag${i.severity === 'urgent' ? ' overdue' : ''}`}>
+                      {i.severity}
+                    </span>
+                  ),
+                },
+                {
+                  key: 'what',
+                  render: (i) => {
+                    const path = subjectPath(i);
+                    return (
+                      <>
                         {path ? <Link to={path}>{i.title}</Link> : i.title}
                         {i.detail && <div className="muted">{i.detail}</div>}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                      </>
+                    );
+                  },
+                },
+              ]}
+            />
           )}
 
           {/* One line, not four tiles. Every figure behind it is computed by a rule that runs
@@ -284,20 +271,15 @@ export function Today() {
       {requests.length > 0 && (
         <section>
           <h2>Clients have asked for</h2>
-          <table>
-            <tbody>
-              {requests.slice(0, 5).map((r) => (
-                <tr key={r.id}>
-                  <td style={{ width: '1%', whiteSpace: 'nowrap' }} className="muted">
-                    {r.client_name}
-                  </td>
-                  <td>
-                    <Link to="/portal/requests">{r.subject}</Link>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <DataTable
+            caption="Requests from clients"
+            rows={requests.slice(0, 5)}
+            rowKey={(r) => r.id}
+            columns={[
+              { key: 'client', align: 'action', render: (r) => <span className="muted">{r.client_name}</span> },
+              { key: 'subject', render: (r) => <Link to="/portal/requests">{r.subject}</Link> },
+            ]}
+          />
         </section>
       )}
 
@@ -308,14 +290,16 @@ export function Today() {
             Nothing logged yet. <Link to="/time">Open the timesheet</Link>
           </p>
         ) : (
-          <table>
-            <tbody>
-              {day?.entries.map((e) => (
-                <tr key={e.id}>
-                  <td style={{ width: '1%', whiteSpace: 'nowrap' }}>
-                    {hours(e.effectiveMinutes)}
-                  </td>
-                  <td>
+          <DataTable
+            caption="Hours logged today"
+            rows={day?.entries ?? []}
+            rowKey={(e) => e.id}
+            columns={[
+              { key: 'hours', align: 'num', render: (e) => hours(e.effectiveMinutes) },
+              {
+                key: 'what',
+                render: (e) => (
+                  <>
                     {/* Linked to the card it was logged against where there is one, which is
                         the point of logging against a card. */}
                     {e.taskId ? (
@@ -328,14 +312,16 @@ export function Today() {
                         {e.description && <span className="muted"> — {e.description}</span>}
                       </>
                     )}
-                  </td>
-                  <td style={{ width: '1%' }}>
-                    {!e.billable && <span className="tag">non-billable</span>}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                  </>
+                ),
+              },
+              {
+                key: 'billable',
+                align: 'action',
+                render: (e) => (!e.billable ? <span className="tag">non-billable</span> : null),
+              },
+            ]}
+          />
         )}
       </section>
     </>

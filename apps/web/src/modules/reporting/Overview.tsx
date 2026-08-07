@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { StatTile } from '../../shell/ui/data.js';
 import { PageHeader } from '../../shell/ui/layout.js';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api.js';
@@ -46,7 +47,14 @@ interface Overview {
   }>;
 }
 
-/** A number with its meaning, which is the whole point of a dashboard. */
+/**
+ * This page's shorthand for the shared tile.
+ *
+ * There were two `Stat` components with incompatible props — one in `shell/ui`, and this one
+ * declared privately here with inline `fontSize` styles. One of them had to go, and the
+ * difference is only that this page passes a link as a string while the shared tile takes a
+ * rendered node, because a component in `shell/ui` must not know about the router.
+ */
 function Stat({
   label,
   value,
@@ -60,20 +68,15 @@ function Stat({
   urgent?: boolean;
   to?: string;
 }) {
-  const body = (
-    <>
-      <div className="muted" style={{ fontSize: '0.85rem' }}>
-        {label}
-      </div>
-      <div className={`stat-value${urgent ? ' urgent' : ''}`}>{value}</div>
-      {hint && (
-        <div className="muted" style={{ fontSize: '0.8rem' }}>
-          {hint}
-        </div>
-      )}
-    </>
+  return (
+    <StatTile
+      label={label}
+      value={value}
+      hint={hint}
+      tone={urgent ? 'urgent' : undefined}
+      wrap={to ? (b) => <Link to={to}>{b}</Link> : undefined}
+    />
   );
-  return <div className="stat">{to ? <Link to={to}>{body}</Link> : body}</div>;
 }
 
 interface InsightSummary {

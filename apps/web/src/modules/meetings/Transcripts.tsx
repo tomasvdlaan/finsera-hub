@@ -84,7 +84,7 @@ export function Transcripts({ noteId }: { noteId: string }) {
               <tbody>
                 {t.lines.map((l) => (
                   <tr key={l.id}>
-                    <td style={{ width: '1%', whiteSpace: 'nowrap', verticalAlign: 'top' }}>
+                    <td data-align="action" style={{ verticalAlign: 'top' }}>
                       <span className="muted">{clock(l.at)}</span>
                     </td>
                     <td>

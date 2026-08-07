@@ -321,7 +321,7 @@ export function NoteList() {
             <tbody>
               {openActions.map((a) => (
                 <tr key={a.id}>
-                  <td style={{ width: '1%', whiteSpace: 'nowrap' }} className="muted">
+                  <td data-align="action" className="muted">
                     {dayLabel(a.meetingDate)}
                   </td>
                   <td>
@@ -329,7 +329,7 @@ export function NoteList() {
                     <Link to={`/meetings/${a.noteId}`}>{a.text}</Link>
                     <div className="muted">{a.noteTitle}</div>
                   </td>
-                  <td style={{ width: '1%', whiteSpace: 'nowrap' }}>
+                  <td data-align="action">
                     {a.dueOn && (
                       <span className={a.dueOn < today ? 'tag overdue' : 'tag'}>{a.dueOn}</span>
                     )}
@@ -371,14 +371,14 @@ export function NoteList() {
             <tbody>
               {recent.map((n) => (
                 <tr key={n.id}>
-                  <td style={{ width: '1%', whiteSpace: 'nowrap' }} className="muted">
+                  <td data-align="action" className="muted">
                     {n.meetingDate}
                   </td>
                   <td>
                     <Link to={`/meetings/${n.id}`}>{n.title}</Link>
                     {n.clientId && <span className="muted"> · {clientName[n.clientId]}</span>}
                   </td>
-                  <td style={{ width: '1%', whiteSpace: 'nowrap' }}>
+                  <td data-align="action">
                     {n.transcribedAt && <span className="tag">recorded</span>}
                   </td>
                 </tr>

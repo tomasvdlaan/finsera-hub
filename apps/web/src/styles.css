@@ -914,6 +914,7 @@ button:disabled {
  * the figures underneath them can get louder without shouting.
  */
 .label,
+.stat-label,
 .stat .muted,
 .preview-fields dt,
 .ticker-head,
@@ -1455,11 +1456,18 @@ li.insight.sev-info {
 .stat a:hover .stat-value {
   text-decoration: underline;
 }
-.stat-label,
+/*
+ * The figure. The label is a different thing and used to share this rule.
+ *
+ * `.stat-label, .stat-value { font-size: var(--text-2xl); font-weight: 700 }` set the word
+ * and the number at the same 28px bold — so a tile was two headings stacked, and the reason
+ * nothing on it read as a measurement is that nothing on it was set like one. The label now
+ * belongs to the shared micro-label rule with everything else that names a number.
+ */
 .stat-value {
-  font-size: var(--text-2xl);
-  font-weight: 700;
-  line-height: 1.05;
+  font-size: var(--metric);
+  font-weight: var(--weight-strong);
+  line-height: 1.1;
   letter-spacing: var(--track-tight);
   font-variant-numeric: tabular-nums;
   margin-top: var(--space-1);
@@ -4752,4 +4760,163 @@ button.nav-me:hover { background: var(--surface); }
   .task-card.is-ghost {
     transform: none;
   }
+  /* A sweeping gradient frozen mid-sweep is a stripe. Flat, and still clearly a placeholder. */
+  .skeleton {
+    animation: none;
+    background: var(--surface-sunken);
+  }
+}
+
+/* ── Tables ─────────────────────────────────────────────────────────────────
+ *
+ * There was no `td` or `th` styling anywhere in this file, and fifteen components emitted a
+ * bare `<table>`. Every one of them rendered at browser defaults — cramped, centred headers,
+ * no rules, proportional digits in money columns — which is the strongest "unfinished" signal
+ * an interface can send, and three of the five blocks on the dashboard were doing it.
+ */
+.table-wrap {
+  /* The table scrolls, not the page: a wide table used to push the whole layout sideways. */
+  overflow-x: auto;
+  margin: var(--space-2) 0;
+}
+/*
+ * Every table that is not the editor grid.
+ *
+ * `.grid` is a different thing — a spreadsheet of inputs, with its own rules — and eight of
+ * the fifteen table files use it. The other seven emitted bare `<table>` and got browser
+ * defaults. Styling by element rather than only by class means those seven improve together:
+ * one finished table beside six unstyled ones looks worse than seven unstyled ones.
+ */
+.data-table,
+main table:not(.grid) {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+.data-table th,
+main table:not(.grid) th {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+  background: var(--surface);
+  text-align: left;
+  padding: var(--row-pad-y) var(--row-pad-x);
+  border-bottom: 1px solid var(--border-strong);
+  /* The same micro-label as everywhere else, so a column head and a stat label match. */
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-strong);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.data-table td,
+main table:not(.grid) td {
+  padding: var(--row-pad-y) var(--row-pad-x);
+  border-bottom: 1px solid var(--border);
+  vertical-align: baseline;
+}
+.data-table tbody tr:last-child td,
+main table:not(.grid) tbody tr:last-child td { border-bottom: 0; }
+/* A hover fill rather than zebra striping: stripes are a third differentiator on top of the
+   rule and the hover, and they make a table look like a 2009 report. */
+.data-table tbody tr:hover td,
+main table:not(.grid) tbody tr:hover td { background: var(--surface-sunken); }
+
+/*
+ * Figures right-align on tabular numerals.
+ *
+ * This is the difference between a column you scan and a column you read. Proportional digits
+ * in a money column are the most common reason a table looks amateur — the ones are narrow,
+ * so nothing lines up and the eye has to parse every row.
+ */
+.data-table [data-align='num'],
+main table:not(.grid) [data-align='num'] {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* Shrink to content. Replaces nine `style={{ width: '1%' }}` hacks that did the same thing
+   without saying so. */
+.data-table [data-align='action'],
+main table:not(.grid) [data-align='action'] {
+  width: 1%;
+  white-space: nowrap;
+  text-align: right;
+}
+.table-empty {
+  padding: var(--space-5);
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+@container (max-width: 48rem) {
+  .data-table [data-hide='sm'] { display: none; }
+}
+@container (max-width: 64rem) {
+  .data-table [data-hide='md'] { display: none; }
+}
+
+/* ── Stat tiles ─────────────────────────────────────────────────────────── */
+.stat-figure {
+  font-size: var(--metric);
+  font-weight: var(--weight-strong);
+  line-height: 1.1;
+  letter-spacing: var(--track-tight);
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+.stat-figure[data-emphasis='hero'] { font-size: var(--metric-hero); }
+.stat-figure[data-tone='urgent'] { color: var(--danger); }
+.stat-figure[data-tone='ok'] { color: var(--ok); }
+/* Good news should not shout. "Overdue: 0" in alarm weight makes a clean board look bad. */
+.stat[data-zero] .stat-figure { color: var(--muted); }
+.stat-unit {
+  margin-left: 0.15em;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--muted);
+  letter-spacing: 0;
+}
+.stat-hint {
+  margin-top: var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+
+/*
+ * A placeholder with the shape of what is coming.
+ *
+ * Not a spinner: a spinner says "wait" and tells you nothing about what for, and the page
+ * jumps when the content lands because nothing was holding its place.
+ */
+.skeleton {
+  display: block;
+  height: 1em;
+  min-width: 3rem;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(
+    90deg,
+    var(--surface-sunken) 25%,
+    var(--border) 50%,
+    var(--surface-sunken) 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-sweep 1.4s var(--ease-in-out) infinite;
+}
+@keyframes skeleton-sweep {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+
+/* Announced, not shown. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { StatTile } from './ui/data.js';
 import { PageHeader } from './ui/layout.js';
 import { api } from '../lib/api.js';
 
@@ -65,12 +66,12 @@ export function Modules() {
       />
 
       <div className="stat-row">
-        <Stat label="Modules" value={modules.length} />
-        <Stat label="Entity types" value={total((m) => m.entities)} />
-        <Stat label="Events" value={total((m) => m.publishes)} />
-        <Stat label="Capabilities" value={total((m) => m.permissions)} />
-        <Stat label="AI tools" value={total((m) => m.aiTools)} />
-        <Stat label="Reporting views" value={total((m) => m.reportingViews)} />
+        <StatTile label="Modules" value={modules.length} />
+        <StatTile label="Entity types" value={total((m) => m.entities)} />
+        <StatTile label="Events" value={total((m) => m.publishes)} />
+        <StatTile label="Capabilities" value={total((m) => m.permissions)} />
+        <StatTile label="AI tools" value={total((m) => m.aiTools)} />
+        <StatTile label="Reporting views" value={total((m) => m.reportingViews)} />
       </div>
 
       {modules.map((m) => {
@@ -188,15 +189,6 @@ export function Modules() {
         );
       })}
     </>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="stat">
-      <div className="stat-value">{value}</div>
-      <div className="muted">{label}</div>
-    </div>
   );
 }
 
