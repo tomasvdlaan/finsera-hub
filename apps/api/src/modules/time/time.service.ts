@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { Actor } from '@platform/contracts';
+import { v7 as uuidv7 } from 'uuid';
 import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lte, sql } from 'drizzle-orm';
 import { AuditService } from '../../core/audit/audit.service.js';
 import { DB, type Database, type Tx } from '../../core/db/db.module.js';
@@ -14,7 +15,8 @@ import { LinkService } from '../../core/links/link.service.js';
 import { PermissionService } from '../../core/permissions/permission.service.js';
 import { RegistryService } from '../../core/registry/registry.service.js';
 import { CrmService } from '../crm/crm.service.js';
-import { entries } from './time.schema.js';
+import { users } from '../../core/db/core.schema.js';
+import { entries, timesheets } from './time.schema.js';
 
 export type BillingStatus = 'not_billable' | 'unbilled' | 'on_draft' | 'invoiced';
 
@@ -131,7 +133,9 @@ export class TimeService {
         id,
         entityType: 'time_entry',
         displayName: this.displayName(target.name, minutes, input.description, running),
-        urlPath: `/time/entries/${id}`,
+        // An hour is read in its day, not on a page of its own. `/time/entries/:id` was an
+        // address nothing served, on nineteen live rows.
+        urlPath: `/time?date=${workedOn}`,
       });
 
       await tx.insert(entries).values({
@@ -561,7 +565,7 @@ export class TimeService {
    * Running timers are excluded because they have no duration yet.
    */
   async entriesForBilling(projectId: string) {
-    return this.db
+    const rows = await this.db
       .select({
         id: entries.id,
         personId: entries.personId,
@@ -578,6 +582,22 @@ export class TimeService {
         ),
       )
       .orderBy(asc(entries.workedOn));
+
+    /*
+     * And nothing from a week that is waiting on a decision, or has been sent back.
+     *
+     * Filtered here rather than in the query because the set is small and shared by everything
+     * that asks "may this hour be billed" — one place to be wrong instead of several. Billing
+     * never learns that approval exists; it asks Time for billable hours and Time answers,
+     * which is the same seam that already keeps invoiced hours out.
+     *
+     * A week with no timesheet row is not blocked. That is what makes this additive: hours
+     * logged before approval existed, and hours from anybody who never submits, bill exactly
+     * as they always did.
+     */
+    const blocked = await this.blockedWeeks();
+    if (blocked.size === 0) return rows;
+    return rows.filter((r) => !blocked.has(`${r.personId}:${weekStart(r.workedOn)}`));
   }
 
   // ── budget burn: the cross-module read ─────────────────────
@@ -873,6 +893,169 @@ export class TimeService {
 
   private parseInstantOrNull(value: string | null | undefined): Date | null {
     return value ? this.parseInstant(value) : null;
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════════
+   * TIMESHEET APPROVAL
+   * ══════════════════════════════════════════════════════════════════════════ */
+
+  /**
+   * Weeks whose hours may not be invoiced yet, as (person, Monday) pairs.
+   *
+   * The whole design rests on what is *absent* here: a week with no timesheet row is not in
+   * this set, so a person who never submits anything bills exactly as they did before approval
+   * existed. Submitting is a stronger claim about a week, not a new obstacle in front of it —
+   * which is what makes this safe to turn on with hours already in the system.
+   *
+   * A submitted week is held because somebody has said "look at this" and nobody has. A
+   * returned week is held because somebody looked and said no.
+   */
+  private async blockedWeeks(): Promise<Set<string>> {
+    const rows = await this.db
+      .select({ personId: timesheets.personId, weekOf: timesheets.weekOf })
+      .from(timesheets)
+      .where(inArray(timesheets.status, ['submitted', 'returned']));
+    return new Set(rows.map((r) => `${r.personId}:${r.weekOf}`));
+  }
+
+  /** This person's week, or null when nothing has happened to it yet. */
+  async timesheet(actor: Actor, opts: { weekOf?: string; personId?: string } = {}) {
+    const personId = opts.personId ?? actor.userId;
+    if (!personId) throw new BadRequestException('A timesheet belongs to a person');
+    if (personId !== actor.userId) await this.require(actor, 'time.entries.read_all');
+
+    const weekOf = weekStart(opts.weekOf ?? today());
+    const [row] = await this.db
+      .select()
+      .from(timesheets)
+      .where(and(eq(timesheets.personId, personId), eq(timesheets.weekOf, weekOf)));
+    return row ?? null;
+  }
+
+  /**
+   * Say a week is ready.
+   *
+   * Re-submitting a returned week is the ordinary path — you were sent back, you fixed it, you
+   * send it again — so this upserts rather than refusing. The note is cleared on the way,
+   * because a reason for a rejection that has been addressed is stale text that will otherwise
+   * sit under an approved week forever.
+   */
+  async submitWeek(actor: Actor, weekOf?: string) {
+    await this.require(actor, 'time.entries.write_own');
+    const personId = actor.userId;
+    if (!personId) throw new BadRequestException('A timesheet belongs to a person');
+    const monday = weekStart(weekOf ?? today());
+
+    const existing = await this.timesheet(actor, { weekOf: monday });
+    if (existing?.status === 'approved') {
+      throw new BadRequestException('That week has already been approved');
+    }
+
+    const [row] = await this.db
+      .insert(timesheets)
+      .values({ id: uuidv7(), personId, weekOf: monday, status: 'submitted' })
+      .onConflictDoUpdate({
+        target: [timesheets.personId, timesheets.weekOf],
+        set: { status: 'submitted', submittedAt: new Date(), decidedAt: null, decidedBy: null, note: null },
+      })
+      .returning();
+    return row;
+  }
+
+  /**
+   * Agree, or send it back with a reason.
+   *
+   * Self-approval is allowed, and that is a decision rather than an oversight: at two to four
+   * people a rule that somebody else must approve makes the feature unusable the moment one
+   * person is on holiday. The control is the capability, and `decidedBy` records who — so the
+   * question an approval exists to answer, "who agreed to this", stays answerable.
+   */
+  async decideWeek(
+    actor: Actor,
+    input: { personId: string; weekOf: string; approve: boolean; note?: string },
+  ) {
+    await this.require(actor, 'time.approve');
+    const monday = weekStart(input.weekOf);
+    const note = input.note?.trim();
+
+    if (!input.approve && !note) {
+      throw new BadRequestException('Say why you are sending it back — a week returned without a reason cannot be fixed');
+    }
+
+    const [row] = await this.db
+      .update(timesheets)
+      .set({
+        status: input.approve ? 'approved' : 'returned',
+        decidedAt: new Date(),
+        decidedBy: actor.userId,
+        note: input.approve ? null : note,
+      })
+      .where(
+        and(
+          eq(timesheets.personId, input.personId),
+          eq(timesheets.weekOf, monday),
+          // Only a submitted week can be decided. Deciding an already-decided one would let a
+          // second approver silently overwrite the first, and the audit trail would show only
+          // the last opinion.
+          eq(timesheets.status, 'submitted'),
+        ),
+      )
+      .returning();
+
+    if (!row) throw new NotFoundException('No week is waiting on a decision there');
+
+    await this.db.transaction((tx) =>
+      this.audit.record(tx, {
+        actorId: actor.userId ?? null,
+        action: input.approve ? 'time.week.approved' : 'time.week.returned',
+        entityType: 'timesheet',
+        entityId: row.id,
+        detail: { personId: input.personId, weekOf: monday, note: note ?? null },
+      }),
+    );
+    return row;
+  }
+
+  /** Every week waiting on somebody, with what is in it. Drives the approvals widget. */
+  async pendingWeeks(actor: Actor) {
+    await this.require(actor, 'time.approve');
+    const rows = await this.db
+      .select({
+        id: timesheets.id,
+        personId: timesheets.personId,
+        weekOf: timesheets.weekOf,
+        submittedAt: timesheets.submittedAt,
+      })
+      .from(timesheets)
+      .where(eq(timesheets.status, 'submitted'))
+      .orderBy(asc(timesheets.weekOf));
+
+    const people = await this.people(rows.map((r) => r.personId));
+    return Promise.all(
+      rows.map(async (r) => {
+        const week = await this.entriesBetween(r.personId, r.weekOf, addDays(r.weekOf, 6));
+        return {
+          ...r,
+          personName: people.get(r.personId) ?? 'Someone',
+          minutes: week.reduce((n, e) => n + (e.minutes ?? 0), 0),
+          entries: week.length,
+          // Surfaced because it is the one thing an approver would otherwise have to go and
+          // look for, and the most common reason to send a week back.
+          withoutTask: week.filter((e) => e.billable && !e.taskId).length,
+        };
+      }),
+    );
+  }
+
+  /** Display names for a set of people, so a widget can say "Ilse" rather than a uuid. */
+  private async people(ids: string[]): Promise<Map<string, string>> {
+    const unique = [...new Set(ids)];
+    if (unique.length === 0) return new Map();
+    const rows = await this.db
+      .select({ id: users.id, displayName: users.displayName })
+      .from(users)
+      .where(inArray(users.id, unique));
+    return new Map(rows.map((r) => [r.id, r.displayName]));
   }
 
   private async require(actor: Actor, capability: string): Promise<void> {

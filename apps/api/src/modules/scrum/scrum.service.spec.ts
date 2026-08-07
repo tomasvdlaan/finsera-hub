@@ -831,7 +831,7 @@ describe('ScrumService sprint registration', () => {
       entityType: 'sprint',
       displayName: 'Sprint 1',
       // The URL the manifest has advertised all along, now resolving to a real page.
-      urlPath: `/scrum/sprints/${sprint.id}`,
+      urlPath: `/board/sprints/${sprint.id}`,
     });
   });
 

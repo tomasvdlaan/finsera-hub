@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { PageHeader } from '../../shell/ui/layout.js';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import type { EntityRef } from '@platform/contracts';
 import { api } from '../../lib/api.js';
@@ -59,8 +60,8 @@ export function TaskDetail() {
     ])
       .then(([ps, ts]) =>
         setCandidates([
-          ...ps.map((p) => ref(p.id, 'project', p.name, `/crm/projects/${p.id}`)),
-          ...ts.map((t) => ref(t.id, 'task', t.title, `/scrum/tasks/${t.id}`)),
+          ...ps.map((p) => ref(p.id, 'project', p.name, `/projects/${p.id}`)),
+          ...ts.map((t) => ref(t.id, 'task', t.title, `/tasks/${t.id}`)),
         ]),
       )
       .catch(() => setCandidates([]));
@@ -132,7 +133,7 @@ export function TaskDetail() {
 
   const archive = async () => {
     await api.del(`/scrum/tasks/${id}`);
-    navigate(`/scrum?projectId=${task?.projectId ?? ''}`);
+    navigate(`/board?projectId=${task?.projectId ?? ''}`);
   };
 
   if (!task) return error ? <p className="error">{error}</p> : <p className="muted">Loading…</p>;
@@ -143,16 +144,17 @@ export function TaskDetail() {
 
   return (
     <>
-      <p>
-        <Link to={`/scrum?projectId=${task.projectId}`}>← Board</Link>
-        {project && (
+      <PageHeader
+        title={task.title}
+        back={{ to: `/board?projectId=${task.projectId}`, label: 'Board' }}
+        meta={
           <>
-            {' · '}
-            <Link to={`/crm/projects/${project.id}`}>{project.name}</Link>
+          {project && (
+            <Link to={`/projects/${project.id}`}>{project.name}</Link>
+          )}
           </>
-        )}
-      </p>
-      <h1>{task.title}</h1>
+        }
+      />
 
       <div className="row">
         {board && (
@@ -313,12 +315,12 @@ export function TaskDetail() {
       </section>
 
       {task.children.length > 0 && (
-        <section>
+        <section data-span={6}>
           <h2>Subtasks</h2>
           <ul className="cards">
             {task.children.map((child) => (
               <li key={child.id}>
-                <Link to={`/scrum/tasks/${child.id}`}>{child.title}</Link>{' '}
+                <Link to={`/tasks/${child.id}`}>{child.title}</Link>{' '}
                 <span className="muted">{child.status.replace(/_/g, ' ')}</span>
               </li>
             ))}
@@ -331,12 +333,12 @@ export function TaskDetail() {
         <Comments entityId={id} />
       </section>
 
-      <section>
+      <section data-span={6}>
         <h2>Links</h2>
         <Links entityId={id} candidates={candidates} onChange={() => setRefreshKey((k) => k + 1)} />
       </section>
 
-      <section>
+      <section data-span={6}>
         <h2>Timeline</h2>
         <Timeline entityId={id} refreshKey={refreshKey} />
       </section>

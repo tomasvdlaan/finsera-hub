@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { PageHeader } from '../../shell/ui/layout.js';
+import { SectionTabs } from '../../shell/useNav.js';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import type { Client } from '../crm/types.js';
@@ -67,7 +69,7 @@ export function ContractList() {
         type: newType,
         title: title.trim(),
       });
-      navigate(`/sales/contracts/${contract.id}`);
+      navigate(`/money/contracts/${contract.id}`);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -79,11 +81,11 @@ export function ContractList() {
 
   return (
     <>
-      <h1>Contracts</h1>
-      <p className="muted">
-        What has been agreed, and when it lapses. Notice deadlines are worked out from
-        today — nothing changes state on its own, so a date passing is shown, not acted on.
-      </p>
+      <PageHeader
+        title="Contracts"
+        subtitle="What has been agreed, and when it lapses. Notice deadlines are worked out from today — nothing changes state on its own, so a date passing is shown, not acted on."
+        tabs={<SectionTabs section="money" />}
+      />
 
       {needsAttention.length > 0 && (
         <p className="error">
@@ -150,7 +152,7 @@ export function ContractList() {
             const urgency = contractUrgency(contract);
             return (
               <li key={contract.id}>
-                <Link to={`/sales/contracts/${contract.id}`}>{contract.title}</Link>{' '}
+                <Link to={`/money/contracts/${contract.id}`}>{contract.title}</Link>{' '}
                 <span className="badge">{TYPE_LABELS[contract.type]}</span>
                 <Status value={contract.status} />
                 {urgency && (

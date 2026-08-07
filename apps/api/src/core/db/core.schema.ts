@@ -380,3 +380,28 @@ export const comments = core.table(
     check('comments_body_present', sql`length(${t.body}) > 0 OR ${t.deletedAt} IS NOT NULL`),
   ],
 );
+
+/**
+ * One person's dashboard.
+ *
+ * A single jsonb column rather than a row per placement, because the layout is only ever read
+ * and written whole — you fetch the dashboard, you drag something, you save the dashboard.
+ * Normalising it would buy the ability to query "who has the burn widget", which nobody has
+ * ever needed, at the cost of an ordering column and a delete-and-reinsert on every drag.
+ *
+ * Keyed on the user, one row each. There is deliberately no shared or team dashboard: the
+ * whole point is that a finance manager and a developer do not want the same front door, and
+ * a shared layout is the thing that forces them to.
+ *
+ * The shape inside is `Array<{ id, widget, span, settings? }>`, validated by the service on
+ * the way in. It is not validated by the database, and it should not be — the set of valid
+ * widget keys lives in the frontend registry, changes when a module ships, and would make this
+ * column's constraint a thing that needs a migration every time somebody adds a card.
+ */
+export const dashboards = core.table('dashboards', {
+  userId: uuid('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  layout: jsonb('layout').notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});

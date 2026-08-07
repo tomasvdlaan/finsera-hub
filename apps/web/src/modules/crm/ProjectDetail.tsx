@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react';
+import { PageHeader } from '../../shell/ui/layout.js';
+import { EntityWidgets } from '../../shell/ui/EntityWidgets.js';
 import { Link, useParams } from 'react-router-dom';
 import type { EntityRef } from '@platform/contracts';
 import { api } from '../../lib/api.js';
+import { cents, euros } from '../../lib/money.js';
 import { Comments } from '../../shell/Comments.js';
 import { Links } from '../../shell/Links.js';
 import { Timeline } from '../../shell/Timeline.js';
-import { DocumentsWidget } from '../docs/DocumentsWidget.js';
-import { OpenTasksWidget } from '../scrum/OpenTasksWidget.js';
-import { ProjectBurn } from '../time/ProjectBurn.js';
 import { EditableField } from './EditableField.js';
 import {
   PROJECT_STATUSES,
@@ -39,8 +39,8 @@ export function ProjectDetail() {
     Promise.all([api.get<Client[]>('/crm/clients'), api.get<Project[]>('/crm/projects')])
       .then(([cs, ps]) =>
         setCandidates([
-          ...cs.map((c) => ref(c.id, 'client', c.name, `/crm/clients/${c.id}`)),
-          ...ps.map((p) => ref(p.id, 'project', p.name, `/crm/projects/${p.id}`)),
+          ...cs.map((c) => ref(c.id, 'client', c.name, `/clients/${c.id}`)),
+          ...ps.map((p) => ref(p.id, 'project', p.name, `/projects/${p.id}`)),
         ]),
       )
       .catch(() => setCandidates([]));
@@ -56,12 +56,6 @@ export function ProjectDetail() {
   };
 
   /** Euro string → integer cents. Money never becomes a float on the way to the API. */
-  const cents = (v: string | null) => {
-    if (!v) return null;
-    const parsed = Number(v.replace(',', '.'));
-    return Number.isFinite(parsed) ? Math.round(parsed * 100) : null;
-  };
-  const euros = (c: number | null) => (c == null ? null : (c / 100).toFixed(2));
 
   const setStatus = async (status: string) => {
     await api.patch(`/crm/projects/${id}`, { status });
@@ -75,16 +69,17 @@ export function ProjectDetail() {
 
   return (
     <>
-      <p>
-        <Link to="/crm/projects">← Projects</Link>
-        {client && (
+      <PageHeader
+        title={project.name}
+        back={{ to: "/crm/projects", label: 'Projects' }}
+        meta={
           <>
-            {' · '}
-            <Link to={`/crm/clients/${client.id}`}>{client.name}</Link>
+          {client && (
+            <Link to={`/clients/${client.id}`}>{client.name}</Link>
+          )}
           </>
-        )}
-      </p>
-      <h1>{project.name}</h1>
+        }
+      />
 
       <div className="row">
         <select value={project.status} onChange={(e) => void setStatus(e.target.value)}>
@@ -162,36 +157,26 @@ export function ProjectDetail() {
         {error && <p className="error">{error}</p>}
       </section>
 
-      <section>
-        <h2>Budget burn</h2>
-        <p className="muted">
-          Contributed by the Time module through its manifest — this page gained the widget
-          without CRM changing.
-        </p>
-        <ProjectBurn projectId={id} />
-      </section>
+      {/*
+        Contributed by whichever modules declare a project widget.
 
-      <section>
-        <h2>Tasks</h2>
-        <OpenTasksWidget projectId={id} />
-      </section>
-
-      <section>
-        <h2>Documents</h2>
-        <DocumentsWidget projectId={id} />
-      </section>
+        The line that used to sit above the burn chart said this page "gained the widget
+        without CRM changing", which was a claim about a mechanism that had never been built —
+        the component was imported by name three lines below it. It is true now.
+      */}
+      <EntityWidgets entityId={id} entityType="project" />
 
       <section>
         <h2>Discussion</h2>
         <Comments entityId={id} />
       </section>
 
-      <section>
+      <section data-span={6}>
         <h2>Links</h2>
         <Links entityId={id} candidates={candidates} onChange={() => setRefreshKey((k) => k + 1)} />
       </section>
 
-      <section>
+      <section data-span={6}>
         <h2>Timeline</h2>
         <Timeline entityId={id} refreshKey={refreshKey} />
       </section>

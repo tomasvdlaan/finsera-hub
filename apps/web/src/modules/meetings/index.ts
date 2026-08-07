@@ -1,4 +1,5 @@
 import type { WebModule } from '../types.js';
+import { meetingsWidgets } from './widgets.js';
 import { NoteChatCard } from './NoteChatCard.js';
 import { NoteDetail } from './NoteDetail.js';
 import { NoteList } from './NoteList.js';
@@ -7,8 +8,8 @@ import { Room } from './Room.js';
 export const meetingsWebModule: WebModule = {
   name: 'meetings',
   routes: [
-    { path: '/meetings', Component: NoteList },
-    { path: '/meetings/:id', Component: NoteDetail },
+    { path: '/meetings', Component: NoteList, width: 'wide' },
+    { path: '/meetings/:id', Component: NoteDetail, width: 'read' },
     /*
      * The room takes the viewport.
      *
@@ -20,4 +21,5 @@ export const meetingsWebModule: WebModule = {
     { path: '/meetings/:id/room', Component: Room, chrome: 'bare' },
   ],
   chatWidgets: { meeting_note: NoteChatCard },
+  widgets: meetingsWidgets
 };

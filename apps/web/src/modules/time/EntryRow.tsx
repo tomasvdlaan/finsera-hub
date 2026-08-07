@@ -42,7 +42,7 @@ function BillingBadge({ entry }: { entry: Entry }) {
   if (entry.billingStatus === 'on_draft') {
     return (
       <Link
-        to={`/billing/invoices/${entry.invoiceId}`}
+        to={`/money/invoices/${entry.invoiceId}`}
         className="badge"
         title="On a draft invoice — not sent yet"
       >
@@ -53,7 +53,7 @@ function BillingBadge({ entry }: { entry: Entry }) {
   if (entry.billingStatus === 'invoiced') {
     return (
       <Link
-        to={`/billing/invoices/${entry.invoiceId}`}
+        to={`/money/invoices/${entry.invoiceId}`}
         className="badge billed"
         title="Invoiced — these hours are on an issued invoice"
       >
@@ -145,7 +145,7 @@ export function EntryRow({
       <li className={entry.running ? 'running' : undefined}>
         <div className="entry-main">
           <div>
-            <Link to={`/crm/projects/${entry.projectId}`}>{entry.projectName}</Link>
+            <Link to={`/projects/${entry.projectId}`}>{entry.projectName}</Link>
             {entry.clientName && <span className="muted"> · {entry.clientName}</span>}
           </div>
           {entry.description && <div>{entry.description}</div>}

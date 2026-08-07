@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { PageHeader, SubNav } from '../../shell/ui/layout.js';
+import { Link, useLocation } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { Badge, Button, Empty } from '../../shell/ui/primitives.js';
 import { elapsed, useRunningTimer } from '../../shell/useRunningTimer.js';
@@ -189,10 +190,36 @@ export function Tracker() {
    */
   const [, setTick] = useState(0);
 
+  /*
+   * `?date=` asks for a particular day.
+   *
+   * Every time entry in core.entities points here — an hour has no page of its own, it is
+   * read in its day — and `/time/recent` is a fixed window that an entry from three weeks
+   * ago falls outside of. So a date in the query widens the window back to it, and the day
+   * it names is marked. Without this the link resolves and shows you the wrong week, which
+   * is a worse failure than "not found" because nothing tells you it happened.
+   */
+  const asked = new URLSearchParams(useLocation().search).get('date');
+
+  /*
+   * A ref callback rather than an effect: the day arrives with the data, so there is no
+   * render at which "the element exists and I have not scrolled to it yet" is observable
+   * from an effect without also re-scrolling on every subsequent render.
+   */
+  const scrolled = useRef<string | null>(null);
+  const scrollTo = useCallback(
+    (el: HTMLElement | null) => {
+      if (!el || !asked || scrolled.current === asked) return;
+      scrolled.current = asked;
+      el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    },
+    [asked],
+  );
+
   const load = useCallback(async () => {
     try {
       const [recent, list, clientList] = await Promise.all([
-        api.get<{ days: Day[] }>('/time/recent'),
+        api.get<{ days: Day[] }>(asked ? `/time/recent?from=${asked}` : '/time/recent'),
         api.get<Project[]>('/crm/projects'),
         api.get<Array<{ id: string; name: string }>>('/crm/clients'),
       ]);
@@ -202,7 +229,7 @@ export function Tracker() {
     } catch (e) {
       setError((e as Error).message);
     }
-  }, []);
+  }, [asked]);
 
   useEffect(() => {
     void load();
@@ -405,7 +432,18 @@ export function Tracker() {
 
   return (
     <>
-      <h1>Time</h1>
+      <PageHeader
+        title="Time"
+        subtitle="Run a clock, write down an hour you forgot to run one for, and see what you have logged lately."
+        tabs={
+          <SubNav
+            items={[
+              { label: 'Tracker', to: '/time' },
+              { label: 'This week', to: '/time/week' },
+            ]}
+          />
+        }
+      />
 
       <div className="tracker-top">
         {/*
@@ -539,7 +577,14 @@ export function Tracker() {
         </Empty>
       ) : (
         days.map((day) => (
-          <section key={day.date} className="panel tracker-day">
+          <section
+            key={day.date}
+            className="panel tracker-day"
+            data-asked={day.date === asked || undefined}
+            // Scrolled to rather than paged to: the days around it are the context that makes
+            // one day's hours readable, and a page showing one day is what this replaced.
+            ref={day.date === asked ? scrollTo : undefined}
+          >
             <header className="panel-head">
               <h3>{dayLabel(day.date)}</h3>
               <span className="tracker-day-total">{formatSpan(day.totalMinutes)}</span>
@@ -627,7 +672,7 @@ export function Tracker() {
                       aria-hidden="true"
                     />
                     {entry.projectId ? (
-                      <Link to={`/crm/projects/${entry.projectId}`}>{entry.projectName}</Link>
+                      <Link to={`/projects/${entry.projectId}`}>{entry.projectName}</Link>
                     ) : (
                       <span className="muted">{entry.projectName}</span>
                     )}

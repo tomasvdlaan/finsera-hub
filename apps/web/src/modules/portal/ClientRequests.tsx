@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { Empty } from '../../shell/ui/primitives.js';
+import { PageHeader } from '../../shell/ui/layout.js';
 
 interface OpenRequest {
   id: string;
@@ -60,42 +61,41 @@ export function ClientRequests() {
       .finally(() => setBusy(undefined));
   };
 
-  if (error) return <p className="error">{error}</p>;
-  if (!rows) return <p className="muted">Loading…</p>;
-  if (rows.length === 0) return <Empty>No open client requests.</Empty>;
+  /*
+   * The header renders whatever the rows are doing.
+   *
+   * Returning bare text on the empty and error paths meant this page had no h1 in three of its
+   * four states — so the browser tab, the back button's label and a screen reader all lost
+   * track of where they were the moment there was nothing to triage.
+   */
+  const head = (
+    <PageHeader
+      title="Client requests"
+      subtitle="Asked for through the portal. Deciding what a request becomes — and whose project it belongs to — is why it is not a card already."
+    />
+  );
+
+  if (error) return <>{head}<p className="error">{error}</p></>;
+  if (!rows) return <>{head}<p className="muted">Loading…</p></>;
+  if (rows.length === 0) return <>{head}<Empty>No open client requests.</Empty></>;
 
   return (
-    <div>
+    <>
+      {head}
       {rows.map((r) => {
         const theirs = projects.filter((p) => p.clientId === r.client_id);
         const projectId = chosen[r.id] ?? r.project_id ?? theirs[0]?.id ?? '';
         return (
-          <div
-            key={r.id}
-            style={{
-              border: '1px solid var(--line, #e4e4e7)',
-              borderRadius: '.5rem',
-              padding: '.9rem',
-              marginBottom: '.75rem',
-              background: '#fff',
-            }}
-          >
+          <div key={r.id} className="card request">
             <strong>{r.subject}</strong>
-            <p className="muted" style={{ margin: '.25rem 0' }}>
-              <Link to={`/crm/clients/${r.client_id}`}>{r.client_name}</Link>
+            <p className="muted">
+              <Link to={`/clients/${r.client_id}`}>{r.client_name}</Link>
               {r.asked_by ? ` · ${r.asked_by}` : ''} · {day(r.created_at)}
             </p>
-            <blockquote
-              style={{
-                margin: '.5rem 0',
-                paddingLeft: '.75rem',
-                borderLeft: '3px solid var(--line, #e4e4e7)',
-                whiteSpace: 'pre-wrap',
-              }}
-            >
+            <blockquote>
               {r.body}
             </blockquote>
-            <div className="row" style={{ gap: '.5rem', alignItems: 'center' }}>
+            <div className="row">
               <select
                 value={projectId}
                 onChange={(e) => setChosen((c) => ({ ...c, [r.id]: e.target.value }))}
@@ -125,6 +125,6 @@ export function ClientRequests() {
           </div>
         );
       })}
-    </div>
+    </>
   );
 }

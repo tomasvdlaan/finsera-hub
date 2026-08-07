@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { PageHeader } from '../../shell/ui/layout.js';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import type { EntityRef } from '@platform/contracts';
@@ -101,7 +102,7 @@ export function SprintDetail() {
       .then(([notes, projects]) =>
         setCandidates([
           ...notes.map((n) => ref(n.id, 'meeting_note', n.title, `/meetings/${n.id}`)),
-          ...projects.map((p) => ref(p.id, 'project', p.name, `/crm/projects/${p.id}`)),
+          ...projects.map((p) => ref(p.id, 'project', p.name, `/projects/${p.id}`)),
         ]),
       )
       .catch(() => setCandidates([]));
@@ -122,10 +123,10 @@ export function SprintDetail() {
 
   return (
     <>
-      <p>
-        <Link to={`/scrum/sprints?projectId=${sprint.projectId}`}>← Sprints</Link>
-      </p>
-      <h1>{sprint.name}</h1>
+      <PageHeader
+        title={sprint.name}
+        back={{ to: `/board/sprints?projectId=${sprint.projectId}`, label: 'Sprints' }}
+      />
       <p className="muted">
         {sprint.startsOn} → {sprint.endsOn} · {sprint.state}
         {sprint.startedAt && ` · started ${sprint.startedAt.slice(0, 10)}`}
@@ -172,7 +173,7 @@ export function SprintDetail() {
               if (!go) return;
               await api.del(`/scrum/sprints/${id}`);
               toast.ok('Sprint deleted');
-              navigate(`/scrum/sprints?projectId=${sprint.projectId}`);
+              navigate(`/board/sprints?projectId=${sprint.projectId}`);
             })()
           }
         >
@@ -209,7 +210,7 @@ export function SprintDetail() {
         the honest rendering of "we never said how much time you had". A default forty-hour
         week here would draw a bar against a denominator nobody chose.
       */}
-      <section>
+      <section data-span={6}>
         <h2>Load</h2>
         {teamLoad && (teamLoad.people.length > 0 || teamLoad.unassigned.cards > 0) ? (
           <ul className="flow-list">
@@ -256,7 +257,7 @@ export function SprintDetail() {
         )}
       </section>
 
-      <section>
+      <section data-span={6}>
         <h2>Cards</h2>
         {tasks.length === 0 ? (
           <Empty>
@@ -269,7 +270,7 @@ export function SprintDetail() {
                 <span className={`tag${t.completedAt ? '' : ' overdue'}`}>
                   {t.completedAt ? 'done' : t.status.replace(/_/g, ' ')}
                 </span>
-                <Link to={`/scrum/tasks/${t.id}`}>{t.title}</Link>
+                <Link to={`/tasks/${t.id}`}>{t.title}</Link>
                 {t.estimateMinutes != null && (
                   <span className="muted"> · {hours(t.estimateMinutes)}h</span>
                 )}
@@ -281,7 +282,7 @@ export function SprintDetail() {
       </section>
 
       {/* The two panels every registered entity gets, and the reason registering mattered. */}
-      <section>
+      <section data-span={6}>
         <h2>Links</h2>
         <Links
           entityId={id}
@@ -292,7 +293,7 @@ export function SprintDetail() {
           }}
         />
       </section>
-      <section>
+      <section data-span={6}>
         <h2>Timeline</h2>
         <Timeline entityId={id} refreshKey={refreshKey} />
       </section>

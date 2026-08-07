@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
+import { PageHeader } from '../../shell/ui/layout.js';
 import { api } from '../../lib/api.js';
 
 interface Project {
@@ -90,20 +91,20 @@ export function PortalPreview() {
 
   return (
     <div>
-      <p className="muted" style={{ marginBottom: '1rem' }}>
-        <Link to={`/crm/clients/${clientId}`}>← Back to client</Link>
-      </p>
+      <PageHeader
+        title="Portal preview"
+        back={{ to: `/clients/${clientId}`, label: 'Back to client' }}
+      />
 
-      <div
-        style={{
-          background: '#fff7ed',
-          border: '1px solid #fdba74',
-          borderRadius: '.5rem',
-          padding: '.7rem .9rem',
-          marginBottom: '1.25rem',
-          fontSize: '.9rem',
-        }}
-      >
+      {/*
+        A warning tone, from tokens.
+
+        This was a hardcoded #fff7ed on #fdba74 — a light-orange banner that stayed light
+        orange on a near-black canvas, and the second of these found in one sweep. Warning
+        rather than danger: looking is not doing, and the point of the notice is that the
+        looking is recorded, not that anything is wrong.
+      */}
+      <div className="card" data-tone="warning">
         <strong>Preview.</strong> This is the client&rsquo;s own view of the portal, read-only.
         Opening it is recorded in the audit log against this client.
       </div>

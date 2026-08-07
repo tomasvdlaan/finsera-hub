@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { PageHeader, SubNav } from '../../shell/ui/layout.js';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import {
@@ -20,6 +21,18 @@ const toCents = (euros: string): number | null => {
   const parsed = Number(trimmed.replace(',', '.'));
   return Number.isFinite(parsed) ? Math.round(parsed * 100) : null;
 };
+
+/**
+ * Who the work is for, at two grains.
+ *
+ * A client and a project are the same subject seen at different resolutions — you arrive
+ * wanting one and find you wanted the other about as often as not — so they are two modes of
+ * one place rather than two destinations. This is also what buys back the ninth pill anchor.
+ */
+const WHO = [
+  { label: 'Clients', to: '/clients' },
+  { label: 'Projects', to: '/projects' },
+];
 
 export function ProjectList() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -94,10 +107,11 @@ export function ProjectList() {
 
   return (
     <>
-      <h1>Projects</h1>
-      <p className="muted">
-        Billing model is per project — time &amp; materials, fixed fee, or retainer.
-      </p>
+      <PageHeader
+        title="Projects"
+        subtitle="Billing model is per project — time &amp; materials, fixed fee, or retainer."
+        tabs={<SubNav items={WHO} />}
+      />
 
       <form onSubmit={(e) => void create(e)}>
         <div className="row">
@@ -209,7 +223,7 @@ export function ProjectList() {
         <ul className="cards">
           {projects.map((p) => (
             <li key={p.id}>
-              <Link to={`/crm/projects/${p.id}`}>{p.name}</Link>{' '}
+              <Link to={`/projects/${p.id}`}>{p.name}</Link>{' '}
               <span className="badge">{humanise(p.billingModel)}</span>{' '}
               <span className="muted">
                 {clientName[p.clientId] ?? '—'} · {humanise(p.status)}

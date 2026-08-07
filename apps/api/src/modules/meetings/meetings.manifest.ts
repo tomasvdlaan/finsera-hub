@@ -29,7 +29,12 @@ export const meetingsManifest = defineManifest({
   // First in Work. The platform's stated core is keeping track of SCRUM, and the
   // ceremonies are where that starts; it used to sit below the board.
   navigation: [{ label: 'Meetings', path: '/meetings', icon: 'users', section: 'work', order: 1 }],
-  widgets: [{ slot: 'entity-page', component: 'meetings:client-notes' }],
+  widgets: [
+    { slot: 'entity-page', component: 'meetings:client-notes' },
+    { slot: 'dashboard', component: 'meetings:recent' },
+    { slot: 'dashboard', component: 'meetings:open-actions' },
+    { slot: 'dashboard', component: 'meetings:next' },
+  ],
   chatWidgets: [{ entityType: 'meeting_note', component: 'meetings:note-card' }],
 
   /**

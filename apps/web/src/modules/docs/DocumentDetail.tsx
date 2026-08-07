@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { PageHeader } from '../../shell/ui/layout.js';
+import { useNavigate, useParams } from 'react-router-dom';
 import type { EntityRef } from '@platform/contracts';
 import { api } from '../../lib/api.js';
 import { getUser } from '../../lib/auth.js';
@@ -36,8 +37,8 @@ export function DocumentDetail() {
     ])
       .then(([cs, ps]) =>
         setCandidates([
-          ...cs.map((c) => ref(c.id, 'client', c.name, `/crm/clients/${c.id}`)),
-          ...ps.map((p) => ref(p.id, 'project', p.name, `/crm/projects/${p.id}`)),
+          ...cs.map((c) => ref(c.id, 'client', c.name, `/clients/${c.id}`)),
+          ...ps.map((p) => ref(p.id, 'project', p.name, `/projects/${p.id}`)),
         ]),
       )
       .catch(() => setCandidates([]));
@@ -109,10 +110,10 @@ export function DocumentDetail() {
 
   return (
     <>
-      <p>
-        <Link to="/docs">← Documents</Link>
-      </p>
-      <h1>{doc.title}</h1>
+      <PageHeader
+        title={doc.title}
+        back={{ to: "/docs", label: 'Documents' }}
+      />
 
       <div className="row">
         {doc.category && <span className="badge">{doc.category}</span>}
@@ -138,7 +139,7 @@ export function DocumentDetail() {
         <DocumentPreview documentId={id} versionId={previewVersionId} />
       </section>
 
-      <section>
+      <section data-span={6}>
         <h2>Versions</h2>
         <p className="muted">
           Newest first. Nothing is overwritten — every earlier version stays downloadable.
@@ -210,12 +211,12 @@ export function DocumentDetail() {
         </section>
       )}
 
-      <section>
+      <section data-span={6}>
         <h2>Links</h2>
         <Links entityId={id} candidates={candidates} onChange={() => setRefreshKey((k) => k + 1)} />
       </section>
 
-      <section>
+      <section data-span={6}>
         <h2>Timeline</h2>
         <Timeline entityId={id} refreshKey={refreshKey} />
       </section>

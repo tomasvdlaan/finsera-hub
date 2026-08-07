@@ -18,7 +18,7 @@ export function ClientQuotesWidget({ clientId }: { clientId: string }) {
   if (quotes.length === 0) {
     return (
       <p className="muted">
-        No quotes yet — <Link to="/sales">open quotes</Link>.
+        No quotes yet — <Link to="/money/quotes">open quotes</Link>.
       </p>
     );
   }
@@ -41,7 +41,7 @@ export function ClientQuotesWidget({ clientId }: { clientId: string }) {
       <ul className="cards">
         {quotes.slice(0, 6).map((quote) => (
           <li key={quote.id}>
-            <Link to={`/sales/quotes/${quote.id}`}>{quote.number ?? 'Draft'}</Link>{' '}
+            <Link to={`/money/quotes/${quote.id}`}>{quote.number ?? 'Draft'}</Link>{' '}
             <Status value={quote.status} />
             {quote.expired && <span className="badge priority-urgent">expired</span>}{' '}
             <span className="muted">

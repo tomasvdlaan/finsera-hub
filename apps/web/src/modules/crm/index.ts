@@ -8,10 +8,10 @@ import { ProjectList } from './ProjectList.js';
 export const crmWebModule: WebModule = {
   name: 'crm',
   routes: [
-    { path: '/crm/clients', Component: ClientList },
-    { path: '/crm/clients/:id', Component: ClientDetail },
-    { path: '/crm/projects', Component: ProjectList },
-    { path: '/crm/projects/:id', Component: ProjectDetail },
+    { path: '/clients', Component: ClientList, width: 'wide' },
+    { path: '/clients/:id', Component: ClientDetail },
+    { path: '/projects', Component: ProjectList, width: 'wide' },
+    { path: '/projects/:id', Component: ProjectDetail },
   ],
   chatWidgets: {
     client: ClientChatCard,

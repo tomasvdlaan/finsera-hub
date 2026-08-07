@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
+import { PageHeader } from '../../shell/ui/layout.js';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../lib/api.js';
+import { cents, euros } from '../../lib/money.js';
 import { useDialog } from '../../shell/ui/Dialog.js';
 import { useToast } from '../../shell/ui/Toast.js';
 import { getUser } from '../../lib/auth.js';
@@ -139,29 +141,27 @@ export function QuoteDetail() {
 
   return (
     <>
-      <p>
-        <Link to="/sales">← Quotes</Link>
-        {client && (
+      <PageHeader
+        title={quote.number ?? 'Draft quote'}
+        back={{ to: "/sales", label: 'Quotes' }}
+        meta={
           <>
-            {' · '}
-            <Link to={`/crm/clients/${client.id}`}>{client.name}</Link>
+          {client && (
+            <Link to={`/clients/${client.id}`}>{client.name}</Link>
+          )}
+          {quote.supersedesQuoteId && (
+            <Link to={`/money/quotes/${quote.supersedesQuoteId}`}>supersedes v{quote.version - 1}</Link>
+          )}
           </>
-        )}
-        {quote.supersedesQuoteId && (
-          <>
-            {' · '}
-            <Link to={`/sales/quotes/${quote.supersedesQuoteId}`}>supersedes v{quote.version - 1}</Link>
-          </>
-        )}
-      </p>
-      <h1>{quote.number ?? 'Draft quote'}</h1>
+        }
+      />
 
       <div className="row">
         <Status value={quote.status} />
         {quote.expired && <span className="badge priority-urgent">past its validity date</span>}
         {quote.version > 1 && <span className="badge">version {quote.version}</span>}
         {quote.projectCreatedId && (
-          <Link to={`/crm/projects/${quote.projectCreatedId}`}>view the project</Link>
+          <Link to={`/projects/${quote.projectCreatedId}`}>view the project</Link>
         )}
       </div>
 
@@ -176,7 +176,7 @@ export function QuoteDetail() {
               onClick={() =>
                 void act(async () => {
                   await api.del(`/sales/quotes/${id}`);
-                  navigate('/sales');
+                  navigate('/money/quotes');
                 })
               }
             >
@@ -217,7 +217,7 @@ export function QuoteDetail() {
                     `/sales/quotes/${id}/revise`,
                     {},
                   );
-                  navigate(`/sales/quotes/${revision.id}`);
+                  navigate(`/money/quotes/${revision.id}`);
                 })
               }
             >
@@ -249,11 +249,19 @@ export function QuoteDetail() {
               value={quote.validUntil}
               onSave={(v) => patch({ validUntil: v })}
             />
+            {/*
+              Euros, like every other money field in the app.
+
+              This read "Hourly rate (cents)" and took the raw integer: you typed 13500 to mean
+              €135, inches below a euro-denominated line editor, and the value is copied onto
+              the project when the quote is accepted. One slipped zero was a €13.50 engagement
+              on a signed document — the highest consequence per character in the codebase.
+            */}
             <EditableField
-              label="Hourly rate (cents)"
-              value={quote.hourlyRateCents == null ? null : String(quote.hourlyRateCents)}
+              label="Hourly rate (€)"
+              value={euros(quote.hourlyRateCents)}
               placeholder="Becomes the project rate when accepted"
-              onSave={(v) => patch({ hourlyRateCents: v ? Number(v) : null })}
+              onSave={(v) => patch({ hourlyRateCents: cents(v) })}
             />
             <EditableField
               label="Notes"
@@ -337,7 +345,7 @@ export function QuoteDetail() {
         )}
       </section>
 
-      <section>
+      <section data-span={6}>
         <h2>Timeline</h2>
         <Timeline entityId={id} />
       </section>

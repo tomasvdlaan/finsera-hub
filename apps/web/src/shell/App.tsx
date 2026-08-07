@@ -7,7 +7,6 @@ import {
   Routes,
   Outlet,
   useLocation,
-  useNavigate,
 } from 'react-router-dom';
 import type { CurrentUser } from '@platform/contracts';
 import { api } from '../lib/api.js';
@@ -16,11 +15,14 @@ import type { NavItem } from '../modules/types.js';
 import { AssistantPage } from './AssistantPage.js';
 import { StarredAnswers } from './StarredAnswers.js';
 import { CommandBar } from './CommandBar.js';
-import { Sidebar, type SidebarCounts } from './Sidebar.js';
+import { TopNav, type NavCounts } from './TopNav.js';
 import { LiveMeetingProvider } from './LiveMeeting.js';
 import { RunningTimerProvider } from './useRunningTimer.js';
 import { LivePill } from './LivePill.js';
+import { Page, PageHeader } from './ui/layout.js';
 import { MeetingChatProvider } from './MeetingChat.js';
+import { Moved, MOVED_ROOTS } from './moved.js';
+import { NavProvider } from './useNav.js';
 import { Modules } from './Modules.js';
 import { Settings } from './Settings.js';
 import { DialogProvider } from './ui/Dialog.js';
@@ -51,9 +53,9 @@ const SHELL_ITEMS: NavItem[] = [
   // "All work" rather than "Work": it sits in a section called Work, next to a page called
   // Board, and three of the four things in there are work. The name has to say which one.
   { label: 'All work', path: '/work', module: 'shell', icon: 'columns', section: 'work', order: 3 },
-  { label: 'Money', path: '/money', module: 'shell', icon: 'receipt', section: 'money', order: 1 },
-  { label: 'Organisation', path: '/platform/settings', module: 'shell', icon: 'settings', section: 'setup', order: 1 },
-  { label: 'Platform modules', path: '/platform/modules', module: 'shell', icon: 'columns', section: 'setup', order: 3 },
+  { label: 'Money', path: '/money', module: 'shell', icon: 'receipt', section: 'money', order: 0 },
+  { label: 'Organisation', path: '/settings', module: 'shell', icon: 'settings', section: 'setup', order: 1 },
+  { label: 'Platform modules', path: '/settings/modules', module: 'shell', icon: 'columns', section: 'setup', order: 3 },
 ];
 
 export function App() {
@@ -74,11 +76,10 @@ function NotFound({ home }: { home: string }) {
   useDocumentTitle('Not found');
   return (
     <div>
-      <h1>Not found</h1>
-      <p className="muted">
-        There is no page at this address. It may have been renamed, or the link that brought
-        you here may be stale.
-      </p>
+      <PageHeader
+        title="Not found"
+        subtitle="There is no page at this address. It may have been renamed, or the link that brought you here may be stale."
+      />
       <p>
         <Link to={home}>Go back to the start</Link>
       </p>
@@ -115,7 +116,7 @@ function Shell() {
   const [nav, setNav] = useState<NavItem[]>([]);
   const [me, setMe] = useState<CurrentUser | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
-  const [counts, setCounts] = useState<SidebarCounts>({});
+  const [counts, setCounts] = useState<NavCounts>({});
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -174,6 +175,8 @@ function Shell() {
         socket, and closing that socket from the audio source is how the server learns the
         meeting is over — so navigating away ended and finalised it. See LiveMeeting.tsx.
       */}
+      {/* So a hub page can list the pages that live under it — see useNav.tsx. */}
+      <NavProvider nav={[...SHELL_ITEMS, ...nav]}>
       <LiveMeetingProvider>
       <MeetingChatProvider>
       {/* Above the router: the clock has to survive navigation, and the rail and the tracker
@@ -214,16 +217,32 @@ function Shell() {
           }
         >
           <Route path="/" element={<Navigate to={home} replace />} />
-          {chromed.map(({ path, Component }) => (
-            <Route key={path} path={path} element={<Component />} />
+          {chromed.map(({ path, Component, width }) => (
+            <Route
+              key={path}
+              path={path}
+              // Wrapped here rather than inside each page: the grid is a property of being a
+              // page, and thirty components each remembering to opt in is thirty chances to
+              // forget. A page that says nothing gets the sensible middle width.
+              element={
+                <Page width={width}>
+                  <Component />
+                </Page>
+              }
+            />
           ))}
-          <Route path="/assistant" element={<AssistantPage />} />
+          <Route path="/assistant" element={<Page><AssistantPage /></Page>} />
           {/* Before the :id route, or "starred" is read as a conversation id. */}
-          <Route path="/assistant/starred" element={<StarredAnswers />} />
-          <Route path="/assistant/:id" element={<AssistantPage />} />
-          <Route path="/platform/modules" element={<Modules />} />
-          <Route path="/platform/settings" element={<Settings />} />
-          <Route path="*" element={<NotFound home={home} />} />
+          <Route path="/assistant/starred" element={<Page><StarredAnswers /></Page>} />
+          <Route path="/assistant/:id" element={<Page><AssistantPage /></Page>} />
+          <Route path="/settings/modules" element={<Page><Modules /></Page>} />
+          <Route path="/settings" element={<Page width="read"><Settings /></Page>} />
+          {/* Every address the app used to serve, before the URLs were named after the
+              thing rather than the module that stores it. See shell/moved.tsx. */}
+          {MOVED_ROOTS.map((root) => (
+            <Route key={root} path={`/${root}/*`} element={<Moved />} />
+          ))}
+          <Route path="*" element={<Page><NotFound home={home} /></Page>} />
         </Route>
 
         {bare.map(({ path, Component }) => (
@@ -233,6 +252,7 @@ function Shell() {
       </RunningTimerProvider>
       </MeetingChatProvider>
       </LiveMeetingProvider>
+      </NavProvider>
     </BrowserRouter>
   );
 }
@@ -258,29 +278,20 @@ function ChromeLayout({
 }: {
   nav: NavItem[];
   me: CurrentUser | null;
-  counts: SidebarCounts;
+  counts: NavCounts;
   error: string | null;
   onSearch: () => void;
   onLogout: () => void;
 }) {
-  const navigate = useNavigate();
   return (
-    <div className="layout">
-      <Sidebar
-        nav={nav}
-        shellItems={SHELL_ITEMS}
-        counts={counts}
-        me={me}
-        onSearch={onSearch}
-        onOpenAssistant={() => navigate('/assistant')}
-        onLogout={onLogout}
-      />
+    <div className="layout-top">
+      <TopNav nav={nav} counts={counts} me={me} onSearch={onSearch} onLogout={onLogout} />
 
       <main>
         {error && (
           <p className="error">
             API error: {error}
-            {nav.length === 0 && ' — navigation could not be loaded, so the sidebar is empty.'}
+            {nav.length === 0 && ' — navigation could not be loaded, so some sections may be missing.'}
           </p>
         )}
         <LivePill />

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Markdown } from '../ui/MarkdownEditor.js';
 import { chatWidgets } from '../../modules/index.js';
 import type { ChatWidgetProps } from '../../modules/types.js';
+import { latestThought } from './thinking.js';
 import type { Reference, Turn } from './useConversation.js';
 
 /**
@@ -115,6 +116,30 @@ export function ConversationView({
                       {humanise(name)}
                     </span>
                   ))}
+                </div>
+              )}
+
+              {/*
+                What it is thinking about, in one line.
+
+                The tool chips above only appear once a tool has been called, and on a measured
+                answer that was 3.1 seconds in — with another 5.7 seconds of silence after it
+                and the entire reply arriving in the last 57 milliseconds. This is what fills
+                those stretches: the model's own heading for whatever it is doing, replaced as
+                it moves on.
+
+                One line on purpose. The full working-out is underneath for anybody who wants
+                it, and folded away for everybody who does not.
+              */}
+              {latestThought(turn.thinking) && (
+                <div className="turn-thinking">
+                  <p className="thinking-line" aria-live="polite">
+                    {latestThought(turn.thinking)}
+                  </p>
+                  <details>
+                    <summary className="muted">Show the working-out</summary>
+                    <Markdown value={turn.thinking!} />
+                  </details>
                 </div>
               )}
               <AnswerBody text={turn.content} references={turn.references ?? []} />

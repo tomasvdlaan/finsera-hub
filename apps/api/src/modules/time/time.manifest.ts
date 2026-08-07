@@ -12,7 +12,7 @@ export const timeManifest = defineManifest({
   name: 'time',
   version: '0.1.0',
 
-  entities: [{ type: 'time_entry', displayTemplate: '{description}', urlPattern: '/time/entries/:id', readPermission: 'time.entries.read_all' }],
+  entities: [{ type: 'time_entry', displayTemplate: '{description}', urlPattern: '/time', readPermission: 'time.entries.read_all' }],
 
   structuralRefs: [{ from: 'time_entry', toType: 'project', required: true }],
 
@@ -26,11 +26,31 @@ export const timeManifest = defineManifest({
     { capability: 'time.entries.write_own', description: 'Log and edit your own hours.' },
     { capability: 'time.entries.read_all', description: "See everyone's hours." },
     { capability: 'time.entries.manage', description: "Manage another person's hours." },
+    /*
+     * Separate from `manage` on purpose.
+     *
+     * Editing somebody's hours and agreeing that they may be invoiced are different powers, and
+     * the second is the one that puts a number in front of a client. A bookkeeper who fixes
+     * typos should not thereby be able to sign work off.
+     */
+    { capability: 'time.approve', description: "Approve or send back a person's week." },
   ],
 
   navigation: [{ label: 'Timesheet', path: '/time', icon: 'clock', section: 'time', order: 1 }],
 
-  widgets: [{ slot: 'entity-page', component: 'time:project-burn' }],
+  widgets: [
+    { slot: 'entity-page', component: 'time:project-burn' },
+    { slot: 'dashboard', component: 'time:logged-today' },
+    { slot: 'dashboard', component: 'time:fortnight' },
+    { slot: 'dashboard', component: 'time:where-it-went' },
+    { slot: 'dashboard', component: 'time:calendar-heat' },
+    { slot: 'dashboard', component: 'time:untracked' },
+    { slot: 'dashboard', component: 'time:person-load' },
+    { slot: 'dashboard', component: 'time:timer' },
+    { slot: 'dashboard', component: 'time:timesheet-health' },
+    { slot: 'dashboard', component: 'time:approvals' },
+    { slot: 'dashboard', component: 'time:my-week' },
+  ],
 
   reportingViews: [
     {

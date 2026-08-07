@@ -154,3 +154,62 @@ export const entries = time.table(
     ),
   ],
 );
+
+/**
+ * A person's week, and whether anybody has looked at it.
+ *
+ * This overturns a decision written into billing.service.ts — *"there is no submission step:
+ * a logged hour with a duration is a billable hour, and the draft is where the work gets
+ * reviewed"*. That reasoning is correct for one person and stops being correct at two: whoever
+ * assembles the invoice can review their own hours from memory, and cannot tell whether
+ * somebody else's four-hour entry was finished work or a mid-thought they meant to split.
+ *
+ * Deliberately additive. A week nobody has submitted behaves exactly as it always did, so
+ * turning this on breaks nothing and changes no existing number — see `blockedWeeks` in the
+ * service for what actually holds an hour back. Submitting is a *stronger* claim about a week,
+ * not a new obstacle in front of it.
+ *
+ * One row per person per week, keyed on the Monday. There is no row until something happens,
+ * so "open" is the absence of a row rather than a state anybody has to write.
+ */
+export const timesheets = time.table(
+  'timesheets',
+  {
+    id: uuid('id').primaryKey(),
+    personId: uuid('person_id').notNull(),
+    /** The Monday. Every week in this system starts on one; see weekStart(). */
+    weekOf: date('week_of').notNull(),
+    /**
+     * `submitted` — the person says it is ready and it is waiting on somebody.
+     * `approved`  — somebody has agreed, and the hours may be invoiced.
+     * `returned`  — somebody has sent it back, with a reason, and it may not.
+     */
+    status: text('status').notNull(),
+    submittedAt: timestamp('submitted_at', { withTimezone: true }).notNull().defaultNow(),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+    /**
+     * Who decided, recorded even when it is the same person who submitted.
+     *
+     * At this size self-approval has to work or the feature is unusable, so the control is the
+     * permission rather than the identity — and the identity is kept so that "who approved
+     * this" is answerable later, which is the whole point of an approval.
+     */
+    decidedBy: uuid('decided_by'),
+    /** Why it was sent back. Required for `returned` — see the check below. */
+    note: text('note'),
+  },
+  (t) => [
+    uniqueIndex('timesheets_person_week').on(t.personId, t.weekOf),
+    index('timesheets_status').on(t.status),
+    check('timesheets_status_known', sql`${t.status} IN ('submitted','approved','returned')`),
+    /*
+     * Sending a week back without saying why is the same as not sending it back: the person
+     * gets a red badge and no idea what to change. The database refuses it rather than
+     * relying on every caller to remember.
+     */
+    check(
+      'timesheets_returned_needs_reason',
+      sql`${t.status} <> 'returned' OR (${t.note} IS NOT NULL AND length(btrim(${t.note})) > 0)`,
+    ),
+  ],
+);

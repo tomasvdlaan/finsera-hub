@@ -1,4 +1,8 @@
 import { useEffect, useState } from 'react';
+import { PageHeader } from '../../shell/ui/layout.js';
+import { Card, Figure } from '../../shell/ui/card.js';
+import { Rhythm } from '../../shell/ui/viz.js';
+import { BoardTabs } from './BoardTabs.js';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { useDocumentTitle } from '../../shell/useDocumentTitle.js';
@@ -97,22 +101,24 @@ export function Flow() {
 
   return (
     <>
-      <p>
-        <Link to="/scrum">← Board</Link>
-      </p>
-      <h1>Flow</h1>
-
-      <select
-        value={projectId ?? ''}
-        onChange={(e) => setParams({ projectId: e.target.value })}
-        aria-label="Project"
-      >
-        {projects.map((p) => (
-          <option key={p.id} value={p.id}>
-            {p.name}
-          </option>
-        ))}
-      </select>
+      <PageHeader
+        title="Flow"
+        subtitle="How work actually moves, from the column transitions rather than from what a card says now."
+        tabs={<BoardTabs projectId={projectId ?? ''} />}
+        actions={
+          <select
+            value={projectId ?? ''}
+            onChange={(e) => setParams({ projectId: e.target.value })}
+            aria-label="Project"
+          >
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        }
+      />
 
       {!report ? (
         <p className="muted">Reading the board's history…</p>
@@ -120,13 +126,53 @@ export function Flow() {
         <Empty>Nothing on this board yet. Flow is measured from cards moving.</Empty>
       ) : (
         <>
-          <section>
-            <h2>In flight now</h2>
-            <p className="muted">
-              How long each unfinished card has been going, counted from the first time work
-              started on it — not from when it entered the column it is in, so bouncing between
-              review and in progress does not reset the clock.
-            </p>
+          {/*
+            The two numbers this page exists for, above the evidence for them.
+
+            They were below three sections of prose. `meaningful` is the server's judgement —
+            a percentile over six items is not a percentile, it is the sixth item — so when it
+            is false the figure says how many finished instead of inventing a distribution.
+          */}
+          <Card span={4}>
+            <Figure
+              label="Cycle time"
+              value={report.cycle.meaningful && report.cycle.p50 !== null ? duration(report.cycle.p50) : '—'}
+              note={
+                report.cycle.meaningful
+                  ? `half finish inside this · ${report.cycle.n} measured`
+                  : `${report.cycle.n} finished so far — too few to take a median from`
+              }
+            />
+          </Card>
+          <Card span={4}>
+            <Figure
+              label="The slow half"
+              value={report.cycle.meaningful && report.cycle.p85 !== null ? duration(report.cycle.p85) : '—'}
+              note={
+                report.cycle.meaningful
+                  ? '85 in 100 finish inside this'
+                  : 'needs about fifteen finished cards'
+              }
+            />
+          </Card>
+          <Card span={4} tone={report.waiting.now > 0 ? 'warning' : undefined}>
+            <Figure
+              label="With the client"
+              value={report.waiting.now}
+              unit={report.waiting.now === 1 ? 'card' : 'cards'}
+              note={
+                report.waiting.spells > 0
+                  ? `${duration(report.waiting.minutes)} recorded across ${report.waiting.spells} ${report.waiting.spells === 1 ? 'spell' : 'spells'}`
+                  : 'no waiting timed yet'
+              }
+            />
+          </Card>
+
+          <Card
+            span={7}
+            title="In flight now"
+            sub="Counted from the first time work started, not from when the card entered its column — so bouncing between review and in progress does not reset the clock."
+          >
             {report.aging.length === 0 ? (
               <Empty>Nothing is in flight.</Empty>
             ) : (
@@ -136,7 +182,7 @@ export function Flow() {
                     <span className={`tag${a.minutes >= 14 * 1440 ? ' overdue' : ''}`}>
                       {duration(a.minutes)}
                     </span>
-                    <Link to={`/scrum/tasks/${a.taskId}`}>{a.title}</Link>
+                    <Link to={`/tasks/${a.taskId}`}>{a.title}</Link>
                     {a.waiting && <span className="muted"> · waiting on the client</span>}
                     {/* An age inferred from creation is an upper bound, not a measurement. */}
                     {!a.measured && (
@@ -149,7 +195,7 @@ export function Flow() {
                 ))}
               </ul>
             )}
-          </section>
+          </Card>
 
           {/*
             Two facts of different provenance, so they are stated separately.
@@ -159,8 +205,7 @@ export function Flow() {
             cards do not have — reading them as one sentence produced "0m across 0 spells, 1
             right now", which contradicts itself.
           */}
-          <section>
-            <h2>Waiting on the client</h2>
+          <Card span={5} title="Waiting on the client">
             <p>
               {report.waiting.now === 0
                 ? 'Nothing is with the client right now.'
@@ -183,22 +228,34 @@ export function Flow() {
                 waiting column with the board watching.
               </p>
             )}
-          </section>
+          </Card>
 
-          <section>
-            <h2>Finished per week</h2>
+          <Card span={12} title="Finished per week">
             {report.throughput.length === 0 ? (
               <Empty>Nothing has been finished yet.</Empty>
             ) : (
-              <ul className="flow-weeks">
-                {report.throughput.map((w) => (
-                  <li key={w.week}>
-                    <span className="muted">{w.week}</span>
-                    <span className="flow-bar" style={{ width: `${Math.min(100, w.count * 12)}%` }} />
-                    <strong>{w.count}</strong>
-                  </li>
-                ))}
-              </ul>
+              <>
+                {/*
+                  Bars rather than a list of numbers with a width on them.
+
+                  The old shape multiplied the count by 12 to get a percentage, so a week with
+                  nine finished cards and a week with eleven drew the same full-width bar — a
+                  scale that stops scaling at the point the reading gets interesting. Rhythm
+                  scales to the tallest week it is given.
+                */}
+                <Rhythm
+                  days={report.throughput.map((w) => ({ date: w.week, value: w.count }))}
+                  height={112}
+                />
+                <ul className="flow-weeks">
+                  {report.throughput.map((w) => (
+                    <li key={w.week}>
+                      <span className="muted">{w.week}</span>
+                      <strong>{w.count}</strong>
+                    </li>
+                  ))}
+                </ul>
+              </>
             )}
             {report.reopened > 0 && (
               <p className="muted">
@@ -206,7 +263,7 @@ export function Flow() {
                 then reopened. Each counts once, in the week it first landed.
               </p>
             )}
-          </section>
+          </Card>
 
           <StatBlock
             title="Start to finish"
@@ -241,8 +298,7 @@ export function Flow() {
  */
 function StatBlock({ title, hint, stat }: { title: string; hint: string; stat: Stat }) {
   return (
-    <section>
-      <h2>{title}</h2>
+    <Card span={6} title={title}>
       <p className="muted">{hint}</p>
       {stat.n === 0 ? (
         <Empty>Nothing has finished yet.</Empty>
@@ -259,7 +315,7 @@ function StatBlock({ title, hint, stat }: { title: string; hint: string; stat: S
             {stat.samples.map((s, i) => (
               <span key={s.taskId}>
                 {i > 0 && ', '}
-                <Link to={`/scrum/tasks/${s.taskId}`} title={s.title}>
+                <Link to={`/tasks/${s.taskId}`} title={s.title}>
                   {duration(s.minutes)}
                 </Link>
               </span>
@@ -272,6 +328,6 @@ function StatBlock({ title, hint, stat }: { title: string; hint: string; stat: S
           </p>
         </>
       )}
-    </section>
+    </Card>
   );
 }

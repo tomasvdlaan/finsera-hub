@@ -137,7 +137,7 @@ export class BillingService {
         id,
         entityType: 'invoice',
         displayName: `Draft invoice — ${client.name}`,
-        urlPath: `/billing/invoices/${id}`,
+        urlPath: `/money/invoices/${id}`,
       });
 
       await tx.insert(invoices).values({
@@ -521,7 +521,7 @@ export class BillingService {
         id,
         entityType: 'invoice',
         displayName: `Draft credit note — ${client.name}`,
-        urlPath: `/billing/invoices/${id}`,
+        urlPath: `/money/invoices/${id}`,
       });
       await tx.insert(invoices).values({
         id,

@@ -1,4 +1,5 @@
 import type { WebModule } from '../types.js';
+import { salesWidgets } from './widgets.js';
 import { ContractChatCard } from './ContractChatCard.js';
 import { ContractDetail } from './ContractDetail.js';
 import { ContractList } from './ContractList.js';
@@ -10,12 +11,13 @@ import { RateCards } from './RateCards.js';
 export const salesWebModule: WebModule = {
   name: 'sales',
   routes: [
-    { path: '/sales', Component: QuoteList },
-    { path: '/sales/quotes/:id', Component: QuoteDetail },
+    { path: '/money/quotes', Component: QuoteList, width: 'wide' },
+    { path: '/money/quotes/:id', Component: QuoteDetail },
     // Before the :id route, or 'contracts' would be read as a quote id.
-    { path: '/sales/contracts', Component: ContractList },
-    { path: '/sales/contracts/:id', Component: ContractDetail },
-    { path: '/sales/rate-cards', Component: RateCards },
+    { path: '/money/contracts', Component: ContractList, width: 'wide' },
+    { path: '/money/contracts/:id', Component: ContractDetail },
+    { path: '/money/rate-cards', Component: RateCards, width: 'read' },
   ],
   chatWidgets: { quote: QuoteChatCard, contract: ContractChatCard },
+  widgets: salesWidgets
 };

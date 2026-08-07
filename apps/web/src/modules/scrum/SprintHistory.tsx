@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { PageHeader } from '../../shell/ui/layout.js';
+import { BoardTabs } from './BoardTabs.js';
+import { useSearchParams } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { Empty, Panel } from '../../shell/ui/primitives.js';
 import type { Project } from '../crm/types.js';
@@ -162,10 +164,7 @@ export function SprintHistory() {
 
   return (
     <>
-      <p>
-        <Link to={`/scrum?projectId=${projectId}`}>← Board</Link>
-      </p>
-      <h1>Sprints</h1>
+      <PageHeader title="Sprints" tabs={<BoardTabs projectId={projectId} />} />
 
       <div className="row">
         <select value={projectId} onChange={(e) => setProjectId(e.target.value)} aria-label="Project">

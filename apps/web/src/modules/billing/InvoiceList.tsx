@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { PageHeader } from '../../shell/ui/layout.js';
+import { SectionTabs } from '../../shell/useNav.js';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import type { Client, Project } from '../crm/types.js';
@@ -55,11 +57,11 @@ export function InvoiceList() {
 
   return (
     <>
-      <h1>Invoices</h1>
-      <p className="muted">
-        Drafts are free to edit and void. Issuing allocates the legal number and freezes the
-        invoice — corrections after that are credit notes.
-      </p>
+      <PageHeader
+        title="Invoices"
+        subtitle="Drafts are free to edit and void. Issuing allocates the legal number and freezes the invoice — corrections after that are credit notes."
+        tabs={<SectionTabs section="money" />}
+      />
 
       {open.length > 0 && (
         <p>
@@ -106,7 +108,7 @@ export function InvoiceList() {
         <ul className="cards">
           {invoices.map((invoice) => (
             <li key={invoice.id}>
-              <Link to={`/billing/invoices/${invoice.id}`}>
+              <Link to={`/money/invoices/${invoice.id}`}>
                 {invoice.number ??
                   (invoice.kind === 'credit_note' ? 'Draft credit note' : 'Draft invoice')}
               </Link>{' '}

@@ -18,7 +18,7 @@ export function ClientInvoicesWidget({ clientId }: { clientId: string }) {
   if (invoices.length === 0) {
     return (
       <p className="muted">
-        No invoices yet — <Link to="/billing">open invoices</Link>.
+        No invoices yet — <Link to="/money/invoices">open invoices</Link>.
       </p>
     );
   }
@@ -37,7 +37,7 @@ export function ClientInvoicesWidget({ clientId }: { clientId: string }) {
       <ul className="cards">
         {invoices.slice(0, 6).map((invoice) => (
           <li key={invoice.id}>
-            <Link to={`/billing/invoices/${invoice.id}`}>
+            <Link to={`/money/invoices/${invoice.id}`}>
               {invoice.number ?? 'Draft'}
             </Link>{' '}
             <Status value={invoice.status} />

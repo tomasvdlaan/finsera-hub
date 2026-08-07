@@ -1,4 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
+import { PageHeader } from '../../shell/ui/layout.js';
+import { EntityWidgets } from '../../shell/ui/EntityWidgets.js';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { Comments } from '../../shell/Comments.js';
@@ -6,11 +8,6 @@ import { useDialog } from '../../shell/ui/Dialog.js';
 import { useToast } from '../../shell/ui/Toast.js';
 import { Links } from '../../shell/Links.js';
 import { Timeline } from '../../shell/Timeline.js';
-import { ClientInvoicesWidget } from '../billing/ClientInvoicesWidget.js';
-import { ClientNotesWidget } from '../meetings/ClientNotesWidget.js';
-import { ClientContractsWidget } from '../sales/ClientContractsWidget.js';
-import { ClientQuotesWidget } from '../sales/ClientQuotesWidget.js';
-import { DocumentsWidget } from '../docs/DocumentsWidget.js';
 import { PortalUsers } from '../portal/PortalUsers.js';
 import { EditableField } from './EditableField.js';
 import type { EntityRef } from '@platform/contracts';
@@ -58,8 +55,8 @@ export function ClientDetail() {
     Promise.all([api.get<Client[]>('/crm/clients'), api.get<Project[]>('/crm/projects')])
       .then(([cs, ps]) =>
         setCandidates([
-          ...cs.map((c) => ref(c.id, 'client', c.name, `/crm/clients/${c.id}`)),
-          ...ps.map((p) => ref(p.id, 'project', p.name, `/crm/projects/${p.id}`)),
+          ...cs.map((c) => ref(c.id, 'client', c.name, `/clients/${c.id}`)),
+          ...ps.map((p) => ref(p.id, 'project', p.name, `/projects/${p.id}`)),
         ]),
       )
       .catch(() => setCandidates([]));
@@ -82,7 +79,7 @@ export function ClientDetail() {
     if (!go) return;
     await api.del(`/crm/clients/${id}`);
     toast.ok(`${client?.name ?? 'Client'} archived`);
-    navigate('/crm/clients');
+    navigate('/clients');
   };
 
   const setStatus = async (status: string) => {
@@ -115,15 +112,15 @@ export function ClientDetail() {
 
   return (
     <>
-      <p>
-        <Link to="/crm/clients">← Clients</Link>
-      </p>
-      <h1>{client.name}</h1>
+      <PageHeader
+        title={client.name}
+        back={{ to: "/crm/clients", label: 'Clients' }}
+      />
 
       <p className="muted">
         {/* Read-only, audited, and served by the same projection the portal uses — so what
             it shows is what this client actually gets, not an approximation of it. */}
-        <Link to={`/crm/clients/${client.id}/portal`}>View their client portal →</Link>
+        <Link to={`/clients/${client.id}/portal`}>View their client portal →</Link>
       </p>
 
       <div className="row">
@@ -218,31 +215,20 @@ export function ClientDetail() {
         </div>
       </section>
 
-      <section>
-        <h2>Meetings</h2>
-        <ClientNotesWidget clientId={id} />
-      </section>
+      {/*
+        Whatever the installed modules have to say about this client.
 
-      <section>
-        <h2>Contracts</h2>
-        <ClientContractsWidget clientId={id} />
-      </section>
-
-      <section>
-        <h2>Quotes</h2>
-        <ClientQuotesWidget clientId={id} />
-      </section>
-
-      <section>
-        <h2>Invoices</h2>
-        <ClientInvoicesWidget clientId={id} />
-      </section>
+        Five widget components used to be imported by name here, which meant CRM had to know
+        that billing, sales, docs and meetings exist — the exact coupling every manifest in
+        this codebase is arranged to avoid, sitting in one of the two pages people open most.
+      */}
+      <EntityWidgets entityId={id} entityType="client" />
 
       <section>
         <PortalUsers clientId={client.id} />
       </section>
 
-      <section>
+      <section data-span={6}>
         <h2>Contacts</h2>
         {contacts.length === 0 ? (
           <Empty>No contacts yet.</Empty>
@@ -278,7 +264,7 @@ export function ClientDetail() {
         </form>
       </section>
 
-      <section>
+      <section data-span={6}>
         <h2>Projects</h2>
         {projects.length === 0 ? (
           <Empty>No projects yet.</Empty>
@@ -286,7 +272,7 @@ export function ClientDetail() {
           <ul className="cards">
             {projects.map((p) => (
               <li key={p.id}>
-                <Link to={`/crm/projects/${p.id}`}>{p.name}</Link>{' '}
+                <Link to={`/projects/${p.id}`}>{p.name}</Link>{' '}
                 <span className="badge">{humanise(p.billingModel)}</span>{' '}
                 <span className="muted">
                   {humanise(p.status)}
@@ -300,21 +286,16 @@ export function ClientDetail() {
       </section>
 
       <section>
-        <h2>Documents</h2>
-        <DocumentsWidget clientId={id} />
-      </section>
-
-      <section>
         <h2>Discussion</h2>
         <Comments entityId={id} />
       </section>
 
-      <section>
+      <section data-span={6}>
         <h2>Links</h2>
         <Links entityId={id} candidates={candidates} onChange={() => setRefreshKey((k) => k + 1)} />
       </section>
 
-      <section>
+      <section data-span={6}>
         <h2>Timeline</h2>
         <p className="muted">
           Assembled by the core from registry entries, links, and events — including activity on

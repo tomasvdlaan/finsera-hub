@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { PageHeader } from '../../shell/ui/layout.js';
+import { BoardTabs } from './BoardTabs.js';
+import { useSearchParams } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { Button, Panel } from '../../shell/ui/primitives.js';
 import { useToast } from '../../shell/ui/Toast.js';
@@ -45,6 +47,11 @@ export function BoardSettings() {
   const [saved, setSaved] = useState<BoardColumn[]>([]);
   const [dod, setDod] = useState('');
   const [dor, setDor] = useState('');
+  /** What was last read from the server, so Save can tell an edit from a reload. */
+  const [savedDefinitions, setSavedDefinitions] = useState<{ done: string; ready: string }>({
+    done: '',
+    ready: '',
+  });
   const [counts, setCounts] = useState<Map<string, number>>(new Map());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -72,6 +79,10 @@ export function BoardSettings() {
       setColumns(board.columns.map((c) => ({ ...c, existing: true })));
       setDod(board.definitionOfDone ?? '');
       setDor(board.definitionOfReady ?? '');
+      setSavedDefinitions({
+        done: board.definitionOfDone ?? '',
+        ready: board.definitionOfReady ?? '',
+      });
       const tally = new Map<string, number>();
       for (const t of tasks) tally.set(t.status, (tally.get(t.status) ?? 0) + 1);
       setCounts(tally);
@@ -150,8 +161,10 @@ export function BoardSettings() {
   const dirty = useMemo(
     () =>
       JSON.stringify(saved) !==
-      JSON.stringify(columns.map(({ existing: _existing, ...c }) => c)),
-    [saved, columns],
+        JSON.stringify(columns.map(({ existing: _existing, ...c }) => c)) ||
+      dod !== (savedDefinitions.done ?? '') ||
+      dor !== (savedDefinitions.ready ?? ''),
+    [saved, columns, dod, dor, savedDefinitions],
   );
 
   const save = async () => {
@@ -197,10 +210,7 @@ export function BoardSettings() {
 
   return (
     <>
-      <p>
-        <Link to={`/scrum?projectId=${projectId}`}>← Board</Link>
-      </p>
-      <h1>Board settings</h1>
+      <PageHeader title="Board settings" tabs={<BoardTabs projectId={projectId} />} />
 
       <div className="row">
         <select value={projectId} onChange={(e) => setProjectId(e.target.value)} aria-label="Project">
@@ -352,6 +362,35 @@ export function BoardSettings() {
             ))}
           </ul>
         )}
+
+        {/*
+          What done and ready mean here, enforced by nothing.
+
+          A per-column checklist that gates a move is the workflow automation the charter rules
+          out, and at this size the checklist lives in somebody's head — which does not survive
+          them being on holiday and never gets read out at planning. These are copied into the
+          review and planning notes, which is the whole mechanism.
+        */}
+        <div className="definitions">
+          <label className="field">
+            Done means
+            <textarea
+              value={dod}
+              onChange={(e) => setDod(e.target.value)}
+              rows={3}
+              placeholder="Merged, deployed, and the hours are logged against it."
+            />
+          </label>
+          <label className="field">
+            Ready means
+            <textarea
+              value={dor}
+              onChange={(e) => setDor(e.target.value)}
+              rows={3}
+              placeholder="Estimated, and somebody could pick it up without asking a question."
+            />
+          </label>
+        </div>
 
         <div className="row">
           <Button

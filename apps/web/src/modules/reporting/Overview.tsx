@@ -1,4 +1,8 @@
 import { useEffect, useState } from 'react';
+import { Card, Figure } from '../../shell/ui/card.js';
+import { Rhythm } from '../../shell/ui/viz.js';
+import { PageHeader } from '../../shell/ui/layout.js';
+import { SectionTabs } from '../../shell/useNav.js';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { InsightRow, type Insight } from '../insights/Insights.js';
@@ -45,7 +49,14 @@ interface Overview {
   }>;
 }
 
-/** A number with its meaning, which is the whole point of a dashboard. */
+/**
+ * This page's shorthand for the shared tile.
+ *
+ * There were two `Stat` components with incompatible props — one in `shell/ui`, and this one
+ * declared privately here with inline `fontSize` styles. One of them had to go, and the
+ * difference is only that this page passes a link as a string while the shared tile takes a
+ * rendered node, because a component in `shell/ui` must not know about the router.
+ */
 function Stat({
   label,
   value,
@@ -59,20 +70,19 @@ function Stat({
   urgent?: boolean;
   to?: string;
 }) {
-  const body = (
-    <>
-      <div className="muted" style={{ fontSize: '0.85rem' }}>
-        {label}
-      </div>
-      <div className={`stat-value${urgent ? ' urgent' : ''}`}>{value}</div>
-      {hint && (
-        <div className="muted" style={{ fontSize: '0.8rem' }}>
-          {hint}
-        </div>
-      )}
-    </>
+  /*
+   * A nested card, because these sit inside a section that is already one.
+   *
+   * The alternative was lifting all eight onto the page grid, which reads as eight unrelated
+   * figures — and they are not: four of them are money and four are delivery, and the grouping
+   * is the point. A card inside a card takes the sunken fill so the nesting is visible without
+   * a second border.
+   */
+  return (
+    <Card tone={urgent ? 'danger' : undefined} to={to}>
+      <Figure label={label} value={value} note={hint} />
+    </Card>
   );
-  return <div className="stat">{to ? <Link to={to}>{body}</Link> : body}</div>;
 }
 
 interface InsightSummary {
@@ -106,14 +116,14 @@ export function Overview() {
 
   return (
     <>
-      <h1>Overview</h1>
-      <p className="muted">
-        Every number here is read from what the modules publish — nothing is recalculated,
-        so this cannot disagree with the invoice or timesheet behind it.
-      </p>
+      <PageHeader
+        title="Overview"
+        subtitle="Every number here is read from what the modules publish — nothing is recalculated, so this cannot disagree with the invoice or timesheet behind it."
+        tabs={<SectionTabs section="money" />}
+      />
 
       {insights && insights.total > 0 && (
-        <section>
+        <section data-span={12}>
           <h2>
             Needs attention{' '}
             <span className="badge">{insights.total}</span>
@@ -131,7 +141,7 @@ export function Overview() {
         </section>
       )}
 
-      <section>
+      <section data-span={6}>
         <h2>Money</h2>
         <div className="stats">
           <Stat
@@ -149,20 +159,31 @@ export function Overview() {
                 : 'none overdue'
             }
             urgent={outstanding.overdueCents > 0}
-            to="/billing"
+            to="/money/invoices"
           />
           <Stat
             label="Not yet invoiced"
             value={money(unbilled.totalValueCents)}
             hint={`${hours(unbilled.totalMinutes)} of billable work in hand`}
-            to="/billing"
+            to="/money/invoices"
           />
         </div>
       </section>
 
       {revenueYear.byMonth.length > 0 && (
-        <section>
+        <section data-span={12}>
           <h2>Revenue by month</h2>
+          {/*
+            The shape first, the figures under it.
+
+            The table already drew an inline bar per row, which works but reads a month at a
+            time — you cannot see a year's arc in a column of widths. One chart above the same
+            numbers costs nothing and answers "is this a good year" before you read a row.
+          */}
+          <Rhythm
+            days={revenueYear.byMonth.map((m) => ({ date: m.month, value: m.exVatCents }))}
+            height={120}
+          />
           <div className="grid-scroll">
             <table className="grid">
               <thead>
@@ -192,7 +213,7 @@ export function Overview() {
         </section>
       )}
 
-      <section>
+      <section data-span={6}>
         <h2>Delivery</h2>
         <div className="stats">
           <Stat
@@ -213,7 +234,7 @@ export function Overview() {
             label="Quotes out"
             value={money(pipeline.outstandingValueCents)}
             hint={`${pipeline.byStatus.sent?.count ?? 0} awaiting a decision`}
-            to="/sales"
+            to="/money/quotes"
           />
           <Stat
             label="Won"
@@ -228,12 +249,12 @@ export function Overview() {
       </section>
 
       {unbilled.byProject.length > 0 && (
-        <section>
+        <section data-span={6}>
           <h2>Work in hand</h2>
           <ul className="cards">
             {unbilled.byProject.map((p) => (
               <li key={p.projectId}>
-                <Link to={`/crm/projects/${p.projectId}`}>{p.projectName}</Link>{' '}
+                <Link to={`/projects/${p.projectId}`}>{p.projectName}</Link>{' '}
                 <span className="muted">
                   {p.clientName ?? '—'} · {hours(p.minutes)} · {money(p.valueCents)}
                 </span>
@@ -244,12 +265,12 @@ export function Overview() {
       )}
 
       {renewals.length > 0 && (
-        <section>
+        <section data-span={6}>
           <h2>Contracts needing attention</h2>
           <ul className="cards">
             {renewals.map((c) => (
               <li key={c.id}>
-                <Link to={`/sales/contracts/${c.id}`}>{c.title}</Link>{' '}
+                <Link to={`/money/contracts/${c.id}`}>{c.title}</Link>{' '}
                 <span className="badge">{c.daysUntilEnd} days</span>
                 <span className="muted">
                   {c.clientName ?? '—'} · ends {c.endsOn}

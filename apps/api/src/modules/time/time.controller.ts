@@ -38,6 +38,37 @@ export class TimeController {
     return this.time.getRecent(actor, { from, to });
   }
 
+  /* ── Timesheet approval ────────────────────────────────────────────────── */
+
+  /** Weeks waiting on a decision. Requires `time.approve`, so it is the approver's list. */
+  @Get('approvals')
+  approvals(@CurrentActor() actor: Actor) {
+    return this.time.pendingWeeks(actor);
+  }
+
+  /** One week's state — mine by default, somebody else's with the right capability. */
+  @Get('timesheet')
+  timesheet(
+    @CurrentActor() actor: Actor,
+    @Query('weekOf') weekOf?: string,
+    @Query('personId') personId?: string,
+  ) {
+    return this.time.timesheet(actor, { weekOf, personId });
+  }
+
+  @Post('timesheet/submit')
+  submitWeek(@CurrentActor() actor: Actor, @Body() body: { weekOf?: string }) {
+    return this.time.submitWeek(actor, body?.weekOf);
+  }
+
+  @Post('timesheet/decide')
+  decideWeek(
+    @CurrentActor() actor: Actor,
+    @Body() body: { personId: string; weekOf: string; approve: boolean; note?: string },
+  ) {
+    return this.time.decideWeek(actor, body);
+  }
+
   @Get('running')
   running(@CurrentActor() actor: Actor) {
     return this.time.getRunning(actor);

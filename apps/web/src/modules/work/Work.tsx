@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { PageHeader } from '../../shell/ui/layout.js';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { useDocumentTitle } from '../../shell/useDocumentTitle.js';
@@ -86,11 +87,10 @@ export function Work() {
 
   return (
     <>
-      <h1>Work</h1>
-      <p className="muted">
-        Every open card across all projects. Drag within a project on its own board — this is
-        for seeing the whole plate at once.
-      </p>
+      <PageHeader
+        title="Work"
+        subtitle="Every open card across all projects. Drag within a project on its own board — this is for seeing the whole plate at once."
+      />
 
       <div className="row">
         <select value={projectFilter} onChange={(e) => setProjectFilter(e.target.value)}>
@@ -125,7 +125,7 @@ export function Work() {
                   {label} <span className="muted">{cards.length}</span>
                 </div>
                 {cards.map((t) => (
-                  <Link key={t.id} to={`/scrum/tasks/${t.id}`} className="work-card">
+                  <Link key={t.id} to={`/tasks/${t.id}`} className="work-card">
                     <div>{t.title}</div>
                     {/* The reason a card is not moving outranks everything else about it. */}
                     {t.blockedReason && (

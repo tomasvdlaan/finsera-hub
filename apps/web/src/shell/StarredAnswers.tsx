@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { PageHeader } from './ui/layout.js';
 import { Link } from 'react-router-dom';
 import { api } from '../lib/api.js';
 import { Empty } from './ui/primitives.js';
@@ -41,7 +42,7 @@ export function StarredAnswers() {
       <p>
         <Link to="/assistant">← Assistant</Link>
       </p>
-      <h1>Saved answers</h1>
+      <PageHeader title="Saved answers" />
       {error && <p className="error">{error}</p>}
 
       {answers === undefined ? (

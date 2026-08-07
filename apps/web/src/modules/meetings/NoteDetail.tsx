@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { PageHeader } from '../../shell/ui/layout.js';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { Comments } from '../../shell/Comments.js';
@@ -126,16 +127,17 @@ export function NoteDetail() {
 
   return (
     <>
-      <p>
-        <Link to="/meetings">← Meetings</Link>
-        {client && (
+      <PageHeader
+        title={note.title}
+        back={{ to: "/meetings", label: 'Meetings' }}
+        meta={
           <>
-            {' · '}
-            <Link to={`/crm/clients/${client.id}`}>{client.name}</Link>
+          {client && (
+            <Link to={`/clients/${client.id}`}>{client.name}</Link>
+          )}
           </>
-        )}
-      </p>
-      <h1>{note.title}</h1>
+        }
+      />
 
       <div className="row">
         <Status value={note.status} />
@@ -196,7 +198,7 @@ export function NoteDetail() {
         </section>
       )}
 
-      <section>
+      <section data-span={6}>
         <h2>Agenda</h2>
         {note.agenda.length === 0 ? (
           <Empty>No agenda.</Empty>
@@ -356,10 +358,7 @@ export function NoteDetail() {
               <li key={item.id} className="muted">
                 <Status value={item.status} /> {item.text}
                 {item.taskId && (
-                  <>
-                    {' · '}
-                    <Link to={`/scrum/tasks/${item.taskId}`}>open the task</Link>
-                  </>
+                  <Link to={`/tasks/${item.taskId}`}>open the task</Link>
                 )}
               </li>
             ))}
@@ -402,7 +401,7 @@ export function NoteDetail() {
         </div>
       </section>
 
-      <section>
+      <section data-span={6}>
         <h2>Attendees</h2>
         {note.unconsentedPresent.length > 0 && (
           <p className="error">
@@ -486,7 +485,7 @@ export function NoteDetail() {
         <Comments entityId={id} />
       </section>
 
-      <section>
+      <section data-span={6}>
         <h2>Timeline</h2>
         <Timeline entityId={id} />
       </section>

@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
+import { PageHeader } from '../../shell/ui/layout.js';
+import { Card } from '../../shell/ui/card.js';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 
@@ -21,17 +23,17 @@ export function subjectPath(insight: Insight): string | null {
   if (!insight.subjectId) return null;
   switch (insight.subjectType) {
     case 'invoice':
-      return `/billing/invoices/${insight.subjectId}`;
+      return `/money/invoices/${insight.subjectId}`;
     case 'quote':
-      return `/sales/quotes/${insight.subjectId}`;
+      return `/money/quotes/${insight.subjectId}`;
     case 'contract':
-      return `/sales/contracts/${insight.subjectId}`;
+      return `/money/contracts/${insight.subjectId}`;
     case 'project':
-      return `/crm/projects/${insight.subjectId}`;
+      return `/projects/${insight.subjectId}`;
     case 'task':
-      return `/scrum/tasks/${insight.subjectId}`;
+      return `/tasks/${insight.subjectId}`;
     case 'sprint':
-      return `/scrum/sprints/${insight.subjectId}`;
+      return `/board/sprints/${insight.subjectId}`;
     default:
       return null;
   }
@@ -70,11 +72,37 @@ export function InsightRow({
   );
 }
 
+interface Request {
+  id: string;
+  subject: string;
+  client_name: string;
+  client_id: string;
+}
+
+interface Blocked {
+  id: string;
+  title: string;
+  blockedReason: string | null;
+  daysInColumn: number;
+}
+
+/**
+ * One queue for everything that wants a person.
+ *
+ * There were three, and the split was by which module happened to raise the item rather than
+ * by anything the reader cares about: insights on /insights, client requests on
+ * /portal/requests, and work blocked on you nowhere at all — `blocked_on_user_id` had been
+ * written since blockers were built and no screen had ever read it.
+ *
+ * Three inboxes is none. The question is "what wants me", and it does not have a module.
+ */
 export function Insights() {
   const [insights, setInsights] = useState<Insight[]>([]);
   const [status, setStatus] = useState<'open' | 'dismissed' | 'resolved'>('open');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [requests, setRequests] = useState<Request[]>([]);
+  const [blocked, setBlocked] = useState<Blocked[]>([]);
 
   const load = useCallback(
     () =>
@@ -88,6 +116,20 @@ export function Insights() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  /*
+   * Loaded independently, and failing quietly.
+   *
+   * Three sources behind one page: with Promise.all a portal outage empties the whole inbox,
+   * including the insights that have nothing to do with it.
+   */
+  useEffect(() => {
+    api.get<Request[]>('/portal-preview/requests').then(setRequests).catch(() => setRequests([]));
+    api
+      .get<Blocked[]>('/scrum/tasks?blockedOnUserId=me')
+      .then(setBlocked)
+      .catch(() => setBlocked([]));
+  }, []);
 
   const act = async (fn: () => Promise<unknown>) => {
     setBusy(true);
@@ -104,12 +146,53 @@ export function Insights() {
 
   return (
     <>
-      <h1>Insights</h1>
-      <p className="muted">
-        Things worth a look. Nothing here has been acted on — no message was sent and no
-        record changed. An insight whose cause goes away disappears on its own; dismissing
-        one keeps it hidden for as long as it stays true.
-      </p>
+      <PageHeader
+        title="Inbox"
+        subtitle="Everything waiting on you, from wherever it came. Nothing here has been acted on — no message was sent and no record changed. An item whose cause goes away disappears on its own; dismissing one keeps it hidden for as long as it stays true."
+      />
+
+      {/*
+        Blocked work first.
+
+        These are the only items in the inbox where somebody else has stopped and named you as
+        the reason. An insight can wait a day; a colleague cannot.
+      */}
+      {blocked.length > 0 && (
+        <Card
+          span={12}
+          tone="danger"
+          title={`${blocked.length} ${blocked.length === 1 ? 'card is' : 'cards are'} blocked on you`}
+          sub="Someone stopped and put your name on it."
+        >
+          <ul>
+            {blocked.map((t) => (
+              <li key={t.id}>
+                <Link to={`/tasks/${t.id}`}>{t.title}</Link>
+                {t.blockedReason && <span className="muted"> — {t.blockedReason}</span>}
+                <span className="muted"> · {t.daysInColumn}d</span>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+
+      {requests.length > 0 && (
+        <Card
+          span={12}
+          title={`${requests.length} client ${requests.length === 1 ? 'request' : 'requests'}`}
+          sub="Written by someone outside the business. Deciding what it becomes is why it is not a card already."
+          to="/portal/requests"
+        >
+          <ul>
+            {requests.map((r) => (
+              <li key={r.id}>
+                <Link to="/portal/requests">{r.subject}</Link>
+                <span className="muted"> — {r.client_name}</span>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
 
       <div className="row">
         {(['open', 'dismissed', 'resolved'] as const).map((s) => (

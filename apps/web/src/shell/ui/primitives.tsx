@@ -166,32 +166,13 @@ export function Field({
  * A zero is styled down deliberately — nothing overdue is good news, and the point of a number
  * on a dashboard is that its value changes how it looks.
  */
-export function Stat({
-  label,
-  value,
-  tone,
-  to,
-}: {
-  label: string;
-  value: string | number;
-  tone?: 'urgent';
-  /** Rendered by the caller, so this stays free of the router. */
-  to?: ReactNode;
-}) {
-  const zero = value === 0 || value === '0';
-  const classes = ['stat-value', tone === 'urgent' && !zero ? 'urgent' : '', zero ? 'is-zero' : '']
-    .filter(Boolean)
-    .join(' ');
-
-  const body = (
-    <>
-      <div className="stat-label">{label}</div>
-      <div className={classes}>{value}</div>
-    </>
-  );
-  return <div className="stat">{to ?? body}</div>;
-}
-
+/*
+ * `Stat` moved to `./data.tsx`, beside the table.
+ *
+ * There were three of these: this one, a second declared privately inside the reporting page
+ * with inline font sizes, and a third inside the modules page. This one was imported by
+ * nobody, which is how a component ends up with two rivals.
+ */
 /**
  * Nothing here yet, said well.
  *

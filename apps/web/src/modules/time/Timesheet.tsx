@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { PageHeader, SubNav } from '../../shell/ui/layout.js';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import {
@@ -32,6 +33,12 @@ interface Week {
  * cannot be edited as a single number. This screen answers "where did the week go, and
  * where are the gaps"; editing happens in the day view, one click from any cell.
  */
+/** The clock and the week it adds up to. Two readings of the same hours. */
+const CLOCK = [
+  { label: 'Tracker', to: '/time' },
+  { label: 'This week', to: '/time/week' },
+];
+
 export function Timesheet() {
   const [week, setWeek] = useState<Week | null>(null);
   const [weekOf, setWeekOf] = useState<string | undefined>();
@@ -60,13 +67,12 @@ export function Timesheet() {
 
   return (
     <>
-      <p>
-        <Link to="/time">← Back to day view</Link>
-      </p>
-      <h1>Week of {week.weekOf}</h1>
-      <p className="muted">
-        Read-only overview. Click any day to open it and edit the entries behind it.
-      </p>
+      <PageHeader
+        title={`Week of ${week.weekOf}`}
+        subtitle="Read-only overview. Click any day to open it and edit the entries behind it."
+        tabs={<SubNav items={CLOCK} />}
+        back={{ to: '/time', label: 'Back to day view' }}
+      />
 
       <div className="row">
         <button onClick={() => setWeekOf(shiftWeek(week.weekOf, -1))}>← Previous</button>
@@ -98,7 +104,7 @@ export function Timesheet() {
             {week.rows.map((row) => (
               <tr key={row.id}>
                 <th scope="row">
-                  <Link to={`/crm/projects/${row.id}`}>{row.name}</Link>
+                  <Link to={`/projects/${row.id}`}>{row.name}</Link>
                   {row.clientName && <div className="muted">{row.clientName}</div>}
                 </th>
                 {week.days.map((day, i) => (

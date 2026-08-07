@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { PageHeader } from '../../shell/ui/layout.js';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { useDialog } from '../../shell/ui/Dialog.js';
@@ -88,23 +89,24 @@ export function InvoiceDetail() {
 
   return (
     <>
-      <p>
-        <Link to="/billing">← Invoices</Link>
-        {client && (
+      <PageHeader
+        title={title}
+        back={{ to: "/billing", label: 'Invoices' }}
+        meta={
           <>
-            {' · '}
-            <Link to={`/crm/clients/${client.id}`}>{client.name}</Link>
+          {client && (
+            <Link to={`/clients/${client.id}`}>{client.name}</Link>
+          )}
           </>
-        )}
-      </p>
-      <h1>{title}</h1>
+        }
+      />
 
       <div className="row">
         <Status value={invoice.status} />
         {invoice.overdue && <span className="badge priority-urgent">overdue</span>}
         <span className="badge">{VAT_LABELS[invoice.vatTreatment]}</span>
         {invoice.creditsInvoiceId && (
-          <Link to={`/billing/invoices/${invoice.creditsInvoiceId}`}>credits an invoice</Link>
+          <Link to={`/money/invoices/${invoice.creditsInvoiceId}`}>credits an invoice</Link>
         )}
       </div>
 
@@ -127,7 +129,7 @@ export function InvoiceDetail() {
                   if (!go) return;
                   await api.del(`/billing/invoices/${id}`);
                   toast.ok('Draft voided — its hours are billable again');
-                  navigate('/billing');
+                  navigate('/money/invoices');
                 })
               }
             >
@@ -148,7 +150,7 @@ export function InvoiceDetail() {
                     `/billing/invoices/${id}/credit-note`,
                     {},
                   );
-                  navigate(`/billing/invoices/${credit.id}`);
+                  navigate(`/money/invoices/${credit.id}`);
                 })
               }
             >
@@ -225,7 +227,7 @@ export function InvoiceDetail() {
         )}
       </section>
 
-      <section>
+      <section data-span={6}>
         <h2>Timeline</h2>
         <Timeline entityId={id} />
       </section>

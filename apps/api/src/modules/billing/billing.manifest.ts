@@ -5,7 +5,7 @@ export const billingManifest = defineManifest({
   name: 'billing',
   version: '0.1.0',
 
-  entities: [{ type: 'invoice', displayTemplate: '{number}', urlPattern: '/billing/invoices/:id', readPermission: 'billing.read' }],
+  entities: [{ type: 'invoice', displayTemplate: '{number}', urlPattern: '/money/invoices/:id', readPermission: 'billing.read' }],
 
   structuralRefs: [
     { from: 'invoice', toType: 'client', required: true },
@@ -25,7 +25,7 @@ export const billingManifest = defineManifest({
     { capability: 'billing.issue', description: 'Issue an invoice — allocate its legal number.' },
   ],
 
-  navigation: [{ label: 'Invoices', path: '/billing', icon: 'receipt', section: 'money', order: 1, hidden: true }],
+  navigation: [{ label: 'Invoices', path: '/money/invoices', icon: 'receipt', section: 'money', order: 1, hidden: true }],
   widgets: [{ slot: 'entity-page', component: 'billing:client-invoices' }],
   chatWidgets: [{ entityType: 'invoice', component: 'billing:invoice-card' }],
 

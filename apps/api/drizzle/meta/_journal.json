@@ -267,6 +267,34 @@
       "when": 1786016382330,
       "tag": "0037_sprint_capacity",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1786016382331,
+      "tag": "0038_repair_dead_urls",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1786016382332,
+      "tag": "0039_rename_urls",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1786016382333,
+      "tag": "0040_dashboards",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1786016382334,
+      "tag": "0041_timesheets",
+      "breakpoints": true
     }
   ]
 }

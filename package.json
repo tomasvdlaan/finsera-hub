@@ -2,7 +2,7 @@
   "name": "finsera-platform",
   "private": true,
   "version": "0.0.1",
-  "description": "Finsera internal business platform — modular monolith (see docs/)",
+  "description": "Finsera internal business platform \u2014 modular monolith (see docs/)",
   "packageManager": "pnpm@11.17.0",
   "engines": {
     "node": ">=22"
@@ -14,7 +14,9 @@
     "typecheck": "turbo typecheck",
     "test": "turbo test",
     "boundaries": "pnpm --filter @platform/api boundaries",
-    "verify": "turbo lint typecheck build test && pnpm boundaries"
+    "verify": "turbo lint typecheck build test && pnpm boundaries && pnpm routes && pnpm widgets",
+    "routes": "node scripts/check-routes.mjs",
+    "widgets": "node scripts/check-widgets.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

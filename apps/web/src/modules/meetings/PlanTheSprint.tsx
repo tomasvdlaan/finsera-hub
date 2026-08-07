@@ -190,7 +190,7 @@ export function PlanTheSprint({
 export function SprintLine({ sprint }: { sprint: Sprint }) {
   return (
     <p>
-      <Link to={`/scrum/sprints/${sprint.id}`}>{sprint.name}</Link>
+      <Link to={`/board/sprints/${sprint.id}`}>{sprint.name}</Link>
       {sprint.goal && <span className="muted"> — {sprint.goal}</span>}
     </p>
   );

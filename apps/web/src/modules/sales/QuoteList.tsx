@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { PageHeader } from '../../shell/ui/layout.js';
+import { SectionTabs } from '../../shell/useNav.js';
 import { Link } from 'react-router-dom';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../lib/api.js';
@@ -55,7 +57,7 @@ export function QuoteList() {
         // One placeholder line so the quote is valid from the start; it is meant to be edited.
         lines: [{ description: title.trim(), quantity: '1.00', unitPriceCents: 3_500 }],
       });
-      navigate(`/sales/quotes/${quote.id}`);
+      navigate(`/money/quotes/${quote.id}`);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -68,11 +70,11 @@ export function QuoteList() {
 
   return (
     <>
-      <h1>Quotes</h1>
-      <p className="muted">
-        Drafts are free to change. Sending numbers the quote and freezes it, so the version a
-        client agreed to stays exactly as they read it — changes after that are a revision.
-      </p>
+      <PageHeader
+        title="Quotes"
+        subtitle="Drafts are free to change. Sending numbers the quote and freezes it, so the version a client agreed to stays exactly as they read it — changes after that are a revision."
+        tabs={<SectionTabs section="money" />}
+      />
 
       {open.length > 0 && (
         <p>
@@ -128,7 +130,7 @@ export function QuoteList() {
         <ul className="cards">
           {quotes.map((quote) => (
             <li key={quote.id}>
-              <Link to={`/sales/quotes/${quote.id}`}>{quote.number ?? 'Draft'}</Link>{' '}
+              <Link to={`/money/quotes/${quote.id}`}>{quote.number ?? 'Draft'}</Link>{' '}
               <Status value={quote.status} />
               {quote.expired && <span className="badge priority-urgent">expired</span>}
               {quote.version > 1 && <span className="badge">v{quote.version}</span>}{' '}

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { PageHeader } from '../../shell/ui/layout.js';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { useDocumentTitle } from '../../shell/useDocumentTitle.js';
@@ -228,12 +229,12 @@ export function NoteList() {
 
   return (
     <>
-      <h1>Meetings</h1>
+      <PageHeader title="Meetings" />
       {error && <p className="error">{error}</p>}
 
       {/* Something is being recorded. Nothing else on this page matters as much. */}
       {active.length > 0 && (
-        <section>
+        <section data-span={12}>
           <h2>Happening now</h2>
           {active.map((s) => (
             <div className="statusbar statusbar-live" key={s.noteId}>
@@ -249,7 +250,7 @@ export function NoteList() {
         </section>
       )}
 
-      <section>
+      <section data-span={5}>
         <h2>Start</h2>
         {/*
           One control rather than a branch.
@@ -320,7 +321,7 @@ export function NoteList() {
             <tbody>
               {openActions.map((a) => (
                 <tr key={a.id}>
-                  <td style={{ width: '1%', whiteSpace: 'nowrap' }} className="muted">
+                  <td data-align="action" className="muted">
                     {dayLabel(a.meetingDate)}
                   </td>
                   <td>
@@ -328,7 +329,7 @@ export function NoteList() {
                     <Link to={`/meetings/${a.noteId}`}>{a.text}</Link>
                     <div className="muted">{a.noteTitle}</div>
                   </td>
-                  <td style={{ width: '1%', whiteSpace: 'nowrap' }}>
+                  <td data-align="action">
                     {a.dueOn && (
                       <span className={a.dueOn < today ? 'tag overdue' : 'tag'}>{a.dueOn}</span>
                     )}
@@ -341,7 +342,7 @@ export function NoteList() {
       </section>
 
       {todays.length > 0 && (
-        <section>
+        <section data-span={7}>
           <h2>Today</h2>
           <ul className="cards">
             {todays.map((n) => (
@@ -361,7 +362,7 @@ export function NoteList() {
         </section>
       )}
 
-      <section>
+      <section data-span={7}>
         <h2>Recent</h2>
         {recent.length === 0 ? (
           <Empty>No earlier meetings.</Empty>
@@ -370,14 +371,14 @@ export function NoteList() {
             <tbody>
               {recent.map((n) => (
                 <tr key={n.id}>
-                  <td style={{ width: '1%', whiteSpace: 'nowrap' }} className="muted">
+                  <td data-align="action" className="muted">
                     {n.meetingDate}
                   </td>
                   <td>
                     <Link to={`/meetings/${n.id}`}>{n.title}</Link>
                     {n.clientId && <span className="muted"> · {clientName[n.clientId]}</span>}
                   </td>
-                  <td style={{ width: '1%', whiteSpace: 'nowrap' }}>
+                  <td data-align="action">
                     {n.transcribedAt && <span className="tag">recorded</span>}
                   </td>
                 </tr>
@@ -387,7 +388,7 @@ export function NoteList() {
         )}
       </section>
 
-      <section>
+      <section data-span={5}>
         <h2>Look something up</h2>
         <form onSubmit={(e) => void search(e)}>
           <div className="row">
@@ -420,7 +421,7 @@ export function NoteList() {
         )}
       </section>
 
-      <section>
+      <section data-span={5}>
         <h2>Something else</h2>
         <form onSubmit={(e) => void createConversation(e)}>
           <div className="row">

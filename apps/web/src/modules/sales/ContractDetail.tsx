@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { PageHeader } from '../../shell/ui/layout.js';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { useDialog } from '../../shell/ui/Dialog.js';
@@ -57,16 +58,17 @@ export function ContractDetail() {
 
   return (
     <>
-      <p>
-        <Link to="/sales/contracts">← Contracts</Link>
-        {client && (
+      <PageHeader
+        title={contract.title}
+        back={{ to: "/sales/contracts", label: 'Contracts' }}
+        meta={
           <>
-            {' · '}
-            <Link to={`/crm/clients/${client.id}`}>{client.name}</Link>
+          {client && (
+            <Link to={`/clients/${client.id}`}>{client.name}</Link>
+          )}
           </>
-        )}
-      </p>
-      <h1>{contract.title}</h1>
+        }
+      />
 
       <div className="row">
         <span className="badge">{TYPE_LABELS[contract.type]}</span>
@@ -106,7 +108,7 @@ export function ContractDetail() {
               onClick={() =>
                 void act(async () => {
                   await api.del(`/sales/contracts/${id}`);
-                  navigate('/sales/contracts');
+                  navigate('/money/contracts');
                 })
               }
             >
@@ -283,7 +285,7 @@ export function ContractDetail() {
         )}
       </section>
 
-      <section>
+      <section data-span={6}>
         <h2>Timeline</h2>
         <Timeline entityId={id} />
       </section>

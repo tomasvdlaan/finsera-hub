@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { PageHeader } from '../../shell/ui/layout.js';
+import { BoardTabs } from './BoardTabs.js';
+import { useSearchParams } from 'react-router-dom';
 import {
   DndContext,
   DragOverlay,
@@ -619,42 +621,31 @@ export function Board() {
   if (projects.length === 0) {
     return (
       <>
-        <h1>Board</h1>
-        <p className="muted">Create a project first — a board belongs to one.</p>
+        <PageHeader title="Board" subtitle="Create a project first — a board belongs to one." />
       </>
     );
   }
 
   return (
     <>
-      <h1>Board</h1>
-
-      <div className="row">
-        <select
-          value={projectId}
-          onChange={(e) => setProjectId(e.target.value)}
-          aria-label="Project"
-        >
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
-        <span className="muted">
-          {shown.filter((t) => !t.completedAt).length} open of {shown.length}
-        </span>
-        {/* Pushed to the far end: you configure a board rarely and read it constantly. */}
-        <Link to={`/scrum/flow?projectId=${projectId}`} className="muted board-settings-link">
-          Flow
-        </Link>
-        <Link to={`/scrum/sprints?projectId=${projectId}`} className="muted">
-          Sprints
-        </Link>
-        <Link to={`/scrum/settings?projectId=${projectId}`} className="muted">
-          Columns
-        </Link>
-      </div>
+      <PageHeader
+        title="Board"
+        subtitle={`${shown.filter((t) => !t.completedAt).length} open of ${shown.length}`}
+        tabs={<BoardTabs projectId={projectId} />}
+        actions={
+          <select
+            value={projectId}
+            onChange={(e) => setProjectId(e.target.value)}
+            aria-label="Project"
+          >
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        }
+      />
 
       <SprintBar projectId={projectId} active={sprint} planned={planned} onChange={load} />
 

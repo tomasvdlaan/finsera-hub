@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { PageHeader } from '../../shell/ui/layout.js';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import type { Client, Project } from '../crm/types.js';
@@ -52,11 +53,10 @@ export function DocumentList() {
 
   return (
     <>
-      <h1>Documents</h1>
-      <p className="muted">
-        Every upload creates a version — nothing is overwritten. Readable formats are indexed
-        for search; others are stored and downloadable.
-      </p>
+      <PageHeader
+        title="Documents"
+        subtitle="Every upload creates a version — nothing is overwritten. Readable formats are indexed for search; others are stored and downloadable."
+      />
 
       <div className="row">
         <input
@@ -112,7 +112,7 @@ export function DocumentList() {
         </section>
       )}
 
-      <section>
+      <section data-span={8}>
         <h2>All documents</h2>
         {documents.length === 0 ? (
           <Empty>Nothing uploaded yet.</Empty>
@@ -143,7 +143,7 @@ export function DocumentList() {
         )}
       </section>
 
-      <section>
+      <section data-span={4}>
         <h2>Upload</h2>
         <UploadForm clients={clients} projects={projects} onDone={load} />
       </section>
