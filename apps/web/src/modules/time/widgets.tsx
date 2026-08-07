@@ -2,6 +2,10 @@ import { Card, Figure } from '../../shell/ui/card.js';
 import { Skeleton } from '../../shell/ui/data.js';
 import { Rhythm, Meter, Heatmap, Bullet, Split, Legend, type Slice } from '../../shell/ui/viz.js';
 import { useShared } from '../../lib/useShared.js';
+import { useState } from 'react';
+import { api } from '../../lib/api.js';
+import { Act, ActRow } from '../../shell/ui/act.js';
+import { elapsed, useRunningTimer } from '../../shell/useRunningTimer.js';
 import { Empty } from '../../shell/ui/primitives.js';
 import type { SettingDef, WidgetDef } from '../types.js';
 
@@ -288,6 +292,208 @@ export const timeWidgets: Record<string, WidgetDef> = {
             <Empty>Nobody has logged an hour in the last fortnight.</Empty>
           ) : (
             <Bullet rows={rows} format={hours} />
+          )}
+        </Card>
+      );
+    },
+  },
+
+  /* ── Compound cards, with actions that reach a real endpoint ──────────── */
+
+  'time:timer': {
+    title: 'Timer',
+    description: 'The running clock, what it is against, and stop or switch without leaving the page.',
+    slot: 'dashboard',
+    defaultSpan: 4,
+    minSpan: 3,
+    permission: 'time.write',
+    Component: () => {
+      const { running, busy, stop, start } = useRunningTimer();
+      const projects = useShared<Array<{ id: string; name: string }>>('/crm/projects');
+      const [picking, setPicking] = useState(false);
+
+      /*
+       * Idle is a state with an action in it, not an empty card.
+       *
+       * A timer widget that shows nothing when nothing is running is a widget you cannot start
+       * a timer from, which is most of what a timer widget is for — and for a business that
+       * bills by the hour the gap between starting work and remembering to start the clock is
+       * where the money goes.
+       */
+      if (!running) {
+        return (
+          <Card title="Timer">
+            <div className="card-clock" style={{ color: 'var(--faint)' }}>0:00:00</div>
+            <div className="card-meta" style={{ marginTop: 'var(--space-2)' }}>Nothing running</div>
+            {picking ? (
+              <div className="card-foot">
+                <select
+                  aria-label="Project"
+                  defaultValue=""
+                  onChange={(e) => {
+                    if (e.target.value) void start({ projectId: e.target.value });
+                    setPicking(false);
+                  }}
+                >
+                  <option value="">Pick a project…</option>
+                  {(projects.data ?? []).map((p) => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+              </div>
+            ) : (
+              <div className="card-foot">
+                <Act variant="primary" run={async () => setPicking(true)}>Start a timer</Act>
+              </div>
+            )}
+          </Card>
+        );
+      }
+
+      return (
+        <Card title="Timer" live>
+          <div className="card-clock">{elapsed(running.startedAt)}</div>
+          <div style={{ marginTop: 'var(--space-2)', fontSize: 'var(--text-sm)' }}>
+            {running.description || running.projectName}
+          </div>
+          <div className="card-meta" style={{ marginTop: '3px' }}>
+            {running.projectName}
+            {running.taskId ? ' · against a card' : ' · no card'}
+          </div>
+          <div className="card-foot">
+            <Act variant="primary" run={stop}>Stop</Act>
+            <Act run={async () => setPicking(true)} variant="quiet">Switch</Act>
+          </div>
+          {picking && (
+            <div className="card-foot" style={{ borderTop: 0, paddingTop: 'var(--space-2)' }}>
+              <select
+                aria-label="Switch to project"
+                defaultValue=""
+                disabled={busy}
+                onChange={(e) => {
+                  // switchTo stops the running clock and starts the new one in one call, which
+                  // is the whole reason it exists — doing it as stop-then-start leaves a gap
+                  // that gets billed to nobody.
+                  if (e.target.value) void start({ projectId: e.target.value });
+                  setPicking(false);
+                }}
+              >
+                <option value="">Switch to…</option>
+                {(projects.data ?? []).map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
+        </Card>
+      );
+    },
+  },
+
+  'time:timesheet-health': {
+    title: 'Timesheet health',
+    description: 'This week day by day, and the billable hours carrying no card — with a card picker on each one.',
+    slot: 'dashboard',
+    defaultSpan: 6,
+    minSpan: 4,
+    permission: 'time.write',
+    Component: () => {
+      const { data, loading } = useShared<{
+        days: Array<{ date: string; totalMinutes: number; entries?: Array<{ id: string; taskId: string | null; description: string | null; effectiveMinutes: number; billable: boolean; projectId: string }> }>;
+      }>('/time/recent');
+      const tasks = useShared<Array<{ id: string; title: string; projectId: string }>>('/scrum/tasks');
+      const [fixed, setFixed] = useState<string[]>([]);
+
+      /*
+       * This week's five weekdays, including the ones with nothing on them.
+       *
+       * `/time/recent` returns only days that have an entry, so slicing it gives however many
+       * days happened to be worked and calls them the week — a Wednesday with nothing logged
+       * would simply not appear, which is the exact day this widget exists to point at.
+       */
+      const monday = new Date();
+      monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
+      const week = Array.from({ length: 5 }, (_, i) => {
+        const d = new Date(monday);
+        d.setDate(monday.getDate() + i);
+        const date = d.toISOString().slice(0, 10);
+        const found = (data?.days ?? []).find((x) => x.date === date);
+        return { date, totalMinutes: found?.totalMinutes ?? 0, entries: found?.entries ?? [] };
+      });
+      const peak = Math.max(...week.map((d) => d.totalMinutes), 1);
+      const loose = week
+        .flatMap((d) => d.entries ?? [])
+        .filter((e) => e.billable && !e.taskId && !fixed.includes(e.id));
+
+      return (
+        <Card title="Timesheet health" tone={loose.length > 0 ? 'warning' : undefined}>
+          {loading ? (
+            <Skeleton height="4rem" />
+          ) : (
+            <>
+              <div className="weekblocks">
+                {week.map((d) => (
+                  <div key={d.date}>
+                    <i
+                      style={{
+                        background:
+                          d.totalMinutes === 0
+                            ? undefined
+                            : `color-mix(in srgb, var(--accent) ${Math.round(30 + 70 * (d.totalMinutes / peak))}%, var(--surface-sunken))`,
+                      }}
+                      title={hours(d.totalMinutes)}
+                    />
+                    <span>{new Date(d.date).toLocaleDateString('en-GB', { weekday: 'short' })}</span>
+                  </div>
+                ))}
+              </div>
+
+              {loose.length === 0 ? (
+                <p className="card-sub">Every billable hour this week is against a card.</p>
+              ) : (
+                <>
+                  <p className="card-sub">
+                    {hours(loose.reduce((n, e) => n + e.effectiveMinutes, 0))} billable with no card —
+                    nothing can be invoiced from these.
+                  </p>
+                  <ul className="act-rows">
+                    {loose.slice(0, 3).map((e) => (
+                      <ActRow
+                        key={e.id}
+                        title={e.description || 'Untitled hour'}
+                        meta={hours(e.effectiveMinutes)}
+                      >
+                        {/*
+                          Fixed here rather than by sending you to the timesheet.
+                          
+                          The whole failure this widget names is that assigning a card is a
+                          separate errand nobody runs. A picker on the row is the errand.
+                        */}
+                        <select
+                          aria-label="Attach to a card"
+                          defaultValue=""
+                          onChange={(ev) => {
+                            const taskId = ev.target.value;
+                            if (!taskId) return;
+                            void api
+                              .patch(`/time/entries/${e.id}`, { taskId })
+                              .then(() => setFixed((all) => [...all, e.id]))
+                              .catch(() => undefined);
+                          }}
+                        >
+                          <option value="">Attach to…</option>
+                          {(tasks.data ?? [])
+                            .filter((t) => t.projectId === e.projectId)
+                            .map((t) => (
+                              <option key={t.id} value={t.id}>{t.title}</option>
+                            ))}
+                        </select>
+                      </ActRow>
+                    ))}
+                  </ul>
+                </>
+              )}
+            </>
           )}
         </Card>
       );

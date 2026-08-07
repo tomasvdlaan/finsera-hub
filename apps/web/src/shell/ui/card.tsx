@@ -27,6 +27,7 @@ export function Card({
   span,
   to,
   aside,
+  live,
   children,
 }: {
   title?: ReactNode;
@@ -39,6 +40,14 @@ export function Card({
   to?: string;
   /** Anything that belongs at the top right instead of the arrow — a filter, a count. */
   aside?: ReactNode;
+  /**
+   * Something is happening in here right now — a clock running, a meeting recording.
+   *
+   * Turns the card's name accent-coloured, which is the one job the accent has that no tone
+   * covers: a tone says what a card is *about*, this says it is not at rest. Spending a
+   * colour on liveness only works while liveness is rare, so it is a boolean and not a tone.
+   */
+  live?: boolean;
   children?: ReactNode;
 }) {
   const arrow = to ? (
@@ -48,7 +57,7 @@ export function Card({
   ) : null;
 
   return (
-    <div className="card" data-tone={tone} data-span={span}>
+    <div className="card" data-tone={tone} data-span={span} data-live={live || undefined}>
       {(title || aside) && (
         <div className="card-head">
           <div>

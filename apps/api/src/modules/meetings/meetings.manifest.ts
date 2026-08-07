@@ -32,6 +32,8 @@ export const meetingsManifest = defineManifest({
   widgets: [
     { slot: 'entity-page', component: 'meetings:client-notes' },
     { slot: 'dashboard', component: 'meetings:recent' },
+    { slot: 'dashboard', component: 'meetings:open-actions' },
+    { slot: 'dashboard', component: 'meetings:next' },
   ],
   chatWidgets: [{ entityType: 'meeting_note', component: 'meetings:note-card' }],
 

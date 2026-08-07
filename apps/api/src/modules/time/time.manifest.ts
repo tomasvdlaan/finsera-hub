@@ -38,6 +38,8 @@ export const timeManifest = defineManifest({
     { slot: 'dashboard', component: 'time:calendar-heat' },
     { slot: 'dashboard', component: 'time:untracked' },
     { slot: 'dashboard', component: 'time:person-load' },
+    { slot: 'dashboard', component: 'time:timer' },
+    { slot: 'dashboard', component: 'time:timesheet-health' },
   ],
 
   reportingViews: [
