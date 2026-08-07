@@ -9,6 +9,15 @@ export interface Running {
   workedOn: string;
   startedAt: string;
   description: string | null;
+  /**
+   * The card this hour is against, when there is one.
+   *
+   * `time.entries.task_id` has existed since the module shipped and the two ways to start a
+   * clock disagreed about it: the task page set it, and the tracker — the fastest way, and so
+   * the one actually used — did not. An hour with no card is an hour a card's estimate can
+   * never be compared against.
+   */
+  taskId: string | null;
 }
 
 /** More than a working day means the clock was almost certainly left running. */
@@ -79,7 +88,10 @@ function useTimerState() {
   }, [running]);
 
   const start = useCallback(
-    async (target: { projectId?: string | null; clientId?: string | null }, description?: string) => {
+    async (
+      target: { projectId?: string | null; clientId?: string | null; taskId?: string | null },
+      description?: string,
+    ) => {
       setBusy(true);
       setError(null);
       try {
@@ -87,6 +99,9 @@ function useTimerState() {
           // A project, a client, or neither — the clock does not care which.
           projectId: target.projectId ?? null,
           clientId: target.clientId ?? null,
+          // Carried through, so starting a clock from a card produces an hour that card knows
+          // about — which is the only reason logging against a card is worth doing.
+          taskId: target.taskId ?? null,
           workedOn: new Date().toISOString().slice(0, 10),
           // A start with no end *is* the running entry — there is no separate timer record.
           startedAt: new Date().toISOString(),
@@ -102,6 +117,7 @@ function useTimerState() {
     },
     [load],
   );
+
 
   const stop = useCallback(async () => {
     setBusy(true);
@@ -123,7 +139,26 @@ function useTimerState() {
       LOOKS_FORGOTTEN_AFTER_HOURS
     : false;
 
-  return { running, forgotten, busy, error, start, stop, reload: load };
+  /**
+   * Stop whatever is running and start this instead.
+   *
+   * The server is right to refuse a second timer — two clocks running is how an hour gets
+   * billed twice. But refusing was the whole answer: the UI printed "A timer is already
+   * running — stop it first" in red and left you to go and find it. Wanting to switch is the
+   * ordinary case, not an error, so it gets a button.
+   */
+  const switchTo = useCallback(
+    async (
+      target: { projectId?: string | null; clientId?: string | null; taskId?: string | null },
+      description?: string,
+    ) => {
+      if (running) await stop();
+      await start(target, description);
+    },
+    [running, stop, start],
+  );
+
+  return { running, forgotten, busy, error, start, switchTo, stop, reload: load };
 }
 
 type TimerState = ReturnType<typeof useTimerState>;

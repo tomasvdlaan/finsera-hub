@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import { useRunningTimer } from '../../shell/useRunningTimer.js';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { Comments } from '../../shell/Comments.js';
@@ -53,6 +54,7 @@ export function TaskPreview({
   onChanged: () => void;
 }) {
   const [task, setTask] = useState<TaskDetail | null>(null);
+  const timer = useRunningTimer();
   const [tab, setTab] = useState<Tab>('detail');
   const [error, setError] = useState<string | null>(null);
   const [subtaskTitle, setSubtaskTitle] = useState('');
@@ -172,6 +174,29 @@ export function TaskPreview({
           <Link to={`/scrum/tasks/${task.id}`} className="muted">
             Open full
           </Link>
+          {/*
+            Start the clock on the thing you are looking at.
+            
+            The fastest way to start a timer used to be the sidebar, which cannot know what you
+            are working on — so it produced an hour with no card, and the card's "0h of 8h"
+            never moved however long you spent on it.
+          */}
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={timer.busy || timer.running?.taskId === task.id}
+            onClick={() =>
+              // Switch rather than start: a clock already running is the ordinary case, and
+              // "stop it first" is an instruction to go and find something.
+              void timer.switchTo({ projectId: task.projectId, taskId: task.id }, task.title)
+            }
+          >
+            {timer.running?.taskId === task.id
+              ? 'Running'
+              : timer.running
+                ? 'Switch to this'
+                : 'Start timer'}
+          </Button>
           <Button size="sm" variant="ghost" onClick={onClose} aria-label="Close preview">
             ✕
           </Button>
