@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { PageHeader } from '../../shell/ui/layout.js';
+import { PageHeader, SubNav } from '../../shell/ui/layout.js';
 import { Link, useLocation } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { Badge, Button, Empty } from '../../shell/ui/primitives.js';
@@ -432,7 +432,18 @@ export function Tracker() {
 
   return (
     <>
-      <PageHeader title="Time" />
+      <PageHeader
+        title="Time"
+        subtitle="Run a clock, write down an hour you forgot to run one for, and see what you have logged lately."
+        tabs={
+          <SubNav
+            items={[
+              { label: 'Tracker', to: '/time' },
+              { label: 'This week', to: '/time/week' },
+            ]}
+          />
+        }
+      />
 
       <div className="tracker-top">
         {/*

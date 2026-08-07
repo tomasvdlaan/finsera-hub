@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { PageHeader } from '../../shell/ui/layout.js';
+import { PageHeader, SubNav } from '../../shell/ui/layout.js';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { CLIENT_STATUSES, humanise, type Client, type ClientStatus } from './types.js';
@@ -9,6 +9,18 @@ import { Empty } from '../../shell/ui/primitives.js';
  * Client list — and, grouped by status, the pipeline view. A prospect and a customer are
  * the same record at different stages, so one screen serves both.
  */
+/**
+ * Who the work is for, at two grains.
+ *
+ * A client and a project are the same subject seen at different resolutions — you arrive
+ * wanting one and find you wanted the other about as often as not — so they are two modes of
+ * one place rather than two destinations. This is also what buys back the ninth pill anchor.
+ */
+const WHO = [
+  { label: 'Clients', to: '/clients' },
+  { label: 'Projects', to: '/projects' },
+];
+
 export function ClientList() {
   const [clients, setClients] = useState<Client[]>([]);
   const [filter, setFilter] = useState<ClientStatus | ''>('');
@@ -57,6 +69,7 @@ export function ClientList() {
       <PageHeader
         title="Clients"
         subtitle="Prospects and customers are the same record at different stages — the pipeline is this list, grouped by status."
+        tabs={<SubNav items={WHO} />}
       />
 
       <form onSubmit={(e) => void create(e)} className="row">

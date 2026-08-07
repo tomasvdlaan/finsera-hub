@@ -61,7 +61,7 @@ export function TopNav({
   onLogout: () => void;
 }) {
   const navigate = useNavigate();
-  const { running } = useRunningTimer();
+  const { running, busy, stop } = useRunningTimer();
   const [menu, setMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -133,11 +133,29 @@ export function TopNav({
           is the loudest accent on the screen — which is the one thing the accent is for.
         */}
         {running ? (
-          <button type="button" className="clock live" onClick={() => navigate('/time')}>
-            <i aria-hidden="true" />
-            <span className="clock-time">{elapsed(running.startedAt)}</span>
-            <span className="clock-what">{running.projectName}</span>
-          </button>
+          <div className="clock live">
+            <button type="button" onClick={() => navigate('/time')} className="clock-open">
+              <i aria-hidden="true" />
+              <span className="clock-time">{elapsed(running.startedAt)}</span>
+              <span className="clock-what">{running.projectName}</span>
+            </button>
+            {/*
+              Stopping is one click, from anywhere.
+
+              The rail widget this replaced could stop a timer without navigating, and losing
+              that would be the expensive kind of regression: the gap between finishing and
+              remembering to stop is billed to somebody, and every extra step widens it.
+            */}
+            <button
+              type="button"
+              className="clock-stop"
+              onClick={() => void stop()}
+              disabled={busy}
+              aria-label="Stop the timer"
+            >
+              <span aria-hidden="true">■</span>
+            </button>
+          </div>
         ) : (
           <button type="button" className="clock" onClick={() => navigate('/time')}>
             <span className="clock-what">Start a timer</span>

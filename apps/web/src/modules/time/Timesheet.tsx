@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { PageHeader } from '../../shell/ui/layout.js';
+import { PageHeader, SubNav } from '../../shell/ui/layout.js';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import {
@@ -33,6 +33,12 @@ interface Week {
  * cannot be edited as a single number. This screen answers "where did the week go, and
  * where are the gaps"; editing happens in the day view, one click from any cell.
  */
+/** The clock and the week it adds up to. Two readings of the same hours. */
+const CLOCK = [
+  { label: 'Tracker', to: '/time' },
+  { label: 'This week', to: '/time/week' },
+];
+
 export function Timesheet() {
   const [week, setWeek] = useState<Week | null>(null);
   const [weekOf, setWeekOf] = useState<string | undefined>();
@@ -64,6 +70,7 @@ export function Timesheet() {
       <PageHeader
         title={`Week of ${week.weekOf}`}
         subtitle="Read-only overview. Click any day to open it and edit the entries behind it."
+        tabs={<SubNav items={CLOCK} />}
         back={{ to: '/time', label: 'Back to day view' }}
       />
 

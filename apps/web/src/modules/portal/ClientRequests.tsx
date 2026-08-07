@@ -70,32 +70,16 @@ export function ClientRequests() {
         const theirs = projects.filter((p) => p.clientId === r.client_id);
         const projectId = chosen[r.id] ?? r.project_id ?? theirs[0]?.id ?? '';
         return (
-          <div
-            key={r.id}
-            style={{
-              border: '1px solid var(--line, #e4e4e7)',
-              borderRadius: '.5rem',
-              padding: '.9rem',
-              marginBottom: '.75rem',
-              background: '#fff',
-            }}
-          >
+          <div key={r.id} className="card request">
             <strong>{r.subject}</strong>
-            <p className="muted" style={{ margin: '.25rem 0' }}>
+            <p className="muted">
               <Link to={`/clients/${r.client_id}`}>{r.client_name}</Link>
               {r.asked_by ? ` · ${r.asked_by}` : ''} · {day(r.created_at)}
             </p>
-            <blockquote
-              style={{
-                margin: '.5rem 0',
-                paddingLeft: '.75rem',
-                borderLeft: '3px solid var(--line, #e4e4e7)',
-                whiteSpace: 'pre-wrap',
-              }}
-            >
+            <blockquote>
               {r.body}
             </blockquote>
-            <div className="row" style={{ gap: '.5rem', alignItems: 'center' }}>
+            <div className="row">
               <select
                 value={projectId}
                 onChange={(e) => setChosen((c) => ({ ...c, [r.id]: e.target.value }))}
