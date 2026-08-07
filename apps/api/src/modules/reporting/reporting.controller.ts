@@ -28,6 +28,11 @@ export class ReportingController {
     return this.reporting.outstanding(actor);
   }
 
+  @Get('receivables')
+  receivables(@CurrentActor() actor: Actor) {
+    return this.reporting.receivables(actor);
+  }
+
   @Get('unbilled')
   unbilled(@CurrentActor() actor: Actor) {
     return this.reporting.unbilled(actor);

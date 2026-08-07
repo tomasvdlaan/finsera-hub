@@ -56,6 +56,10 @@ export const scrumManifest = defineManifest({
     { slot: 'dashboard', component: 'scrum:doing' },
     { slot: 'dashboard', component: 'scrum:waiting-list' },
     { slot: 'dashboard', component: 'scrum:board-mix' },
+    { slot: 'dashboard', component: 'scrum:cycle-scatter' },
+    { slot: 'dashboard', component: 'scrum:aging-wip' },
+    { slot: 'dashboard', component: 'scrum:came-back' },
+    { slot: 'dashboard', component: 'scrum:throughput-heat' },
   ],
 
   chatWidgets: [{ entityType: 'task', component: 'scrum:task-card' }],

@@ -34,6 +34,10 @@ export const timeManifest = defineManifest({
     { slot: 'entity-page', component: 'time:project-burn' },
     { slot: 'dashboard', component: 'time:logged-today' },
     { slot: 'dashboard', component: 'time:fortnight' },
+    { slot: 'dashboard', component: 'time:where-it-went' },
+    { slot: 'dashboard', component: 'time:calendar-heat' },
+    { slot: 'dashboard', component: 'time:untracked' },
+    { slot: 'dashboard', component: 'time:person-load' },
   ],
 
   reportingViews: [

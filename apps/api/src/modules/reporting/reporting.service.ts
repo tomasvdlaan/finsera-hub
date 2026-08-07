@@ -156,6 +156,76 @@ export class ReportingService implements OnApplicationBootstrap {
   }
 
   /**
+   * Receivables, by how late they are, and how long each client actually takes.
+   *
+   * `outstanding` above answers "how much is owed and is any of it late", which is the right
+   * question for a summary tile and the wrong one for deciding what to do on a Tuesday.
+   * €4.180 all thirty days old and €4.180 all a hundred days old are the same number and a
+   * different business, and only the second one needs a phone call.
+   *
+   * Days-to-pay is measured against `due_on`, not against the issue date. A client who always
+   * pays in forty days on forty-day terms is not slow; one who pays in forty on fourteen is,
+   * and a figure that cannot tell them apart names the wrong client.
+   *
+   * Both halves come from the published view, so they cannot disagree with the invoice list.
+   */
+  async receivables(actor: Actor) {
+    await this.require(actor, 'reporting.read');
+
+    const aging = await this.db.execute(sql`
+      SELECT
+        CASE
+          WHEN due_on >= CURRENT_DATE                   THEN 'current'
+          WHEN due_on >= CURRENT_DATE - INTERVAL '30 d' THEN '1-30'
+          WHEN due_on >= CURRENT_DATE - INTERVAL '60 d' THEN '31-60'
+          ELSE '60+'
+        END                              AS bucket,
+        COALESCE(SUM(total_cents), 0)::bigint AS cents,
+        COUNT(*)::int                    AS n
+      FROM billing.v_invoices
+      WHERE status = 'issued' AND due_on IS NOT NULL
+      GROUP BY 1
+    `);
+
+    const paid = await this.db.execute(sql`
+      SELECT c.name AS client,
+             COUNT(*)::int AS n,
+             -- Against the due date, so the figure means "late", not "slow to arrive".
+             ROUND(AVG(i.paid_at::date - i.due_on))::int AS avg_days_late
+        FROM billing.v_invoices i
+        JOIN crm.clients c ON c.id = i.client_id
+       WHERE i.paid_at IS NOT NULL AND i.due_on IS NOT NULL
+       GROUP BY c.name
+       ORDER BY avg_days_late DESC NULLS LAST
+       LIMIT 8
+    `);
+
+    const bucket = (key: string) => {
+      const row = aging.rows.find((r) => (r as Record<string, unknown>).bucket === key) as
+        | Record<string, string | number>
+        | undefined;
+      return { cents: Number(row?.cents ?? 0), count: Number(row?.n ?? 0) };
+    };
+
+    return {
+      aging: {
+        current: bucket('current'),
+        d1to30: bucket('1-30'),
+        d31to60: bucket('31-60'),
+        d60plus: bucket('60+'),
+      },
+      byClient: paid.rows.map((r) => {
+        const row = r as Record<string, string | number>;
+        return {
+          client: String(row.client),
+          invoices: Number(row.n ?? 0),
+          avgDaysLate: Number(row.avg_days_late ?? 0),
+        };
+      }),
+    };
+  }
+
+  /**
    * Work done but not charged for — the number nothing showed until now.
    *
    * Values hours at the project's current rate. That is an estimate, not a receivable:

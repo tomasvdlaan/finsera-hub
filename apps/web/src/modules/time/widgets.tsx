@@ -1,7 +1,8 @@
 import { Card, Figure } from '../../shell/ui/card.js';
 import { Skeleton } from '../../shell/ui/data.js';
-import { Rhythm, Meter } from '../../shell/ui/viz.js';
+import { Rhythm, Meter, Heatmap, Bullet, Split, Legend, type Slice } from '../../shell/ui/viz.js';
 import { useShared } from '../../lib/useShared.js';
+import { Empty } from '../../shell/ui/primitives.js';
 import type { SettingDef, WidgetDef } from '../types.js';
 
 interface Day {
@@ -129,6 +130,164 @@ export const timeWidgets: Record<string, WidgetDef> = {
                 </div>
               )}
             </>
+          )}
+        </Card>
+      );
+    },
+  },
+
+  /* ── The team manager ─────────────────────────────────────────────────── */
+
+  'time:where-it-went': {
+    title: 'Where the week went',
+    description: 'Hours split by project, biggest first — the answer to "what did we actually spend the week on".',
+    slot: 'dashboard',
+    defaultSpan: 4,
+    minSpan: 3,
+    permission: 'time.read',
+    Component: () => {
+      const { data, loading } = useShared<{ days: Array<{ date: string; entries?: Array<{ projectName?: string; effectiveMinutes: number }> }> }>(
+        '/time/recent',
+      );
+      const byProject = new Map<string, number>();
+      for (const d of data?.days ?? []) {
+        for (const e of d.entries ?? []) {
+          const key = e.projectName ?? 'No project';
+          byProject.set(key, (byProject.get(key) ?? 0) + (e.effectiveMinutes ?? 0));
+        }
+      }
+      const rows = [...byProject.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6);
+      const slices: Slice[] = rows.map(([label, minutes], i) => ({
+        label,
+        value: minutes,
+        tone: `color-mix(in srgb, var(--accent) ${Math.max(22, 100 - i * 16)}%, var(--surface-sunken))`,
+      }));
+      return (
+        <Card title="Where the week went" sub={`${rows.length} projects`} to="/time/week">
+          {loading ? (
+            <Skeleton height="4rem" />
+          ) : rows.length === 0 ? (
+            <Empty>No hours logged in the last fortnight.</Empty>
+          ) : (
+            <div className="card-fill">
+              <Split slices={slices} />
+              <Legend slices={slices} format={(m) => hours(m)} />
+            </div>
+          )}
+        </Card>
+      );
+    },
+  },
+
+  'time:calendar-heat': {
+    title: 'Working pattern',
+    description: 'A quarter of days as a grid. Every Monday in one column, so a habit shows up as a stripe and a holiday as a gap.',
+    slot: 'dashboard',
+    defaultSpan: 4,
+    minSpan: 3,
+    permission: 'time.read',
+    Component: () => {
+      const { data, loading } = useShared<{ days: Day[] }>('/time/recent');
+      /*
+       * Aligned to weeks, not to the fetch.
+       *
+       * The grid only means anything if column position is the week and row position is the
+       * weekday — a grid filled in fetch order puts Mondays wherever they land and the stripe
+       * that carries the whole reading disappears.
+       */
+      const span = 63;
+      const cells = fill(data?.days ?? [], span);
+      const first = new Date(cells[0]?.date ?? Date.now()).getDay();
+      // Monday-first, and pad the leading days so the first column starts on a Monday.
+      const lead = (first + 6) % 7;
+      const padded = [
+        ...Array.from({ length: lead }, (_, i) => ({ date: `pad-${i}`, value: 0 })),
+        ...cells,
+      ];
+      const worked = cells.filter((c) => c.value > 0).length;
+      return (
+        <Card title="Working pattern" sub={`${worked} of ${span} days had an hour on them`} to="/time">
+          {loading ? (
+            <Skeleton height="5rem" />
+          ) : (
+            <div className="card-fill">
+              <Heatmap
+                cells={padded}
+                weeks={Math.ceil(padded.length / 7)}
+                format={(v) => `${v.toFixed(1).replace('.', ',')} h`}
+              />
+            </div>
+          )}
+        </Card>
+      );
+    },
+  },
+
+  'time:untracked': {
+    title: 'Hours with nowhere to go',
+    description: 'Logged time carrying no task, which is the gap between a timesheet that adds up and one that can be invoiced.',
+    slot: 'dashboard',
+    defaultSpan: 3,
+    minSpan: 3,
+    permission: 'time.read',
+    Component: () => {
+      const { data, loading } = useShared<{ days: Array<{ entries?: Array<{ taskId: string | null; effectiveMinutes: number; billable: boolean }> }> }>(
+        '/time/recent',
+      );
+      const all = (data?.days ?? []).flatMap((d) => d.entries ?? []);
+      const loose = all.filter((e) => !e.taskId && e.billable);
+      const minutes = loose.reduce((n, e) => n + (e.effectiveMinutes ?? 0), 0);
+      return (
+        <Card tone={loose.length > 0 ? 'warning' : undefined} to="/time">
+          {loading ? (
+            <Skeleton height="3rem" />
+          ) : (
+            <Figure
+              label="Billable, no task"
+              value={hours(minutes)}
+              note={
+                loose.length === 0
+                  ? 'every billable hour is against a card'
+                  : `${loose.length} ${loose.length === 1 ? 'entry' : 'entries'} nothing can be billed from`
+              }
+            />
+          )}
+        </Card>
+      );
+    },
+  },
+
+  'time:person-load': {
+    title: 'Load per person',
+    description: 'Hours each person has logged this fortnight. No capacity bar unless a capacity was actually entered.',
+    slot: 'dashboard',
+    defaultSpan: 6,
+    minSpan: 4,
+    permission: 'time.read',
+    Component: () => {
+      const { data, loading } = useShared<{ days: Array<{ entries?: Array<{ personName?: string; effectiveMinutes: number }> }> }>(
+        '/time/recent',
+      );
+      const byPerson = new Map<string, number>();
+      for (const d of data?.days ?? []) {
+        for (const e of d.entries ?? []) {
+          const key = e.personName ?? 'You';
+          byPerson.set(key, (byPerson.get(key) ?? 0) + (e.effectiveMinutes ?? 0));
+        }
+      }
+      const rows = [...byPerson.entries()]
+        .sort((a, b) => b[1] - a[1])
+        // `of: null` on purpose. A capacity nobody entered is not forty hours a week, and a
+        // bar against an invented denominator looks authoritative and is fiction.
+        .map(([label, minutes]) => ({ label, value: minutes, of: null }));
+      return (
+        <Card title="Load per person" sub="last fortnight" to="/time/week">
+          {loading ? (
+            <Skeleton height="4rem" />
+          ) : rows.length === 0 ? (
+            <Empty>Nobody has logged an hour in the last fortnight.</Empty>
+          ) : (
+            <Bullet rows={rows} format={hours} />
           )}
         </Card>
       );

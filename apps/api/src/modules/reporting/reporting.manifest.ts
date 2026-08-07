@@ -29,6 +29,12 @@ export const reportingManifest = defineManifest({
   widgets: [
     { slot: 'dashboard', component: 'reporting:owed' },
     { slot: 'dashboard', component: 'reporting:unbilled' },
+    { slot: 'dashboard', component: 'reporting:ar-aging' },
+    { slot: 'dashboard', component: 'reporting:who-pays-late' },
+    { slot: 'dashboard', component: 'reporting:budget-burn' },
+    { slot: 'dashboard', component: 'reporting:pipeline-funnel' },
+    { slot: 'dashboard', component: 'reporting:client-concentration' },
+    { slot: 'dashboard', component: 'reporting:whats-ending' },
   ],
   chatWidgets: [],
   reportingViews: [],

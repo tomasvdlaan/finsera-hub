@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { Card, Figure } from '../../shell/ui/card.js';
-import { Donut, Legend, type Slice } from '../../shell/ui/viz.js';
+import { Donut, Legend, Scatter, Bullet, Heatmap, type Slice } from '../../shell/ui/viz.js';
 import { Empty } from '../../shell/ui/primitives.js';
 import { Skeleton } from '../../shell/ui/data.js';
 import { useShared } from '../../lib/useShared.js';
@@ -91,6 +91,26 @@ function TaskList({ tasks, empty }: { tasks: Task[]; empty: string }) {
     </ul>
   );
 }
+
+interface Sample {
+  taskId: string;
+  title: string;
+  minutes: number;
+}
+
+interface Flow {
+  cards: number;
+  reopened: number;
+  cycle: { n: number; meaningful: boolean; p50: number | null; p85: number | null; samples: Sample[] };
+  aging: Array<{ taskId: string; title: string; minutes: number; waiting: boolean; measured: boolean }>;
+  waiting: { minutes: number; spells: number; now: number };
+  throughput: Array<{ week: string; count: number }>;
+}
+
+/** Which board a widget is looking at. Every flow widget needs one and none can guess. */
+const PROJECT: SettingDef = { key: 'projectId', label: 'Project', type: 'project' };
+
+const dur = (m: number) => (m < 60 ? `${Math.round(m)}m` : m < 2880 ? `${Math.round(m / 6) / 10}h` : `${Math.round(m / 144) / 10}d`);
 
 export const scrumWidgets: Record<string, WidgetDef> = {
   'scrum:in-progress': {
@@ -249,6 +269,151 @@ export const scrumWidgets: Record<string, WidgetDef> = {
       return (
         <Card title="Open cards" to={entityId ? `/board?projectId=${entityId}` : undefined}>
           {loading ? <Skeleton height="4rem" /> : <TaskList tasks={data ?? []} empty="Nothing open on this project." />}
+        </Card>
+      );
+    },
+  },
+
+  /* ── The development team ─────────────────────────────────────────────── */
+
+  'scrum:cycle-scatter': {
+    title: 'How long cards actually take',
+    description: 'Every finished card as a dot. A median says four days; this says whether that is fifteen four-day cards or thirteen quick ones and two disasters.',
+    slot: 'dashboard',
+    defaultSpan: 6,
+    minSpan: 6,
+    permission: 'scrum.tasks.read',
+    settings: [PROJECT],
+    Component: ({ settings }) => {
+      const { data, loading } = useShared<Flow>(
+        settings.projectId ? `/scrum/projects/${settings.projectId}/flow` : null,
+      );
+      const samples = data?.cycle.samples ?? [];
+      if (!settings.projectId) {
+        return (
+          <Card title="How long cards actually take">
+            <Empty>Pick a project in this widget&rsquo;s settings.</Empty>
+          </Card>
+        );
+      }
+      return (
+        <Card
+          title="How long cards actually take"
+          sub={data ? `${data.cycle.n} finished · dots above the line took longer than most` : undefined}
+          to={`/board/flow?projectId=${settings.projectId}`}
+        >
+          {loading ? (
+            <Skeleton height="6rem" />
+          ) : (
+            <Scatter
+              // Ordered by finish rather than plotted against a real date axis: the API returns
+              // durations without timestamps, and inventing an x position from an index is
+              // honest as "these in this order" and would be a lie as "these on these days".
+              points={samples.map((sp, i) => ({ x: i, y: sp.minutes, label: sp.title }))}
+              band={
+                data?.cycle.meaningful && data.cycle.p85 !== null
+                  ? { value: data.cycle.p85, label: `p85 ${dur(data.cycle.p85)}` }
+                  : undefined
+              }
+              yLabel={dur}
+            />
+          )}
+        </Card>
+      );
+    },
+  },
+
+  'scrum:aging-wip': {
+    title: 'What is going stale',
+    description: 'Every unfinished card, oldest first, measured against how long finished ones took.',
+    slot: 'dashboard',
+    defaultSpan: 6,
+    minSpan: 4,
+    permission: 'scrum.tasks.read',
+    settings: [PROJECT],
+    Component: ({ settings }) => {
+      const { data, loading } = useShared<Flow>(
+        settings.projectId ? `/scrum/projects/${settings.projectId}/flow` : null,
+      );
+      const p85 = data?.cycle.meaningful ? data.cycle.p85 : null;
+      const rows = (data?.aging ?? [])
+        .slice()
+        .sort((a, b) => b.minutes - a.minutes)
+        .slice(0, 6)
+        .map((a) => ({ label: a.title, value: a.minutes, of: p85 }));
+      return (
+        <Card
+          title="What is going stale"
+          sub={p85 ? `against p85 of ${dur(p85)}` : 'no baseline yet — too few finished cards'}
+          to={settings.projectId ? `/board/flow?projectId=${settings.projectId}` : undefined}
+        >
+          {loading ? <Skeleton height="5rem" /> : <Bullet rows={rows} format={dur} />}
+        </Card>
+      );
+    },
+  },
+
+  'scrum:came-back': {
+    title: 'Work that came back',
+    description: 'Cards finished and then reopened. The number a "done" column cannot show you.',
+    slot: 'dashboard',
+    defaultSpan: 3,
+    minSpan: 3,
+    permission: 'scrum.tasks.read',
+    settings: [PROJECT],
+    Component: ({ settings }) => {
+      const { data, loading } = useShared<Flow>(
+        settings.projectId ? `/scrum/projects/${settings.projectId}/flow` : null,
+      );
+      const n = data?.reopened ?? 0;
+      return (
+        <Card tone={n > 0 ? 'warning' : undefined} to={settings.projectId ? `/board/flow?projectId=${settings.projectId}` : undefined}>
+          {loading ? (
+            <Skeleton height="3rem" />
+          ) : (
+            <Figure
+              label="Came back"
+              value={n}
+              unit={n === 1 ? 'card' : 'cards'}
+              note={n === 0 ? 'nothing has been reopened' : 'finished, then reopened'}
+            />
+          )}
+        </Card>
+      );
+    },
+  },
+
+  'scrum:throughput-heat': {
+    title: 'Delivery rhythm',
+    description: 'Cards finished per week as a grid, so a good fortnight and a stalled one are the same glance.',
+    slot: 'dashboard',
+    defaultSpan: 4,
+    minSpan: 3,
+    permission: 'scrum.tasks.read',
+    settings: [PROJECT],
+    Component: ({ settings }) => {
+      const { data, loading } = useShared<Flow>(
+        settings.projectId ? `/scrum/projects/${settings.projectId}/flow` : null,
+      );
+      const weeks = data?.throughput ?? [];
+      const total = weeks.reduce((n, w) => n + w.count, 0);
+      return (
+        <Card
+          title="Delivery rhythm"
+          sub={loading ? undefined : `${total} finished over ${weeks.length} weeks`}
+          to={settings.projectId ? `/board/flow?projectId=${settings.projectId}` : undefined}
+        >
+          {loading ? (
+            <Skeleton height="4rem" />
+          ) : (
+            <div className="card-fill">
+              <Heatmap
+                cells={weeks.map((w) => ({ date: w.week, value: w.count }))}
+                weeks={Math.max(1, Math.ceil(weeks.length / 7))}
+                format={(n) => `${n} finished`}
+              />
+            </div>
+          )}
         </Card>
       );
     },
