@@ -11,6 +11,10 @@ export interface DocumentSummary {
   version: number | null;
   /** False when the format could not be read — searchable only by title. */
   indexed: boolean;
+  /** Present on the list so a folder of `scan_004.pdf` is readable without opening each one. */
+  summary?: string | null;
+  docType?: string | null;
+  valueCents?: number | null;
 }
 
 export interface DocumentVersion {
@@ -24,9 +28,33 @@ export interface DocumentVersion {
   createdAt: string;
 }
 
+/**
+ * What a model read, as opposed to what somebody typed.
+ *
+ * Every field is nullable and that is load-bearing: null means the document did not state it,
+ * which is a real answer about a document and must not render as a zero or a guess.
+ */
+export interface DocumentTerms {
+  currency: string | null;
+  counterparty: string | null;
+  startsOn: string | null;
+  endsOn: string | null;
+  paymentTermDays: number | null;
+  noticeDays: number | null;
+}
+
 export interface DocumentDetail extends Omit<DocumentSummary, 'filename' | 'mimeType' | 'sizeBytes' | 'version' | 'indexed'> {
   currentVersionId: string | null;
   versions: DocumentVersion[];
+  summary: string | null;
+  summarisedAt: string | null;
+  docType: string | null;
+  valueCents: number | null;
+  terms: DocumentTerms | null;
+  extractedAt: string | null;
+  /** Which version was read. Different from the current one means the terms describe a file
+   *  that is no longer on screen. */
+  extractedVersionId: string | null;
 }
 
 export interface SearchHit {

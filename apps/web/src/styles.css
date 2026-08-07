@@ -6068,3 +6068,256 @@ main table:not(.grid) [data-align='action'] {
 }
 .board-bar i { display: block; height: 100%; background: var(--accent); border-radius: var(--radius-pill); }
 .board-behind { color: var(--warning); font-size: var(--text-xs); white-space: nowrap; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * A DOCUMENT
+ *
+ * Three panes. Reading a document and deciding what to do about it are different jobs, and
+ * doing them in sequence down one column means scrolling away from the thing being decided.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+.doc-page {
+  grid-column: span 12;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  /* The viewport minus the top bar, so the file fills the screen rather than the page
+     growing past it and putting the panel below the fold. */
+  height: calc(100vh - 5.5rem);
+  gap: var(--space-4);
+}
+
+.doc-head { display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap; }
+.doc-back {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--muted);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.doc-back:hover { color: var(--text); }
+/* The file's own kind, in its own colour, because "which of these is the PDF" is a question
+   people ask of a list of attachments. */
+.doc-kind {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: var(--weight-loud);
+  letter-spacing: 0.06em;
+  padding: var(--space-2) var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--danger-bg);
+  color: var(--danger);
+  flex: none;
+}
+.doc-head-text { flex: 1; min-width: 12rem; }
+.doc-head-text h1 {
+  font-size: var(--text-2xl);
+  letter-spacing: -0.02em;
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.doc-type {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--brand-tint);
+  color: var(--accent);
+  border: 1px solid var(--accent-line);
+}
+.doc-head-actions { display: flex; gap: var(--space-2); }
+.doc-head-actions .act { text-decoration: none; padding: var(--space-3) var(--space-4); font-size: var(--text-sm); }
+
+.doc-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 24rem;
+  gap: var(--space-4);
+  min-height: 0;
+}
+@media (max-width: 68rem) {
+  /* Below this the panel is narrower than its own facts, so it goes under the file and the
+     page scrolls — one column of two readable things beats two of unreadable ones. */
+  .doc-body { grid-template-columns: 1fr; }
+  .doc-page { height: auto; }
+}
+.doc-viewer {
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+  min-height: 24rem;
+  display: flex;
+}
+.doc-viewer > * { flex: 1; min-height: 0; }
+
+.doc-side {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: var(--space-4);
+  overflow-y: auto;
+  min-height: 0;
+  display: grid;
+  align-content: start;
+  gap: var(--space-4);
+}
+.doc-side .page-tabs { margin-top: 0; }
+.doc-side .page-tab { border: 0; background: none; cursor: pointer; font-family: inherit; }
+.doc-side .page-tab small { font-family: var(--font-mono); color: var(--faint); }
+
+/*
+ * The model's paragraph, labelled as the model's.
+ *
+ * It sits above facts a person entered and reads exactly like them, so the label is the only
+ * thing separating "what the document says" from "what somebody typed" — and that matters
+ * most when the number underneath is a price.
+ */
+.doc-summary {
+  padding: var(--space-4);
+  border-radius: var(--radius);
+  background: var(--brand-tint);
+  border: 1px solid var(--accent-line);
+  display: grid;
+  gap: var(--space-3);
+}
+.doc-summary[data-empty] { background: var(--surface-sunken); border-color: var(--border); }
+.doc-summary p { margin: 0; font-size: var(--text-sm); line-height: var(--leading-norm); }
+
+.doc-facts { margin: 0; display: grid; gap: 0; }
+.doc-facts > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--text-sm);
+}
+.doc-facts > div:last-child { border-bottom: 0; }
+.doc-facts dt {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+.doc-facts dd { margin: 0; text-align: right; min-width: 0; }
+.doc-filename { font-family: var(--font-mono); font-size: var(--text-xs); word-break: break-all; }
+/* A figure read from a file that is no longer on screen. */
+.doc-facts dd[data-stale] { color: var(--warning); }
+.doc-stale { font-size: var(--text-xs); color: var(--warning); margin: 0; }
+
+.doc-section {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--muted);
+}
+.doc-section b { color: var(--faint); font-weight: var(--weight-normal); }
+
+.doc-versions { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
+.doc-versions li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: var(--text-sm);
+}
+.doc-versions li[data-showing] { border-color: var(--accent-line); background: var(--brand-tint); }
+.doc-v { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--muted); flex: none; }
+.doc-versions li[data-showing] .doc-v { color: var(--accent); }
+.doc-v-text { flex: 1; display: grid; gap: 2px; min-width: 0; }
+.doc-v-text b { font-size: var(--text-xs); word-break: break-all; }
+.doc-versions .act { text-decoration: none; flex: none; }
+.doc-newversion { display: grid; gap: var(--space-2); }
+
+.doc-ask { display: flex; gap: var(--space-2); }
+.doc-ask input { flex: 1; min-width: 0; }
+/* Passages, set as quotations. The endpoint returns the parts of the document nearest the
+   question, and quoting them is the difference between finding the clause and paraphrasing it. */
+.doc-passages { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3); }
+.doc-passages li {
+  font-size: var(--text-sm);
+  line-height: var(--leading-norm);
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--accent-line);
+  color: var(--muted);
+}
+
+.doc-activity { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3); }
+.doc-activity li { display: grid; gap: 2px; font-size: var(--text-sm); }
+
+/* ── The documents overview ──────────────────────────────────────────────── */
+.doc-filters { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+.doc-filters .card-meta { margin-left: auto; }
+
+/*
+ * Cards rather than table rows.
+ *
+ * The question asked of a document store is "which of these is the contract", and a row of
+ * filename-size-date cannot answer it. A card has room for the summary, which can.
+ */
+.doc-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(19rem, 1fr));
+  gap: var(--space-4);
+}
+.doc-card {
+  display: grid;
+  gap: var(--space-2);
+  align-content: start;
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  text-decoration: none;
+  color: var(--text);
+  transition: border-color 0.12s ease, transform 0.12s ease;
+}
+.doc-card:hover { border-color: var(--border-strong); transform: translateY(-1px); }
+.doc-card-head { display: flex; align-items: center; gap: var(--space-2); }
+.doc-card-value { margin-left: auto; font-variant-numeric: tabular-nums; font-size: var(--text-sm); }
+.doc-card strong { font-size: var(--text-base); letter-spacing: -0.012em; line-height: 1.3; }
+.doc-card p {
+  margin: 0;
+  font-size: var(--text-xs);
+  line-height: var(--leading-norm);
+  color: var(--muted);
+  /* Three lines: enough for a summary to be a summary, few enough that a long one cannot make
+     one card twice the height of its neighbours. */
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.doc-card-foot { margin-top: var(--space-2); }
+
+.doc-hits { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-4); }
+.doc-hits li { display: grid; gap: var(--space-2); }
+.doc-hits li > a { font-weight: var(--weight-strong); }
+.doc-hits p { margin: 0; font-size: var(--text-sm); color: var(--muted); line-height: var(--leading-norm); }
+/* Which kind of match. "Meaning" is a weaker claim than "words" and should not look identical. */
+.doc-via {
+  justify-self: start;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 2px 7px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  color: var(--muted);
+}
+.doc-via[data-via='text'] { background: var(--brand-tint); color: var(--accent); }

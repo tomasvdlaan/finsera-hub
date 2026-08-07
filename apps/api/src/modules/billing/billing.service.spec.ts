@@ -10,6 +10,7 @@ import { RegistryService } from '../../core/registry/registry.service.js';
 import { SettingsService } from '../../core/settings/settings.service.js';
 import { StorageService } from '../../core/storage/storage.service.js';
 import { FileTypeRegistry } from '../../core/files/file-type.registry.js';
+import { LlmService } from '../../core/llm/llm.service.js';
 import { EmbeddingService } from '../../core/llm/embedding.service.js';
 import { docsManifest } from '../docs/docs.manifest.js';
 import { DocsService } from '../docs/docs.service.js';
@@ -59,6 +60,7 @@ describe('BillingService', () => {
       new EmbeddingService(),
       new FileTypeRegistry(),
       crm,
+      new LlmService(),
     );
     billing = new BillingService(
       testDb,

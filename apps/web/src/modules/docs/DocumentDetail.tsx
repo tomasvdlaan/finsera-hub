@@ -1,233 +1,373 @@
-import { useEffect, useState, type FormEvent } from 'react';
-import { PageHeader } from '../../shell/ui/layout.js';
-import { useNavigate, useParams } from 'react-router-dom';
-import type { EntityRef } from '@platform/contracts';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Link, useParams } from 'react-router-dom';
 import { api } from '../../lib/api.js';
-import { getUser } from '../../lib/auth.js';
-import { Links } from '../../shell/Links.js';
-import { Timeline } from '../../shell/Timeline.js';
+import { Act } from '../../shell/ui/act.js';
+import { Empty } from '../../shell/ui/primitives.js';
+import { Skeleton } from '../../shell/ui/data.js';
+import { useDocumentTitle } from '../../shell/useDocumentTitle.js';
 import { DocumentPreview } from './DocumentPreview.js';
 import { UploadForm } from './UploadForm.js';
 import { formatBytes, type DocumentDetail as Doc } from './types.js';
 
+const euro = (cents: number) =>
+  new Intl.NumberFormat('nl-NL', { style: 'currency', currency: 'EUR' }).format(cents / 100);
+
+const when = (iso: string | null) =>
+  iso ? new Intl.DateTimeFormat('nl-NL', { dateStyle: 'medium' }).format(new Date(iso)) : '—';
+
+type Tab = 'details' | 'versions' | 'ask' | 'activity';
+
+interface Named {
+  id: string;
+  name: string;
+}
+interface Event {
+  at: string;
+  action: string;
+  actorName: string | null;
+}
+
+/**
+ * One document, at the size a document deserves.
+ *
+ * Three panes, because reading a document and deciding what to do about it are different jobs
+ * and doing them in sequence on one column means scrolling away from the thing you are
+ * deciding about. The file holds the middle; everything the platform knows about it sits
+ * beside it and stays put.
+ *
+ * The viewer is the browser's own. A PDF renderer of our own would buy page thumbnails and a
+ * page counter and cost a megabyte of dependency, and the browser renders PDFs better than
+ * the library would — so the centre pane is an iframe and the controls it needs are the ones
+ * it already has.
+ */
 export function DocumentDetail() {
   const { id = '' } = useParams();
-  const navigate = useNavigate();
   const [doc, setDoc] = useState<Doc | null>(null);
-  const [candidates, setCandidates] = useState<EntityRef[]>([]);
-  const [refreshKey, setRefreshKey] = useState(0);
+  const [clients, setClients] = useState<Named[]>([]);
+  const [projects, setProjects] = useState<Named[]>([]);
+  const [activity, setActivity] = useState<Event[]>([]);
+  const [tab, setTab] = useState<Tab>('details');
+  const [showing, setShowing] = useState<string | undefined>();
   const [error, setError] = useState<string | null>(null);
 
-  const [previewVersionId, setPreviewVersionId] = useState<string | undefined>();
-  const [question, setQuestion] = useState('');
-  const [passages, setPassages] = useState<string[] | null>(null);
-  const [asking, setAsking] = useState(false);
-
-  const load = () =>
+  const load = useCallback(() => {
     api
       .get<Doc>(`/docs/documents/${id}`)
       .then(setDoc)
       .catch((e: Error) => setError(e.message));
-
-  useEffect(() => {
-    void load();
-    Promise.all([
-      api.get<Array<{ id: string; name: string }>>('/crm/clients'),
-      api.get<Array<{ id: string; name: string }>>('/crm/projects'),
-    ])
-      .then(([cs, ps]) =>
-        setCandidates([
-          ...cs.map((c) => ref(c.id, 'client', c.name, `/clients/${c.id}`)),
-          ...ps.map((p) => ref(p.id, 'project', p.name, `/projects/${p.id}`)),
-        ]),
-      )
-      .catch(() => setCandidates([]));
   }, [id]);
 
-  /**
-   * Download through fetch rather than a plain link: the endpoint needs the bearer
-   * token, which an <a href> cannot carry.
+  useEffect(() => {
+    load();
+    api.get<Named[]>('/crm/clients').then(setClients).catch(() => setClients([]));
+    api.get<Named[]>('/crm/projects').then(setProjects).catch(() => setProjects([]));
+    api
+      .get<Event[]>(`/core/timeline/${id}`)
+      .then(setActivity)
+      .catch(() => setActivity([]));
+  }, [id, load]);
+
+  useDocumentTitle(doc?.title ?? null);
+
+  if (error) return <p className="error">{error}</p>;
+  if (!doc) return <Skeleton height="20rem" />;
+
+  const current = doc.versions.find((v) => v.id === (showing ?? doc.currentVersionId));
+  const client = clients.find((c) => c.id === doc.clientId);
+  const project = projects.find((p) => p.id === doc.projectId);
+  /*
+   * Terms describe the version they were read from.
+   *
+   * A v2 upload does not invalidate the extraction so much as re-aim it at the wrong file, and
+   * silently showing last version's value beside this version's pages is the kind of wrong
+   * nobody catches.
    */
-  const download = async (versionId?: string) => {
-    try {
-      const user = await getUser();
-      const url = `/api/docs/documents/${id}/download${versionId ? `?versionId=${versionId}` : ''}`;
-      const res = await fetch(url, {
-        headers: user?.access_token ? { Authorization: `Bearer ${user.access_token}` } : {},
-      });
-      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-
-      const blob = await res.blob();
-      const filename =
-        res.headers.get('Content-Disposition')?.match(/filename="(.+)"/)?.[1] ?? 'download';
-      const href = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = href;
-      a.download = filename;
-      a.click();
-      URL.revokeObjectURL(href);
-    } catch (e) {
-      setError((e as Error).message);
-    }
-  };
-
-  const ask = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!question.trim()) return;
-    setAsking(true);
-    setError(null);
-    try {
-      const res = await api.post<{ passages: string[] }>(`/docs/documents/${id}/ask`, {
-        question: question.trim(),
-      });
-      setPassages(res.passages);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setAsking(false);
-    }
-  };
-
-  const reindex = async () => {
-    try {
-      const res = await api.post<{ chunks: number }>(`/docs/documents/${id}/reindex`, {});
-      setError(res.chunks === 0 ? 'Nothing to index — this format could not be read.' : null);
-      await load();
-    } catch (e) {
-      setError((e as Error).message);
-    }
-  };
-
-  const archive = async () => {
-    await api.del(`/docs/documents/${id}`);
-    navigate('/docs');
-  };
-
-  if (!doc) return error ? <p className="error">{error}</p> : <p className="muted">Loading…</p>;
-
-  const current = doc.versions.find((v) => v.id === doc.currentVersionId) ?? doc.versions[0];
-  const indexed = Boolean(current?.extractedText);
+  const termsAreStale =
+    doc.extractedVersionId !== null && doc.extractedVersionId !== doc.currentVersionId;
 
   return (
-    <>
-      <PageHeader
-        title={doc.title}
-        back={{ to: "/docs", label: 'Documents' }}
-      />
+    <div className="doc-page">
+      <header className="doc-head">
+        <Link to="/docs" className="doc-back">
+          ← Documents
+        </Link>
+        <span className="doc-kind">{(current?.filename?.split('.').pop() ?? 'file').toUpperCase()}</span>
+        <div className="doc-head-text">
+          <h1>
+            {doc.title}
+            {doc.docType && <span className="doc-type">{doc.docType}</span>}
+          </h1>
+          <div className="card-meta">
+            {[
+              client?.name,
+              current && `v${current.version}${current.id === doc.currentVersionId ? ' current' : ''}`,
+              formatBytes(current?.sizeBytes),
+              `uploaded ${when(current?.createdAt ?? null)}`,
+            ]
+              .filter(Boolean)
+              .join(' · ')}
+          </div>
+        </div>
+        <div className="doc-head-actions">
+          <a className="act" href={`/api/docs/documents/${id}/download`}>
+            Download
+          </a>
+        </div>
+      </header>
 
-      <div className="row">
-        {doc.category && <span className="badge">{doc.category}</span>}
-        <button onClick={() => void download()}>Download current</button>
-        <button className="link-button" onClick={() => void reindex()}>
-          re-index
-        </button>
-        <button className="link-button destructive" onClick={() => void archive()}>
-          archive
-        </button>
-      </div>
+      <div className="doc-body">
+        <div className="doc-viewer">
+          <DocumentPreview documentId={id} versionId={showing} />
+        </div>
 
-      {!indexed && (
-        <p className="muted">
-          This format could not be read, so its contents are not searchable. It is stored and
-          downloadable.
-        </p>
-      )}
-      {error && <p className="error">{error}</p>}
-
-      <section>
-        <h2>Preview</h2>
-        <DocumentPreview documentId={id} versionId={previewVersionId} />
-      </section>
-
-      <section data-span={6}>
-        <h2>Versions</h2>
-        <p className="muted">
-          Newest first. Nothing is overwritten — every earlier version stays downloadable.
-        </p>
-        <ul className="cards">
-          {doc.versions.map((v) => (
-            <li key={v.id}>
-              <strong>v{v.version}</strong>{' '}
-              {v.id === doc.currentVersionId && <span className="badge">current</span>}{' '}
-              <span className="muted">
-                {v.filename} · {formatBytes(v.sizeBytes)} ·{' '}
-                {new Date(v.createdAt).toLocaleString()}
-              </span>
+        <aside className="doc-side">
+          <nav className="page-tabs" aria-label="Document">
+            {(['details', 'versions', 'ask', 'activity'] as const).map((t) => (
               <button
-                className="link-button"
-                onClick={() => setPreviewVersionId(v.id === doc.currentVersionId ? undefined : v.id)}
+                key={t}
+                type="button"
+                className={tab === t ? 'page-tab active' : 'page-tab'}
+                onClick={() => setTab(t)}
               >
-                {previewVersionId === v.id || (v.id === doc.currentVersionId && !previewVersionId)
-                  ? 'previewing'
-                  : 'preview'}
+                {t[0]!.toUpperCase() + t.slice(1)}
+                {t === 'versions' && doc.versions.length > 1 && <small> {doc.versions.length}</small>}
               </button>
-              <button className="link-button" onClick={() => void download(v.id)}>
-                download
-              </button>
+            ))}
+          </nav>
+
+          {tab === 'details' && (
+            <>
+              {/*
+                The summary is marked as written by a model, every time.
+
+                It sits above facts a person entered and reads exactly like them, so the label
+                is the only thing separating "what the document says" from "what somebody
+                typed" — and the difference matters when the number underneath is a price.
+              */}
+              {doc.summary ? (
+                <div className="doc-summary">
+                  <span className="card-meta">Read from the document</span>
+                  <p>{doc.summary}</p>
+                  <div className="row">
+                    <Act
+                      variant="quiet"
+                      run={() => api.post(`/docs/documents/${id}/extract`, {})}
+                      onDone={load}
+                    >
+                      {doc.extractedAt ? 'Extract again' : 'Extract the terms'}
+                    </Act>
+                  </div>
+                </div>
+              ) : (
+                <div className="doc-summary" data-empty="true">
+                  <span className="card-meta">Read from the document</span>
+                  <p className="muted">
+                    Nothing has been read from this file yet — either no text could be extracted
+                    from it, or no model is configured.
+                  </p>
+                </div>
+              )}
+
+              <dl className="doc-facts">
+                <div>
+                  <dt>Type</dt>
+                  <dd>{doc.docType ?? doc.category ?? <span className="muted">—</span>}</dd>
+                </div>
+                {doc.valueCents != null && (
+                  <div>
+                    <dt>Value</dt>
+                    <dd data-stale={termsAreStale || undefined}>{euro(doc.valueCents)}</dd>
+                  </div>
+                )}
+                <div>
+                  <dt>Client</dt>
+                  <dd>
+                    {client ? <Link to={`/clients/${client.id}`}>{client.name}</Link> : <span className="muted">—</span>}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Project</dt>
+                  <dd>
+                    {project ? <Link to={`/projects/${project.id}`}>{project.name}</Link> : <span className="muted">—</span>}
+                  </dd>
+                </div>
+                <div>
+                  <dt>File</dt>
+                  <dd className="doc-filename">{current?.filename ?? '—'}</dd>
+                </div>
+                <div>
+                  <dt>Indexed</dt>
+                  <dd>
+                    {current?.extractedText ? (
+                      <span className="ok">Yes</span>
+                    ) : (
+                      <span className="muted">No text could be read</span>
+                    )}
+                  </dd>
+                </div>
+                {doc.terms?.paymentTermDays != null && (
+                  <div>
+                    <dt>Payment</dt>
+                    <dd>{doc.terms.paymentTermDays} days</dd>
+                  </div>
+                )}
+                {doc.terms?.noticeDays != null && (
+                  <div>
+                    <dt>Notice</dt>
+                    <dd>{doc.terms.noticeDays} days</dd>
+                  </div>
+                )}
+              </dl>
+
+              {termsAreStale && (
+                <p className="doc-stale">
+                  These terms were read from an earlier version. Extract again to read the one on
+                  screen.
+                </p>
+              )}
+            </>
+          )}
+
+          {tab === 'versions' && <Versions doc={doc} showing={showing} onShow={setShowing} onChanged={load} />}
+          {tab === 'ask' && <AskPanel id={id} />}
+          {tab === 'activity' && <Activity events={activity} />}
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+/** Every version kept, because nothing here is ever overwritten. */
+function Versions({
+  doc,
+  showing,
+  onShow,
+  onChanged,
+}: {
+  doc: Doc;
+  showing: string | undefined;
+  onShow: (id: string | undefined) => void;
+  onChanged: () => void;
+}) {
+  const next = (doc.versions[0]?.version ?? 0) + 1;
+  return (
+    <>
+      <div className="doc-section">
+        <span>Versions</span>
+        <b>nothing is overwritten</b>
+      </div>
+      <ul className="doc-versions">
+        {doc.versions.map((v) => {
+          const isShowing = v.id === (showing ?? doc.currentVersionId);
+          return (
+            <li key={v.id} data-showing={isShowing || undefined}>
+              <span className="doc-v">v{v.version}</span>
+              <span className="doc-v-text">
+                <b>{v.filename}</b>
+                <small className="card-meta">
+                  {formatBytes(v.sizeBytes)} · {when(v.createdAt)}
+                  {isShowing && ' · showing'}
+                </small>
+              </span>
+              {!isShowing && (
+                <button type="button" className="act" onClick={() => onShow(v.id)}>
+                  Show
+                </button>
+              )}
+              <a className="act" href={`/api/docs/documents/${doc.id}/download?versionId=${v.id}`}>
+                Download
+              </a>
             </li>
-          ))}
-        </ul>
+          );
+        })}
+      </ul>
+      {/* Adding a version, which is the only kind of upload this panel does — the target is
+          already decided by the document it is attached to. */}
+      <div className="doc-newversion">
+        <span className="card-meta">Add v{next}</span>
         <UploadForm
-          documentId={id}
+          documentId={doc.id}
           onDone={() => {
-            void load();
-            setRefreshKey((k) => k + 1);
+            // Back to the current version: after adding v2 the panel should be showing v2,
+            // not still pinned to whichever older one was being inspected.
+            onShow(undefined);
+            onChanged();
           }}
         />
-      </section>
-
-      {indexed && (
-        <section>
-          <h2>Ask this document</h2>
-          <p className="muted">
-            Returns the passages most relevant to your question — the words in the question need
-            not appear in the text.
-          </p>
-          <form onSubmit={(e) => void ask(e)} className="row">
-            <input
-              value={question}
-              onChange={(e) => setQuestion(e.target.value)}
-              placeholder="e.g. what is the notice period?"
-              aria-label="Question"
-              style={{ flex: 1, minWidth: 240 }}
-            />
-            <button type="submit" disabled={asking || !question.trim()}>
-              {asking ? 'Looking…' : 'Ask'}
-            </button>
-          </form>
-          {passages && (
-            <ul className="cards">
-              {passages.length === 0 ? (
-                <li className="muted">No relevant passage found.</li>
-              ) : (
-                passages.map((p, i) => (
-                  <li key={i} style={{ whiteSpace: 'pre-wrap' }}>
-                    {p}
-                  </li>
-                ))
-              )}
-            </ul>
-          )}
-        </section>
-      )}
-
-      <section data-span={6}>
-        <h2>Links</h2>
-        <Links entityId={id} candidates={candidates} onChange={() => setRefreshKey((k) => k + 1)} />
-      </section>
-
-      <section data-span={6}>
-        <h2>Timeline</h2>
-        <Timeline entityId={id} refreshKey={refreshKey} />
-      </section>
+      </div>
     </>
   );
 }
 
-const ref = (id: string, entityType: string, displayName: string, urlPath: string): EntityRef => ({
-  id,
-  entityType,
-  displayName,
-  urlPath,
-  deleted: false,
-});
+/** Ask the document a question. Answers are passages from it, not a paraphrase of it. */
+function AskPanel({ id }: { id: string }) {
+  const [question, setQuestion] = useState('');
+  const [passages, setPassages] = useState<string[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const box = useRef<HTMLInputElement>(null);
+
+  useEffect(() => box.current?.focus(), []);
+
+  return (
+    <>
+      <form
+        className="doc-ask"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!question.trim()) return;
+          setBusy(true);
+          api
+            .post<{ passages: string[] }>(`/docs/documents/${id}/ask`, { question })
+            .then((r) => setPassages(r.passages))
+            .catch(() => setPassages([]))
+            .finally(() => setBusy(false));
+        }}
+      >
+        <input
+          ref={box}
+          value={question}
+          onChange={(e) => setQuestion(e.target.value)}
+          placeholder="What does this document say about…"
+          aria-label="Ask this document"
+        />
+        <button type="submit" className="act" data-variant="primary" disabled={busy}>
+          {busy ? '…' : 'Ask'}
+        </button>
+      </form>
+      {/*
+        Passages, not an answer.
+
+        The endpoint returns the parts of the document nearest the question, and showing them
+        as quotations rather than prose is the difference between a tool that finds the clause
+        and one that tells you what it thinks the clause means.
+      */}
+      {passages && (
+        passages.length === 0 ? (
+          <Empty>Nothing in this document came close to that.</Empty>
+        ) : (
+          <ul className="doc-passages">
+            {passages.map((p, i) => (
+              <li key={i}>{p}</li>
+            ))}
+          </ul>
+        )
+      )}
+    </>
+  );
+}
+
+function Activity({ events }: { events: Event[] }) {
+  if (events.length === 0) return <Empty>Nothing has happened to this document yet.</Empty>;
+  return (
+    <ul className="doc-activity">
+      {events.map((e, i) => (
+        <li key={i}>
+          <b>{e.action}</b>
+          <small className="card-meta">
+            {e.actorName ?? 'Someone'} · {when(e.at)}
+          </small>
+        </li>
+      ))}
+    </ul>
+  );
+}

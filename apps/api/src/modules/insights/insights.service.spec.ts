@@ -5,6 +5,7 @@ import { AuditService } from '../../core/audit/audit.service.js';
 import { EventBus } from '../../core/events/event-bus.service.js';
 import { FileTypeRegistry } from '../../core/files/file-type.registry.js';
 import { LinkService } from '../../core/links/link.service.js';
+import { LlmService } from '../../core/llm/llm.service.js';
 import { EmbeddingService } from '../../core/llm/embedding.service.js';
 import { ManifestRegistry } from '../../core/manifest/manifest.registry.js';
 import { PermissionService } from '../../core/permissions/permission.service.js';
@@ -69,7 +70,7 @@ describe('InsightsService', () => {
     time = new TimeService(testDb, registry, permissions, audit, bus, links, crm);
     const docs = new DocsService(
       testDb, registry, permissions, audit, bus, links,
-      new StorageService(), new EmbeddingService(), new FileTypeRegistry(), crm,
+      new StorageService(), new EmbeddingService(), new FileTypeRegistry(), crm, new LlmService(),
     );
     const settings = new SettingsService(testDb);
     billing = new BillingService(
