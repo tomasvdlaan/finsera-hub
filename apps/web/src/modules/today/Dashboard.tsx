@@ -23,6 +23,7 @@ import { useDocumentTitle } from '../../shell/useDocumentTitle.js';
 import { libraryFor, resolve, settingsFor, type Placement } from '../../shell/widgets.js';
 import type { Span, WidgetDef } from '../types.js';
 import { WidgetSettings } from './WidgetSettings.js';
+import { DayStrip } from './DayStrip.js';
 
 /** The widths a person can cycle a widget through, in order. */
 const SPANS: Span[] = [3, 4, 6, 8, 9, 12];
@@ -197,6 +198,7 @@ export function Dashboard() {
             ? 'Drag to reorder, ⚙ to configure, ✕ to remove. Every change saves as you make it.'
             : undefined
         }
+        meta={editing ? undefined : <DayStrip />}
         actions={
           <div className="row">
             {editing && (

@@ -4903,7 +4903,15 @@ main table:not(.grid) [data-align='action'] {
 .card {
   display: flex;
   flex-direction: column;
-  padding: var(--space-5);
+  /*
+   * Tighter than a section, because a widget is a tile.
+   *
+   * At --space-5 all round, a card holding a label and a number gave a third of its area to
+   * margin, and a grid of them read as sparse rather than as calm. The head sits closer to
+   * the top edge than the body does to the bottom, which is what makes the label read as
+   * attached to the card rather than floating in it.
+   */
+  padding: var(--space-4) var(--space-4) var(--space-5);
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
@@ -4932,10 +4940,45 @@ main table:not(.grid) [data-align='action'] {
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--space-3);
-  margin-bottom: var(--space-2);
+  margin-bottom: var(--space-3);
 }
-.card-title { font-size: var(--text-base); font-weight: var(--weight-strong); letter-spacing: -0.012em; }
-.card-sub { font-size: var(--text-xs); color: var(--muted); margin-top: 2px; }
+/*
+ * A card's name is a label, not a heading.
+ *
+ * This was set in the body font at reading size, which put the word "Doing" at the same weight
+ * as the card titles it names — so every card opened by shouting its own filing category and
+ * the number underneath had to compete with it.
+ *
+ * Monospace, uppercase, small and tracked open. Three things happen at once: the word recedes
+ * to the wayfinding layer where it belongs, the mono face separates *chrome* from *content* at
+ * a glance without any colour, and the content — a figure, a name, a sentence — becomes the
+ * only thing on the card set in the reading font. That last one is most of the effect.
+ */
+.card-title {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  font-weight: var(--weight-strong);
+  color: var(--muted);
+}
+/* An accent title marks a card that is live rather than merely present. */
+.card[data-live] .card-title { color: var(--accent); }
+.card-sub { font-size: var(--text-xs); color: var(--muted); margin-top: var(--space-2); }
+
+/*
+ * In-card metadata: the project, the state, the qualifier under a figure.
+ *
+ * Same face and case as the title, one step quieter. Being able to tell metadata from content
+ * without reading it is what lets a dense card stay scannable.
+ */
+.card-meta {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--faint);
+}
 
 /*
  * The corner affordance.
@@ -4977,9 +5020,10 @@ main table:not(.grid) [data-align='action'] {
  * figure at heading size reads as a heading that happens to be numeric.
  */
 .card-label {
+  font-family: var(--font-mono);
   font-size: var(--text-2xs);
   text-transform: uppercase;
-  letter-spacing: var(--track-label);
+  letter-spacing: 0.09em;
   font-weight: var(--weight-strong);
   color: var(--muted);
 }
@@ -5543,3 +5587,173 @@ main table:not(.grid) [data-align='action'] {
 .ending-list { list-style: none; margin: var(--space-3) 0 0; padding: 0; display: grid; gap: var(--space-2); }
 .ending-list li { display: flex; justify-content: space-between; gap: var(--space-3); font-size: var(--text-sm); }
 .ending-list small { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * THE HERO
+ *
+ * One band, full width, for the thing that is a decision rather than a reading. Everything
+ * else on a dashboard reports; this asks, and it gets a shape the grid does not have.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+.hero {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--warning-line);
+  /*
+   * A gradient, which is the one place in this interface that gets one.
+   *
+   * Flat fills read as state — this card is about a warning. A wash that falls off from the
+   * top-left reads as *light on a surface*, which is what makes one element look nearer than
+   * the others without a shadow, and near is exactly what a hero has to be. Spending it once,
+   * on the only thing that asks a question, is what keeps it meaning something.
+   */
+  background:
+    radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--warning) 16%, transparent) 0%, transparent 62%),
+    var(--warning-bg);
+}
+.hero[data-urgent] {
+  border-color: var(--danger-line);
+  background:
+    radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--danger) 18%, transparent) 0%, transparent 62%),
+    var(--danger-bg);
+}
+.hero-clear { background: var(--surface); border-color: var(--border); }
+
+.hero-chrome {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-5);
+  border-bottom: 1px solid color-mix(in srgb, var(--warning) 22%, transparent);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.11em;
+  color: var(--warning);
+}
+.hero[data-urgent] .hero-chrome { color: var(--danger); border-bottom-color: color-mix(in srgb, var(--danger) 22%, transparent); }
+.hero-clear .hero-chrome { color: var(--muted); border-bottom-color: var(--border); }
+.hero-count { color: var(--muted); }
+.hero-chrome button {
+  margin-left: auto;
+  border: 1px solid currentColor;
+  background: none;
+  color: inherit;
+  border-radius: var(--radius-sm);
+  width: 26px;
+  height: 24px;
+  cursor: pointer;
+  opacity: 0.7;
+}
+.hero-chrome button:hover:not(:disabled) { opacity: 1; }
+.hero-chrome button:disabled { opacity: 0.25; cursor: default; }
+
+/* How many are behind this one, without making you count. */
+.hero-steps { display: flex; gap: 4px; }
+.hero-steps i { width: 16px; height: 3px; border-radius: 2px; background: currentColor; opacity: 0.25; }
+.hero-steps i[data-on] { opacity: 1; }
+
+.hero-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  gap: var(--space-6);
+  padding: var(--space-6) var(--space-5);
+}
+@media (max-width: 62rem) {
+  .hero-body { grid-template-columns: 1fr; }
+}
+/*
+ * The largest text in the application, and the only place a sentence is set this big.
+ *
+ * A figure at this size is a measurement; a sentence at this size is somebody talking to you,
+ * which is the right register for the one card that wants an answer.
+ */
+.hero-body h2 {
+  font-size: 2rem;
+  line-height: 1.18;
+  letter-spacing: -0.028em;
+  font-weight: var(--weight-strong);
+  margin: 0;
+  max-width: 24ch;
+}
+.hero-body > div > p {
+  margin: var(--space-3) 0 0;
+  font-size: var(--text-base);
+  color: var(--muted);
+  line-height: var(--leading-norm);
+  max-width: 52ch;
+}
+
+.hero-actions { display: flex; align-items: center; gap: var(--space-3); margin-top: var(--space-5); flex-wrap: wrap; }
+/* Three weights of button, so which one is the answer is never in doubt. */
+.hero-go {
+  background: var(--accent);
+  color: var(--accent-contrast);
+  padding: var(--space-3) var(--space-5);
+  border-radius: var(--radius);
+  font-weight: var(--weight-strong);
+  font-size: var(--text-sm);
+  text-decoration: none;
+}
+.hero-second {
+  background: none;
+  border: 1px solid var(--border-strong);
+  color: var(--text);
+  padding: var(--space-3) var(--space-5);
+  border-radius: var(--radius);
+  font-weight: var(--weight-medium);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+.hero-second:hover { border-color: var(--text); }
+.hero-third {
+  background: none;
+  border: 0;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  padding: var(--space-3);
+}
+.hero-third:hover:not(:disabled) { color: var(--text); }
+.hero-third:disabled { opacity: 0.4; cursor: default; }
+
+/* What is behind the front of the queue — visible, so skipping is an informed choice. */
+.hero-next { border-left: 1px solid var(--border); padding-left: var(--space-5); }
+.hero-next ul { list-style: none; margin: var(--space-3) 0 0; padding: 0; display: grid; gap: var(--space-4); }
+.hero-next li { display: flex; gap: var(--space-3); font-size: var(--text-sm); }
+.hero-next li b { color: var(--faint); font-variant-numeric: tabular-nums; font-weight: var(--weight-normal); }
+.hero-next li span { display: grid; gap: 2px; }
+.hero-next li small { color: var(--muted); font-size: var(--text-xs); line-height: var(--leading-norm); }
+.hero-clear-line { margin: 0; padding: var(--space-5); color: var(--muted); font-size: var(--text-base); }
+
+/*
+ * The running totals, inline in the page header.
+ *
+ * Monospace label, tabular figure, no box. Four of these as cards would spend a third of the
+ * first screen on four integers that only say whether there is anything to act on.
+ */
+.daystrip { display: flex; align-items: baseline; gap: var(--space-5); flex-wrap: wrap; }
+.daystrip a {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  text-decoration: none;
+  color: inherit;
+}
+.daystrip span {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--muted);
+}
+.daystrip b { font-size: var(--text-md); font-weight: var(--weight-strong); font-variant-numeric: tabular-nums; }
+.daystrip em {
+  font-style: normal;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--muted);
+}
+.daystrip a:hover b { color: var(--accent); }
+.daystrip a[data-warn] b, .daystrip a[data-warn] em { color: var(--warning); }
+.daystrip a[data-alarm] b { color: var(--danger); }

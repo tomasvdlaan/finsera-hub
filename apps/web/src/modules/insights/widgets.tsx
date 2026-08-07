@@ -4,6 +4,7 @@ import { Skeleton } from '../../shell/ui/data.js';
 import { Empty } from '../../shell/ui/primitives.js';
 import { useShared } from '../../lib/useShared.js';
 import { InsightRow, type Insight } from './Insights.js';
+import { DecisionQueue } from './DecisionQueue.js';
 import type { SettingDef, WidgetDef } from '../types.js';
 
 interface Blocked {
@@ -19,6 +20,17 @@ const limit = (settings: Record<string, string>, fallback = 5) =>
   Math.max(1, Math.min(20, Number(settings.rows) || fallback));
 
 export const insightsWidgets: Record<string, WidgetDef> = {
+  'insights:decision-queue': {
+    title: 'Needs a decision',
+    description: 'The front of the queue, one at a time, with what is behind it — and buttons rather than a link.',
+    slot: 'dashboard',
+    // Full width and nothing else. A hero at half width is a card with big type in it.
+    defaultSpan: 12,
+    minSpan: 12,
+    permission: 'insights.read',
+    Component: () => <DecisionQueue />,
+  },
+
   'insights:needs-you': {
     title: 'Needs you',
     description: 'Open findings from the sweep — nothing here has been acted on.',

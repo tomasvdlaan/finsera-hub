@@ -28,6 +28,7 @@ export const insightsManifest = defineManifest({
   // Today shows a digest of exactly these rows — filing it under 'More' buried it.
   navigation: [{ label: 'Inbox', path: '/insights', icon: 'bell', section: 'today', order: 2 }],
   widgets: [
+    { slot: 'dashboard', component: 'insights:decision-queue' },
     { slot: 'dashboard', component: 'insights:needs-you' },
     { slot: 'dashboard', component: 'insights:blocked-on-me' },
   ],
