@@ -60,8 +60,8 @@ export function TaskDetail() {
     ])
       .then(([ps, ts]) =>
         setCandidates([
-          ...ps.map((p) => ref(p.id, 'project', p.name, `/crm/projects/${p.id}`)),
-          ...ts.map((t) => ref(t.id, 'task', t.title, `/scrum/tasks/${t.id}`)),
+          ...ps.map((p) => ref(p.id, 'project', p.name, `/projects/${p.id}`)),
+          ...ts.map((t) => ref(t.id, 'task', t.title, `/tasks/${t.id}`)),
         ]),
       )
       .catch(() => setCandidates([]));
@@ -146,7 +146,7 @@ export function TaskDetail() {
     <>
       <PageHeader
         title={task.title}
-        back={{ to: `/scrum?projectId=${task.projectId}`, label: 'Board' }}
+        back={{ to: `/board?projectId=${task.projectId}`, label: 'Board' }}
         meta={
           <>
           {project && (

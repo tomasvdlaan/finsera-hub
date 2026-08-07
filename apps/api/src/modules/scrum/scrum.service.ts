@@ -1490,6 +1490,14 @@ export class ScrumService {
       assigneeId?: (string | null)[] | string;
       sprintId?: string;
       dueBefore?: string;
+      /**
+       * Cards whose blocker is a named person.
+       *
+       * `blocked_on_user_id` has been written by `blockTask` and asserted in its spec since
+       * blockers were built, and no query has ever read it — so "three people are waiting on
+       * you" was a fact the database held and nothing could ask for.
+       */
+      blockedOnUserId?: string;
       includeCompleted?: boolean;
     } = {},
   ) {
@@ -1520,6 +1528,7 @@ export class ScrumService {
     }
 
     if (filter.sprintId) where.push(eq(tasks.sprintId, filter.sprintId));
+    if (filter.blockedOnUserId) where.push(eq(tasks.blockedOnUserId, filter.blockedOnUserId));
     if (filter.dueBefore) where.push(lte(tasks.dueOn, filter.dueBefore));
     if (!filter.includeCompleted) where.push(isNull(tasks.completedAt));
 

@@ -41,8 +41,8 @@ export function ProjectDetail() {
     Promise.all([api.get<Client[]>('/crm/clients'), api.get<Project[]>('/crm/projects')])
       .then(([cs, ps]) =>
         setCandidates([
-          ...cs.map((c) => ref(c.id, 'client', c.name, `/crm/clients/${c.id}`)),
-          ...ps.map((p) => ref(p.id, 'project', p.name, `/crm/projects/${p.id}`)),
+          ...cs.map((c) => ref(c.id, 'client', c.name, `/clients/${c.id}`)),
+          ...ps.map((p) => ref(p.id, 'project', p.name, `/projects/${p.id}`)),
         ]),
       )
       .catch(() => setCandidates([]));

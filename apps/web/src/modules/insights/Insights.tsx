@@ -22,17 +22,17 @@ export function subjectPath(insight: Insight): string | null {
   if (!insight.subjectId) return null;
   switch (insight.subjectType) {
     case 'invoice':
-      return `/billing/invoices/${insight.subjectId}`;
+      return `/money/invoices/${insight.subjectId}`;
     case 'quote':
-      return `/sales/quotes/${insight.subjectId}`;
+      return `/money/quotes/${insight.subjectId}`;
     case 'contract':
-      return `/sales/contracts/${insight.subjectId}`;
+      return `/money/contracts/${insight.subjectId}`;
     case 'project':
-      return `/crm/projects/${insight.subjectId}`;
+      return `/projects/${insight.subjectId}`;
     case 'task':
-      return `/scrum/tasks/${insight.subjectId}`;
+      return `/tasks/${insight.subjectId}`;
     case 'sprint':
-      return `/scrum/sprints/${insight.subjectId}`;
+      return `/board/sprints/${insight.subjectId}`;
     default:
       return null;
   }

@@ -102,7 +102,7 @@ export function SprintDetail() {
       .then(([notes, projects]) =>
         setCandidates([
           ...notes.map((n) => ref(n.id, 'meeting_note', n.title, `/meetings/${n.id}`)),
-          ...projects.map((p) => ref(p.id, 'project', p.name, `/crm/projects/${p.id}`)),
+          ...projects.map((p) => ref(p.id, 'project', p.name, `/projects/${p.id}`)),
         ]),
       )
       .catch(() => setCandidates([]));
@@ -125,7 +125,7 @@ export function SprintDetail() {
     <>
       <PageHeader
         title={sprint.name}
-        back={{ to: `/scrum/sprints?projectId=${sprint.projectId}`, label: 'Sprints' }}
+        back={{ to: `/board/sprints?projectId=${sprint.projectId}`, label: 'Sprints' }}
       />
       <p className="muted">
         {sprint.startsOn} → {sprint.endsOn} · {sprint.state}

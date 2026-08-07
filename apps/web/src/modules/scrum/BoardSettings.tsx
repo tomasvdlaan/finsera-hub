@@ -211,7 +211,7 @@ export function BoardSettings() {
     <>
       <PageHeader
         title="Board settings"
-        back={{ to: `/scrum?projectId=${projectId}`, label: 'Board' }}
+        back={{ to: `/board?projectId=${projectId}`, label: 'Board' }}
       />
 
       <div className="row">

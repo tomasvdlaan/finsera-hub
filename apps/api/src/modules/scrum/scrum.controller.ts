@@ -36,6 +36,8 @@ export class ScrumController {
     @Query('assigneeId') assigneeId?: string | string[],
     @Query('sprintId') sprintId?: string,
     @Query('dueBefore') dueBefore?: string,
+    /** `me` rather than a uuid: the inbox asks "what is waiting on me" and has no id to hand. */
+    @Query('blockedOnUserId') blockedOnUserId?: string,
     @Query('includeCompleted') includeCompleted?: string,
   ) {
     const assignees =
@@ -51,6 +53,8 @@ export class ScrumController {
       assigneeId: assignees,
       sprintId,
       dueBefore,
+      blockedOnUserId:
+        blockedOnUserId === 'me' ? (actor.userId ?? undefined) : blockedOnUserId,
       includeCompleted: includeCompleted === 'true',
     });
   }
