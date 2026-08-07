@@ -7,7 +7,6 @@ import {
   Routes,
   Outlet,
   useLocation,
-  useNavigate,
 } from 'react-router-dom';
 import type { CurrentUser } from '@platform/contracts';
 import { api } from '../lib/api.js';
@@ -16,7 +15,7 @@ import type { NavItem } from '../modules/types.js';
 import { AssistantPage } from './AssistantPage.js';
 import { StarredAnswers } from './StarredAnswers.js';
 import { CommandBar } from './CommandBar.js';
-import { Sidebar, type SidebarCounts } from './Sidebar.js';
+import { TopNav, type NavCounts } from './TopNav.js';
 import { LiveMeetingProvider } from './LiveMeeting.js';
 import { RunningTimerProvider } from './useRunningTimer.js';
 import { LivePill } from './LivePill.js';
@@ -117,7 +116,7 @@ function Shell() {
   const [nav, setNav] = useState<NavItem[]>([]);
   const [me, setMe] = useState<CurrentUser | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
-  const [counts, setCounts] = useState<SidebarCounts>({});
+  const [counts, setCounts] = useState<NavCounts>({});
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -279,29 +278,20 @@ function ChromeLayout({
 }: {
   nav: NavItem[];
   me: CurrentUser | null;
-  counts: SidebarCounts;
+  counts: NavCounts;
   error: string | null;
   onSearch: () => void;
   onLogout: () => void;
 }) {
-  const navigate = useNavigate();
   return (
-    <div className="layout">
-      <Sidebar
-        nav={nav}
-        shellItems={SHELL_ITEMS}
-        counts={counts}
-        me={me}
-        onSearch={onSearch}
-        onOpenAssistant={() => navigate('/assistant')}
-        onLogout={onLogout}
-      />
+    <div className="layout-top">
+      <TopNav nav={nav} counts={counts} me={me} onSearch={onSearch} onLogout={onLogout} />
 
       <main>
         {error && (
           <p className="error">
             API error: {error}
-            {nav.length === 0 && ' — navigation could not be loaded, so the sidebar is empty.'}
+            {nav.length === 0 && ' — navigation could not be loaded, so some sections may be missing.'}
           </p>
         )}
         <LivePill />

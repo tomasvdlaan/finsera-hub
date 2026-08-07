@@ -32,14 +32,25 @@
    * fights it, and a hair of warmth in the paper is most of what separates a considered
    * interface from a wireframe. These are the portal's neutrals, which were warm already.
    */
-  --bg: #fbfaf8;
+  /*
+   * A canvas, and things sitting on it.
+   *
+   * `--bg` was #fbfaf8 against a #ffffff surface — a two-percent difference, which is to say
+   * white cards on a white page held apart by hairlines. That is the single biggest reason
+   * the app read as a document rather than an interface, and no amount of spacing fixes it:
+   * a card is legible as a card because the ground behind it is darker, not because it has
+   * a border. The canvas drops to what `--surface-sunken` used to be, and sunken goes lower
+   * still so a well inside a card is not the same colour as the page behind it.
+   */
+  --bg: #f2efea;
   --surface: #ffffff;
-  --surface-sunken: #f4f2ef;
+  --surface-sunken: #f7f5f1;
   --surface-raised: #ffffff;
-  --text: #1a1a18;
+  --text: #191817;
   --muted: #6c6a66;
-  --border: #e6e3de;
-  --border-strong: #cfcbc4;
+  --faint: #9b968e;
+  --border: #e7e3dc;
+  --border-strong: #d2ccc3;
 
   /* Accent */
   --accent: var(--brand);
@@ -62,6 +73,33 @@
   /* Distinct from the brand, or "done" and "Finsera" become the same colour. */
   --ok: #3f7d34;
   --ok-bg: #f0f6ee;
+  /*
+   * Planned, quoted, forecast — a thing that has not happened yet.
+   *
+   * The fourth hue, and the one the palette was missing: a quote worth €13.612 was rendered
+   * in the same neutral as an invoice that has been paid, so the screen could not distinguish
+   * money that exists from money that might. Slate rather than a true blue, which would read
+   * as a link, and low-chroma on purpose — the reference palettes that use a bright lilac get
+   * away with it because nothing else on their screen is coloured.
+   */
+  --info: #4a5691;
+  --info-bg: #eef0f8;
+
+  /*
+   * Borders for the tinted surfaces above.
+   *
+   * A card filled with --danger-bg and edged in the neutral --border reads as a mistake: the
+   * fill says "this is about a problem" and the edge says "this is an ordinary card". Each
+   * tint gets an edge from its own family.
+   */
+  --danger-line: #f0d5c9;
+  --warning-line: #ecdcb4;
+  --ok-line: #d3e5cc;
+  --info-line: #d6dbee;
+  --accent-line: #cbe2da;
+
+  /* A translucent ink for controls sitting on a tinted fill. Dark lightens, light darkens. */
+  --wash: rgb(0 0 0 / 0.055);
 
   /* Focus ring, defined once so every interactive element rings identically. */
   --focus: var(--accent);
@@ -76,6 +114,15 @@
   --radius: 10px;
   --radius-sm: 6px;
   --radius-lg: 16px;
+  /*
+   * The card radius, larger than anything else and deliberately so.
+   *
+   * Every reference interface worth copying lands between 18 and 24px here, and the reason is
+   * not fashion: a big radius only reads as intentional when the shape is big enough to carry
+   * it, so reserving it for the card is what stops the same curve appearing on a 24px chip
+   * and looking like a bug.
+   */
+  --radius-card: 18px;
   --radius-pill: 999px;
 
   /*
@@ -275,14 +322,25 @@
      * wireframe. These separate enough that a card is legible as a card with the border
      * removed, which is the test.
      */
-    --bg: #0f0e0d;
-    --surface: #1c1a18;
-    --surface-sunken: #161413;
-    --surface-raised: #262320;
-    --text: #f5f3f0;
-    --muted: #a8a39b;
-    --border: #34302c;
-    --border-strong: #4a4640;
+    /*
+     * Cooled, and pulled apart further.
+     *
+     * These were warm browns, argued for on the grounds that a cool grey fights a green
+     * accent. That holds on paper and does not hold at this darkness: below about 12% the
+     * warmth stops reading as warmth and starts reading as a screen that needs calibrating,
+     * and the green has to do its own work anyway. A whisper of warmth is kept — these are
+     * not blue-blacks — but the ladder is what matters, and it now spans far enough that a
+     * card is a card with the border removed.
+     */
+    --bg: #0e0f10;
+    --surface: #17181a;
+    --surface-sunken: #121314;
+    --surface-raised: #212326;
+    --text: #eae8e5;
+    --muted: #8f8b85;
+    --faint: #625e59;
+    --border: #26282b;
+    --border-strong: #363a3e;
 
     --accent: var(--brand);
     --accent-contrast: #06201a;
@@ -297,6 +355,19 @@
     /* Warmer and yellower than the brand, so "done" cannot be mistaken for "Finsera". */
     --ok: #8fc47a;
     --ok-bg: #1c2a17;
+    /* Lifted well off the background: a #4a5691 slate that reads as considered on paper is
+       indistinguishable from the border on near-black. */
+    --info: #8f9bd4;
+    --info-bg: #1a1d2b;
+
+    /* Edges for the tints. On dark these are lighter than their fill rather than darker,
+       which is the same rule as --surface-raised: in the dark, height is lightness. */
+    --danger-line: #4a2a20;
+    --warning-line: #453422;
+    --ok-line: #2a3d23;
+    --info-line: #2c3247;
+    --accent-line: #2c4a41;
+    --wash: rgb(255 255 255 / 0.07);
 
     /*
      * Depth by light, not by shadow.
@@ -826,7 +897,7 @@ section {
   padding: var(--space-5);
   background: var(--plane-1-bg);
   border: 1px solid var(--plane-1-border);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-card);
   box-shadow: var(--plane-1-shadow);
 }
 
@@ -3688,7 +3759,7 @@ a.badge:hover {
   padding: var(--space-5);
   background: var(--plane-1-bg);
   border: 1px solid var(--plane-1-border);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-card);
   box-shadow: var(--plane-1-shadow);
 }
 .panel + .panel { margin-top: var(--space-4); }
@@ -4997,3 +5068,364 @@ main table:not(.grid) [data-align='action'] {
 .tracker-day[data-asked] {
   border-left: 3px solid var(--accent);
 }
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * THE CARD
+ *
+ * One surface component, and the tone is the whole idea.
+ *
+ * `section` and `.panel` are neutral boxes: correct, and mute. A card can also say what it
+ * is *about* by taking a fill from one of the four semantic families — but only when the
+ * thing inside it genuinely is that state. A card is amber because something is waiting, not
+ * because the row needed variety. That discipline is the entire difference between a palette
+ * that reads and one that is decoration; the moment a fill is chosen for looks, every other
+ * fill on the screen stops meaning anything.
+ *
+ * Which is why there is no `data-tone="brand"`. The accent belongs to live things — a running
+ * clock, a selected tab — and a card that is permanently accent-coloured would spend that.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+.card {
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-5);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  min-width: 0;
+  /* So contents can respond to the card's width rather than the viewport's — a legend beside
+     a ring goes two-column in a wide card and stays one in a narrow one, on the same page. */
+  container-type: inline-size;
+}
+.card[data-tone='danger'] { background: var(--danger-bg); border-color: var(--danger-line); }
+.card[data-tone='warning'] { background: var(--warning-bg); border-color: var(--warning-line); }
+.card[data-tone='ok'] { background: var(--ok-bg); border-color: var(--ok-line); }
+.card[data-tone='info'] { background: var(--info-bg); border-color: var(--info-line); }
+/*
+ * The hero, of which a page gets one.
+ *
+ * Inverted rather than tinted, because the job is different: a tone says "this is about a
+ * problem", the hero says "of everything here, look at this". Two heroes is none.
+ */
+.card[data-tone='hero'] {
+  background: var(--brand-tint);
+  border-color: var(--accent-line);
+}
+
+.card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+.card-title { font-size: var(--text-base); font-weight: var(--weight-strong); letter-spacing: -0.012em; }
+.card-sub { font-size: var(--text-xs); color: var(--muted); margin-top: 2px; }
+
+/*
+ * The corner affordance.
+ *
+ * A whole card that navigates needs to say so, and an underlined link inside it competes with
+ * the number for attention. The arrow sits in the corner where every reference interface puts
+ * it, stays quiet until hover, and — because it is the anchor — gives the keyboard a single
+ * tab stop for the card rather than none.
+ */
+.card-out {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-pill);
+  display: grid;
+  place-items: center;
+  background: var(--surface-sunken);
+  border: 1px solid transparent;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  text-decoration: none;
+  transition: background 0.13s ease, color 0.13s ease, border-color 0.13s ease;
+}
+.card-out:hover { background: var(--surface); border-color: var(--border-strong); color: var(--text); }
+/*
+ * On a tinted card the sunken neutral is a grey hole punched in the fill.
+ *
+ * A translucent ink instead, so the button darkens whatever it happens to be sitting on and
+ * works for all four tones without four rules. Set per theme because "darken" is the wrong
+ * verb in the dark, where the same black wash would disappear.
+ */
+.card[data-tone] .card-out { background: var(--wash); }
+
+/*
+ * The label, and the figure it belongs to.
+ *
+ * The inversion this whole design rests on: the number gets big and the word above it gets
+ * small. A figure at --metric-hero under an 11px label reads as a measurement; the same
+ * figure at heading size reads as a heading that happens to be numeric.
+ */
+.card-label {
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: var(--track-label);
+  font-weight: var(--weight-strong);
+  color: var(--muted);
+}
+.card-figure {
+  font-size: var(--metric-hero);
+  font-weight: var(--weight-strong);
+  line-height: 1.05;
+  letter-spacing: -0.035em;
+  font-variant-numeric: tabular-nums;
+  margin-top: var(--space-2);
+}
+.card-figure[data-size='hero'] { font-size: 3.375rem; }
+/* The unit rides at label size so "21,4 h" is one figure, not two. */
+.card-figure .unit {
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+  color: var(--muted);
+  letter-spacing: 0;
+  margin-left: 3px;
+}
+.card-note { font-size: var(--text-xs); color: var(--muted); margin-top: var(--space-2); }
+/* Pushes whatever follows to the bottom, so a row of cards of unequal content still lines
+   its charts up along one baseline. */
+.card-fill { margin-top: auto; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * DATA VIZ
+ *
+ * Six shapes, all hand-drawn SVG, all painting in tokens so a chart dropped into a tinted
+ * card inherits the card. See shell/ui/viz.tsx for why there is no chart library.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+.viz { display: block; width: 100%; }
+/* The gauge and the donut are sized by their own geometry, not by the column they land in —
+   a 300px-wide arc is a smile, not a measurement. */
+.viz-gauge { width: 120px; max-width: 100%; }
+.viz-donut { width: 96px; flex: none; }
+.viz-figure {
+  font-size: 21px;
+  font-weight: var(--weight-strong);
+  fill: var(--text);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+}
+.viz-gauge .viz-figure { font-size: 26px; }
+.viz-caption { font-size: 9.5px; fill: var(--muted); }
+.viz-empty {
+  display: grid;
+  place-items: center;
+  font-size: var(--text-xs);
+  color: var(--faint);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+}
+
+.viz-meter,
+.viz-split {
+  display: flex;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+  background: var(--surface-sunken);
+}
+.viz-meter > span { display: block; height: 100%; border-radius: var(--radius-pill); }
+/* A hair of gap so two adjacent segments read as two, the same reason the donut leaves one. */
+.viz-split > span + span { margin-left: 2px; }
+
+.viz-legend { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); min-width: 0; }
+.viz-legend li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  min-width: 0;
+}
+.viz-legend i { width: 9px; height: 9px; border-radius: 3px; flex: none; }
+.viz-legend b { margin-left: auto; font-weight: var(--weight-strong); font-variant-numeric: tabular-nums; }
+/* Two columns once there is room, because four legend rows beside a 96px ring wastes the
+   width the ring does not use. */
+@container (min-width: 24rem) {
+  .viz-legend { grid-template-columns: 1fr 1fr; gap: var(--space-2) var(--space-5); }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * THE TOP BAR
+ *
+ * What used to be 232px of left rail. See shell/TopNav.tsx for why the anchors are capped.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+.layout-top { min-height: 100vh; display: flex; flex-direction: column; background: var(--bg); }
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-5);
+  /* Sticky rather than fixed: fixed would need the page to reserve the height by hand, and
+     every page that forgot would slide its first card under the bar. */
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  background: var(--bg);
+}
+.topbar-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: var(--weight-loud);
+  font-size: var(--text-md);
+  letter-spacing: -0.02em;
+  padding-right: var(--space-2);
+  white-space: nowrap;
+}
+.topbar-brand svg { width: 26px; height: 26px; fill: var(--accent); flex: none; }
+
+/*
+ * The pill.
+ *
+ * A track behind the anchors, so the set reads as one control rather than as eight links that
+ * happen to be adjacent — which is the whole reason a pill works where a row of tabs does not.
+ */
+.topbar-pill {
+  display: flex;
+  gap: 2px;
+  padding: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.topbar-pill::-webkit-scrollbar { display: none; }
+.anchor {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-pill);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--muted);
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color 0.13s ease, background 0.13s ease;
+}
+.anchor:hover { color: var(--text); }
+/*
+ * The selected anchor is a filled pill, not an underline.
+ *
+ * An underline is a mark on a thing; a fill makes the thing itself the marker, which is what
+ * survives being glanced at from across a desk. Sunken rather than accent-filled: the accent
+ * is spent on the running clock, and two accents on one bar is neither.
+ */
+.anchor.on { background: var(--surface-sunken); color: var(--text); font-weight: var(--weight-strong); }
+:root:not([data-theme='light']) .anchor.on { background: var(--surface-raised); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .anchor.on { background: var(--surface-raised); }
+}
+
+.topbar-right { margin-left: auto; display: flex; align-items: center; gap: var(--space-2); }
+
+/*
+ * The clock.
+ *
+ * Idle it is a quiet button that says what it is for. Running it is the one accent-filled
+ * thing on the screen, with a lit dot — because "is a timer running" is a question you should
+ * never have to navigate to answer, and because the answer being wrong costs real money.
+ */
+.clock {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.clock:hover { border-color: var(--border-strong); color: var(--text); }
+.clock.live { background: var(--brand-tint); border-color: var(--accent-line); color: var(--accent); }
+.clock.live .clock-time { font-variant-numeric: tabular-nums; font-weight: var(--weight-strong); color: var(--text); }
+.clock.live .clock-what { color: var(--muted); }
+.clock.live i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.round {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: var(--text-md);
+  cursor: pointer;
+  position: relative;
+}
+.round:hover { border-color: var(--border-strong); color: var(--text); }
+/* The shortcut is written on the button, because a keystroke nobody told you about is
+   indistinguishable from no feature at all. */
+.round kbd {
+  position: absolute;
+  bottom: -6px;
+  font-size: 9px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  color: var(--faint);
+}
+
+.avatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 0;
+  cursor: pointer;
+  background: linear-gradient(140deg, var(--brand-bright), var(--brand-deep));
+  color: #fff;
+  font-weight: var(--weight-strong);
+  font-size: var(--text-sm);
+}
+.me { position: relative; }
+.me-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  min-width: 13rem;
+  padding: var(--space-2);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-3);
+  display: grid;
+  gap: 1px;
+}
+.me-who { padding: var(--space-2) var(--space-3) var(--space-3); display: grid; gap: 2px; }
+.me-who b { font-size: var(--text-sm); }
+.me-who span { font-size: var(--text-xs); color: var(--muted); text-transform: capitalize; }
+.me-menu a,
+.me-menu button {
+  text-align: left;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  color: var(--text);
+  text-decoration: none;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+.me-menu a:hover,
+.me-menu button:hover { background: var(--surface-sunken); }
+
+/* The page itself, now that nothing is beside it. */
+.layout-top > main { padding: 0 var(--space-5) var(--space-7); flex: 1; min-width: 0; }
