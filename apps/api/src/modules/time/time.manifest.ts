@@ -26,6 +26,14 @@ export const timeManifest = defineManifest({
     { capability: 'time.entries.write_own', description: 'Log and edit your own hours.' },
     { capability: 'time.entries.read_all', description: "See everyone's hours." },
     { capability: 'time.entries.manage', description: "Manage another person's hours." },
+    /*
+     * Separate from `manage` on purpose.
+     *
+     * Editing somebody's hours and agreeing that they may be invoiced are different powers, and
+     * the second is the one that puts a number in front of a client. A bookkeeper who fixes
+     * typos should not thereby be able to sign work off.
+     */
+    { capability: 'time.approve', description: "Approve or send back a person's week." },
   ],
 
   navigation: [{ label: 'Timesheet', path: '/time', icon: 'clock', section: 'time', order: 1 }],
@@ -40,6 +48,8 @@ export const timeManifest = defineManifest({
     { slot: 'dashboard', component: 'time:person-load' },
     { slot: 'dashboard', component: 'time:timer' },
     { slot: 'dashboard', component: 'time:timesheet-health' },
+    { slot: 'dashboard', component: 'time:approvals' },
+    { slot: 'dashboard', component: 'time:my-week' },
   ],
 
   reportingViews: [

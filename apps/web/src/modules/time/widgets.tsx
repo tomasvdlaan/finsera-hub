@@ -499,4 +499,140 @@ export const timeWidgets: Record<string, WidgetDef> = {
       );
     },
   },
+
+  /* ── Approval ─────────────────────────────────────────────────────────── */
+
+  'time:approvals': {
+    title: 'Waiting on you',
+    description: "Weeks somebody has submitted and nobody has decided on. Approving one releases its hours to be invoiced.",
+    slot: 'dashboard',
+    defaultSpan: 6,
+    minSpan: 4,
+    permission: 'time.approve',
+    Component: () => {
+      const { data, loading } = useShared<
+        Array<{
+          id: string; personId: string; personName: string; weekOf: string;
+          minutes: number; entries: number; withoutTask: number;
+        }>
+      >('/time/approvals');
+      const [gone, setGone] = useState<string[]>([]);
+      const rows = (data ?? []).filter((r) => !gone.includes(r.id));
+
+      const sendBack = (r: { personId: string; weekOf: string }) => async () => {
+        // Prompted rather than a silent reject: the server refuses a return with no reason,
+        // and a week sent back without one gives the person a badge and no idea what to fix.
+        const note = window.prompt('What needs changing before this can be approved?');
+        if (!note?.trim()) throw new Error('A week sent back needs a reason');
+        return api.post('/time/timesheet/decide', { ...r, approve: false, note });
+      };
+
+      return (
+        <Card
+          title="Waiting on you"
+          sub={loading || rows.length === 0 ? undefined : 'Approving releases the hours to be invoiced'}
+          tone={rows.length > 0 ? 'info' : undefined}
+        >
+          {loading ? (
+            <Skeleton height="4rem" />
+          ) : rows.length === 0 ? (
+            <Empty>No week is waiting on a decision.</Empty>
+          ) : (
+            <ul className="act-rows">
+              {rows.map((r) => (
+                <ActRow
+                  key={r.id}
+                  title={`${r.personName} · week of ${r.weekOf}`}
+                  meta={
+                    // The count that decides most rejections, said before it is asked for.
+                    `${hours(r.minutes)} · ${r.entries} ${r.entries === 1 ? 'entry' : 'entries'}` +
+                    (r.withoutTask > 0 ? ` · ${r.withoutTask} with no card` : '')
+                  }
+                >
+                  <Act
+                    variant="primary"
+                    run={() =>
+                      api.post('/time/timesheet/decide', {
+                        personId: r.personId,
+                        weekOf: r.weekOf,
+                        approve: true,
+                      })
+                    }
+                    onDone={() => setGone((all) => [...all, r.id])}
+                  >
+                    Approve
+                  </Act>
+                  <Act
+                    variant="danger"
+                    run={sendBack({ personId: r.personId, weekOf: r.weekOf })}
+                    onDone={() => setGone((all) => [...all, r.id])}
+                  >
+                    Send back
+                  </Act>
+                </ActRow>
+              ))}
+            </ul>
+          )}
+        </Card>
+      );
+    },
+  },
+
+  'time:my-week': {
+    title: 'My week',
+    description: 'Where your own week stands — open, waiting on somebody, approved, or sent back with a reason.',
+    slot: 'dashboard',
+    defaultSpan: 4,
+    minSpan: 3,
+    permission: 'time.entries.write_own',
+    Component: () => {
+      const sheet = useShared<{ status: string; note: string | null } | null>('/time/timesheet');
+      const recent = useShared<{ days: Array<{ date: string; totalMinutes: number }> }>('/time/recent');
+
+      const monday = new Date();
+      monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
+      const week = (recent.data?.days ?? []).filter((d) => d.date >= monday.toISOString().slice(0, 10));
+      const minutes = week.reduce((n, d) => n + d.totalMinutes, 0);
+      /*
+       * The server's answer, with no local override on top of it.
+       *
+       * The first version held the new status in component state after submitting, which then
+       * shadowed every later refetch — so approving the week in the card beside this one left
+       * this one saying "submitted" for as long as the page stayed open, with the two on
+       * screen disagreeing. `Act` refreshes every shared read on success, so the state was
+       * both unnecessary and the reason the refresh could not be seen.
+       */
+      const status = sheet.data?.status ?? 'open';
+
+      const tone = status === 'returned' ? 'danger' : status === 'approved' ? 'ok' : undefined;
+      const says =
+        status === 'approved'
+          ? 'Approved — these hours can be invoiced.'
+          : status === 'submitted'
+            ? 'Submitted. Waiting on a decision.'
+            : status === 'returned'
+              ? (sheet.data?.note ?? 'Sent back.')
+              : 'Not submitted yet.';
+
+      return (
+        <Card title="My week" tone={tone}>
+          {sheet.loading ? (
+            <Skeleton height="3rem" />
+          ) : (
+            <>
+              <Figure label="Logged this week" value={hours(minutes)} note={says} />
+              {/* Approved is the one state with nothing to do, so it is the one with no button. */}
+              {status !== 'approved' && status !== 'submitted' && (
+                <div className="card-foot">
+                  <Act variant="primary" run={() => api.post('/time/timesheet/submit', {})}>
+                    {status === 'returned' ? 'Send it again' : 'Submit the week'}
+                  </Act>
+                </div>
+              )}
+            </>
+          )}
+        </Card>
+      );
+    },
+  },
 };

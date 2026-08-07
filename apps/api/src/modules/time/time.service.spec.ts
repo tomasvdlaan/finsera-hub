@@ -12,7 +12,7 @@ import { resetDb, seedUser, testDb, truncate } from '../../test/db.js';
 import { crmManifest } from '../crm/crm.manifest.js';
 import { CrmService } from '../crm/crm.service.js';
 import { timeManifest } from './time.manifest.js';
-import { entries } from './time.schema.js';
+import { entries, timesheets } from './time.schema.js';
 import { TimeService, addDays, weekStart } from './time.service.js';
 
 const actor: Actor = { userId: crypto.randomUUID(), role: 'admin' };
@@ -51,7 +51,7 @@ describe('TimeService', () => {
 
   beforeEach(async () => {
     await resetDb();
-    await truncate(sql`TRUNCATE time.entries CASCADE`);
+    await truncate(sql`TRUNCATE time.entries, time.timesheets CASCADE`);
     await truncate(sql`TRUNCATE crm.projects, crm.contacts, crm.clients CASCADE`);
     await seedUser(actor.userId, 'admin');
     ({ crm, time } = build());
@@ -491,5 +491,110 @@ describe('TimeService', () => {
       // A blank cell where a project name goes reads as a failure to load.
       expect(day.entries[0]!.targetName).toBe('Internal');
     });
+  });
+});
+
+// ── approval ──
+
+describe('approving a week', () => {
+  let crm: CrmService;
+  let time: TimeService;
+  let projectId: string;
+
+  beforeEach(async () => {
+    await resetDb();
+    await truncate(sql`TRUNCATE time.entries, time.timesheets CASCADE`);
+    await truncate(sql`TRUNCATE crm.projects, crm.contacts, crm.clients CASCADE`);
+    await seedUser(actor.userId, 'admin');
+    ({ crm, time } = build());
+    const client = await crm.createClient(actor, { name: 'Acme' });
+    const project = await crm.createProject(actor, {
+      clientId: client.id,
+      name: 'Dashboard',
+      billingModel: 'time_and_materials',
+      defaultRateCents: 12_000,
+    });
+    projectId = project.id;
+    await time.createEntry(actor, { projectId, workedOn: MONDAY, minutes: 480 });
+  });
+
+  it('bills an unsubmitted week exactly as before', async () => {
+    // The whole safety property: turning approval on changes nothing until somebody uses it,
+    // so hours logged before it existed keep flowing to an invoice.
+    expect(await time.timesheet(actor, { weekOf: MONDAY })).toBeNull();
+    expect(await time.entriesForBilling(projectId)).toHaveLength(1);
+  });
+
+  it('holds a submitted week back until somebody decides', async () => {
+    await time.submitWeek(actor, MONDAY);
+    expect(await time.entriesForBilling(projectId)).toHaveLength(0);
+
+    await time.decideWeek(actor, { personId: actor.userId!, weekOf: MONDAY, approve: true });
+    expect(await time.entriesForBilling(projectId)).toHaveLength(1);
+  });
+
+  it('keeps holding a week that was sent back', async () => {
+    await time.submitWeek(actor, MONDAY);
+    await time.decideWeek(actor, {
+      personId: actor.userId!,
+      weekOf: MONDAY,
+      approve: false,
+      note: 'Two entries have no card',
+    });
+    expect(await time.entriesForBilling(projectId)).toHaveLength(0);
+
+    // Fixed and re-sent: the ordinary path, and it clears the stale reason on the way.
+    const again = await time.submitWeek(actor, MONDAY);
+    expect(again?.status).toBe('submitted');
+    expect(again?.note).toBeNull();
+  });
+
+  it('refuses to send a week back without saying why', async () => {
+    await time.submitWeek(actor, MONDAY);
+    await expect(
+      time.decideWeek(actor, { personId: actor.userId!, weekOf: MONDAY, approve: false }),
+    ).rejects.toThrow(/why/i);
+  });
+
+  it('only lets a week be decided once', async () => {
+    await time.submitWeek(actor, MONDAY);
+    await time.decideWeek(actor, { personId: actor.userId!, weekOf: MONDAY, approve: true });
+    // A second approver must not silently overwrite the first — the trail would show only the
+    // last opinion.
+    await expect(
+      time.decideWeek(actor, { personId: actor.userId!, weekOf: MONDAY, approve: true }),
+    ).rejects.toThrow(/waiting on a decision/i);
+  });
+
+  it('will not re-submit a week that has been approved', async () => {
+    await time.submitWeek(actor, MONDAY);
+    await time.decideWeek(actor, { personId: actor.userId!, weekOf: MONDAY, approve: true });
+    await expect(time.submitWeek(actor, MONDAY)).rejects.toThrow(/already been approved/i);
+  });
+
+  it('snaps a mid-week date to its Monday', async () => {
+    // Every week in this system starts on one, and the database refuses anything else — so a
+    // caller passing Wednesday must land on the same row as one passing Monday.
+    await time.submitWeek(actor, '2026-07-29');
+    const [row] = await testDb.select().from(timesheets);
+    expect(row?.weekOf).toBe(MONDAY);
+  });
+
+  it('lists what is waiting, with what is in it', async () => {
+    await time.submitWeek(actor, MONDAY);
+    const pending = await time.pendingWeeks(actor);
+    expect(pending).toHaveLength(1);
+    expect(pending[0]).toMatchObject({ minutes: 480, entries: 1, weekOf: MONDAY });
+    // The count an approver would otherwise have to go and look for.
+    expect(pending[0]?.withoutTask).toBe(1);
+  });
+
+  it('records who decided, and says so in the audit log', async () => {
+    await time.submitWeek(actor, MONDAY);
+    const row = await time.decideWeek(actor, { personId: actor.userId!, weekOf: MONDAY, approve: true });
+    expect(row?.decidedBy).toBe(actor.userId);
+
+    const log = await testDb.select().from(auditLog);
+    expect(log.map((l) => l.action)).toContain('time.week.approved');
   });
 });

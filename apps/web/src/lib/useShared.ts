@@ -19,6 +19,28 @@ const WINDOW_MS = 4000;
 
 const inflight = new Map<string, { at: number; promise: Promise<unknown> }>();
 
+/**
+ * Everything read is suspect after something is written.
+ *
+ * Two widgets can be about the same fact — "my week" and "weeks waiting on you" are two views
+ * of one timesheet — and approving in one left the other saying "submitted" until a reload.
+ * That is worse than a stale number in a corner: the two are on screen together, disagreeing,
+ * and the reader has no way to know which one is right.
+ *
+ * A counter rather than per-path invalidation, because a widget does not know which paths its
+ * action touched and guessing would be wrong exactly when it mattered. Refetching everything
+ * after a write is cheap here — a dashboard is a dozen small reads — and it cannot be subtly
+ * wrong, which is the property worth paying for.
+ */
+let generation = 0;
+const listeners = new Set<() => void>();
+
+export function refreshShared(): void {
+  generation += 1;
+  inflight.clear();
+  for (const l of listeners) l();
+}
+
 function shared<T>(path: string): Promise<T> {
   const hit = inflight.get(path);
   if (hit && Date.now() - hit.at < WINDOW_MS) return hit.promise as Promise<T>;
@@ -46,6 +68,16 @@ export interface Loaded<T> {
  */
 export function useShared<T>(path: string | null): Loaded<T> {
   const [state, setState] = useState<Loaded<T>>({ data: undefined, error: undefined, loading: path !== null });
+  const [at, setAt] = useState(generation);
+
+  // Re-runs the fetch below by moving `at`, which is in that effect's dependency list.
+  useEffect(() => {
+    const wake = () => setAt(generation);
+    listeners.add(wake);
+    return () => {
+      listeners.delete(wake);
+    };
+  }, []);
 
   useEffect(() => {
     if (path === null) {
@@ -62,7 +94,7 @@ export function useShared<T>(path: string | null): Loaded<T> {
     return () => {
       live = false;
     };
-  }, [path]);
+  }, [path, at]);
 
   return state;
 }

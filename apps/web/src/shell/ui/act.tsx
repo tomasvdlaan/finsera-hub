@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { useToast } from './Toast.js';
+import { refreshShared } from '../../lib/useShared.js';
 
 /**
  * A button inside a card that changes something.
@@ -38,6 +39,14 @@ export function Act({
     try {
       await run();
       onDone?.();
+      /*
+       * Everything on the page re-reads.
+       *
+       * Two widgets are often two views of one fact — approving a week in "waiting on you"
+       * left "my week" saying submitted, side by side, disagreeing. The row removal above is
+       * local and immediate; this is what makes every other card agree with it.
+       */
+      refreshShared();
     } catch (e) {
       // Named, not swallowed. A button that fails quietly is worse than one that is missing,
       // because the reader has already believed it worked.
