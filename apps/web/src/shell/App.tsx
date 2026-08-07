@@ -22,6 +22,7 @@ import { RunningTimerProvider } from './useRunningTimer.js';
 import { LivePill } from './LivePill.js';
 import { Page, PageHeader } from './ui/layout.js';
 import { MeetingChatProvider } from './MeetingChat.js';
+import { Moved, MOVED_ROOTS } from './moved.js';
 import { Modules } from './Modules.js';
 import { Settings } from './Settings.js';
 import { DialogProvider } from './ui/Dialog.js';
@@ -53,8 +54,8 @@ const SHELL_ITEMS: NavItem[] = [
   // Board, and three of the four things in there are work. The name has to say which one.
   { label: 'All work', path: '/work', module: 'shell', icon: 'columns', section: 'work', order: 3 },
   { label: 'Money', path: '/money', module: 'shell', icon: 'receipt', section: 'money', order: 1 },
-  { label: 'Organisation', path: '/platform/settings', module: 'shell', icon: 'settings', section: 'setup', order: 1 },
-  { label: 'Platform modules', path: '/platform/modules', module: 'shell', icon: 'columns', section: 'setup', order: 3 },
+  { label: 'Organisation', path: '/settings', module: 'shell', icon: 'settings', section: 'setup', order: 1 },
+  { label: 'Platform modules', path: '/settings/modules', module: 'shell', icon: 'columns', section: 'setup', order: 3 },
 ];
 
 export function App() {
@@ -232,8 +233,13 @@ function Shell() {
           {/* Before the :id route, or "starred" is read as a conversation id. */}
           <Route path="/assistant/starred" element={<Page><StarredAnswers /></Page>} />
           <Route path="/assistant/:id" element={<Page><AssistantPage /></Page>} />
-          <Route path="/platform/modules" element={<Page><Modules /></Page>} />
-          <Route path="/platform/settings" element={<Page width="read"><Settings /></Page>} />
+          <Route path="/settings/modules" element={<Page><Modules /></Page>} />
+          <Route path="/settings" element={<Page width="read"><Settings /></Page>} />
+          {/* Every address the app used to serve, before the URLs were named after the
+              thing rather than the module that stores it. See shell/moved.tsx. */}
+          {MOVED_ROOTS.map((root) => (
+            <Route key={root} path={`/${root}/*`} element={<Moved />} />
+          ))}
           <Route path="*" element={<Page><NotFound home={home} /></Page>} />
         </Route>
 

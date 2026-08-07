@@ -91,7 +91,7 @@ export function PortalPreview() {
   return (
     <div>
       <p className="muted" style={{ marginBottom: '1rem' }}>
-        <Link to={`/crm/clients/${clientId}`}>← Back to client</Link>
+        <Link to={`/clients/${clientId}`}>← Back to client</Link>
       </p>
 
       <div

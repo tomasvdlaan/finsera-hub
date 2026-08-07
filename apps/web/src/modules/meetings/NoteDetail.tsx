@@ -133,7 +133,7 @@ export function NoteDetail() {
         meta={
           <>
           {client && (
-            <Link to={`/crm/clients/${client.id}`}>{client.name}</Link>
+            <Link to={`/clients/${client.id}`}>{client.name}</Link>
           )}
           </>
         }
@@ -358,7 +358,7 @@ export function NoteDetail() {
               <li key={item.id} className="muted">
                 <Status value={item.status} /> {item.text}
                 {item.taskId && (
-                  <Link to={`/scrum/tasks/${item.taskId}`}>open the task</Link>
+                  <Link to={`/tasks/${item.taskId}`}>open the task</Link>
                 )}
               </li>
             ))}

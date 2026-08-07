@@ -74,7 +74,7 @@ export function ProjectChatCard({ id, displayName, urlPath }: ChatWidgetProps) {
       )}
       <div className="chat-card-actions">
         <Link to={urlPath}>open</Link>
-        <Link to={`/scrum?projectId=${id}`}>board</Link>
+        <Link to={`/board?projectId=${id}`}>board</Link>
       </div>
     </div>
   );

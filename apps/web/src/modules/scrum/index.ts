@@ -10,14 +10,14 @@ import { TaskDetail } from './TaskDetail.js';
 export const scrumWebModule: WebModule = {
   name: 'scrum',
   routes: [
-    { path: '/scrum', Component: Board, width: 'wide' },
+    { path: '/board', Component: Board, width: 'wide' },
     // Not in the rail: you configure a board occasionally and from the board itself.
-    { path: '/scrum/settings', Component: BoardSettings, width: 'read' },
-    { path: '/scrum/sprints', Component: SprintHistory, width: 'wide' },
+    { path: '/board/settings', Component: BoardSettings, width: 'read' },
+    { path: '/board/sprints', Component: SprintHistory, width: 'wide' },
     // The manifest has advertised this URL since the module was written.
-    { path: '/scrum/sprints/:id', Component: SprintDetail },
-    { path: '/scrum/flow', Component: Flow },
-    { path: '/scrum/tasks/:id', Component: TaskDetail },
+    { path: '/board/sprints/:id', Component: SprintDetail },
+    { path: '/board/flow', Component: Flow },
+    { path: '/tasks/:id', Component: TaskDetail },
   ],
   chatWidgets: { task: TaskChatCard },
 };

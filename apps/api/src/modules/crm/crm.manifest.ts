@@ -13,9 +13,9 @@ export const crmManifest = defineManifest({
   version: '0.1.0',
 
   entities: [
-    { type: 'client', displayTemplate: '{name}', urlPattern: '/crm/clients/:id', readPermission: 'crm.clients.read' },
-    { type: 'contact', displayTemplate: '{name}', urlPattern: '/crm/clients/:id', readPermission: 'crm.clients.read' },
-    { type: 'project', displayTemplate: '{name}', urlPattern: '/crm/projects/:id', readPermission: 'crm.projects.read' },
+    { type: 'client', displayTemplate: '{name}', urlPattern: '/clients/:id', readPermission: 'crm.clients.read' },
+    { type: 'contact', displayTemplate: '{name}', urlPattern: '/clients/:id', readPermission: 'crm.clients.read' },
+    { type: 'project', displayTemplate: '{name}', urlPattern: '/projects/:id', readPermission: 'crm.projects.read' },
   ],
 
   structuralRefs: [
@@ -40,8 +40,8 @@ export const crmManifest = defineManifest({
   ],
 
   navigation: [
-    { label: 'Clients', path: '/crm/clients', icon: 'users', section: 'clients', order: 1 },
-    { label: 'Projects', path: '/crm/projects', icon: 'folder', section: 'clients', order: 2 },
+    { label: 'Clients', path: '/clients', icon: 'users', section: 'clients', order: 1 },
+    { label: 'Projects', path: '/projects', icon: 'folder', section: 'clients', order: 2 },
   ],
   widgets: [],
 

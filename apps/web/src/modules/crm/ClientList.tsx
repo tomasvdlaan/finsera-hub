@@ -105,7 +105,7 @@ export function ClientList() {
             <ul className="cards">
               {group.items.map((c) => (
                 <li key={c.id}>
-                  <Link to={`/crm/clients/${c.id}`}>{c.name}</Link>
+                  <Link to={`/clients/${c.id}`}>{c.name}</Link>
                 </li>
               ))}
             </ul>

@@ -78,7 +78,7 @@ export class ContractsService {
         id,
         entityType: 'contract',
         displayName: input.title.trim(),
-        urlPath: `/sales/contracts/${id}`,
+        urlPath: `/money/contracts/${id}`,
       });
 
       await tx.insert(contracts).values({

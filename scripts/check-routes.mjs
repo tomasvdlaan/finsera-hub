@@ -66,6 +66,29 @@ const shape = (url) => url.replace(/:[A-Za-z0-9_]+/g, ':x');
 const routes = new Set([...served()].map(shape));
 const orphans = declared().filter((d) => !routes.has(shape(d.url)));
 
+/**
+ * A redirect to a route nobody serves is worse than no redirect — it turns a broken link into
+ * a broken link that took an extra hop to break. Checked here rather than in a web unit test
+ * because reaching the route tables from a test means importing every page in the app.
+ */
+const moved = readFileSync(join(WEB, 'shell', 'moved.tsx'), 'utf8');
+const targets = [...moved.matchAll(/\['(\/[^']*)', *'(\/[^']*)'\]/g)];
+if (targets.length === 0) {
+  console.error('\nmoved.tsx parsed to zero redirects — the MOVED table changed shape.\n');
+  process.exit(1);
+}
+// `/scrum/tasks` -> `/tasks` is a prefix rule: neither side is a page, and its whole job is
+// to carry `/scrum/tasks/abc` across. It passes if something lives *under* the target.
+const covers = (to) =>
+  routes.has(shape(to)) || [...routes].some((r) => r.startsWith(`${to}/`));
+const dangling = targets.filter(([, , to]) => !covers(to));
+if (dangling.length > 0) {
+  console.error(`\n${dangling.length} redirect target(s) with no route behind them:\n`);
+  for (const [, from, to] of dangling) console.error(`  ${from.padEnd(24)} -> ${to}`);
+  console.error('');
+  process.exit(1);
+}
+
 if (orphans.length > 0) {
   console.error(
     `\n${orphans.length} URL${orphans.length === 1 ? '' : 's'} declared by a manifest with no route behind ${orphans.length === 1 ? 'it' : 'them'}:\n`,

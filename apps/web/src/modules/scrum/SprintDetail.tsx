@@ -173,7 +173,7 @@ export function SprintDetail() {
               if (!go) return;
               await api.del(`/scrum/sprints/${id}`);
               toast.ok('Sprint deleted');
-              navigate(`/scrum/sprints?projectId=${sprint.projectId}`);
+              navigate(`/board/sprints?projectId=${sprint.projectId}`);
             })()
           }
         >
@@ -270,7 +270,7 @@ export function SprintDetail() {
                 <span className={`tag${t.completedAt ? '' : ' overdue'}`}>
                   {t.completedAt ? 'done' : t.status.replace(/_/g, ' ')}
                 </span>
-                <Link to={`/scrum/tasks/${t.id}`}>{t.title}</Link>
+                <Link to={`/tasks/${t.id}`}>{t.title}</Link>
                 {t.estimateMinutes != null && (
                   <span className="muted"> · {hours(t.estimateMinutes)}h</span>
                 )}

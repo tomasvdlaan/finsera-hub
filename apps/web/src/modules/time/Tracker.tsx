@@ -628,7 +628,7 @@ export function Tracker() {
                       aria-hidden="true"
                     />
                     {entry.projectId ? (
-                      <Link to={`/crm/projects/${entry.projectId}`}>{entry.projectName}</Link>
+                      <Link to={`/projects/${entry.projectId}`}>{entry.projectName}</Link>
                     ) : (
                       <span className="muted">{entry.projectName}</span>
                     )}

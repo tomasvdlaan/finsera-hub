@@ -97,7 +97,7 @@ export function Timesheet() {
             {week.rows.map((row) => (
               <tr key={row.id}>
                 <th scope="row">
-                  <Link to={`/crm/projects/${row.id}`}>{row.name}</Link>
+                  <Link to={`/projects/${row.id}`}>{row.name}</Link>
                   {row.clientName && <div className="muted">{row.clientName}</div>}
                 </th>
                 {week.days.map((day, i) => (

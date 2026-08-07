@@ -99,7 +99,7 @@ export function Flow() {
   return (
     <>
       <p>
-        <Link to="/scrum">← Board</Link>
+        <Link to="/board">← Board</Link>
       </p>
       <PageHeader title="Flow" />
 
@@ -137,7 +137,7 @@ export function Flow() {
                     <span className={`tag${a.minutes >= 14 * 1440 ? ' overdue' : ''}`}>
                       {duration(a.minutes)}
                     </span>
-                    <Link to={`/scrum/tasks/${a.taskId}`}>{a.title}</Link>
+                    <Link to={`/tasks/${a.taskId}`}>{a.title}</Link>
                     {a.waiting && <span className="muted"> · waiting on the client</span>}
                     {/* An age inferred from creation is an upper bound, not a measurement. */}
                     {!a.measured && (
@@ -260,7 +260,7 @@ function StatBlock({ title, hint, stat }: { title: string; hint: string; stat: S
             {stat.samples.map((s, i) => (
               <span key={s.taskId}>
                 {i > 0 && ', '}
-                <Link to={`/scrum/tasks/${s.taskId}`} title={s.title}>
+                <Link to={`/tasks/${s.taskId}`} title={s.title}>
                   {duration(s.minutes)}
                 </Link>
               </span>

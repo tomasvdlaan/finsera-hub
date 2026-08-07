@@ -210,7 +210,7 @@ export function ProjectList() {
         <ul className="cards">
           {projects.map((p) => (
             <li key={p.id}>
-              <Link to={`/crm/projects/${p.id}`}>{p.name}</Link>{' '}
+              <Link to={`/projects/${p.id}`}>{p.name}</Link>{' '}
               <span className="badge">{humanise(p.billingModel)}</span>{' '}
               <span className="muted">
                 {clientName[p.clientId] ?? '—'} · {humanise(p.status)}

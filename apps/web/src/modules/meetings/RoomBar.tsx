@@ -108,7 +108,7 @@ export function RoomBar({
 
         <div className="room-context muted">
           {projectName ? (
-            <Link to={`/crm/projects/${note.projectId}`}>{projectName}</Link>
+            <Link to={`/projects/${note.projectId}`}>{projectName}</Link>
           ) : (
             <span className="tag overdue">no project linked</span>
           )}

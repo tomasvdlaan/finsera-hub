@@ -68,7 +68,7 @@ export function ContractList() {
         type: newType,
         title: title.trim(),
       });
-      navigate(`/sales/contracts/${contract.id}`);
+      navigate(`/money/contracts/${contract.id}`);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -150,7 +150,7 @@ export function ContractList() {
             const urgency = contractUrgency(contract);
             return (
               <li key={contract.id}>
-                <Link to={`/sales/contracts/${contract.id}`}>{contract.title}</Link>{' '}
+                <Link to={`/money/contracts/${contract.id}`}>{contract.title}</Link>{' '}
                 <span className="badge">{TYPE_LABELS[contract.type]}</span>
                 <Status value={contract.status} />
                 {urgency && (

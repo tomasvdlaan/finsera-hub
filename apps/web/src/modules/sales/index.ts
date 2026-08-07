@@ -10,12 +10,12 @@ import { RateCards } from './RateCards.js';
 export const salesWebModule: WebModule = {
   name: 'sales',
   routes: [
-    { path: '/sales', Component: QuoteList, width: 'wide' },
-    { path: '/sales/quotes/:id', Component: QuoteDetail },
+    { path: '/money/quotes', Component: QuoteList, width: 'wide' },
+    { path: '/money/quotes/:id', Component: QuoteDetail },
     // Before the :id route, or 'contracts' would be read as a quote id.
-    { path: '/sales/contracts', Component: ContractList, width: 'wide' },
-    { path: '/sales/contracts/:id', Component: ContractDetail },
-    { path: '/sales/rate-cards', Component: RateCards, width: 'read' },
+    { path: '/money/contracts', Component: ContractList, width: 'wide' },
+    { path: '/money/contracts/:id', Component: ContractDetail },
+    { path: '/money/rate-cards', Component: RateCards, width: 'read' },
   ],
   chatWidgets: { quote: QuoteChatCard, contract: ContractChatCard },
 };

@@ -152,13 +152,13 @@ export function Overview() {
                 : 'none overdue'
             }
             urgent={outstanding.overdueCents > 0}
-            to="/billing"
+            to="/money/invoices"
           />
           <Stat
             label="Not yet invoiced"
             value={money(unbilled.totalValueCents)}
             hint={`${hours(unbilled.totalMinutes)} of billable work in hand`}
-            to="/billing"
+            to="/money/invoices"
           />
         </div>
       </section>
@@ -216,7 +216,7 @@ export function Overview() {
             label="Quotes out"
             value={money(pipeline.outstandingValueCents)}
             hint={`${pipeline.byStatus.sent?.count ?? 0} awaiting a decision`}
-            to="/sales"
+            to="/money/quotes"
           />
           <Stat
             label="Won"
@@ -236,7 +236,7 @@ export function Overview() {
           <ul className="cards">
             {unbilled.byProject.map((p) => (
               <li key={p.projectId}>
-                <Link to={`/crm/projects/${p.projectId}`}>{p.projectName}</Link>{' '}
+                <Link to={`/projects/${p.projectId}`}>{p.projectName}</Link>{' '}
                 <span className="muted">
                   {p.clientName ?? '—'} · {hours(p.minutes)} · {money(p.valueCents)}
                 </span>
@@ -252,7 +252,7 @@ export function Overview() {
           <ul className="cards">
             {renewals.map((c) => (
               <li key={c.id}>
-                <Link to={`/sales/contracts/${c.id}`}>{c.title}</Link>{' '}
+                <Link to={`/money/contracts/${c.id}`}>{c.title}</Link>{' '}
                 <span className="badge">{c.daysUntilEnd} days</span>
                 <span className="muted">
                   {c.clientName ?? '—'} · ends {c.endsOn}

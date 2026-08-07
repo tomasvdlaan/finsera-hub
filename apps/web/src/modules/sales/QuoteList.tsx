@@ -56,7 +56,7 @@ export function QuoteList() {
         // One placeholder line so the quote is valid from the start; it is meant to be edited.
         lines: [{ description: title.trim(), quantity: '1.00', unitPriceCents: 3_500 }],
       });
-      navigate(`/sales/quotes/${quote.id}`);
+      navigate(`/money/quotes/${quote.id}`);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -128,7 +128,7 @@ export function QuoteList() {
         <ul className="cards">
           {quotes.map((quote) => (
             <li key={quote.id}>
-              <Link to={`/sales/quotes/${quote.id}`}>{quote.number ?? 'Draft'}</Link>{' '}
+              <Link to={`/money/quotes/${quote.id}`}>{quote.number ?? 'Draft'}</Link>{' '}
               <Status value={quote.status} />
               {quote.expired && <span className="badge priority-urgent">expired</span>}
               {quote.version > 1 && <span className="badge">v{quote.version}</span>}{' '}

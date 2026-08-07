@@ -147,10 +147,10 @@ export function QuoteDetail() {
         meta={
           <>
           {client && (
-            <Link to={`/crm/clients/${client.id}`}>{client.name}</Link>
+            <Link to={`/clients/${client.id}`}>{client.name}</Link>
           )}
           {quote.supersedesQuoteId && (
-            <Link to={`/sales/quotes/${quote.supersedesQuoteId}`}>supersedes v{quote.version - 1}</Link>
+            <Link to={`/money/quotes/${quote.supersedesQuoteId}`}>supersedes v{quote.version - 1}</Link>
           )}
           </>
         }
@@ -161,7 +161,7 @@ export function QuoteDetail() {
         {quote.expired && <span className="badge priority-urgent">past its validity date</span>}
         {quote.version > 1 && <span className="badge">version {quote.version}</span>}
         {quote.projectCreatedId && (
-          <Link to={`/crm/projects/${quote.projectCreatedId}`}>view the project</Link>
+          <Link to={`/projects/${quote.projectCreatedId}`}>view the project</Link>
         )}
       </div>
 
@@ -176,7 +176,7 @@ export function QuoteDetail() {
               onClick={() =>
                 void act(async () => {
                   await api.del(`/sales/quotes/${id}`);
-                  navigate('/sales');
+                  navigate('/money/quotes');
                 })
               }
             >
@@ -217,7 +217,7 @@ export function QuoteDetail() {
                     `/sales/quotes/${id}/revise`,
                     {},
                   );
-                  navigate(`/sales/quotes/${revision.id}`);
+                  navigate(`/money/quotes/${revision.id}`);
                 })
               }
             >

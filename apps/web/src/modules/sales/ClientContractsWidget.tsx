@@ -19,7 +19,7 @@ export function ClientContractsWidget({ clientId }: { clientId: string }) {
   if (contracts.length === 0) {
     return (
       <p className="muted">
-        Nothing recorded — <Link to="/sales/contracts">add a contract</Link>.
+        Nothing recorded — <Link to="/money/contracts">add a contract</Link>.
       </p>
     );
   }
@@ -39,7 +39,7 @@ export function ClientContractsWidget({ clientId }: { clientId: string }) {
           const urgency = contractUrgency(contract);
           return (
             <li key={contract.id}>
-              <Link to={`/sales/contracts/${contract.id}`}>{contract.title}</Link>{' '}
+              <Link to={`/money/contracts/${contract.id}`}>{contract.title}</Link>{' '}
               <span className="badge">{TYPE_LABELS[contract.type]}</span>
               <Status value={contract.status} />
               {urgency && (

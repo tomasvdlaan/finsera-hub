@@ -88,7 +88,7 @@ export class SalesService {
         id,
         entityType: 'quote',
         displayName: `Draft quote — ${input.title}`,
-        urlPath: `/sales/quotes/${id}`,
+        urlPath: `/money/quotes/${id}`,
       });
 
       await tx.insert(quotes).values({
@@ -537,7 +537,7 @@ export class SalesService {
         id: newId,
         entityType: 'quote',
         displayName: `Draft quote v${original.version + 1} — ${original.title}`,
-        urlPath: `/sales/quotes/${newId}`,
+        urlPath: `/money/quotes/${newId}`,
       });
 
       await tx.insert(quotes).values({

@@ -444,7 +444,7 @@ function BoardTab({
           <ul className="cards">
             {blocked.map((t) => (
               <li key={t.id}>
-                <Link to={`/scrum/tasks/${t.id}`}>{t.title}</Link>
+                <Link to={`/tasks/${t.id}`}>{t.title}</Link>
                 <div className="task-blocked">
                   <span className="tag overdue">blocked</span> {t.blockedReason}
                 </div>
@@ -469,7 +469,7 @@ function BoardTab({
               <ul className="cards">
                 {inColumn.map((t) => (
                   <li key={t.id}>
-                    <Link to={`/scrum/tasks/${t.id}`}>{t.title}</Link>
+                    <Link to={`/tasks/${t.id}`}>{t.title}</Link>
                     {t.priority !== 'normal' && (
                       <span className={`badge priority-${t.priority}`}> {t.priority}</span>
                     )}

@@ -125,7 +125,7 @@ export function Work() {
                   {label} <span className="muted">{cards.length}</span>
                 </div>
                 {cards.map((t) => (
-                  <Link key={t.id} to={`/scrum/tasks/${t.id}`} className="work-card">
+                  <Link key={t.id} to={`/tasks/${t.id}`} className="work-card">
                     <div>{t.title}</div>
                     {/* The reason a card is not moving outranks everything else about it. */}
                     {t.blockedReason && (

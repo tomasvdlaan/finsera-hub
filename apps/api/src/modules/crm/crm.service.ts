@@ -99,7 +99,7 @@ export class CrmService {
         id,
         entityType: 'client',
         displayName: name,
-        urlPath: `/crm/clients/${id}`,
+        urlPath: `/clients/${id}`,
       });
       await tx.insert(clients).values({
         id,
@@ -281,7 +281,7 @@ export class CrmService {
          * the link picker, search and every assistant citation navigate straight to it. So a
          * contact was findable, mentionable, and landed on "not found" when clicked.
          */
-        urlPath: `/crm/clients/${input.clientId}`,
+        urlPath: `/clients/${input.clientId}`,
       });
       await tx.insert(contacts).values({
         id,
@@ -358,7 +358,7 @@ export class CrmService {
         id,
         entityType: 'project',
         displayName: name,
-        urlPath: `/crm/projects/${id}`,
+        urlPath: `/projects/${id}`,
       });
       await tx.insert(projects).values({
         id,

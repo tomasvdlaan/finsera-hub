@@ -6,8 +6,8 @@ export const salesManifest = defineManifest({
   version: '0.1.0',
 
   entities: [
-    { type: 'quote', displayTemplate: '{number}', urlPattern: '/sales/quotes/:id', readPermission: 'sales.quotes.read' },
-    { type: 'contract', displayTemplate: '{title}', urlPattern: '/sales/contracts/:id', readPermission: 'sales.contracts.read' },
+    { type: 'quote', displayTemplate: '{number}', urlPattern: '/money/quotes/:id', readPermission: 'sales.quotes.read' },
+    { type: 'contract', displayTemplate: '{title}', urlPattern: '/money/contracts/:id', readPermission: 'sales.contracts.read' },
   ],
 
   structuralRefs: [
@@ -39,9 +39,9 @@ export const salesManifest = defineManifest({
   ],
 
   navigation: [
-    { label: 'Quotes', path: '/sales', icon: 'file-text', section: 'money', order: 2, hidden: true },
-    { label: 'Contracts', path: '/sales/contracts', icon: 'file-signature', section: 'money', order: 3, hidden: true },
-    { label: 'Rate cards', path: '/sales/rate-cards', icon: 'tag', section: 'setup', order: 2 },
+    { label: 'Quotes', path: '/money/quotes', icon: 'file-text', section: 'money', order: 2, hidden: true },
+    { label: 'Contracts', path: '/money/contracts', icon: 'file-signature', section: 'money', order: 3, hidden: true },
+    { label: 'Rate cards', path: '/money/rate-cards', icon: 'tag', section: 'setup', order: 2 },
   ],
   widgets: [
     { slot: 'entity-page', component: 'sales:client-quotes' },

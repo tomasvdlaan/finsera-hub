@@ -95,7 +95,7 @@ export function InvoiceDetail() {
         meta={
           <>
           {client && (
-            <Link to={`/crm/clients/${client.id}`}>{client.name}</Link>
+            <Link to={`/clients/${client.id}`}>{client.name}</Link>
           )}
           </>
         }
@@ -106,7 +106,7 @@ export function InvoiceDetail() {
         {invoice.overdue && <span className="badge priority-urgent">overdue</span>}
         <span className="badge">{VAT_LABELS[invoice.vatTreatment]}</span>
         {invoice.creditsInvoiceId && (
-          <Link to={`/billing/invoices/${invoice.creditsInvoiceId}`}>credits an invoice</Link>
+          <Link to={`/money/invoices/${invoice.creditsInvoiceId}`}>credits an invoice</Link>
         )}
       </div>
 
@@ -129,7 +129,7 @@ export function InvoiceDetail() {
                   if (!go) return;
                   await api.del(`/billing/invoices/${id}`);
                   toast.ok('Draft voided — its hours are billable again');
-                  navigate('/billing');
+                  navigate('/money/invoices');
                 })
               }
             >
@@ -150,7 +150,7 @@ export function InvoiceDetail() {
                     `/billing/invoices/${id}/credit-note`,
                     {},
                   );
-                  navigate(`/billing/invoices/${credit.id}`);
+                  navigate(`/money/invoices/${credit.id}`);
                 })
               }
             >

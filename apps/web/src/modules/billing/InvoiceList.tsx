@@ -106,7 +106,7 @@ export function InvoiceList() {
         <ul className="cards">
           {invoices.map((invoice) => (
             <li key={invoice.id}>
-              <Link to={`/billing/invoices/${invoice.id}`}>
+              <Link to={`/money/invoices/${invoice.id}`}>
                 {invoice.number ??
                   (invoice.kind === 'credit_note' ? 'Draft credit note' : 'Draft invoice')}
               </Link>{' '}

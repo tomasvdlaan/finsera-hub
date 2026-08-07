@@ -645,13 +645,13 @@ export function Board() {
           {shown.filter((t) => !t.completedAt).length} open of {shown.length}
         </span>
         {/* Pushed to the far end: you configure a board rarely and read it constantly. */}
-        <Link to={`/scrum/flow?projectId=${projectId}`} className="muted board-settings-link">
+        <Link to={`/board/flow?projectId=${projectId}`} className="muted board-settings-link">
           Flow
         </Link>
-        <Link to={`/scrum/sprints?projectId=${projectId}`} className="muted">
+        <Link to={`/board/sprints?projectId=${projectId}`} className="muted">
           Sprints
         </Link>
-        <Link to={`/scrum/settings?projectId=${projectId}`} className="muted">
+        <Link to={`/board/settings?projectId=${projectId}`} className="muted">
           Columns
         </Link>
       </div>

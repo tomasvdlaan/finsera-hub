@@ -82,7 +82,7 @@ export function ClientRequests() {
           >
             <strong>{r.subject}</strong>
             <p className="muted" style={{ margin: '.25rem 0' }}>
-              <Link to={`/crm/clients/${r.client_id}`}>{r.client_name}</Link>
+              <Link to={`/clients/${r.client_id}`}>{r.client_name}</Link>
               {r.asked_by ? ` · ${r.asked_by}` : ''} · {day(r.created_at)}
             </p>
             <blockquote

@@ -133,7 +133,7 @@ export function TaskDetail() {
 
   const archive = async () => {
     await api.del(`/scrum/tasks/${id}`);
-    navigate(`/scrum?projectId=${task?.projectId ?? ''}`);
+    navigate(`/board?projectId=${task?.projectId ?? ''}`);
   };
 
   if (!task) return error ? <p className="error">{error}</p> : <p className="muted">Loading…</p>;
@@ -150,7 +150,7 @@ export function TaskDetail() {
         meta={
           <>
           {project && (
-            <Link to={`/crm/projects/${project.id}`}>{project.name}</Link>
+            <Link to={`/projects/${project.id}`}>{project.name}</Link>
           )}
           </>
         }
@@ -320,7 +320,7 @@ export function TaskDetail() {
           <ul className="cards">
             {task.children.map((child) => (
               <li key={child.id}>
-                <Link to={`/scrum/tasks/${child.id}`}>{child.title}</Link>{' '}
+                <Link to={`/tasks/${child.id}`}>{child.title}</Link>{' '}
                 <span className="muted">{child.status.replace(/_/g, ' ')}</span>
               </li>
             ))}

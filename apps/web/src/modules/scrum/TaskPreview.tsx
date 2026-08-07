@@ -171,7 +171,7 @@ export function TaskPreview({
         </div>
         <div className="row">
           {/* The page is still where you go to do more than glance — links, timeline, archive. */}
-          <Link to={`/scrum/tasks/${task.id}`} className="muted">
+          <Link to={`/tasks/${task.id}`} className="muted">
             Open full
           </Link>
           {/*
@@ -355,7 +355,7 @@ export function TaskPreview({
                     />
                     <span>{child.title}</span>
                   </label>
-                  <Link to={`/scrum/tasks/${child.id}`} className="muted">
+                  <Link to={`/tasks/${child.id}`} className="muted">
                     open
                   </Link>
                 </li>

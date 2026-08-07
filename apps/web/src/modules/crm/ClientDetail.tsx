@@ -83,7 +83,7 @@ export function ClientDetail() {
     if (!go) return;
     await api.del(`/crm/clients/${id}`);
     toast.ok(`${client?.name ?? 'Client'} archived`);
-    navigate('/crm/clients');
+    navigate('/clients');
   };
 
   const setStatus = async (status: string) => {
@@ -124,7 +124,7 @@ export function ClientDetail() {
       <p className="muted">
         {/* Read-only, audited, and served by the same projection the portal uses — so what
             it shows is what this client actually gets, not an approximation of it. */}
-        <Link to={`/crm/clients/${client.id}/portal`}>View their client portal →</Link>
+        <Link to={`/clients/${client.id}/portal`}>View their client portal →</Link>
       </p>
 
       <div className="row">
@@ -287,7 +287,7 @@ export function ClientDetail() {
           <ul className="cards">
             {projects.map((p) => (
               <li key={p.id}>
-                <Link to={`/crm/projects/${p.id}`}>{p.name}</Link>{' '}
+                <Link to={`/projects/${p.id}`}>{p.name}</Link>{' '}
                 <span className="badge">{humanise(p.billingModel)}</span>{' '}
                 <span className="muted">
                   {humanise(p.status)}

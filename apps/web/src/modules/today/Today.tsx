@@ -228,7 +228,7 @@ export function Today() {
 
   const card = (t: Task) => (
     <li key={t.id}>
-      <Link to={`/scrum/tasks/${t.id}`}>{t.title}</Link>
+      <Link to={`/tasks/${t.id}`}>{t.title}</Link>
       <span className="muted">
         {' '}
         {projectName.get(t.projectId) ?? ''}
@@ -401,7 +401,7 @@ export function Today() {
                     {/* Linked to the card it was logged against where there is one, which is
                         the point of logging against a card. */}
                     {e.taskId ? (
-                      <Link to={`/scrum/tasks/${e.taskId}`}>
+                      <Link to={`/tasks/${e.taskId}`}>
                         {e.description || e.projectName || 'Work'}
                       </Link>
                     ) : (

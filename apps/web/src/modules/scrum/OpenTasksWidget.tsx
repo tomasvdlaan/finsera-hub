@@ -23,7 +23,7 @@ export function OpenTasksWidget({ projectId }: { projectId: string }) {
   if (tasks.length === 0) {
     return (
       <p className="muted">
-        No tasks yet — <Link to={`/scrum?projectId=${projectId}`}>open the board</Link>.
+        No tasks yet — <Link to={`/board?projectId=${projectId}`}>open the board</Link>.
       </p>
     );
   }
@@ -33,12 +33,12 @@ export function OpenTasksWidget({ projectId }: { projectId: string }) {
       <p className="muted">
         {open.length} open of {tasks.length}
         {estimate > 0 && ` · ${hours(estimate)}h estimated remaining`} ·{' '}
-        <Link to={`/scrum?projectId=${projectId}`}>board</Link>
+        <Link to={`/board?projectId=${projectId}`}>board</Link>
       </p>
       <ul className="cards">
         {open.slice(0, 8).map((t) => (
           <li key={t.id}>
-            <Link to={`/scrum/tasks/${t.id}`}>{t.title}</Link>{' '}
+            <Link to={`/tasks/${t.id}`}>{t.title}</Link>{' '}
             <span className="muted">{t.status.replace(/_/g, ' ')}</span>
             {isOverdue(t) && <span className="badge">overdue</span>}
           </li>

@@ -77,7 +77,7 @@ export function ProjectDetail() {
         meta={
           <>
           {client && (
-            <Link to={`/crm/clients/${client.id}`}>{client.name}</Link>
+            <Link to={`/clients/${client.id}`}>{client.name}</Link>
           )}
           </>
         }

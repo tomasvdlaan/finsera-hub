@@ -50,13 +50,13 @@ export function Money() {
 
       <div className="stat-row">
         <div className="stat">
-          <Link to="/billing">
+          <Link to="/money/invoices">
             <div className="muted">Outstanding</div>
             <div className="stat-value">{euros(overview?.outstanding?.totalCents)}</div>
           </Link>
         </div>
         <div className="stat">
-          <Link to="/billing">
+          <Link to="/money/invoices">
             <div className="muted">Overdue</div>
             <div className={`stat-value${overdue > 0 ? ' urgent' : ''}`}>{euros(overdue)}</div>
           </Link>
@@ -74,15 +74,15 @@ export function Money() {
         <table>
           <tbody>
             <tr>
-              <td><Link to="/billing">Invoices</Link></td>
+              <td><Link to="/money/invoices">Invoices</Link></td>
               <td className="muted">Drafts, issued, paid — and the billing run</td>
             </tr>
             <tr>
-              <td><Link to="/sales">Quotes</Link></td>
+              <td><Link to="/money/quotes">Quotes</Link></td>
               <td className="muted">Out for decision, accepted, rejected</td>
             </tr>
             <tr>
-              <td><Link to="/sales/contracts">Contracts</Link></td>
+              <td><Link to="/money/contracts">Contracts</Link></td>
               <td className="muted">Signed terms, end dates and notice deadlines</td>
             </tr>
             <tr>
@@ -90,7 +90,7 @@ export function Money() {
               <td className="muted">Revenue, utilisation, pipeline, profitability</td>
             </tr>
             <tr>
-              <td><Link to="/sales/rate-cards">Rate cards</Link></td>
+              <td><Link to="/money/rate-cards">Rate cards</Link></td>
               <td className="muted">What an hour costs, and since when</td>
             </tr>
           </tbody>

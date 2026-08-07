@@ -64,7 +64,7 @@ export function ContractDetail() {
         meta={
           <>
           {client && (
-            <Link to={`/crm/clients/${client.id}`}>{client.name}</Link>
+            <Link to={`/clients/${client.id}`}>{client.name}</Link>
           )}
           </>
         }
@@ -108,7 +108,7 @@ export function ContractDetail() {
               onClick={() =>
                 void act(async () => {
                   await api.del(`/sales/contracts/${id}`);
-                  navigate('/sales/contracts');
+                  navigate('/money/contracts');
                 })
               }
             >

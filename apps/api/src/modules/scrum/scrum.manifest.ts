@@ -7,8 +7,8 @@ export const scrumManifest = defineManifest({
   version: '0.1.0',
 
   entities: [
-    { type: 'task', displayTemplate: '{title}', urlPattern: '/scrum/tasks/:id', readPermission: 'scrum.tasks.read' },
-    { type: 'sprint', displayTemplate: '{name}', urlPattern: '/scrum/sprints/:id', readPermission: 'scrum.tasks.read' },
+    { type: 'task', displayTemplate: '{title}', urlPattern: '/tasks/:id', readPermission: 'scrum.tasks.read' },
+    { type: 'sprint', displayTemplate: '{name}', urlPattern: '/board/sprints/:id', readPermission: 'scrum.tasks.read' },
   ],
 
   structuralRefs: [
@@ -46,7 +46,7 @@ export const scrumManifest = defineManifest({
     { capability: 'scrum.board.manage', description: 'Configure columns and sprints.' },
   ],
 
-  navigation: [{ label: 'Board', path: '/scrum', icon: 'columns', section: 'work', order: 2 }],
+  navigation: [{ label: 'Board', path: '/board', icon: 'columns', section: 'work', order: 2 }],
 
   widgets: [{ slot: 'entity-page', component: 'scrum:open-tasks' }],
 

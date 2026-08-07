@@ -332,7 +332,7 @@ export class ScrumService {
         id,
         entityType: 'sprint',
         displayName: name,
-        urlPath: `/scrum/sprints/${id}`,
+        urlPath: `/board/sprints/${id}`,
       });
 
       await tx.insert(sprints).values({
@@ -1127,7 +1127,7 @@ export class ScrumService {
         id,
         entityType: 'task',
         displayName: title,
-        urlPath: `/scrum/tasks/${id}`,
+        urlPath: `/tasks/${id}`,
       });
 
       await tx.insert(tasks).values({
