@@ -210,7 +210,7 @@ export function SprintDetail() {
         the honest rendering of "we never said how much time you had". A default forty-hour
         week here would draw a bar against a denominator nobody chose.
       */}
-      <section>
+      <section data-span={6}>
         <h2>Load</h2>
         {teamLoad && (teamLoad.people.length > 0 || teamLoad.unassigned.cards > 0) ? (
           <ul className="flow-list">
@@ -257,7 +257,7 @@ export function SprintDetail() {
         )}
       </section>
 
-      <section>
+      <section data-span={6}>
         <h2>Cards</h2>
         {tasks.length === 0 ? (
           <Empty>
@@ -282,7 +282,7 @@ export function SprintDetail() {
       </section>
 
       {/* The two panels every registered entity gets, and the reason registering mattered. */}
-      <section>
+      <section data-span={6}>
         <h2>Links</h2>
         <Links
           entityId={id}
@@ -293,7 +293,7 @@ export function SprintDetail() {
           }}
         />
       </section>
-      <section>
+      <section data-span={6}>
         <h2>Timeline</h2>
         <Timeline entityId={id} refreshKey={refreshKey} />
       </section>

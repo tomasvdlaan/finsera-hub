@@ -345,7 +345,7 @@ export function QuoteDetail() {
         )}
       </section>
 
-      <section>
+      <section data-span={6}>
         <h2>Timeline</h2>
         <Timeline entityId={id} />
       </section>

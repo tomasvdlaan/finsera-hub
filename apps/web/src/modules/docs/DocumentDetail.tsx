@@ -139,7 +139,7 @@ export function DocumentDetail() {
         <DocumentPreview documentId={id} versionId={previewVersionId} />
       </section>
 
-      <section>
+      <section data-span={6}>
         <h2>Versions</h2>
         <p className="muted">
           Newest first. Nothing is overwritten — every earlier version stays downloadable.
@@ -211,12 +211,12 @@ export function DocumentDetail() {
         </section>
       )}
 
-      <section>
+      <section data-span={6}>
         <h2>Links</h2>
         <Links entityId={id} candidates={candidates} onChange={() => setRefreshKey((k) => k + 1)} />
       </section>
 
-      <section>
+      <section data-span={6}>
         <h2>Timeline</h2>
         <Timeline entityId={id} refreshKey={refreshKey} />
       </section>

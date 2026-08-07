@@ -300,15 +300,27 @@ export function Split({ slices }: { slices: Slice[] }) {
   );
 }
 
-/** The words for a Donut or a Split, laid out so the colour and the count meet the eye together. */
-export function Legend({ slices }: { slices: Slice[] }) {
+/**
+ * The words for a Donut or a Split, laid out so the colour and the count meet the eye together.
+ *
+ * `format` exists because a slice's value has to stay a number — Donut and Split divide by it —
+ * while the legend beside them often wants it as money or hours. The alternative was casting a
+ * formatted string back through the Slice type, which type-checks and is a lie.
+ */
+export function Legend({
+  slices,
+  format = (n) => String(n),
+}: {
+  slices: Slice[];
+  format?: (value: number) => string;
+}) {
   return (
     <ul className="viz-legend">
       {slices.map((s) => (
         <li key={s.label}>
           <i style={{ background: s.tone }} aria-hidden="true" />
           {s.label}
-          <b>{s.value}</b>
+          <b>{format(s.value)}</b>
         </li>
       ))}
     </ul>

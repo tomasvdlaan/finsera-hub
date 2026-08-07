@@ -159,7 +159,7 @@ export function ProjectDetail() {
         {error && <p className="error">{error}</p>}
       </section>
 
-      <section>
+      <section data-span={6}>
         <h2>Budget burn</h2>
         <p className="muted">
           Contributed by the Time module through its manifest — this page gained the widget
@@ -173,7 +173,7 @@ export function ProjectDetail() {
         <OpenTasksWidget projectId={id} />
       </section>
 
-      <section>
+      <section data-span={6}>
         <h2>Documents</h2>
         <DocumentsWidget projectId={id} />
       </section>
@@ -183,12 +183,12 @@ export function ProjectDetail() {
         <Comments entityId={id} />
       </section>
 
-      <section>
+      <section data-span={6}>
         <h2>Links</h2>
         <Links entityId={id} candidates={candidates} onChange={() => setRefreshKey((k) => k + 1)} />
       </section>
 
-      <section>
+      <section data-span={6}>
         <h2>Timeline</h2>
         <Timeline entityId={id} refreshKey={refreshKey} />
       </section>

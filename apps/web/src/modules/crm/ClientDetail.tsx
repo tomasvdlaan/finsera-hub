@@ -224,17 +224,17 @@ export function ClientDetail() {
         <ClientNotesWidget clientId={id} />
       </section>
 
-      <section>
+      <section data-span={6}>
         <h2>Contracts</h2>
         <ClientContractsWidget clientId={id} />
       </section>
 
-      <section>
+      <section data-span={6}>
         <h2>Quotes</h2>
         <ClientQuotesWidget clientId={id} />
       </section>
 
-      <section>
+      <section data-span={6}>
         <h2>Invoices</h2>
         <ClientInvoicesWidget clientId={id} />
       </section>
@@ -243,7 +243,7 @@ export function ClientDetail() {
         <PortalUsers clientId={client.id} />
       </section>
 
-      <section>
+      <section data-span={6}>
         <h2>Contacts</h2>
         {contacts.length === 0 ? (
           <Empty>No contacts yet.</Empty>
@@ -279,7 +279,7 @@ export function ClientDetail() {
         </form>
       </section>
 
-      <section>
+      <section data-span={6}>
         <h2>Projects</h2>
         {projects.length === 0 ? (
           <Empty>No projects yet.</Empty>
@@ -300,7 +300,7 @@ export function ClientDetail() {
         )}
       </section>
 
-      <section>
+      <section data-span={6}>
         <h2>Documents</h2>
         <DocumentsWidget clientId={id} />
       </section>
@@ -310,12 +310,12 @@ export function ClientDetail() {
         <Comments entityId={id} />
       </section>
 
-      <section>
+      <section data-span={6}>
         <h2>Links</h2>
         <Links entityId={id} candidates={candidates} onChange={() => setRefreshKey((k) => k + 1)} />
       </section>
 
-      <section>
+      <section data-span={6}>
         <h2>Timeline</h2>
         <p className="muted">
           Assembled by the core from registry entries, links, and events — including activity on

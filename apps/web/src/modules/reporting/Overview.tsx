@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { StatTile } from '../../shell/ui/data.js';
+import { Card, Figure } from '../../shell/ui/card.js';
+import { Rhythm } from '../../shell/ui/viz.js';
 import { PageHeader } from '../../shell/ui/layout.js';
 import { SectionTabs } from '../../shell/useNav.js';
 import { Link } from 'react-router-dom';
@@ -69,14 +70,18 @@ function Stat({
   urgent?: boolean;
   to?: string;
 }) {
+  /*
+   * A nested card, because these sit inside a section that is already one.
+   *
+   * The alternative was lifting all eight onto the page grid, which reads as eight unrelated
+   * figures — and they are not: four of them are money and four are delivery, and the grouping
+   * is the point. A card inside a card takes the sunken fill so the nesting is visible without
+   * a second border.
+   */
   return (
-    <StatTile
-      label={label}
-      value={value}
-      hint={hint}
-      tone={urgent ? 'urgent' : undefined}
-      wrap={to ? (b) => <Link to={to}>{b}</Link> : undefined}
-    />
+    <Card tone={urgent ? 'danger' : undefined} to={to}>
+      <Figure label={label} value={value} note={hint} />
+    </Card>
   );
 }
 
@@ -118,7 +123,7 @@ export function Overview() {
       />
 
       {insights && insights.total > 0 && (
-        <section>
+        <section data-span={12}>
           <h2>
             Needs attention{' '}
             <span className="badge">{insights.total}</span>
@@ -136,7 +141,7 @@ export function Overview() {
         </section>
       )}
 
-      <section>
+      <section data-span={6}>
         <h2>Money</h2>
         <div className="stats">
           <Stat
@@ -166,8 +171,19 @@ export function Overview() {
       </section>
 
       {revenueYear.byMonth.length > 0 && (
-        <section>
+        <section data-span={12}>
           <h2>Revenue by month</h2>
+          {/*
+            The shape first, the figures under it.
+
+            The table already drew an inline bar per row, which works but reads a month at a
+            time — you cannot see a year's arc in a column of widths. One chart above the same
+            numbers costs nothing and answers "is this a good year" before you read a row.
+          */}
+          <Rhythm
+            days={revenueYear.byMonth.map((m) => ({ date: m.month, value: m.exVatCents }))}
+            height={120}
+          />
           <div className="grid-scroll">
             <table className="grid">
               <thead>
@@ -197,7 +213,7 @@ export function Overview() {
         </section>
       )}
 
-      <section>
+      <section data-span={6}>
         <h2>Delivery</h2>
         <div className="stats">
           <Stat
@@ -233,7 +249,7 @@ export function Overview() {
       </section>
 
       {unbilled.byProject.length > 0 && (
-        <section>
+        <section data-span={6}>
           <h2>Work in hand</h2>
           <ul className="cards">
             {unbilled.byProject.map((p) => (
@@ -249,7 +265,7 @@ export function Overview() {
       )}
 
       {renewals.length > 0 && (
-        <section>
+        <section data-span={6}>
           <h2>Contracts needing attention</h2>
           <ul className="cards">
             {renewals.map((c) => (

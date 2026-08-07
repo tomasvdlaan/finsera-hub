@@ -112,7 +112,7 @@ export function DocumentList() {
         </section>
       )}
 
-      <section>
+      <section data-span={8}>
         <h2>All documents</h2>
         {documents.length === 0 ? (
           <Empty>Nothing uploaded yet.</Empty>
@@ -143,7 +143,7 @@ export function DocumentList() {
         )}
       </section>
 
-      <section>
+      <section data-span={4}>
         <h2>Upload</h2>
         <UploadForm clients={clients} projects={projects} onDone={load} />
       </section>

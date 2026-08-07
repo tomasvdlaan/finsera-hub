@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { Empty } from '../../shell/ui/primitives.js';
+import { PageHeader } from '../../shell/ui/layout.js';
 
 interface OpenRequest {
   id: string;
@@ -60,12 +61,27 @@ export function ClientRequests() {
       .finally(() => setBusy(undefined));
   };
 
-  if (error) return <p className="error">{error}</p>;
-  if (!rows) return <p className="muted">Loading…</p>;
-  if (rows.length === 0) return <Empty>No open client requests.</Empty>;
+  /*
+   * The header renders whatever the rows are doing.
+   *
+   * Returning bare text on the empty and error paths meant this page had no h1 in three of its
+   * four states — so the browser tab, the back button's label and a screen reader all lost
+   * track of where they were the moment there was nothing to triage.
+   */
+  const head = (
+    <PageHeader
+      title="Client requests"
+      subtitle="Asked for through the portal. Deciding what a request becomes — and whose project it belongs to — is why it is not a card already."
+    />
+  );
+
+  if (error) return <>{head}<p className="error">{error}</p></>;
+  if (!rows) return <>{head}<p className="muted">Loading…</p></>;
+  if (rows.length === 0) return <>{head}<Empty>No open client requests.</Empty></>;
 
   return (
-    <div>
+    <>
+      {head}
       {rows.map((r) => {
         const theirs = projects.filter((p) => p.clientId === r.client_id);
         const projectId = chosen[r.id] ?? r.project_id ?? theirs[0]?.id ?? '';
@@ -109,6 +125,6 @@ export function ClientRequests() {
           </div>
         );
       })}
-    </div>
+    </>
   );
 }

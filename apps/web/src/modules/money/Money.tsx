@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { PageHeader } from '../../shell/ui/layout.js';
+import { Card, Figure } from '../../shell/ui/card.js';
+import { Split, Legend } from '../../shell/ui/viz.js';
 import { SectionTabs } from '../../shell/useNav.js';
-import { Link } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { useDocumentTitle } from '../../shell/useDocumentTitle.js';
 
@@ -38,7 +39,20 @@ export function Money() {
       .catch((e: Error) => setError(e.message));
   }, []);
 
+  const outstanding = overview?.outstanding?.totalCents ?? 0;
   const overdue = overview?.outstanding?.overdueCents ?? 0;
+  /*
+   * Outstanding split by whether it is late, from the two figures already fetched.
+   *
+   * "€487 outstanding" and "€0 overdue" as two tiles makes you do the subtraction to find the
+   * only reading that matters — how much of what is owed has gone past its date. One bar says
+   * it without arithmetic.
+   */
+  const current = Math.max(0, outstanding - overdue);
+  const slices = [
+    { label: 'Within terms', value: current, tone: 'var(--accent)' },
+    { label: 'Overdue', value: overdue, tone: 'var(--danger)' },
+  ];
 
   return (
     <>
@@ -50,54 +64,35 @@ export function Money() {
 
       {error && <p className="error">{error}</p>}
 
-      <div className="stat-row">
-        <div className="stat">
-          <Link to="/money/invoices">
-            <div className="muted">Outstanding</div>
-            <div className="stat-value">{euros(overview?.outstanding?.totalCents)}</div>
-          </Link>
-        </div>
-        <div className="stat">
-          <Link to="/money/invoices">
-            <div className="muted">Overdue</div>
-            <div className={`stat-value${overdue > 0 ? ' urgent' : ''}`}>{euros(overdue)}</div>
-          </Link>
-        </div>
-        <div className="stat">
-          <Link to="/reporting">
-            <div className="muted">Unbilled work</div>
-            <div className="stat-value">{euros(overview?.unbilled?.totalValueCents)}</div>
-          </Link>
-        </div>
-      </div>
+      {/*
+        Two figures, not five.
 
-      <section>
-        <h2>Where things are</h2>
-        <table>
-          <tbody>
-            <tr>
-              <td><Link to="/money/invoices">Invoices</Link></td>
-              <td className="muted">Drafts, issued, paid — and the billing run</td>
-            </tr>
-            <tr>
-              <td><Link to="/money/quotes">Quotes</Link></td>
-              <td className="muted">Out for decision, accepted, rejected</td>
-            </tr>
-            <tr>
-              <td><Link to="/money/contracts">Contracts</Link></td>
-              <td className="muted">Signed terms, end dates and notice deadlines</td>
-            </tr>
-            <tr>
-              <td><Link to="/reporting">Numbers</Link></td>
-              <td className="muted">Revenue, utilisation, pipeline, profitability</td>
-            </tr>
-            <tr>
-              <td><Link to="/money/rate-cards">Rate cards</Link></td>
-              <td className="muted">What an hour costs, and since when</td>
-            </tr>
-          </tbody>
-        </table>
-      </section>
+        The list of five links that used to be here said exactly what the tab strip above now
+        says, in more words and further down the page — so a reader arriving at the hub read
+        the same five names twice before finding a number.
+      */}
+      <Card span={7} to="/money/invoices" tone={overdue > 0 ? 'danger' : undefined}>
+        <Figure
+          label="Owed to us"
+          value={euros(outstanding)}
+          size="hero"
+          note={overdue > 0 ? `${euros(overdue)} of it is past its date` : 'nothing has gone past its date'}
+        />
+        {outstanding > 0 && (
+          <div className="card-fill">
+            <Split slices={slices} />
+            <Legend slices={slices} format={euros} />
+          </div>
+        )}
+      </Card>
+
+      <Card span={5} to="/reporting">
+        <Figure
+          label="Unbilled work"
+          value={euros(overview?.unbilled?.totalValueCents)}
+          note="Hours logged and billable that no invoice has picked up yet."
+        />
+      </Card>
     </>
   );
 }

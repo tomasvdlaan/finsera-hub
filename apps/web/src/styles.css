@@ -5291,3 +5291,27 @@ main table:not(.grid) [data-align='action'] {
   color: var(--muted);
 }
 .request .row { gap: var(--space-2); align-items: center; }
+
+/*
+ * A card inside a card.
+ *
+ * Sunken rather than bordered: at this depth a second hairline reads as a rendering fault, and
+ * the nesting is exactly what the fill difference is for. Tighter padding too — a nested card
+ * holds one figure, not a section.
+ */
+.card .card {
+  background: var(--surface-sunken);
+  border-color: transparent;
+  border-radius: var(--radius);
+  padding: var(--space-4);
+  container-type: normal;
+}
+.card .card[data-tone='danger'] { background: var(--danger-bg); }
+.card .card[data-tone='warning'] { background: var(--warning-bg); }
+.card .card .card-figure { font-size: var(--metric); }
+/* The groups these sit in: as many across as fit, never fewer than two. */
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: var(--space-3);
+}

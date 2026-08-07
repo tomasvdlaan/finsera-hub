@@ -315,7 +315,7 @@ export function TaskDetail() {
       </section>
 
       {task.children.length > 0 && (
-        <section>
+        <section data-span={6}>
           <h2>Subtasks</h2>
           <ul className="cards">
             {task.children.map((child) => (
@@ -333,12 +333,12 @@ export function TaskDetail() {
         <Comments entityId={id} />
       </section>
 
-      <section>
+      <section data-span={6}>
         <h2>Links</h2>
         <Links entityId={id} candidates={candidates} onChange={() => setRefreshKey((k) => k + 1)} />
       </section>
 
-      <section>
+      <section data-span={6}>
         <h2>Timeline</h2>
         <Timeline entityId={id} refreshKey={refreshKey} />
       </section>

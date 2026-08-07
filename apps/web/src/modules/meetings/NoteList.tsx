@@ -234,7 +234,7 @@ export function NoteList() {
 
       {/* Something is being recorded. Nothing else on this page matters as much. */}
       {active.length > 0 && (
-        <section>
+        <section data-span={12}>
           <h2>Happening now</h2>
           {active.map((s) => (
             <div className="statusbar statusbar-live" key={s.noteId}>
@@ -250,7 +250,7 @@ export function NoteList() {
         </section>
       )}
 
-      <section>
+      <section data-span={5}>
         <h2>Start</h2>
         {/*
           One control rather than a branch.
@@ -342,7 +342,7 @@ export function NoteList() {
       </section>
 
       {todays.length > 0 && (
-        <section>
+        <section data-span={7}>
           <h2>Today</h2>
           <ul className="cards">
             {todays.map((n) => (
@@ -362,7 +362,7 @@ export function NoteList() {
         </section>
       )}
 
-      <section>
+      <section data-span={7}>
         <h2>Recent</h2>
         {recent.length === 0 ? (
           <Empty>No earlier meetings.</Empty>
@@ -388,7 +388,7 @@ export function NoteList() {
         )}
       </section>
 
-      <section>
+      <section data-span={5}>
         <h2>Look something up</h2>
         <form onSubmit={(e) => void search(e)}>
           <div className="row">
@@ -421,7 +421,7 @@ export function NoteList() {
         )}
       </section>
 
-      <section>
+      <section data-span={5}>
         <h2>Something else</h2>
         <form onSubmit={(e) => void createConversation(e)}>
           <div className="row">

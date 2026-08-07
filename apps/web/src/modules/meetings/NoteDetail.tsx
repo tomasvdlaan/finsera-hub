@@ -198,7 +198,7 @@ export function NoteDetail() {
         </section>
       )}
 
-      <section>
+      <section data-span={6}>
         <h2>Agenda</h2>
         {note.agenda.length === 0 ? (
           <Empty>No agenda.</Empty>
@@ -401,7 +401,7 @@ export function NoteDetail() {
         </div>
       </section>
 
-      <section>
+      <section data-span={6}>
         <h2>Attendees</h2>
         {note.unconsentedPresent.length > 0 && (
           <p className="error">
@@ -485,7 +485,7 @@ export function NoteDetail() {
         <Comments entityId={id} />
       </section>
 
-      <section>
+      <section data-span={6}>
         <h2>Timeline</h2>
         <Timeline entityId={id} />
       </section>
