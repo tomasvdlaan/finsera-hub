@@ -206,13 +206,17 @@ export function initials(name: string): string {
 }
 
 /**
- * A stable colour per person, derived from their id.
+ * A stable colour for anything with an id.
  *
- * Derived rather than stored so a new colleague has a colour the moment they exist, and the
- * same one on every screen. Hue only — saturation and lightness are fixed, so no avatar can
- * come out unreadable against either theme.
+ * Derived rather than stored so a new colleague — or project — has a colour the moment it
+ * exists, and the same one on every screen. Hue only: saturation and lightness are fixed by
+ * the caller, so nothing can come out unreadable against either theme.
+ *
+ * Named `personHue` when the only thing with a colour was an avatar. It never looked at what
+ * kind of id it was given, and now that projects want dots too the name was the only thing
+ * suggesting otherwise.
  */
-export function personHue(id: string): number {
+export function hueFor(id: string): number {
   let hash = 0;
   for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) % 360;
   return hash;
@@ -241,7 +245,7 @@ export function Avatar({
   size?: 'sm' | 'md';
   title?: string;
 }) {
-  const hue = personHue(id);
+  const hue = hueFor(id);
   return (
     <span
       className={`avatar avatar-${size}`}

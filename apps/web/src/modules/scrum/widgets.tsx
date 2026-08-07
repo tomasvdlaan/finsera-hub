@@ -4,6 +4,8 @@ import { Donut, Legend, Scatter, Bullet, Heatmap, type Slice } from '../../shell
 import { Empty } from '../../shell/ui/primitives.js';
 import { Skeleton } from '../../shell/ui/data.js';
 import { useShared } from '../../lib/useShared.js';
+import { api } from '../../lib/api.js';
+import { Act } from '../../shell/ui/act.js';
 import type { SettingDef, WidgetDef, WidgetProps } from '../types.js';
 
 interface Task {
@@ -11,6 +13,8 @@ interface Task {
   projectId: string;
   title: string;
   status: string;
+  estimateMinutes: number | null;
+  blockedReason: string | null;
   flow: 'queue' | 'active' | 'waiting' | 'done';
   dueOn: string | null;
   assigneeId: string | null;
@@ -90,6 +94,24 @@ function TaskList({ tasks, empty }: { tasks: Task[]; empty: string }) {
       ))}
     </ul>
   );
+}
+
+/** Just the fields this file reads, matching what the board endpoint returns. */
+interface BoardColumn {
+  key: string;
+  label: string;
+  flow?: 'queue' | 'active' | 'waiting' | 'done';
+}
+
+interface Sprint {
+  id: string;
+  name: string;
+  progress?: {
+    unit: 'minutes' | 'count';
+    minutes: { done: number; total: number };
+    cards: { done: number; total: number };
+    days: { elapsed: number; total: number; overrun: boolean };
+  };
 }
 
 interface Sample {
@@ -413,6 +435,208 @@ export const scrumWidgets: Record<string, WidgetDef> = {
                 format={(n) => `${n} finished`}
               />
             </div>
+          )}
+        </Card>
+      );
+    },
+  },
+
+  'scrum:my-board': {
+    title: 'My board',
+    description: 'One board at a glance: what is in each column, what is stuck on you, and how the sprint is going.',
+    slot: 'dashboard',
+    defaultSpan: 8,
+    minSpan: 6,
+    permission: 'scrum.tasks.read',
+    settings: [SCOPE, PROJECT],
+    Component: ({ settings }) => {
+      const me = useShared<{ id: string }>('/core/me');
+      const projects = useShared<Array<{ id: string; name: string }>>('/crm/projects');
+      const everything = useShared<Task[]>('/scrum/tasks?includeCompleted=true');
+
+      /*
+       * A board is one project's, so this needs one — and picks the obvious one when nobody
+       * has said. The project where most of your unfinished work is, which is the board you
+       * would have opened anyway. Named in the header so the guess is visible rather than
+       * silent.
+       */
+      const mine = (everything.data ?? []).filter(
+        (t) =>
+          settings.scope === 'everyone' ||
+          !me.data ||
+          t.assigneeId === me.data.id ||
+          t.assigneeId === null,
+      );
+      const busiest = [...mine.filter((t) => t.flow !== 'done')]
+        .reduce((count, t) => count.set(t.projectId, (count.get(t.projectId) ?? 0) + 1), new Map<string, number>());
+      const projectId =
+        settings.projectId ||
+        [...busiest.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ||
+        '';
+
+      const board = useShared<{ columns: BoardColumn[] }>(projectId ? `/scrum/boards/${projectId}` : null);
+      const sprint = useShared<Sprint | null>(projectId ? `/scrum/projects/${projectId}/sprint` : null);
+
+      const cards = mine.filter((t) => t.projectId === projectId);
+      const columns = board.data?.columns ?? [];
+      const projectName = projects.data?.find((p) => p.id === projectId)?.name;
+
+      /*
+       * What is stuck on you, in the order it is stuck.
+       *
+       * Blocked first — somebody stopped and named a reason — then anything sitting with a
+       * client or in review, oldest first. A card you picked up this morning is not on this
+       * list; the point is the ones that have stopped moving.
+       */
+      const stuck = cards
+        .filter((t) => t.flow !== 'done')
+        .filter((t) => t.blockedReason || t.flow === 'waiting' || t.daysInColumn >= 7)
+        .sort((a, b) => Number(Boolean(b.blockedReason)) - Number(Boolean(a.blockedReason)) || b.daysInColumn - a.daysInColumn)
+        .slice(0, 3);
+
+      /** The column after this one, which is what "move it on" means. */
+      const nextColumn = (status: string) => {
+        const at = columns.findIndex((c) => c.key === status);
+        return at >= 0 ? columns[at + 1] : undefined;
+      };
+
+      const loading = everything.loading || board.loading;
+
+      if (!loading && !projectId) {
+        return (
+          <Card title="My board">
+            <Empty>No project has any work on it yet.</Empty>
+          </Card>
+        );
+      }
+
+      const progress = sprint.data?.progress;
+      const done = progress?.unit === 'minutes' ? progress.minutes.done : progress?.cards.done ?? 0;
+      const total = progress?.unit === 'minutes' ? progress.minutes.total : progress?.cards.total ?? 0;
+      /*
+       * Behind, and what that word is allowed to mean here.
+       *
+       * Elapsed days against delivered work — if two-thirds of the sprint is gone and a third
+       * of it is done, you are a third of the sprint behind. It is arithmetic on two numbers
+       * the sprint already knows, not a forecast, and it only appears once a sprint has
+       * actually started so a planned-but-not-begun one cannot be "behind".
+       */
+      const pace =
+        progress && progress.days.total > 0 && total > 0
+          ? (progress.days.elapsed / progress.days.total) * total - done
+          : 0;
+
+      return (
+        <Card
+          title={
+            <>
+              My board
+              {projectName && <span className="board-of"> · {projectName}</span>}
+              {sprint.data && <span className="board-of"> · {sprint.data.name}</span>}
+            </>
+          }
+          sub={
+            loading
+              ? undefined
+              : `${cards.filter((t) => t.flow !== 'done').length} open · ${dur(
+                  cards.filter((t) => t.flow !== 'done').reduce((n, t) => n + (t.estimateMinutes ?? 0), 0),
+                )} estimated`
+          }
+          to={projectId ? `/board?projectId=${projectId}` : '/board'}
+        >
+          {loading ? (
+            <Skeleton height="7rem" />
+          ) : (
+            <>
+              <div className="board-cols">
+                {columns.map((c) => {
+                  const inIt = cards.filter((t) => t.status === c.key);
+                  const minutes = inIt.reduce((n, t) => n + (t.estimateMinutes ?? 0), 0);
+                  const oldest = inIt.reduce((n, t) => Math.max(n, t.daysInColumn ?? 0), 0);
+                  return (
+                    <div key={c.key} className="board-col" data-flow={c.flow ?? 'active'} data-empty={inIt.length === 0 || undefined}>
+                      <span className="board-col-name">{c.label}</span>
+                      <span className="board-col-figure">
+                        {inIt.length}
+                        {/*
+                          Points would go here on any other board. They were retired from this
+                          codebase — zero cards ever carried one, while ten of eleven carried a
+                          minute estimate — so the second figure is the estimate, and where a
+                          column is about waiting it is the wait instead.
+                        */}
+                        <small>
+                          {c.flow === 'waiting'
+                            ? oldest > 0 && `${oldest}d oldest`
+                            : minutes > 0 && dur(minutes)}
+                        </small>
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {stuck.length > 0 && (
+                <>
+                  <div className="board-section">
+                    <span>Needs a move from you</span>
+                    <b>{stuck.length}</b>
+                  </div>
+                  <ul className="act-rows board-stuck">
+                    {stuck.map((t) => {
+                      const next = nextColumn(t.status);
+                      return (
+                        <li key={t.id} className="act-row" data-blocked={Boolean(t.blockedReason) || undefined}>
+                          <span className="act-row-text">
+                            <Link to={`/tasks/${t.id}`}>{t.title}</Link>
+                            <small className="card-meta">
+                              {t.blockedReason
+                                ? `Blocked ${t.daysInColumn}d — ${t.blockedReason}`
+                                : `${columns.find((c) => c.key === t.status)?.label ?? t.status}, ${t.daysInColumn} days`}
+                            </small>
+                          </span>
+                          <span className="act-row-buttons">
+                            {t.blockedReason ? (
+                              <Act variant="primary" run={() => api.post(`/scrum/tasks/${t.id}/unblock`, {})}>
+                                Unblock
+                              </Act>
+                            ) : next ? (
+                              // The literal thing the section title asks for, and the reason
+                              // this list is worth having on a dashboard rather than a link
+                              // to the board.
+                              <Act
+                                variant="primary"
+                                run={() => api.post(`/scrum/tasks/${t.id}/move`, { status: next.key })}
+                              >
+                                Move to {next.label}
+                              </Act>
+                            ) : null}
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </>
+              )}
+
+              {progress && total > 0 && (
+                <div className="board-foot">
+                  <span className="board-bar">
+                    <i style={{ width: `${Math.min(100, (done / total) * 100)}%` }} />
+                  </span>
+                  <span className="card-meta">
+                    {progress.unit === 'minutes' ? `${dur(done)} of ${dur(total)}` : `${done} of ${total} cards`}
+                    {progress.days.overrun
+                      ? ' · past its end date'
+                      : ` · day ${progress.days.elapsed} of ${progress.days.total}`}
+                  </span>
+                  {pace >= 1 && (
+                    <b className="board-behind">
+                      {progress.unit === 'minutes' ? dur(pace) : `${Math.round(pace)} cards`} behind
+                    </b>
+                  )}
+                </div>
+              )}
+            </>
           )}
         </Card>
       );
