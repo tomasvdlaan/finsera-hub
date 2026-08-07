@@ -41,22 +41,32 @@ export function Card({
   aside?: ReactNode;
   children?: ReactNode;
 }) {
+  const arrow = to ? (
+    <Link to={to} className="card-out" aria-label={typeof title === 'string' ? title : 'Open'}>
+      <span aria-hidden="true">↗</span>
+    </Link>
+  ) : null;
+
   return (
     <div className="card" data-tone={tone} data-span={span}>
-      {(title || aside || to) && (
+      {(title || aside) && (
         <div className="card-head">
           <div>
             {title && <div className="card-title">{title}</div>}
             {sub && <div className="card-sub">{sub}</div>}
           </div>
           {aside}
-          {to && !aside && (
-            <Link to={to} className="card-out" aria-label={typeof title === 'string' ? title : 'Open'}>
-              <span aria-hidden="true">↗</span>
-            </Link>
-          )}
+          {to && !aside && arrow}
         </div>
       )}
+      {/*
+        A titled card gives the arrow a row to sit in; an untitled one must not.
+        
+        A head containing nothing but the arrow is an empty line above the label, which on a
+        card whose whole content is a number and a word is a third of the card given to
+        whitespace with no reading in it. Cornered instead.
+      */}
+      {to && !aside && !title && <div className="card-corner">{arrow}</div>}
       {children}
     </div>
   );

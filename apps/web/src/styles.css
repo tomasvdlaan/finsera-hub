@@ -5429,3 +5429,8 @@ main table:not(.grid) [data-align='action'] {
 
 /* The page itself, now that nothing is beside it. */
 .layout-top > main { padding: 0 var(--space-5) var(--space-7); flex: 1; min-width: 0; }
+
+/* An untitled card has no row for the arrow, so it takes the corner instead. `position` on
+   the card rather than the corner, because the arrow must clear the card's own padding. */
+.card { position: relative; }
+.card-corner { position: absolute; top: var(--space-4); right: var(--space-4); }

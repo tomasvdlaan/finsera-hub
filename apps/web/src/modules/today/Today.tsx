@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { PageHeader } from '../../shell/ui/layout.js';
-import { DataTable, MetricRow, StatTile } from '../../shell/ui/data.js';
+import { DataTable } from '../../shell/ui/data.js';
+import { Card, Figure } from '../../shell/ui/card.js';
+import { Rhythm } from '../../shell/ui/viz.js';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { useDocumentTitle } from '../../shell/useDocumentTitle.js';
@@ -26,6 +28,8 @@ interface Task {
   priority: string;
   dueOn: string | null;
   assigneeId: string | null;
+  /** How long the card has sat where it is. Decorated by listTasks from the transitions. */
+  daysInColumn: number;
 }
 
 interface Project {
@@ -40,6 +44,11 @@ interface DayEntry {
   description: string | null;
   effectiveMinutes: number;
   billable: boolean;
+}
+
+interface Day {
+  date: string;
+  totalMinutes: number;
 }
 
 interface ClientRequest {
@@ -64,19 +73,19 @@ const hours = (minutes = 0) =>
 function subjectPath(i: Insight): string | null {
   switch (i.subjectType) {
     case 'invoice':
-      return `/billing/invoices/${i.subjectId}`;
+      return `/money/invoices/${i.subjectId}`;
     case 'quote':
-      return `/sales/quotes/${i.subjectId}`;
+      return `/money/quotes/${i.subjectId}`;
     case 'contract':
-      return `/sales/contracts/${i.subjectId}`;
+      return `/money/contracts/${i.subjectId}`;
     case 'project':
-      return `/crm/projects/${i.subjectId}`;
+      return `/projects/${i.subjectId}`;
     case 'client':
-      return `/crm/clients/${i.subjectId}`;
+      return `/clients/${i.subjectId}`;
     case 'task':
-      return `/scrum/tasks/${i.subjectId}`;
+      return `/tasks/${i.subjectId}`;
     case 'sprint':
-      return `/scrum/sprints/${i.subjectId}`;
+      return `/board/sprints/${i.subjectId}`;
     case 'meeting':
       return `/meetings/${i.subjectId}`;
     default:
@@ -150,6 +159,7 @@ export function Today() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [day, setDay] = useState<{ entries: DayEntry[] } | null>(null);
   const [requests, setRequests] = useState<ClientRequest[]>([]);
+  const [recent, setRecent] = useState<Day[]>([]);
   const [errors, setErrors] = useState<string[]>([]);
   const [me, setMe] = useState<{ id: string; displayName: string } | null>(null);
   /*
@@ -192,6 +202,10 @@ export function Today() {
     void load<Task[]>('/scrum/tasks', setTasks, 'work');
     void load<{ entries: DayEntry[] }>(`/time/day?date=${today}`, setDay, "today's hours");
     void load<ClientRequest[]>('/portal-preview/requests', setRequests, 'client requests');
+    void api
+      .get<{ days: Day[] }>('/time/recent')
+      .then((r) => setRecent(r.days))
+      .catch(() => setRecent([]));
     api.get<Project[]>('/crm/projects').then(setProjects).catch(() => setProjects([]));
   }, []);
 
@@ -215,6 +229,14 @@ export function Today() {
   const today = new Date().toISOString().slice(0, 10);
   const overdue = mine.filter((t) => t.dueOn && t.dueOn < today);
   const dueToday = mine.filter((t) => t.dueOn === today);
+  /*
+   * How long the most patient client has been waiting.
+   *
+   * From `daysInColumn`, which the server derives from the column transitions rather than from
+   * `updated_at` — a card whose title was corrected is not a card that was worked on, and that
+   * distinction is the whole reason the transitions table exists.
+   */
+  const oldestWait = waiting.reduce((n, t) => Math.max(n, t.daysInColumn ?? 0), 0);
 
   // Work first in the queue, because it is what the page is for — the ordering is the thesis.
   const needsMe = insights
@@ -225,6 +247,23 @@ export function Today() {
   const workItems = needsMe.filter((i) => !MONEY_RULES.has(i.rule));
 
   const loggedToday = day?.entries.reduce((n, e) => n + (e.effectiveMinutes ?? 0), 0) ?? 0;
+
+  /*
+   * Fourteen days, including the ones with nothing on them.
+   *
+   * `/time/recent` returns only days that have an entry, so plotting it directly draws a
+   * fortnight of solid bars and tells you the opposite of the truth. The empty days are the
+   * finding: a month where two days carry everything and eleven are blank is the shape that
+   * predicts a month-end scramble, and no total can show it.
+   */
+  const fortnight = Array.from({ length: 14 }, (_, i) => {
+    const d = new Date();
+    d.setDate(d.getDate() - (13 - i));
+    const date = d.toISOString().slice(0, 10);
+    return { date, value: (recent.find((r) => r.date === date)?.totalMinutes ?? 0) / 60 };
+  });
+  const fortnightHours = fortnight.reduce((n, d) => n + d.value, 0);
+  const daysWorked = fortnight.filter((d) => d.value > 0).length;
 
   const card = (t: Task) => (
     <li key={t.id}>
@@ -278,17 +317,48 @@ export function Today() {
         <p className="muted">Some of this could not be loaded: {errors.join(' · ')}</p>
       )}
 
-      {/* Work, in the space the money tiles used to occupy. */}
-      <MetricRow>
-        <StatTile label="In progress" value={doing.length} wrap={(b) => <Link to="/work">{b}</Link>} />
-        <StatTile label="Waiting on a client" value={waiting.length} wrap={(b) => <Link to="/work">{b}</Link>} />
-        <StatTile label="Overdue" value={overdue.length} tone="urgent" wrap={(b) => <Link to="/work">{b}</Link>} />
-        <StatTile label="Logged today" value={hours(loggedToday)} wrap={(b) => <Link to="/time">{b}</Link>} />
-      </MetricRow>
+      {/*
+        Work, in the space the money tiles used to occupy.
+
+        Only two of the four can carry a tone, and only when the number earns it: a zero in
+        Overdue is good news, and rendering it in the alarming colour makes a clean board look
+        exactly as bad as a late one. Waiting is amber only past a week, because a client
+        taking two days is not a problem.
+      */}
+      <Card span={3} to="/work">
+        <Figure
+          label="In progress"
+          value={doing.length}
+          note={
+            doing.length === 0
+              ? 'nothing picked up'
+              : `across ${new Set(doing.map((t) => t.projectId)).size} ${
+                  new Set(doing.map((t) => t.projectId)).size === 1 ? 'project' : 'projects'
+                }`
+          }
+        />
+      </Card>
+      <Card span={3} to="/work" tone={oldestWait >= 7 ? 'warning' : undefined}>
+        <Figure
+          label="Waiting on a client"
+          value={waiting.length}
+          note={oldestWait > 0 ? `longest is ${oldestWait} days` : 'nothing sitting with anyone'}
+        />
+      </Card>
+      <Card span={3} to="/work" tone={overdue.length > 0 ? 'danger' : undefined}>
+        <Figure label="Overdue" value={overdue.length} note={overdue.length === 0 ? 'nothing past its date' : 'past the date on the card'} />
+      </Card>
+      <Card span={3} to="/time">
+        <Figure label="Logged today" value={hours(loggedToday)} />
+      </Card>
 
       {(workItems.length > 0 || moneyItems.length > 0) && (
-        <section data-span={7}>
-          <h2>Needs you</h2>
+        <Card
+          span={7}
+          title="Needs you"
+          sub={`${needsMe.length} open · nothing here has been acted on`}
+          tone={workItems.some((i) => i.severity === 'urgent') ? 'danger' : undefined}
+        >
           {workItems.length === 0 && <Empty>Nothing about the work itself.</Empty>}
           {workItems.length > 0 && (
             <DataTable
@@ -334,11 +404,28 @@ export function Today() {
               )}
             </p>
           )}
-        </section>
+        </Card>
       )}
 
-      <section data-span={5}>
-        <h2>Doing</h2>
+      {/*
+        The fortnight, which this page has never shown.
+
+        A page called Today that only ever showed today could not answer the question the hours
+        are actually for — whether this is a normal week. Fourteen bars can, in the space a
+        sentence was using.
+      */}
+      <Card
+        span={5}
+        title="Your fortnight"
+        sub={`${fortnightHours.toFixed(1).replace('.', ',')} h over ${daysWorked} of 14 days`}
+        to="/time"
+      >
+        <div className="card-fill">
+          <Rhythm days={fortnight} />
+        </div>
+      </Card>
+
+      <Card span={5} title="Doing">
         {doing.length === 0 ? (
           <p className="muted">
             Nothing in progress. <Link to="/work">Pick something up</Link>
@@ -347,28 +434,27 @@ export function Today() {
         ) : (
           <ul>{doing.map(card)}</ul>
         )}
-      </section>
+      </Card>
 
       {waiting.length > 0 && (
-        <section data-span={6}>
-          <h2>Waiting on someone else</h2>
+        <Card
+          span={7}
+          title="Waiting on someone else"
+          sub="Nothing here is yours to move — but a fortnight of silence is worth a nudge."
+          tone={oldestWait >= 7 ? 'warning' : undefined}
+        >
           <ul>{waiting.map(card)}</ul>
-          <p className="muted">
-            Nothing here is yours to move — but a fortnight of silence is worth a nudge.
-          </p>
-        </section>
+        </Card>
       )}
 
       {dueToday.length > 0 && (
-        <section data-span={6}>
-          <h2>Due today</h2>
+        <Card span={5} title="Due today">
           <ul>{dueToday.map(card)}</ul>
-        </section>
+        </Card>
       )}
 
       {requests.length > 0 && (
-        <section data-span={6}>
-          <h2>Clients have asked for</h2>
+        <Card span={6} title="Clients have asked for" to="/portal/requests">
           <DataTable
             caption="Requests from clients"
             rows={requests.slice(0, 5)}
@@ -378,11 +464,10 @@ export function Today() {
               { key: 'subject', render: (r) => <Link to="/portal/requests">{r.subject}</Link> },
             ]}
           />
-        </section>
+        </Card>
       )}
 
-      <section data-span={6}>
-        <h2>Hours today</h2>
+      <Card span={6} title="Hours today" to="/time">
         {loggedToday === 0 ? (
           <p className="muted">
             Nothing logged yet. <Link to="/time">Open the timesheet</Link>
@@ -421,7 +506,7 @@ export function Today() {
             ]}
           />
         )}
-      </section>
+      </Card>
     </>
   );
 }
