@@ -25,6 +25,7 @@ interface Task {
   flow: 'queue' | 'active' | 'waiting' | 'done';
   priority: string;
   dueOn: string | null;
+  assigneeId: string | null;
 }
 
 interface Project {
@@ -107,6 +108,40 @@ const MONEY_RULES = new Set([
  * is derived from those same insights, so the front door costs nothing to render and the
  * numbers still reach you.
  */
+/**
+ * One sentence on the state of things, assembled from what is actually true.
+ *
+ * At most two clauses, in priority order — decisions first because they are the only items
+ * here that are waiting on a person rather than on time. A line that tries to say everything
+ * says nothing, and a line that is always the same is a greeting.
+ *
+ * "Nothing is on fire" is a real answer and worth printing. The alternative is an empty space
+ * where a status used to be, which reads as a page that failed to load.
+ */
+function stateOfPlay({
+  workItems,
+  overdue,
+  blocked,
+  loggedToday,
+}: {
+  workItems: Insight[];
+  overdue: Task[];
+  blocked: Task[];
+  loggedToday: number;
+}): string {
+  const clauses: string[] = [];
+  if (workItems.length > 0) {
+    clauses.push(
+      `${workItems.length} ${workItems.length === 1 ? 'thing needs' : 'things need'} a decision`,
+    );
+  }
+  if (overdue.length > 0) clauses.push(`${overdue.length} past due`);
+  if (blocked.length > 0) clauses.push(`${blocked.length} with a client`);
+  if (clauses.length === 0 && loggedToday === 0) return 'Nothing is on fire, and nothing is logged yet.';
+  if (clauses.length === 0) return 'Nothing is on fire.';
+  return `${clauses.slice(0, 2).join(', ')}.`;
+}
+
 export function Today() {
   useDocumentTitle('Today');
 
@@ -116,6 +151,22 @@ export function Today() {
   const [day, setDay] = useState<{ entries: DayEntry[] } | null>(null);
   const [requests, setRequests] = useState<ClientRequest[]>([]);
   const [errors, setErrors] = useState<string[]>([]);
+  const [me, setMe] = useState<{ id: string; displayName: string } | null>(null);
+  /*
+   * Whose day this is.
+   *
+   * `/scrum/tasks` has accepted `assigneeId` since the controller was written and no screen
+   * has ever passed it — so a page called Today has been showing the whole company's work in
+   * progress under a heading that says "Doing". Remembered, because the answer is a habit
+   * rather than a decision you make each morning.
+   */
+  const [scope, setScope] = useState<'mine' | 'everyone'>(
+    () => (localStorage.getItem('finsera.today.scope') as 'mine' | 'everyone') ?? 'mine',
+  );
+
+  useEffect(() => {
+    localStorage.setItem('finsera.today.scope', scope);
+  }, [scope]);
 
   useEffect(() => {
     const today = new Date().toISOString().slice(0, 10);
@@ -133,6 +184,10 @@ export function Today() {
         .catch((e: Error) => setErrors((all) => [...all, `${label}: ${e.message}`]));
 
     void load<Insight[]>('/insights?status=open', setInsights, 'attention');
+    void api
+      .get<{ id: string; displayName: string }>('/core/me')
+      .then(setMe)
+      .catch(() => setMe(null));
     // Everything still open, whatever its column is called.
     void load<Task[]>('/scrum/tasks', setTasks, 'work');
     void load<{ entries: DayEntry[] }>(`/time/day?date=${today}`, setDay, "today's hours");
@@ -141,14 +196,25 @@ export function Today() {
   }, []);
 
   const projectName = new Map(projects.map((p) => [p.id, p.name]));
-  const inFlow = (...roles: Task['flow'][]) => tasks.filter((t) => roles.includes(t.flow));
+  /*
+   * Unassigned counts as mine.
+   *
+   * At two to four people an unowned card is not somebody else's — it is nobody's, and
+   * nobody's is exactly the thing a front door should not hide. Ten of eleven cards on the
+   * real board have no assignee, so filtering them out would empty the page.
+   */
+  const mine =
+    scope === 'everyone' || !me
+      ? tasks
+      : tasks.filter((t) => t.assigneeId === me.id || t.assigneeId === null);
+  const inFlow = (...roles: Task['flow'][]) => mine.filter((t) => roles.includes(t.flow));
   const doing = inFlow('active');
   const waiting = inFlow('waiting');
   const next = inFlow('queue');
 
   const today = new Date().toISOString().slice(0, 10);
-  const overdue = tasks.filter((t) => t.dueOn && t.dueOn < today);
-  const dueToday = tasks.filter((t) => t.dueOn === today);
+  const overdue = mine.filter((t) => t.dueOn && t.dueOn < today);
+  const dueToday = mine.filter((t) => t.dueOn === today);
 
   // Work first in the queue, because it is what the page is for — the ordering is the thesis.
   const needsMe = insights
@@ -174,7 +240,39 @@ export function Today() {
 
   return (
     <>
-      <PageHeader title="Today" />
+      {/*
+        The date, and one sentence about the state of things.
+        
+        No greeting. A front door that says "Good morning" every morning is a front door that
+        has nothing to tell you — the line below is assembled from what is actually true, in
+        priority order, and says so plainly when the answer is "nothing".
+      */}
+      <PageHeader
+        title={new Date().toLocaleDateString(undefined, {
+          weekday: 'long',
+          day: 'numeric',
+          month: 'long',
+        })}
+        subtitle={stateOfPlay({ workItems, overdue, blocked: waiting, loggedToday })}
+        actions={
+          <div className="segmented" role="group" aria-label="Whose work to show">
+            <button
+              type="button"
+              data-on={scope === 'mine' || undefined}
+              onClick={() => setScope('mine')}
+            >
+              Mine
+            </button>
+            <button
+              type="button"
+              data-on={scope === 'everyone' || undefined}
+              onClick={() => setScope('everyone')}
+            >
+              Everyone
+            </button>
+          </div>
+        }
+      />
 
       {errors.length > 0 && (
         <p className="muted">Some of this could not be loaded: {errors.join(' · ')}</p>
@@ -189,7 +287,7 @@ export function Today() {
       </MetricRow>
 
       {(workItems.length > 0 || moneyItems.length > 0) && (
-        <section>
+        <section data-span={7}>
           <h2>Needs you</h2>
           {workItems.length === 0 && <Empty>Nothing about the work itself.</Empty>}
           {workItems.length > 0 && (
@@ -239,7 +337,7 @@ export function Today() {
         </section>
       )}
 
-      <section>
+      <section data-span={5}>
         <h2>Doing</h2>
         {doing.length === 0 ? (
           <p className="muted">
@@ -252,7 +350,7 @@ export function Today() {
       </section>
 
       {waiting.length > 0 && (
-        <section>
+        <section data-span={6}>
           <h2>Waiting on someone else</h2>
           <ul>{waiting.map(card)}</ul>
           <p className="muted">
@@ -262,14 +360,14 @@ export function Today() {
       )}
 
       {dueToday.length > 0 && (
-        <section>
+        <section data-span={6}>
           <h2>Due today</h2>
           <ul>{dueToday.map(card)}</ul>
         </section>
       )}
 
       {requests.length > 0 && (
-        <section>
+        <section data-span={6}>
           <h2>Clients have asked for</h2>
           <DataTable
             caption="Requests from clients"
@@ -283,7 +381,7 @@ export function Today() {
         </section>
       )}
 
-      <section>
+      <section data-span={6}>
         <h2>Hours today</h2>
         {loggedToday === 0 ? (
           <p className="muted">

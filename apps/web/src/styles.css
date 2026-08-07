@@ -4920,3 +4920,36 @@ main table:not(.grid) [data-align='action'] {
   clip-path: inset(50%);
   white-space: nowrap;
 }
+
+/*
+ * A two-state switch that is one control, not two buttons.
+ *
+ * Radio inputs would be more semantically exact and would look like a form. This is a group
+ * of buttons with an announced role, which reads as a switch and behaves like one from the
+ * keyboard because buttons already do.
+ */
+.segmented {
+  display: inline-flex;
+  padding: 2px;
+  gap: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+}
+.segmented button {
+  padding: 0.3rem var(--space-3);
+  border: 0;
+  border-radius: calc(var(--radius) - 2px);
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+  transition: background var(--dur-2) var(--ease-out), color var(--dur-2) var(--ease-out);
+}
+.segmented button:hover { color: var(--text); }
+.segmented button[data-on] {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-1);
+}
