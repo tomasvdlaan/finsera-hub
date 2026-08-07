@@ -103,16 +103,45 @@
    * unrelated. A scale is what makes a dense screen like the meeting room legible: the eye
    * needs to be able to tell a heading from a label from a whisper.
    */
+  /*
+   * Nine steps, each with a job. The two new ones close the holes that made every block
+   * shout at the same volume.
+   *
+   * `--text-2xs` is the uppercase micro-label — the word above a number, wayfinding rather
+   * than reading. It was being hand-typed as `0.7rem` or `0.72rem` at thirteen sites.
+   * `--text-md` fills the gap between body text and a heading, which is where a metric that
+   * is not the hero of its page belongs.
+   *
+   * The top of the ramp comes DOWN. A 42px h1 over a 24px h2 forced every section title to
+   * compete with the page title, and the answer to "nothing stands out" is not to make the
+   * loudest thing louder — it is to quieten everything that is not it.
+   */
+  --text-2xs: 0.6875rem;
   --text-xs: 0.75rem;
   --text-sm: 0.875rem;
   --text-base: 0.9375rem;
-  --text-lg: 1.125rem;
-  --text-xl: 1.5rem;
-  --text-2xl: 2rem;
-  /* A page title has to dominate its page. 28px over 16px was a nudge, not a hierarchy. */
-  --text-3xl: 2.625rem;
+  --text-md: 1.0625rem;
+  --text-lg: 1.25rem;
+  --text-xl: 1.375rem;
+  --text-2xl: 1.75rem;
+  --text-3xl: 2.25rem;
+  /*
+   * Data sizes, which are not headings and should not borrow from the heading ramp.
+   *
+   * The whole inversion of this design is that numbers get bigger and their labels get
+   * smaller. A figure at --metric with an 11px label above it reads as measured; the same
+   * figure at h2 size reads as a heading that happens to be numeric.
+   */
+  --metric: 1.75rem;
+  --metric-hero: 2.75rem;
   --leading-tight: 1.2;
   --leading-norm: 1.55;
+
+  /* Weight, named, so "600 or 650?" stops being decided per rule. */
+  --weight-normal: 400;
+  --weight-medium: 500;
+  --weight-strong: 600;
+  --weight-loud: 700;
 
   /*
    * Tracking, which is most of what makes large type look set rather than scaled.
@@ -138,6 +167,86 @@
   --shadow-1: 0 1px 2px rgb(0 0 0 / 0.06);
   --shadow-2: 0 2px 8px rgb(0 0 0 / 0.08);
   --shadow-3: 0 8px 24px rgb(0 0 0 / 0.12);
+
+  /*
+   * Four planes, and the rule that makes them mean anything: ONE plane-2 per page.
+   *
+   * `--shadow-1` was on `section`, `.panel`, `.task-card`, `.sprint-bar`, `.editor-sheet` and
+   * `.tracker-clock` — which is to say on all 108 sections in the app. A shadow that is on
+   * everything encodes nothing, and the reason nothing on a page looked foreground is that
+   * nothing was: every surface was already at the top.
+   *
+   * So plane 1 — the ordinary panel — is a border and no shadow at all. Plane 2 is the one
+   * thing a page is about. Plane 3 is reserved for things that genuinely float over the
+   * document: the dialog, the command palette, the drag ghost.
+   */
+  --plane-1-bg: var(--surface);
+  --plane-1-border: var(--border);
+  --plane-1-shadow: none;
+
+  --plane-2-bg: var(--surface-raised);
+  --plane-2-border: var(--border);
+  --plane-2-shadow: var(--shadow-2);
+
+  --plane-3-bg: var(--surface-raised);
+  --plane-3-border: var(--border-strong);
+  --plane-3-shadow: var(--shadow-3);
+
+  --plane-sunk-bg: var(--surface-sunken);
+
+  /*
+   * Density, as a property of the page rather than a preference.
+   *
+   * A table page and a reading page want different row heights, and that is the author's
+   * call — a user-facing toggle just makes the reader do the designer's job. Separate from
+   * `--space-*`, which is layout: the gap between two panels and the padding inside a table
+   * cell were the same scale, so tightening one tightened the other.
+   */
+  --row-h: 2.5rem;
+  --row-pad-y: 0.55rem;
+  --row-pad-x: 0.75rem;
+  --control-h: 2.25rem;
+
+  /* Motion. Short enough to feel like response, never long enough to wait for. */
+  --dur-1: 90ms;
+  --dur-2: 150ms;
+  --dur-3: 240ms;
+  --ease-out: cubic-bezier(0.2, 0, 0, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Stacking, declared once, so nothing has to guess at 9999. */
+  --z-sticky: 10;
+  --z-rail: 20;
+  --z-overlay: 100;
+  --z-toast: 200;
+
+  /* The coloured left edge that marks a row's state. Was a literal 3px at fourteen sites. */
+  --edge: 3px;
+
+  /*
+   * A categorical palette for data, which a BI consultancy's own platform did not have.
+   *
+   * Six hues, each at least 60 degrees from its neighbours so adjacent series stay separable,
+   * and each holding at least 3:1 against both the light and dark page background — the
+   * threshold for a non-text graphical object. The brand green leads, because the first
+   * series on a chart should be the company's colour and the rest should defer to it.
+   */
+  --viz-1: #1f5f4f;
+  --viz-2: #b5762a;
+  --viz-3: #46688f;
+  --viz-4: #8a568c;
+  --viz-5: #9c4b45;
+  --viz-6: #4f7a3a;
+  /* Sequential, for one measure across a range. Light to dark in the brand's own hue. */
+  --viz-seq-1: #d3e3de;
+  --viz-seq-2: #9dc2b8;
+  --viz-seq-3: #5f9b8b;
+  --viz-seq-4: #2f7462;
+  --viz-seq-5: #14453a;
+  /* Diverging, for a number with a meaningful zero — under budget against over. */
+  --viz-neg: #9c4b45;
+  --viz-mid: #cfcbc4;
+  --viz-pos: #2f7462;
 
   color-scheme: light dark;
 }
@@ -200,6 +309,50 @@
     --shadow-1: 0 1px 2px rgb(0 0 0 / 0.4);
     --shadow-2: 0 2px 8px rgb(0 0 0 / 0.45);
     --shadow-3: 0 8px 24px rgb(0 0 0 / 0.55);
+
+    /*
+     * In the dark, height is lightness — not a bigger shadow.
+     *
+     * A shadow on near-black is a slightly darker near-black, which is to say nothing. The
+     * comment above already argues that the surfaces should separate enough to read as layers
+     * with the border removed; this is that argument applied to elevation. Plane 2 lifts by
+     * getting lighter and keeps a token shadow only for the soft edge underneath it.
+     */
+    --plane-1-bg: var(--surface);
+    --plane-1-border: var(--border);
+    --plane-1-shadow: none;
+
+    --plane-2-bg: var(--surface-raised);
+    --plane-2-border: var(--border-strong);
+    --plane-2-shadow: var(--shadow-2);
+
+    --plane-3-bg: #302c28;
+    --plane-3-border: var(--border-strong);
+    --plane-3-shadow: var(--shadow-3);
+
+    --plane-sunk-bg: var(--surface-sunken);
+
+    /*
+     * The data palette, lifted the same way the brand was.
+     *
+     * Each of these is the light-mode hue held and the lightness raised until it clears 3:1
+     * against #0f0e0d. Desaturated slightly as well: a fully saturated series colour that
+     * works on paper buzzes on near-black.
+     */
+    --viz-1: #4fb99c;
+    --viz-2: #d9a05b;
+    --viz-3: #7fa6d4;
+    --viz-4: #c08cc2;
+    --viz-5: #e08a80;
+    --viz-6: #94c47a;
+    --viz-seq-1: #14312a;
+    --viz-seq-2: #24594c;
+    --viz-seq-3: #38826f;
+    --viz-seq-4: #56ac93;
+    --viz-seq-5: #8fd9c2;
+    --viz-neg: #e08a80;
+    --viz-mid: #4a4640;
+    --viz-pos: #56ac93;
   }
 }
 
@@ -268,21 +421,21 @@ a.deleted {
  */
 h1 {
   font-size: var(--text-3xl);
-  font-weight: 700;
+  font-weight: var(--weight-loud);
   line-height: 1.08;
   letter-spacing: var(--track-tight);
   margin: 0 0 var(--space-2);
 }
 h2 {
   font-size: var(--text-xl);
-  font-weight: 650;
+  font-weight: var(--weight-strong);
   line-height: var(--leading-tight);
   letter-spacing: var(--track-tight);
   margin: 0 0 var(--space-2);
 }
 h3 {
-  font-size: var(--text-lg);
-  font-weight: 600;
+  font-size: var(--text-md);
+  font-weight: var(--weight-strong);
   line-height: var(--leading-tight);
   margin: 0 0 var(--space-1);
 }
@@ -449,11 +602,6 @@ h3 {
 @keyframes statusbar-pulse {
   50% { opacity: 0.35; }
 }
-@media (prefers-reduced-motion: reduce) {
-  .statusbar-dot { animation: none; }
-  /* Anything that only fades in becomes instant rather than absent. */
-  * { transition-duration: 0.01ms !important; }
-}
 .statusbar-time {
   font-variant-numeric: tabular-nums;
   font-weight: 600;
@@ -529,13 +677,36 @@ main > h1 + p {
  * whatever is written in it, and is most of why the app felt like a wireframe. A section is
  * now a surface sitting on the page, so the eye can see where one thing ends.
  */
+/*
+ * The ordinary block: a border, and no shadow.
+ *
+ * This carried `--shadow-1` on all 108 of them, and `.panel` was the same rule byte for byte
+ * 2,800 lines away. When every surface floats, none does — so the shadow comes off here and
+ * `[data-plane="2"]` becomes the one thing on a page that is allowed to have it.
+ */
 section {
   margin-top: var(--space-4);
   padding: var(--space-5);
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: var(--plane-1-bg);
+  border: 1px solid var(--plane-1-border);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-1);
+  box-shadow: var(--plane-1-shadow);
+}
+
+/*
+ * The exception, declared once and used sparingly.
+ *
+ * A page gets one. Put it on the thing the page is for and the shadow does the job shadows
+ * are supposed to do; put it on three and we are back where we started.
+ */
+[data-plane='2'] {
+  background: var(--plane-2-bg);
+  border-color: var(--plane-2-border);
+  box-shadow: var(--plane-2-shadow);
+}
+[data-plane='sunk'] {
+  background: var(--plane-sunk-bg);
+  box-shadow: none;
 }
 section > h2:first-child,
 section > h3:first-child {
@@ -628,14 +799,42 @@ button:disabled {
 }
 
 /*
+ * The micro-label: the word above a number.
+ *
+ * Thirteen rules each declared their own version of this, with five different sizes and four
+ * different letter-spacings, which is why two labels side by side never quite matched. One
+ * rule now, and the size is the ramp's own smallest step rather than a hand-typed 0.7rem.
+ *
+ * This is half of the inversion the whole stage rests on: labels get quieter and smaller so
+ * the figures underneath them can get louder without shouting.
+ */
+.label,
+.stat .muted,
+.preview-fields dt,
+.ticker-head,
+.work-lane-head,
+.board-column-head,
+.columns-table th {
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-strong);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/*
  * Keyboard focus was invisible everywhere: the only :focus rule in 900 lines was on grid
  * inputs, so tabbing through the app showed nothing at all. :focus-visible rather than
  * :focus, so a mouse click does not leave a ring behind.
+ *
+ * A box-shadow rather than an outline, for two reasons an outline cannot solve: it follows
+ * `border-radius`, so the ring on a pill button is a pill; and it is painted inside the
+ * element's own box, so a parent with `overflow: hidden` cannot clip it — which is exactly
+ * what a task card was doing to its own focus ring.
  */
 :focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 2px;
-  border-radius: var(--radius-sm);
+  outline: none;
+  box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--focus);
 }
 a:focus-visible,
 button:focus-visible,
@@ -643,9 +842,32 @@ input:focus-visible,
 select:focus-visible,
 textarea:focus-visible,
 [tabindex]:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 2px;
+  outline: none;
+  box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--focus);
 }
+
+/*
+ * The coloured left edge that says what state a row is in.
+ *
+ * Fourteen rules wrote `border-left: 3px solid …` and then had to add matching left padding
+ * so the text did not sit on it. Drawn as a pseudo-element instead, it costs no layout, and
+ * a card can carry one without giving up its own border radius.
+ */
+[data-edge] {
+  position: relative;
+}
+[data-edge]::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--edge);
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+  background: var(--edge-tone, var(--border-strong));
+}
+[data-edge='danger'] { --edge-tone: var(--danger); }
+[data-edge='warning'] { --edge-tone: var(--warning); }
+[data-edge='ok'] { --edge-tone: var(--ok); }
+[data-edge='accent'] { --edge-tone: var(--accent); }
 /*
  * Primary: one per screen, for the action the page exists to perform.
  */
@@ -911,7 +1133,7 @@ ol {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  box-shadow: var(--shadow-1);
+  box-shadow: var(--plane-2-shadow);
 }
 .rich-editor .tiptap {
   flex: 1;
@@ -1129,13 +1351,6 @@ li.insight.sev-info {
   text-decoration: underline;
 }
 .stat-label,
-.stat .muted {
-  font-size: 0.6875rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: var(--track-label);
-  color: var(--muted);
-}
 .stat-value {
   font-size: var(--text-2xl);
   font-weight: 700;
@@ -1286,7 +1501,7 @@ a.badge:hover {
   background: var(--surface);
   padding: var(--space-3) var(--space-4);
   margin: var(--space-3) 0;
-  box-shadow: var(--shadow-1);
+  box-shadow: var(--plane-2-shadow);
 }
 /* Planned but not started: present, clearly not the thing in progress. */
 .sprint-bar-quiet {
@@ -1535,8 +1750,6 @@ a.badge:hover {
   text-align: left;
   font-size: var(--text-xs);
   font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: var(--track-label);
   color: var(--muted);
   padding: 0 var(--space-2) var(--space-2);
 }
@@ -1663,10 +1876,6 @@ a.badge:hover {
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-2) var(--space-2) var(--space-3);
-  font-size: 0.6875rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: var(--track-label);
   color: var(--muted);
 }
 .board-column-body {
@@ -1693,7 +1902,7 @@ a.badge:hover {
   border-radius: var(--radius);
   padding: var(--space-3);
   font-size: var(--text-sm);
-  box-shadow: var(--shadow-1);
+  box-shadow: var(--plane-1-shadow);
   transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
 }
 .task-card:hover {
@@ -1730,11 +1939,6 @@ a.badge:hover {
   /* The overlay is outside the column, so it needs a width of its own. */
   width: 17rem;
   background: var(--surface-raised);
-}
-@media (prefers-reduced-motion: reduce) {
-  .task-card.is-ghost {
-    transform: none;
-  }
 }
 
 /*
@@ -2176,10 +2380,7 @@ a.badge:hover {
   margin: var(--space-4) 0;
 }
 .preview-fields dt {
-  font-size: var(--text-xs);
   color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: var(--track-label);
 }
 .preview-fields dd {
   margin: 0;
@@ -2623,9 +2824,6 @@ a.badge:hover {
   min-width: 0;
 }
 .work-lane-head {
-  font-size: 0.78rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
   color: var(--muted);
 }
 .work-lane-empty {
@@ -2929,9 +3127,6 @@ a.badge:hover {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  font-size: var(--text-xs);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
   margin-bottom: var(--space-1);
 }
 .ticker-line {
@@ -3346,10 +3541,10 @@ a.badge:hover {
 
 .panel {
   padding: var(--space-5);
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: var(--plane-1-bg);
+  border: 1px solid var(--plane-1-border);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-1);
+  box-shadow: var(--plane-1-shadow);
 }
 .panel + .panel { margin-top: var(--space-4); }
 .panel-head {
@@ -3527,9 +3722,6 @@ a.badge:hover {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.35; }
 }
-@media (prefers-reduced-motion: reduce) {
-  .timer-dot { animation: none; }
-}
 .timer-what {
   font-size: var(--text-xs);
   color: var(--muted);
@@ -3675,7 +3867,7 @@ button.nav-me:hover { background: var(--surface); }
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   background: var(--surface);
-  box-shadow: var(--shadow-1);
+  box-shadow: var(--plane-2-shadow);
 }
 /* The number is the point of the card, so it is set like one rather than like a label. */
 .tracker-elapsed {
@@ -3697,7 +3889,7 @@ button.nav-me:hover { background: var(--surface); }
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   background: var(--surface);
-  box-shadow: var(--shadow-1);
+  box-shadow: var(--plane-1-shadow);
 }
 
 /* One row, because an entry you have to scroll to finish is an entry nobody adds. */
@@ -3788,13 +3980,6 @@ button.nav-me:hover { background: var(--surface); }
 @keyframes caret-blink {
   0%, 49% { opacity: 1; }
   50%, 100% { opacity: 0; }
-}
-@media (prefers-reduced-motion: reduce) {
-  /* Both of these are decoration on top of information that is already legible. */
-  .running-tag,
-  .stream-caret {
-    animation: none;
-  }
 }
 .conversation-row:hover .row-menu-trigger,
 .folder-head:hover .row-menu-trigger,
@@ -4414,9 +4599,6 @@ button.nav-me:hover { background: var(--surface); }
   0%, 100% { opacity: 0.25; }
   50% { opacity: 1; }
 }
-@media (prefers-reduced-motion: reduce) {
-  .thinking-line::before { animation: none; opacity: 0.6; }
-}
 .turn-thinking details {
   margin-top: var(--space-1);
 }
@@ -4428,4 +4610,41 @@ button.nav-me:hover { background: var(--surface); }
   font-size: var(--text-sm);
   border-left: 2px solid var(--border);
   padding-left: var(--space-3);
+}
+
+/*
+ * Motion, off, in one place.
+ *
+ * Five separate blocks each turned off whichever animation happened to be nearby, which is
+ * how the sixth one gets forgotten. One rule that covers everything, plus the four things
+ * that need more than a shortened duration — a pulsing dot has to actually stop, not pulse
+ * faster.
+ *
+ * `0.01ms` rather than `0`: a transition that still fires still emits `transitionend`, so
+ * anything waiting on one does not hang forever.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  /* Pulses and blinks stop outright rather than blinking imperceptibly fast. */
+  .statusbar-dot,
+  .timer-dot,
+  .running-tag,
+  .stream-caret {
+    animation: none;
+  }
+  .thinking-line::before {
+    animation: none;
+    opacity: 0.6;
+  }
+  /* The carried card keeps its lift and loses its tilt. */
+  .task-card.is-ghost {
+    transform: none;
+  }
 }
