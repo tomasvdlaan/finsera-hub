@@ -269,29 +269,56 @@ export const timeWidgets: Record<string, WidgetDef> = {
     minSpan: 4,
     permission: 'time.read',
     Component: () => {
-      const { data, loading } = useShared<{ days: Array<{ entries?: Array<{ personName?: string; effectiveMinutes: number }> }> }>(
-        '/time/recent',
+      // `everyone`, or this only ever returns the viewer's own hours and draws one row.
+      const { data, loading } = useShared<{
+        days: Array<{ entries?: Array<{ personId: string; personName?: string; effectiveMinutes: number }> }>;
+      }>('/time/recent?everyone=true');
+      const capacity = useShared<Array<{ id: string; displayName: string; weeklyHours: number | null }>>(
+        '/core/capacities',
       );
-      const byPerson = new Map<string, number>();
+      // Keyed on the id, not the name. Two colleagues can share a display name, and the join
+      // to contracted hours has to survive somebody changing theirs in Zitadel.
+      const byPerson = new Map<string, { name: string; minutes: number }>();
       for (const d of data?.days ?? []) {
         for (const e of d.entries ?? []) {
-          const key = e.personName ?? 'You';
-          byPerson.set(key, (byPerson.get(key) ?? 0) + (e.effectiveMinutes ?? 0));
+          const at = byPerson.get(e.personId) ?? { name: e.personName ?? 'Someone', minutes: 0 };
+          at.minutes += e.effectiveMinutes ?? 0;
+          byPerson.set(e.personId, at);
         }
       }
+      /*
+       * A denominator at last, for the people who have one.
+       *
+       * This shipped with `of: null` hardcoded and a comment explaining that a capacity nobody
+       * entered is not forty hours a week. That reasoning still holds — it is why the fallback
+       * below is `null` and not a default — but contracted hours are now a real field on a
+       * person, so anyone it is set on gets a bar and anyone it is not stays a bare number.
+       *
+       * Two weeks of hours against a weekly figure, so the denominator matches the window.
+       */
       const rows = [...byPerson.entries()]
-        .sort((a, b) => b[1] - a[1])
-        // `of: null` on purpose. A capacity nobody entered is not forty hours a week, and a
-        // bar against an invented denominator looks authoritative and is fiction.
-        .map(([label, minutes]) => ({ label, value: minutes, of: null }));
+        .sort((a, b) => b[1].minutes - a[1].minutes)
+        .map(([id, who]) => {
+          const weekly = capacity.data?.find((c) => c.id === id)?.weeklyHours ?? null;
+          return {
+            label: who.name,
+            value: who.minutes,
+            // Two weeks of hours against a weekly figure, so the denominator matches the window.
+            of: weekly === null ? null : weekly * 60 * 2,
+          };
+        });
       return (
-        <Card title="Load per person" sub="last fortnight" to="/time/week">
+        <Card
+          title="Load per person"
+          sub="Last fortnight. A bar appears only where contracted hours are set."
+          to="/time/week"
+        >
           {loading ? (
             <Skeleton height="4rem" />
           ) : rows.length === 0 ? (
             <Empty>Nobody has logged an hour in the last fortnight.</Empty>
           ) : (
-            <Bullet rows={rows} format={hours} />
+            <Bullet rows={rows} format={hours} missing="no hours contracted" />
           )}
         </Card>
       );

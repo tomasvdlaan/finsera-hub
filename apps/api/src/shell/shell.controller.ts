@@ -18,6 +18,7 @@ import { CommentService } from '../core/comments/comment.service.js';
 import { CurrentActor } from '../core/auth/current-actor.decorator.js';
 import { Public } from '../core/auth/public.decorator.js';
 import { UserService } from '../core/auth/user.service.js';
+import { PermissionService } from '../core/permissions/permission.service.js';
 import { DashboardService } from '../core/registry/dashboard.service.js';
 import { INTERNAL_ROLE, PORTAL_ROLE, roleClaims, rolesFrom } from '../core/auth/roles.js';
 import { EventDispatcher } from '../core/events/event-dispatcher.service.js';
@@ -39,6 +40,7 @@ export class ShellController {
     private readonly dispatcher: EventDispatcher,
     private readonly settings: SettingsService,
     private readonly dashboards: DashboardService,
+    private readonly permissions: PermissionService,
   ) {}
 
   /** The organisation's own legal details — printed on every invoice and quote. */
@@ -150,6 +152,43 @@ export class ShellController {
    * Any signed-in member may read it. Knowing who your colleagues are is not a privilege
    * inside a company, and every screen that assigns anything needs the list.
    */
+  /**
+   * The people directory.
+   *
+   * `/core/users` next door stays as it is — names only, for assignee pickers on a dozen
+   * screens. This is the managed view, and the two are separate so the second's fields never
+   * arrive on a screen that only needed the first.
+   */
+  @Get('people')
+  async people(@CurrentActor() actor: Actor) {
+    await this.permissions.require(actor, 'core.people.manage');
+    return this.users.people(actor);
+  }
+
+  @Patch('people/:id')
+  async updatePerson(
+    @CurrentActor() actor: Actor,
+    @Param('id') id: string,
+    @Body()
+    body: {
+      role?: 'admin' | 'member';
+      isActive?: boolean;
+      jobTitle?: string | null;
+      startedOn?: string | null;
+      costRateCents?: number | null;
+      weeklyHours?: number | null;
+    },
+  ) {
+    await this.permissions.require(actor, 'core.people.manage');
+    return this.users.updatePerson(actor, id, body);
+  }
+
+  /** Names plus contracted hours — the denominator a load chart needs, or null where unset. */
+  @Get('capacities')
+  capacities() {
+    return this.users.capacities();
+  }
+
   @Get('users')
   users_() {
     return this.users.listAssignable();

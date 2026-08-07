@@ -196,6 +196,9 @@ export function TopNav({
                 <NavLink to="/settings" role="menuitem" onClick={() => setMenu(false)}>
                   Organisation
                 </NavLink>
+                <NavLink to="/settings/people" role="menuitem" onClick={() => setMenu(false)}>
+                  People
+                </NavLink>
                 <NavLink to="/settings/modules" role="menuitem" onClick={() => setMenu(false)}>
                   Platform modules
                 </NavLink>

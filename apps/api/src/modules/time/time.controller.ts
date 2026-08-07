@@ -34,8 +34,9 @@ export class TimeController {
     @CurrentActor() actor: Actor,
     @Query('from') from?: string,
     @Query('to') to?: string,
+    @Query('everyone') everyone?: string,
   ) {
-    return this.time.getRecent(actor, { from, to });
+    return this.time.getRecent(actor, { from, to, everyone: everyone === 'true' });
   }
 
   /* ── Timesheet approval ────────────────────────────────────────────────── */

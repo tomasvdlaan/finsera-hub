@@ -409,9 +409,18 @@ export function Scatter({
 export function Bullet({
   rows,
   format,
+  missing = 'no budget set',
 }: {
   rows: Array<{ label: string; value: number; of: number | null; note?: string }>;
   format: (n: number) => string;
+  /**
+   * What to say where there is no denominator.
+   *
+   * A caller's word, because the reason differs: a project has no *budget*, a person has no
+   * *contracted hours*, and telling somebody their colleague has "no budget set" is a sentence
+   * about the wrong thing.
+   */
+  missing?: string;
 }) {
   if (rows.length === 0) return <Nothing height={80}>Nothing to measure</Nothing>;
   return (
@@ -426,7 +435,7 @@ export function Bullet({
             <span className="viz-bullet-label">{r.label}</span>
             <span className="viz-bullet-track">
               {pct === null ? (
-                <em>no budget set</em>
+                <em>{missing}</em>
               ) : (
                 <i style={{ width: `${pct}%`, background: over ? 'var(--danger)' : 'var(--accent)' }} />
               )}

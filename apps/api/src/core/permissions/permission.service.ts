@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, ForbiddenException } from '@nestjs/common';
 import type { Actor } from '@platform/contracts';
 import { eq } from 'drizzle-orm';
 import { DB, type Database, type Executor } from '../db/db.module.js';
@@ -71,5 +71,18 @@ export class PermissionService {
     // A capability may opt out of the members-hold-everything default. Reserved for the
     // few whose blast radius reaches outside the business, such as granting a client a login.
     return actor.role === 'member' && !declared.adminOnly;
+  }
+
+  /**
+   * `can`, but it throws.
+   *
+   * Every module service had written this same three-line private helper — check, throw a
+   * ForbiddenException naming the capability. Eight copies of a security check is eight places
+   * for one of them to drift into `return` where the others `throw`.
+   */
+  async require(actor: Actor, capability: string): Promise<void> {
+    if (!(await this.can(actor, capability))) {
+      throw new ForbiddenException(`Missing capability '${capability}'`);
+    }
   }
 }

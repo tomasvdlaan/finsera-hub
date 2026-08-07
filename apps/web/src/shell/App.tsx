@@ -24,6 +24,7 @@ import { MeetingChatProvider } from './MeetingChat.js';
 import { Moved, MOVED_ROOTS } from './moved.js';
 import { NavProvider } from './useNav.js';
 import { Modules } from './Modules.js';
+import { People } from './People.js';
 import { Settings } from './Settings.js';
 import { DialogProvider } from './ui/Dialog.js';
 import { ToastProvider } from './ui/Toast.js';
@@ -235,6 +236,7 @@ function Shell() {
           {/* Before the :id route, or "starred" is read as a conversation id. */}
           <Route path="/assistant/starred" element={<Page><StarredAnswers /></Page>} />
           <Route path="/assistant/:id" element={<Page><AssistantPage /></Page>} />
+          <Route path="/settings/people" element={<Page width="wide"><People /></Page>} />
           <Route path="/settings/modules" element={<Page><Modules /></Page>} />
           <Route path="/settings" element={<Page width="read"><Settings /></Page>} />
           {/* Every address the app used to serve, before the URLs were named after the

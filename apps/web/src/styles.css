@@ -5854,3 +5854,18 @@ main table:not(.grid) [data-align='action'] {
   text-transform: uppercase;
   color: var(--muted);
 }
+
+/* The typed half of a person's record, shown under the row being edited. */
+.person-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: var(--space-4);
+  align-items: end;
+  margin-top: var(--space-5);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--border);
+}
+.person-form .field { margin-bottom: 0; }
+/* A deactivated person stays in the table — their hours and cards are still theirs — but
+   reads as past tense rather than as an equal row. */
+.data-table tr[data-inactive] td { opacity: 0.55; }
