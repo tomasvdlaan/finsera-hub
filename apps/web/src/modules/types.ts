@@ -108,7 +108,15 @@ export interface RouteDeclaration {
    * grid without each of thirty pages remembering to. `'wide'` is for a table or a board,
    * `'read'` for a form or a document; omitted is the sensible middle.
    */
-  width?: 'default' | 'wide' | 'read';
+  /**
+   * `full` is for a page that *is* the viewport rather than a page of content.
+   *
+   * The three caps above exist to stop a line of prose running to 2,000 pixels, which is the
+   * right instinct for every page that reads. A document viewer is the opposite case: the
+   * whole job is to make the file as large as the screen allows, and capping it at a reading
+   * width renders an A4 page at the size of a postcard.
+   */
+  width?: 'default' | 'wide' | 'read' | 'full';
   /**
    * How much of the shell this page wants around it.
    *

@@ -682,6 +682,8 @@ main {
 .page[data-width='default'] { max-width: 90rem; }
 .page[data-width='wide'] { max-width: 120rem; }
 .page[data-width='read'] { max-width: 46rem; }
+/* No cap, and no reading-width instinct applied to a thing nobody reads as prose. */
+.page[data-width='full'] { max-width: none; }
 
 /* Anything that has not said otherwise takes the whole row, which is what it did before. */
 .page > * { grid-column: span 12; }
@@ -6081,7 +6083,7 @@ main table:not(.grid) [data-align='action'] {
   grid-template-rows: auto minmax(0, 1fr);
   /* The viewport minus the top bar, so the file fills the screen rather than the page
      growing past it and putting the panel below the fold. */
-  height: calc(100vh - 5.5rem);
+  height: calc(100vh - 7rem);
   gap: var(--space-4);
 }
 
@@ -6135,7 +6137,7 @@ main table:not(.grid) [data-align='action'] {
 
 .doc-body {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 24rem;
+  grid-template-columns: minmax(0, 1fr) 26rem;
   gap: var(--space-4);
   min-height: 0;
 }
