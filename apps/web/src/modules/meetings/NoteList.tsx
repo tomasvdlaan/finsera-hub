@@ -4,8 +4,10 @@ import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { useDocumentTitle } from '../../shell/useDocumentTitle.js';
 import type { Client, Project } from '../crm/types.js';
-import type { Note, Template } from './types.js';
+import type { Note, NoteRow, Template } from './types.js';
 import { Empty } from '../../shell/ui/primitives.js';
+import { Card, Figure } from '../../shell/ui/card.js';
+import { Act, ActRow } from '../../shell/ui/act.js';
 
 interface OpenAction {
   id: string;
@@ -51,13 +53,111 @@ function highlighted(snippet: string) {
   );
 }
 
-const dayLabel = (iso: string) => {
-  const today = new Date().toISOString().slice(0, 10);
-  if (iso === today) return 'today';
-  const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
-  if (iso === yesterday) return 'yesterday';
-  return iso;
-};
+const DAY = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+/**
+ * How long the room was open, or null when it never was.
+ *
+ * Null is the ordinary case for a note typed up after the fact, and it is why this returns
+ * null rather than nought: a meeting shown as lasting zero minutes reads as one that went
+ * badly wrong, when in truth nobody used the room.
+ */
+function lengthOf(n: Note): number | null {
+  if (!n.startedAt || !n.endedAt) return null;
+  const mins = Math.round((Date.parse(n.endedAt) - Date.parse(n.startedAt)) / 60_000);
+  return Number.isFinite(mins) && mins >= 0 ? mins : null;
+}
+
+const hhmm = (mins: number) => (mins < 60 ? `${mins}m` : `${Math.floor(mins / 60)}h ${mins % 60}m`);
+
+/**
+ * The first thing the note actually says.
+ *
+ * Headings do not count. Every ceremony body starts life as the template's skeleton — `##
+ * Round the table`, `## Blockers` — so a summary taken from line one would report the
+ * skeleton back as content, and every unwritten stand-up in the database would look written.
+ * That distinction is the single most useful thing this list can draw: of the ceremony notes
+ * held so far, the bodies are still the headings they were seeded with.
+ */
+function saidSomething(body: string): string | null {
+  for (const raw of body.split('\n')) {
+    const line = raw.trim();
+    if (!line) continue;
+    if (line.startsWith('#')) continue;
+    // A bullet or checkbox with nothing after it is still an empty template.
+    const stripped = line.replace(/^([-*+]|\d+\.)\s*/, '').replace(/^\[[ x]\]\s*/i, '').trim();
+    if (!stripped) continue;
+    /*
+     * A label with nothing after it is not content either.
+     *
+     * The seeded stand-up puts `Yesterday:` / `Today:` / `Blockers:` under each person, and
+     * reading line one meant every untouched stand-up in the database summarised itself as
+     * "Yesterday:" — which is exactly the flattery this function exists to refuse. Skipping
+     * the label reveals the truth underneath: nobody typed anything.
+     */
+    const inline = plainText(stripped);
+    if (!inline || /^[^:]{0,24}:$/.test(inline)) continue;
+    return inline;
+  }
+  return null;
+}
+
+/**
+ * Markdown as a reader would hear it.
+ *
+ * The body is Markdown and this is one line of prose, so the marks have to go — a summary
+ * reading `Needs ==urgent review==.` shows the syntax instead of the emphasis it stands for.
+ * Deliberately not a parser: this only ever has to survive one line and lose no words.
+ */
+function plainText(s: string) {
+  return s
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/<[^>]+>/g, '')
+    .replace(/(\*\*|__|==|~~|`)/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** What kind of meeting this was, for the thirty-day breakdown. */
+function kindOf(n: Note): 'standup' | 'sprint' | 'client' | 'other' {
+  if (n.template === 'daily_standup') return 'standup';
+  if (n.template && isCeremony(n.template)) return 'sprint';
+  if (n.clientId) return 'client';
+  return 'other';
+}
+
+const KINDS = [
+  { key: 'standup', label: 'Stand-ups' },
+  { key: 'sprint', label: 'Planning, review & retro' },
+  { key: 'client', label: 'Client conversations' },
+  { key: 'other', label: 'Everything else' },
+] as const;
+
+/** Initials for the avatar stack. Two letters at most — three is a monogram, not a face. */
+function initials(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '?';
+  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
+  return (parts[0]![0]! + parts[parts.length - 1]![0]!).toUpperCase();
+}
+
+function Faces({ names }: { names: string[] }) {
+  if (names.length === 0) return null;
+  const shown = names.slice(0, 4);
+  return (
+    <span className="faces" title={names.join(', ')}>
+      {shown.map((n, i) => (
+        <span className="face" key={n + i} data-i={i % 4}>
+          {initials(n)}
+        </span>
+      ))}
+      {names.length > shown.length && <span className="face face-more">+{names.length - shown.length}</span>}
+    </span>
+  );
+}
+
+type Filter = 'all' | 'recorded' | 'client';
 
 /**
  * The meetings hub.
@@ -76,7 +176,7 @@ export function NoteList() {
   useDocumentTitle('Meetings');
   const navigate = useNavigate();
 
-  const [notes, setNotes] = useState<Note[]>([]);
+  const [notes, setNotes] = useState<NoteRow[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
@@ -85,12 +185,15 @@ export function NoteList() {
 
   const [query, setQuery] = useState('');
   const [hits, setHits] = useState<Array<Record<string, unknown>> | null>(null);
+  const [searching, setSearching] = useState(false);
   const [title, setTitle] = useState('');
   const [clientId, setClientId] = useState('');
   const [me, setMe] = useState<{ displayName: string } | null>(null);
   const [sprints, setSprints] = useState<OpenSprint[]>([]);
   /** What the next ceremony is about: `sprint:<id>` or `project:<id>`. */
   const [context, setContext] = useState('');
+  const [composing, setComposing] = useState(false);
+  const [filter, setFilter] = useState<Filter>('all');
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -102,7 +205,7 @@ export function NoteList() {
         .then(set)
         .catch(() => set(fallback));
 
-    void fetchInto<Note[]>('/meetings', setNotes, []);
+    void fetchInto<NoteRow[]>('/meetings', setNotes, []);
     void fetchInto<OpenAction[]>('/meetings/open-actions', setOpenActions, []);
     void fetchInto<ActiveSession[]>('/meetings/live', setActive, []);
   }, []);
@@ -128,7 +231,7 @@ export function NoteList() {
   }, [load]);
 
   const clientName = useMemo(
-    () => Object.fromEntries(clients.map((c) => [c.id, c.name])),
+    () => new Map(clients.map((c) => [c.id, c.name])),
     [clients],
   );
   const noteById = useMemo(() => new Map(notes.map((n) => [n.id, n])), [notes]);
@@ -220,48 +323,119 @@ export function NoteList() {
   const search = async (e: FormEvent) => {
     e.preventDefault();
     if (!query.trim()) return setHits(null);
-    setHits(await api.get(`/meetings/search?q=${encodeURIComponent(query)}`));
+    setSearching(true);
+    try {
+      setHits(await api.get(`/meetings/search?q=${encodeURIComponent(query)}`));
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setSearching(false);
+    }
   };
 
-  const today = new Date().toISOString().slice(0, 10);
-  const todays = notes.filter((n) => n.meetingDate === today);
-  const recent = notes.filter((n) => n.meetingDate !== today).slice(0, 8);
+  /* ---- what the list is showing ---------------------------------------------------- */
+
+  const shown = useMemo(
+    () =>
+      notes.filter((n) =>
+        filter === 'recorded' ? n.transcribedAt !== null : filter === 'client' ? n.clientId !== null : true,
+      ),
+    [notes, filter],
+  );
+
+  /*
+   * This week means the last seven days, not the calendar week.
+   *
+   * A Monday morning under a calendar rule shows an empty "this week" while Thursday's
+   * planning meeting sits under "earlier" — technically true and useless on the one day you
+   * are most likely to be looking for it.
+   */
+  const weekAgo = useMemo(() => new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 10), []);
+  const thisWeek = shown.filter((n) => n.meetingDate >= weekAgo);
+  const earlier = shown.filter((n) => n.meetingDate < weekAgo).slice(0, 12);
+
+  /* ---- the last thirty days --------------------------------------------------------- */
+
+  const stats = useMemo(() => {
+    const cutoff = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
+    const window = notes.filter((n) => n.meetingDate >= cutoff);
+    const byKind = new Map<string, number>();
+    let total = 0;
+    let unwritten = 0;
+    let timed = 0;
+    for (const n of window) {
+      const mins = lengthOf(n);
+      if (mins === null) continue;
+      timed += 1;
+      total += mins;
+      byKind.set(kindOf(n), (byKind.get(kindOf(n)) ?? 0) + mins);
+      if (!saidSomething(n.body)) unwritten += mins;
+    }
+    return { rooms: window.length, timed, total, byKind, unwritten };
+  }, [notes]);
+
+  const decide = (a: OpenAction, verb: 'accept' | 'dismiss') => async () => {
+    await api.post(`/meetings/${a.noteId}/actions/${a.id}/${verb}`, {});
+  };
+
+  const drop = (id: string) => () => setOpenActions((prev) => prev.filter((a) => a.id !== id));
 
   return (
     <>
-      <PageHeader title="Meetings" />
+      <PageHeader
+        title="Meetings"
+        subtitle="Every room keeps its own notes, action points and transcript."
+      />
       {error && <p className="error">{error}</p>}
 
       {/* Something is being recorded. Nothing else on this page matters as much. */}
-      {active.length > 0 && (
-        <section data-span={12}>
-          <h2>Happening now</h2>
-          {active.map((s) => (
-            <div className="statusbar statusbar-live" key={s.noteId}>
-              <span className="statusbar-dot" />
-              <strong>{noteById.get(s.noteId)?.title ?? 'A meeting'}</strong>
-              <span className="muted">
-                since {new Date(s.startedAt).toTimeString().slice(0, 5)} ·{' '}
-                {s.provider === 'recall' ? 'bot in the call' : 'this browser'}
-              </span>
-              <Link to={`/meetings/${s.noteId}/room`}>Go to the room</Link>
-            </div>
+      {active.map((s) => (
+        <div className="statusbar statusbar-live" data-span={12} key={s.noteId}>
+          <span className="statusbar-dot" />
+          <strong>{noteById.get(s.noteId)?.title ?? 'A meeting'}</strong>
+          <span className="muted">
+            since {new Date(s.startedAt).toTimeString().slice(0, 5)} ·{' '}
+            {s.provider === 'recall' ? 'bot in the call' : 'this browser'}
+          </span>
+          <Link to={`/meetings/${s.noteId}/room`}>Go to the room</Link>
+        </div>
+      ))}
+
+      {/* ---- start a room ---------------------------------------------------------- */}
+      <div className="startbar" data-span={12}>
+        <span className="startbar-label">Start a room</span>
+        <div className="startbar-chips">
+          {ceremonies.map((t) => (
+            <button
+              key={t.name}
+              type="button"
+              className="ceremony"
+              disabled={busy !== null}
+              onClick={() => void startCeremony(t)}
+              title={t.description}
+            >
+              <span className="ceremony-label">{busy === t.name ? 'Opening…' : t.label}</span>
+              <span className="ceremony-box">{t.timeboxMinutes} min</span>
+            </button>
           ))}
-        </section>
-      )}
-
-      <section data-span={5}>
-        <h2>Start</h2>
+          <button
+            type="button"
+            className="ceremony ceremony-other"
+            aria-expanded={composing}
+            onClick={() => setComposing((v) => !v)}
+          >
+            <span className="ceremony-label">Something else</span>
+          </button>
+        </div>
         {/*
-          One control rather than a branch.
+          What the ceremony is about — a sprint or a project, never a client.
 
-          The alternative was to guess — use the only running sprint, otherwise the only
-          project, otherwise ask — which is three behaviours for the reader to hold and a
-          modal on the unlucky path. A select that is already right on the common day costs
-          one glance and is never surprising.
+          A stand-up belongs to a sprint and a sprint belongs to a project; asking which client
+          it was for would be the wrong question three mornings in four. The client is asked
+          for in the composer below instead, where it is the right one.
         */}
-        <label className="ceremony-context">
-          <span className="muted">About</span>
+        <label className="startbar-context">
+          <span className="faint">About</span>
           <select value={context} onChange={(e) => setContext(e.target.value)}>
             {sprints.map((s) => (
               <option key={s.id} value={`sprint:${s.id}`}>
@@ -278,191 +452,273 @@ export function NoteList() {
             <option value="">Nothing in particular</option>
           </select>
         </label>
-        <div className="ceremony-row">
-          {ceremonies.map((t) => (
-            <button
-              key={t.name}
-              className="ceremony"
-              disabled={busy !== null}
-              onClick={() => void startCeremony(t)}
-              title={t.description}
-            >
-              <span className="ceremony-label">
-                {busy === t.name ? 'Opening…' : t.label}
-              </span>
-              <span className="muted">{t.timeboxMinutes} min</span>
-            </button>
-          ))}
-        </div>
-        <p className="muted">
-          Opens straight into the room with today&rsquo;s date and you as an attendee. Add
-          anyone else once you are in.
-        </p>
-      </section>
+      </div>
 
-      {/*
-        The point of the page.
-
-        A commitment nobody decided on is invisible everywhere else: it is not a task, so no
-        board shows it, and the note it lives on scrolled away weeks ago.
-      */}
-      <section>
-        <h2>
-          Waiting on a decision{' '}
-          {openActions.length > 0 && <span className="muted">{openActions.length}</span>}
-        </h2>
-        {openActions.length === 0 ? (
-          <p className="muted">
-            Nothing outstanding. Every action point from every meeting has been made a task or
-            dismissed.
-          </p>
-        ) : (
-          <table>
-            <tbody>
-              {openActions.map((a) => (
-                <tr key={a.id}>
-                  <td data-align="action" className="muted">
-                    {dayLabel(a.meetingDate)}
-                  </td>
-                  <td>
-                    {a.source === 'ai' && <span className="tag">suggested</span>}{' '}
-                    <Link to={`/meetings/${a.noteId}`}>{a.text}</Link>
-                    <div className="muted">{a.noteTitle}</div>
-                  </td>
-                  <td data-align="action">
-                    {a.dueOn && (
-                      <span className={a.dueOn < today ? 'tag overdue' : 'tag'}>{a.dueOn}</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </section>
-
-      {todays.length > 0 && (
-        <section data-span={7}>
-          <h2>Today</h2>
-          <ul className="cards">
-            {todays.map((n) => (
-              <li key={n.id}>
-                <Link to={`/meetings/${n.id}`}>{n.title}</Link>
-                {n.template && <span className="tag"> {n.template.replace(/_/g, ' ')}</span>}
-                {n.clientId && <span className="muted"> · {clientName[n.clientId]}</span>}
-                {n.status === 'draft' && (
-                  <>
-                    {' · '}
-                    <Link to={`/meetings/${n.id}/room`}>room</Link>
-                  </>
-                )}
-              </li>
+      {composing && (
+        <form className="startbar-compose" data-span={12} onSubmit={(e) => void createConversation(e)}>
+          <input
+            autoFocus
+            placeholder="What is this meeting about?"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+          />
+          <select value={clientId} onChange={(e) => setClientId(e.target.value)}>
+            <option value="">No client</option>
+            {clients.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
             ))}
-          </ul>
-        </section>
-      )}
-
-      <section data-span={7}>
-        <h2>Recent</h2>
-        {recent.length === 0 ? (
-          <Empty>No earlier meetings.</Empty>
-        ) : (
-          <table>
-            <tbody>
-              {recent.map((n) => (
-                <tr key={n.id}>
-                  <td data-align="action" className="muted">
-                    {n.meetingDate}
-                  </td>
-                  <td>
-                    <Link to={`/meetings/${n.id}`}>{n.title}</Link>
-                    {n.clientId && <span className="muted"> · {clientName[n.clientId]}</span>}
-                  </td>
-                  <td data-align="action">
-                    {n.transcribedAt && <span className="tag">recorded</span>}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </section>
-
-      <section data-span={5}>
-        <h2>Look something up</h2>
-        <form onSubmit={(e) => void search(e)}>
-          <div className="row">
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search what was discussed…"
-              aria-label="Search notes"
-              style={{ flex: 1, minWidth: 220 }}
-            />
-            <button type="submit">Search</button>
-          </div>
-        </form>
-        <p className="muted">
-          Keyword and meaning, over what was written down. What was <em>said</em> lives in the
-          transcript on each note and is deliberately not searched — it buried everything else.
-        </p>
-        {hits && hits.length === 0 && <Empty>Nothing matched.</Empty>}
-        {hits && hits.length > 0 && (
-          <ul className="cards">
-            {hits.map((h) => (
-              <li key={String(h.id)}>
-                <Link to={`/meetings/${String(h.id)}`}>{String(h.title)}</Link>
-                <span className="muted"> · {String(h.meeting_date)}</span>
-                {h.match === 'semantic' && <span className="tag"> by meaning</span>}
-                {Boolean(h.snippet) && <div className="muted">{highlighted(String(h.snippet))}</div>}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      <section data-span={5}>
-        <h2>Something else</h2>
-        <form onSubmit={(e) => void createConversation(e)}>
-          <div className="row">
-            <input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="What is the meeting about?"
-              aria-label="Meeting title"
-              style={{ flex: 1, minWidth: 220 }}
-            />
-            <select
-              value={clientId}
-              onChange={(e) => setClientId(e.target.value)}
-              aria-label="Client"
-            >
-              <option value="">No client</option>
-              {clients.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-            <button type="submit" disabled={busy !== null || !title.trim()}>
-              New note
-            </button>
-          </div>
-        </form>
-        <div className="row">
+          </select>
+          <button type="submit" className="act" data-variant="primary" disabled={!title.trim() || busy !== null}>
+            Create
+          </button>
           {conversations.map((t) => (
             <button
               key={t.name}
-              className="link-button"
-              disabled={busy !== null || !title.trim()}
-              onClick={(e) => void createConversation(e, t.name)}
+              type="button"
+              className="act"
+              disabled={!title.trim() || busy !== null}
               title={t.description}
+              onClick={(e) => void createConversation(e, t.name)}
             >
               {t.label}
             </button>
           ))}
+        </form>
+      )}
+
+      {/* ---- the two columns -------------------------------------------------------- */}
+      <div className="meet-body" data-span={12}>
+        <div className="meet-main">
+          {openActions.length > 0 && (
+            <Card
+              tone="warning"
+              title="Still open from past meetings"
+              sub={`${openActions.length} ${openActions.length === 1 ? 'action point is' : 'action points are'} waiting on a decision from you`}
+            >
+              <ul className="act-rows">
+                {openActions.map((a) => (
+                  <ActRow
+                    key={a.id}
+                    title={a.text}
+                    meta={
+                      <>
+                        {/*
+                          Where a suggestion came from, always. `ai` means a model heard this
+                          in the room and wrote it down — which is exactly why it is proposed
+                          and not on the board.
+                        */}
+                        <span className="tag" data-kind={a.source}>
+                          {a.source === 'ai' ? 'Heard by the agent' : 'You wrote it'}
+                        </span>{' '}
+                        {/*
+                          A ceremony names itself after its date — "Daily stand-up —
+                          2026-07-31" — so printing the date beside it read it back twice.
+                        */}
+                        {a.noteTitle.replace(/\s*[—-]\s*\d{4}-\d{2}-\d{2}\s*$/, '')} ·{' '}
+                        {a.meetingDate}
+                        {a.dueOn && ` · due ${a.dueOn}`}
+                      </>
+                    }
+                  >
+                    <Act variant="primary" run={decide(a, 'accept')} onDone={drop(a.id)}>
+                      Put on the board
+                    </Act>
+                    <Act
+                      run={decide(a, 'dismiss')}
+                      onDone={drop(a.id)}
+                      confirm={`Drop "${a.text}"? It stays on the note, but nothing will chase it.`}
+                    >
+                      Drop
+                    </Act>
+                    <Link className="act" data-variant="quiet" to={`/meetings/${a.noteId}`}>
+                      Open note
+                    </Link>
+                  </ActRow>
+                ))}
+              </ul>
+            </Card>
+          )}
+
+          <Card
+            title="Meetings"
+            aside={
+              <div className="chip-row">
+                {(['all', 'recorded', 'client'] as Filter[]).map((f) => (
+                  <button
+                    key={f}
+                    type="button"
+                    className={filter === f ? 'chip chip-on' : 'chip'}
+                    aria-pressed={filter === f}
+                    onClick={() => setFilter(f)}
+                  >
+                    {f === 'all' ? 'All' : f === 'recorded' ? 'Recorded' : 'With clients'}
+                  </button>
+                ))}
+              </div>
+            }
+          >
+            {shown.length === 0 ? (
+              <Empty>
+                {notes.length === 0
+                  ? 'No meetings yet. Start one above and the note writes itself as you go.'
+                  : 'No meetings match that filter.'}
+              </Empty>
+            ) : (
+              <>
+                {[
+                  { label: 'This week', rows: thisWeek },
+                  { label: 'Earlier', rows: earlier },
+                ]
+                  .filter((g) => g.rows.length > 0)
+                  .map((group) => (
+                    <div className="meet-group" key={group.label}>
+                      <div className="meet-group-label">{group.label}</div>
+                      {group.rows.map((n) => {
+                        const mins = lengthOf(n);
+                        const said = saidSomething(n.body);
+                        const d = new Date(`${n.meetingDate}T00:00:00`);
+                        return (
+                          <Link className="meet-row" key={n.id} to={`/meetings/${n.id}`} data-kind={kindOf(n)}>
+                            <span className="meet-date">
+                              <small>{DAY[d.getDay()]}</small>
+                              <strong>{d.getDate()}</strong>
+                            </span>
+                            <span className="meet-main-col">
+                              <span className="meet-title">
+                                {/* The date is already the badge to the left of this. */}
+                                {n.title.replace(/\s*[—-]\s*\d{4}-\d{2}-\d{2}\s*$/, '')}
+                                {n.transcribedAt && <span className="tag" data-kind="rec">Recorded</span>}
+                                {n.clientId && <span className="tag">{clientName.get(n.clientId) ?? 'Client'}</span>}
+                                {n.status === 'final' && <span className="tag" data-kind="final">Final</span>}
+                              </span>
+                              {/*
+                                The body's first real sentence, or the fact that there is not
+                                one. An unwritten note is the outcome worth surfacing: the room
+                                was open, the time was spent, and nothing came out of it.
+                              */}
+                              <span className="meet-said" data-empty={said === null || undefined}>
+                                {said ?? 'No notes written — nothing was captured in this room.'}
+                              </span>
+                            </span>
+                            <span className="meet-figures">
+                              <span className="meet-fig">
+                                <small>Actions</small>
+                                <strong data-open={n.actionsOpen > 0 || undefined}>
+                                  {n.actionsTotal === 0
+                                    ? '—'
+                                    : n.actionsOpen > 0
+                                      ? `${n.actionsOpen} open`
+                                      : n.actionsTotal}
+                                </strong>
+                              </span>
+                              <span className="meet-fig">
+                                <small>Length</small>
+                                <strong>{mins === null ? '—' : hhmm(mins)}</strong>
+                              </span>
+                            </span>
+                            <Faces names={n.attendeeNames} />
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  ))}
+              </>
+            )}
+          </Card>
         </div>
-      </section>
+
+        {/* ---- the rail ------------------------------------------------------------- */}
+        <div className="meet-rail">
+          <Card title="Search what was discussed">
+            <form onSubmit={(e) => void search(e)} className="meet-search">
+              <input
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  if (!e.target.value.trim()) setHits(null);
+                }}
+                placeholder="e.g. what did we promise about the migration?"
+              />
+              <button type="submit" className="act" data-variant="primary" disabled={searching}>
+                {searching ? '…' : 'Search'}
+              </button>
+            </form>
+            {hits === null ? (
+              /*
+                Both halves of this are true and worth saying. The search runs keywords and,
+                when embeddings are configured, meaning as well. Transcripts are excluded by
+                construction — they live in their own table precisely because a thousand words
+                of half-sentences buried the note they belonged to.
+              */
+              <p className="card-note">
+                Searches note titles and bodies by word and by meaning. Transcripts are left out on
+                purpose — they bury everything else.
+              </p>
+            ) : hits.length === 0 ? (
+              <Empty>Nothing matched.</Empty>
+            ) : (
+              <ul className="meet-hits">
+                {hits.map((h) => (
+                  <li key={String(h.id)}>
+                    <Link to={`/meetings/${String(h.id)}`}>{String(h.title)}</Link>
+                    <small className="card-meta">
+                      {String(h.meeting_date)} · {h.match === 'semantic' ? 'by meaning' : 'by word'}
+                    </small>
+                    <p>{highlighted(String(h.snippet ?? ''))}</p>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+
+          <Card title="Last 30 days">
+            {stats.timed === 0 ? (
+              <Empty>
+                No meeting has been held in a room yet, so there is no length to report.
+              </Empty>
+            ) : (
+              <>
+                <Figure
+                  label="In meetings"
+                  value={(stats.total / 60).toFixed(1).replace('.', ',')}
+                  unit="h"
+                  note={`${stats.rooms} ${stats.rooms === 1 ? 'meeting' : 'meetings'}${
+                    stats.timed < stats.rooms ? ` · ${stats.rooms - stats.timed} never opened a room` : ''
+                  }`}
+                />
+                <ul className="meet-bars">
+                  {KINDS.filter((k) => (stats.byKind.get(k.key) ?? 0) > 0).map((k) => {
+                    const mins = stats.byKind.get(k.key)!;
+                    return (
+                      <li key={k.key}>
+                        <span className="meet-bar-head">
+                          <span>{k.label}</span>
+                          <strong>{hhmm(mins)}</strong>
+                        </span>
+                        <span className="meet-bar" data-kind={k.key}>
+                          <span style={{ width: `${(mins / stats.total) * 100}%` }} />
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+                {stats.unwritten > 0 && (
+                  /*
+                    Time spent in rooms that produced no written note. Not a judgement — a
+                    stand-up rarely needs one — but it is the number that says whether the
+                    notes on this page are a record of the work or a record of a few meetings.
+                  */
+                  <p className="card-note">
+                    {hhmm(stats.unwritten)} of that produced no written notes.
+                  </p>
+                )}
+              </>
+            )}
+          </Card>
+        </div>
+      </div>
     </>
   );
 }

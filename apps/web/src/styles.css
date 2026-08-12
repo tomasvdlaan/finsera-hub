@@ -6718,3 +6718,209 @@ main table:not(.grid) [data-align='action'] {
 /* A column with nobody in it keeps its height, so the board does not reflow every time a
    client moves and the columns stay comparable. */
 .pipeline-empty { height: 3rem; border: 1px dashed var(--border); border-radius: var(--radius); }
+
+/* ==========================================================================================
+   Meetings — the hub
+   ========================================================================================== */
+
+/* A row of chips used as a filter. Named because three pages now want the same arrangement. */
+.chip-row { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+
+/*
+ * Start a room.
+ *
+ * A band rather than a card, because it is not a thing to read — it is the one control the
+ * page exists to put within reach, and every morning it is the only thing touched. Sunken so
+ * it reads as part of the page furniture rather than as the first item in the list below it.
+ */
+.startbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+.startbar-label {
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--faint);
+  flex: none;
+}
+.startbar-chips { display: flex; gap: var(--space-2); flex-wrap: wrap; flex: 1; }
+/* The context select owns the right edge, away from the buttons that act immediately. */
+.startbar-context { display: flex; align-items: center; gap: var(--space-2); flex: none; }
+.startbar-context .faint { font-size: var(--text-xs); }
+
+/* In the band the ceremony chips sit on one line, so the timebox rides beside the label. */
+.startbar .ceremony {
+  flex-direction: row;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+}
+.ceremony-box { font-size: var(--text-xs); color: var(--faint); }
+.startbar .ceremony:hover:not(:disabled) .ceremony-box { color: var(--accent); }
+/* Dashed, because it opens a form rather than starting anything. */
+.ceremony-other { border-style: dashed !important; }
+
+.startbar-compose {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  align-items: center;
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+.startbar-compose input { flex: 1; min-width: 14rem; }
+
+/*
+ * The page proper: the list, and a rail of things you look up rather than work through.
+ *
+ * The rail is fixed and the list takes the rest, so a long meeting title never squeezes the
+ * search box into two characters — the failure the equal-columns version had at 1280px.
+ */
+.meet-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 22rem;
+  gap: var(--space-4);
+  align-items: start;
+}
+.meet-main, .meet-rail { display: grid; gap: var(--space-4); align-content: start; }
+@media (max-width: 60rem) {
+  .meet-body { grid-template-columns: minmax(0, 1fr); }
+}
+
+.meet-group + .meet-group { margin-top: var(--space-4); }
+.meet-group-label {
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--faint);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: var(--space-1);
+}
+
+/*
+ * One meeting.
+ *
+ * The whole row is the link. Half of these rows have a title, a summary and a set of numbers
+ * that all want to be clickable, and making each of them a target separately is how you end up
+ * with a row that does nothing when clicked between two of them.
+ */
+.meet-row {
+  display: grid;
+  grid-template-columns: 2.5rem minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-2);
+  border-bottom: 1px solid var(--border);
+  color: inherit;
+  text-decoration: none;
+  /* The left edge carries what kind of meeting it was — see .meet-row::before. */
+  position: relative;
+}
+.meet-row:last-child { border-bottom: 0; }
+.meet-row:hover { background: var(--wash); }
+.meet-row::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: var(--space-2);
+  bottom: var(--space-2);
+  width: 2px;
+  border-radius: 2px;
+  background: var(--border-strong);
+}
+.meet-row[data-kind='standup']::before { background: var(--viz-1); }
+.meet-row[data-kind='sprint']::before { background: var(--viz-2); }
+.meet-row[data-kind='client']::before { background: var(--viz-3); }
+
+.meet-date { display: grid; justify-items: center; line-height: 1.1; padding-left: var(--space-2); }
+.meet-date small { font-size: var(--text-xs); color: var(--faint); text-transform: uppercase; }
+.meet-date strong { font-size: var(--text-lg); font-variant-numeric: tabular-nums; }
+
+.meet-main-col { display: grid; gap: 3px; min-width: 0; }
+.meet-title { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; font-weight: 600; }
+.meet-said {
+  font-size: var(--text-sm);
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* An unwritten note says so in the voice of an absence, not of a value. */
+.meet-said[data-empty] { color: var(--faint); font-style: italic; }
+
+.meet-figures { display: flex; gap: var(--space-4); flex: none; }
+.meet-fig { display: grid; justify-items: end; gap: 2px; }
+.meet-fig small {
+  font-size: var(--text-xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.meet-fig strong { font-variant-numeric: tabular-nums; font-weight: 600; }
+.meet-fig strong[data-open] { color: var(--warning); }
+@media (max-width: 75rem) {
+  /* Length goes before the actions do: how long it ran is the least actionable of the two. */
+  .meet-fig:nth-child(2) { display: none; }
+}
+
+/*
+ * Who was there.
+ *
+ * Initials rather than photographs, which this platform has never had and would have to
+ * invent a store for. Overlapped so a stack of four costs the width of two.
+ */
+.faces { display: flex; flex: none; padding-left: var(--space-2); }
+.face {
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--bg);
+  border: 2px solid var(--surface);
+  margin-left: -0.5rem;
+}
+.face:first-child { margin-left: 0; }
+.face[data-i='0'] { background: var(--viz-1); }
+.face[data-i='1'] { background: var(--viz-2); }
+.face[data-i='2'] { background: var(--viz-3); }
+.face[data-i='3'] { background: var(--viz-4); }
+.face-more { background: var(--surface-sunken); color: var(--muted); border-color: var(--surface); }
+
+.meet-search { display: flex; gap: var(--space-2); margin-bottom: var(--space-2); }
+.meet-search input { flex: 1; min-width: 0; }
+.meet-hits { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3); }
+.meet-hits li { display: grid; gap: 2px; }
+.meet-hits p { margin: 0; font-size: var(--text-sm); color: var(--muted); }
+.meet-hits strong { color: var(--text); background: var(--accent-bg); }
+
+.meet-bars { list-style: none; margin: var(--space-3) 0 0; padding: 0; display: grid; gap: var(--space-3); }
+.meet-bar-head { display: flex; justify-content: space-between; font-size: var(--text-sm); }
+.meet-bar-head strong { font-variant-numeric: tabular-nums; }
+.meet-bar {
+  display: block;
+  height: 4px;
+  margin-top: 4px;
+  border-radius: 2px;
+  background: var(--surface-sunken);
+  overflow: hidden;
+}
+.meet-bar > span { display: block; height: 100%; border-radius: 2px; background: var(--border-strong); }
+.meet-bar[data-kind='standup'] > span { background: var(--viz-1); }
+.meet-bar[data-kind='sprint'] > span { background: var(--viz-2); }
+.meet-bar[data-kind='client'] > span { background: var(--viz-3); }

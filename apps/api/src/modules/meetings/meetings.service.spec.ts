@@ -195,6 +195,37 @@ describe('MeetingsService', () => {
     expect(audit.rows).toHaveLength(1);
   });
 
+  // ── what the hub lists ──
+
+  it('counts action points and attendees per note without multiplying one by the other', async () => {
+    const created = await note();
+    // Two of each, which is the arrangement that catches the bug: a join-and-group-by over
+    // both tables reports four action points here, and looks entirely plausible doing it.
+    await meetings.addAttendee(actor, created.id, { name: 'Ada Lovelace' });
+    await meetings.addAttendee(actor, created.id, { name: 'Bob' });
+    const first = await meetings.addActionItem(actor, created.id, { text: 'Send the dataset' });
+    await meetings.addActionItem(actor, created.id, { text: 'Book the migration window' });
+    await meetings.dismissActionItem(actor, created.id, first.actionItems[0]!.id);
+
+    const [row] = await meetings.list(actor);
+
+    expect(row!.actionsTotal).toBe(2);
+    // Dismissed is decided, so it is no longer open.
+    expect(row!.actionsOpen).toBe(1);
+    expect(row!.attendeeNames).toEqual(['Ada Lovelace', 'Bob']);
+  });
+
+  it('reports a meeting nobody attended as empty rather than as a null', async () => {
+    // The list renders an avatar stack straight from this; a null would throw on .length,
+    // and a note created outside a room legitimately has neither attendees nor actions.
+    await note();
+    const [row] = await meetings.list(actor);
+
+    expect(row!.attendeeNames).toEqual([]);
+    expect(row!.actionsTotal).toBe(0);
+    expect(row!.actionsOpen).toBe(0);
+  });
+
   // ── action points: the seam into SCRUM ──
 
   it('proposes action points without creating anything', async () => {
