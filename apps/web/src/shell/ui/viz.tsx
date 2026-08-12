@@ -86,61 +86,6 @@ export function Spark({
   );
 }
 
-/**
- * A ratio against a whole, as an arc.
- *
- * A half-circle rather than a full ring because a percentage has a floor and a ceiling, and
- * an arc that visibly starts somewhere and ends somewhere says so. A full ring implies a
- * cycle.
- */
-export function Gauge({
-  value,
-  label,
-  tone = 'var(--accent)',
-}: {
-  /** 0–100. Clamped, because a bar that overshoots its own track is a bug you can see. */
-  value: number;
-  label?: string;
-  tone?: string;
-}) {
-  const pct = Math.max(0, Math.min(100, value));
-  const R = 46;
-  const CX = 60;
-  const CY = 68;
-  const end = Math.PI * (1 - pct / 100);
-  const x = CX + R * Math.cos(end);
-  const y = CY - R * Math.sin(end);
-
-  return (
-    <svg viewBox="0 0 120 82" className="viz viz-gauge" role="img" aria-label={`${Math.round(pct)}%`}>
-      <path
-        d={`M ${CX - R},${CY} A ${R},${R} 0 0 1 ${CX + R},${CY}`}
-        fill="none"
-        stroke="var(--surface-sunken)"
-        strokeWidth="11"
-        strokeLinecap="round"
-      />
-      {pct > 0 && (
-        <path
-          d={`M ${CX - R},${CY} A ${R},${R} 0 0 1 ${x.toFixed(2)},${y.toFixed(2)}`}
-          fill="none"
-          stroke={tone}
-          strokeWidth="11"
-          strokeLinecap="round"
-        />
-      )}
-      <text x={CX} y={CY - 6} textAnchor="middle" className="viz-figure">
-        {Math.round(pct)}%
-      </text>
-      {label && (
-        <text x={CX} y={CY + 12} textAnchor="middle" className="viz-caption">
-          {label}
-        </text>
-      )}
-    </svg>
-  );
-}
-
 export interface Slice {
   label: string;
   value: number;
@@ -518,50 +463,17 @@ export function Heatmap({
 }
 
 /**
- * Stages that narrow, with what falls out between them.
- *
- * A funnel and not a bar chart, because the reading is the *drop*: the number that matters is
- * how much of what was sent came back signed, and stacking the stages side by side makes that
- * a subtraction the reader has to do.
- */
-export function Funnel({
-  stages,
-  format,
-}: {
-  stages: Array<{ label: string; value: number; count: number }>;
-  format: (n: number) => string;
-}) {
-  const top = Math.max(...stages.map((s) => s.value), 1);
-  return (
-    <ul className="viz-funnel">
-      {stages.map((s, i) => (
-        <li key={s.label}>
-          <span className="viz-funnel-bar" style={{ width: `${Math.max(6, (s.value / top) * 100)}%` }}>
-            <b>{format(s.value)}</b>
-          </span>
-          <span className="viz-funnel-label">
-            {s.label}
-            <small>
-              {s.count} {s.count === 1 ? 'quote' : 'quotes'}
-              {i > 0 && stages[i - 1] && stages[i - 1]!.value > 0 && (
-                <> · {Math.round((s.value / stages[i - 1]!.value) * 100)}% of above</>
-              )}
-            </small>
-          </span>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-/**
  * Dated things along a horizontal run of time.
+ *
+ * Named Horizon rather than Timeline because the shell already exports a Timeline — a
+ * record's history as a list — and two different components under one name is a collision
+ * waiting for the first file that needs both.
  *
  * For questions of the form "what is coming and how much room is there before it". A list
  * sorted by date answers the first half; only a scale answers the second, because "three
  * things next month" and "three things on the same Tuesday" are different problems.
  */
-export function Timeline({
+export function Horizon({
   events,
   days = 60,
 }: {

@@ -72,6 +72,8 @@ export const insightsWidgets: Record<string, WidgetDef> = {
   'insights:blocked-on-me': {
     title: 'Blocked on you',
     description: 'Work somebody else stopped and put your name on.',
+    // Hidden until there is something to show: somebody else has to exist to block you.
+    needs: ['people', 2],
     slot: 'dashboard',
     defaultSpan: 6,
     minSpan: 4,

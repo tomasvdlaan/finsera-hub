@@ -1,5 +1,5 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { DB, type Database } from '../db/db.module.js';
 import { dashboards } from '../db/core.schema.js';
 import type { Actor } from '../auth/auth.types.js';
@@ -91,6 +91,37 @@ export class DashboardService {
     const userId = this.requireUser(actor);
     await this.db.delete(dashboards).where(eq(dashboards.userId, userId));
     return { layout: STARTER_LAYOUT };
+  }
+
+  /**
+   * How much of each kind of thing exists, for the widget picker's viability check.
+   *
+   * One round trip of counts rather than one query per widget. Deliberately blunt: a widget
+   * declares the count it needs and a floor, and anything finer would be a rules engine for a
+   * question that is really "is there enough here to draw".
+   */
+  async volume(actor: Actor): Promise<Record<string, number>> {
+    this.requireUser(actor);
+    const result = await this.db.execute(sql`
+      SELECT
+        (SELECT count(*) FROM scrum.tasks WHERE archived_at IS NULL)::int              AS tasks,
+        (SELECT count(*) FROM scrum.v_task_flow WHERE cycle_minutes IS NOT NULL)::int  AS finished,
+        (SELECT count(*) FROM scrum.v_task_flow WHERE reopen_count > 0)::int           AS reopened,
+        (SELECT count(*) FROM scrum.sprints)::int                                      AS sprints,
+        (SELECT count(DISTINCT worked_on) FROM time.entries)::int                      AS worked_days,
+        (SELECT count(DISTINCT person_id) FROM time.entries)::int                      AS people_logging,
+        (SELECT count(*) FROM core.users WHERE is_active)::int                         AS people,
+        (SELECT count(*) FROM time.timesheets WHERE status = 'submitted')::int         AS pending_weeks,
+        (SELECT count(*) FROM billing.invoices WHERE status = 'issued')::int           AS issued_invoices,
+        (SELECT count(*) FROM billing.invoices WHERE paid_at IS NOT NULL)::int         AS paid_invoices,
+        (SELECT count(*) FROM sales.quotes)::int                                       AS quotes,
+        (SELECT count(*) FROM crm.projects WHERE budget_amount_cents IS NOT NULL)::int AS budgeted_projects,
+        (SELECT count(*) FROM sales.contracts WHERE ends_on IS NOT NULL)::int          AS ending_contracts,
+        (SELECT count(*) FROM meetings.notes)::int                                     AS meetings,
+        (SELECT count(*) FROM docs.documents WHERE archived_at IS NULL)::int           AS documents
+    `);
+    const row = (result.rows[0] ?? {}) as Record<string, number | string>;
+    return Object.fromEntries(Object.entries(row).map(([k, v]) => [k, Number(v ?? 0)]));
   }
 
   /**

@@ -93,6 +93,22 @@ export interface WidgetDef {
    * error, and reasonably conclude the dashboard is broken.
    */
   permission?: string;
+  /**
+   * What has to exist before this widget can say anything true.
+   *
+   * `[key, floor]` against the counts from `GET /core/volume` — "at least 12 finished cards",
+   * "at least one issued invoice". A widget below its floor is hidden from the picker rather
+   * than offered and left to render an empty state.
+   *
+   * This is not the same as an empty state, and both are needed. An empty state says "there is
+   * nothing right now", which is a fact about today. This says "this cannot mean anything yet",
+   * which is a fact about the business — and a library where a third of the options are
+   * structurally empty teaches people the library is not worth opening.
+   *
+   * Deliberately blunt. A count and a floor, no expressions: anything finer is a rules engine
+   * for a question that is really "is there enough here to draw".
+   */
+  needs?: [key: string, floor: number];
   /** Required in the `entity-page` slot, meaningless in the `dashboard` one. */
   entityTypes?: EntityKind[];
   settings?: SettingDef[];

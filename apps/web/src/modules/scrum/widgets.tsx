@@ -301,6 +301,8 @@ export const scrumWidgets: Record<string, WidgetDef> = {
   'scrum:cycle-scatter': {
     title: 'How long cards actually take',
     description: 'Every finished card as a dot. A median says four days; this says whether that is fifteen four-day cards or thirteen quick ones and two disasters.',
+    // Hidden until there is something to show: a dozen dots before a distribution has a shape.
+    needs: ['finished', 12],
     slot: 'dashboard',
     defaultSpan: 6,
     minSpan: 6,
@@ -348,6 +350,8 @@ export const scrumWidgets: Record<string, WidgetDef> = {
   'scrum:aging-wip': {
     title: 'What is going stale',
     description: 'Every unfinished card, oldest first, measured against how long finished ones took.',
+    // Hidden until there is something to show: the p85 baseline it measures against needs a sample.
+    needs: ['finished', 8],
     slot: 'dashboard',
     defaultSpan: 6,
     minSpan: 4,
@@ -378,6 +382,8 @@ export const scrumWidgets: Record<string, WidgetDef> = {
   'scrum:came-back': {
     title: 'Work that came back',
     description: 'Cards finished and then reopened. The number a "done" column cannot show you.',
+    // Hidden until there is something to show: a tile whose only value is zero is a tile that says nothing.
+    needs: ['reopened', 1],
     slot: 'dashboard',
     defaultSpan: 3,
     minSpan: 3,
@@ -408,6 +414,8 @@ export const scrumWidgets: Record<string, WidgetDef> = {
   'scrum:throughput-heat': {
     title: 'Delivery rhythm',
     description: 'Cards finished per week as a grid, so a good fortnight and a stalled one are the same glance.',
+    // Hidden until there is something to show: fewer weeks than this and it is three squares.
+    needs: ['finished', 10],
     slot: 'dashboard',
     defaultSpan: 4,
     minSpan: 3,

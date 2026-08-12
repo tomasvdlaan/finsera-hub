@@ -1,6 +1,6 @@
 import { Card, Figure } from '../../shell/ui/card.js';
 import { Skeleton } from '../../shell/ui/data.js';
-import { Split, Legend, Buckets, Bullet, Funnel, Timeline, type Slice } from '../../shell/ui/viz.js';
+import { Split, Legend, Buckets, Bullet, Horizon, type Slice } from '../../shell/ui/viz.js';
 import { useShared } from '../../lib/useShared.js';
 import { Empty } from '../../shell/ui/primitives.js';
 import type { WidgetDef } from '../types.js';
@@ -102,6 +102,8 @@ export const reportingWidgets: Record<string, WidgetDef> = {
   'reporting:ar-aging': {
     title: 'Receivables, by age',
     description: 'What is owed, sorted by how long it has been owed. The bucket on the right is the one that phones people.',
+    // Hidden until there is something to show: nothing is owed until something is issued.
+    needs: ['issued_invoices', 1],
     slot: 'dashboard',
     defaultSpan: 6,
     minSpan: 4,
@@ -146,6 +148,8 @@ export const reportingWidgets: Record<string, WidgetDef> = {
   'reporting:who-pays-late': {
     title: 'Who pays late',
     description: 'Average days past the due date, per client — measured against their own terms, not against the calendar.',
+    // Hidden until there is something to show: an average over one invoice is that invoice.
+    needs: ['paid_invoices', 2],
     slot: 'dashboard',
     defaultSpan: 6,
     minSpan: 4,
@@ -182,6 +186,8 @@ export const reportingWidgets: Record<string, WidgetDef> = {
   'reporting:budget-burn': {
     title: 'Every budget at once',
     description: 'Spend against budget for all projects, on one scale. A project with no budget says so rather than showing a bar.',
+    // Hidden until there is something to show: every row would say "no budget set".
+    needs: ['budgeted_projects', 1],
     slot: 'dashboard',
     defaultSpan: 6,
     minSpan: 4,
@@ -205,8 +211,8 @@ export const reportingWidgets: Record<string, WidgetDef> = {
   /* ── Business owner ───────────────────────────────────────────────────── */
 
   'reporting:pipeline-funnel': {
-    title: 'Pipeline, stage by stage',
-    description: 'Quoted, sent, accepted — and what fell out between them.',
+    title: 'Quotes by state',
+    description: 'What is drafted, out, and signed right now. A snapshot, not a conversion rate.',
     slot: 'dashboard',
     defaultSpan: 6,
     minSpan: 4,
@@ -216,18 +222,40 @@ export const reportingWidgets: Record<string, WidgetDef> = {
         byStatus: Record<string, { count: number; exVatCents: number } | undefined>;
       }>('/reporting/pipeline');
       const at = (key: string) => data?.byStatus?.[key];
-      const stages = [
-        { label: 'Drafted', key: 'draft' },
-        { label: 'Sent', key: 'sent' },
-        { label: 'Accepted', key: 'accepted' },
+      /*
+       * Bins, not a funnel — and this is a correction rather than a preference.
+       *
+       * /reporting/pipeline is `GROUP BY status` over current rows: a snapshot of mutually
+       * exclusive states. A funnel renders "% of above", which asserts that the drafted quotes
+       * became the sent ones. They did not; they are a different set of quotes, today. Nothing
+       * in this system tracks a quote's cohort over time, so the conversion rate the funnel
+       * displayed was a number the data cannot support.
+       */
+      const bins = [
+        { label: 'Drafted', key: 'draft', tone: 'var(--info)' },
+        { label: 'Sent', key: 'sent', tone: 'var(--warning)' },
+        { label: 'Accepted', key: 'accepted', tone: 'var(--accent)' },
       ].map((st) => ({
-        label: st.label,
+        label: `${st.label}${at(st.key)?.count ? ` · ${at(st.key)!.count}` : ''}`,
         value: Number(at(st.key)?.exVatCents ?? 0),
-        count: at(st.key)?.count ?? 0,
+        tone: st.tone,
       }));
+      const out = bins.reduce((n, b) => n + b.value, 0);
       return (
-        <Card title="Pipeline, stage by stage" to="/money/quotes">
-          {loading ? <Skeleton height="6rem" /> : <Funnel stages={stages} format={euros} />}
+        <Card
+          title="Quotes by state"
+          sub={loading || out === 0 ? undefined : `${euros(out)} of quotes exist right now`}
+          to="/money/quotes"
+        >
+          {loading ? (
+            <Skeleton height="6rem" />
+          ) : out === 0 ? (
+            <Empty>No quotes yet.</Empty>
+          ) : (
+            <div className="card-fill">
+              <Buckets bins={bins} format={euros} />
+            </div>
+          )}
         </Card>
       );
     },
@@ -236,6 +264,8 @@ export const reportingWidgets: Record<string, WidgetDef> = {
   'reporting:client-concentration': {
     title: 'How much rides on one client',
     description: 'Revenue share per client. The number a consultancy should look at before it feels the problem.',
+    // Hidden until there is something to show: concentration needs revenue to concentrate.
+    needs: ['paid_invoices', 1],
     slot: 'dashboard',
     defaultSpan: 6,
     minSpan: 4,
@@ -283,6 +313,8 @@ export const reportingWidgets: Record<string, WidgetDef> = {
   'reporting:whats-ending': {
     title: 'What is ending',
     description: 'Contracts and projects reaching their end date in the next quarter, on a scale — three in one week is a different problem from three in a quarter.',
+    // Hidden until there is something to show: a horizon with no events is a rule.
+    needs: ['ending_contracts', 1],
     slot: 'dashboard',
     defaultSpan: 6,
     minSpan: 4,
@@ -302,7 +334,7 @@ export const reportingWidgets: Record<string, WidgetDef> = {
             <Skeleton height="4rem" />
           ) : (
             <>
-              <Timeline
+              <Horizon
                 events={rows.map((r) => ({ date: r.endsOn, label: r.title, tone: 'var(--warning)' }))}
                 days={90}
               />

@@ -42,15 +42,29 @@
    * a border. The canvas drops to what `--surface-sunken` used to be, and sunken goes lower
    * still so a well inside a card is not the same colour as the page behind it.
    */
-  --bg: #f2efea;
+  /*
+   * A ladder with rungs far enough apart to climb.
+   *
+   * The previous set put canvas against card at 1.15:1 and card against its own border at
+   * 1.28:1 — differences small enough to be rounding errors, which is why forty-two cards read
+   * as one grey field however they were styled. The comment above claims a card should be
+   * legible with its border removed; at 1.15 it was not, and the claim was aspirational.
+   * These are measured: canvas→card 1.25, card→border 1.43.
+   *
+   * `--faint` moves too. It sat 1.15:1 from `--muted`, which is one colour wearing two names,
+   * so the three monospace micro-roles that depend on them were visually identical. Both still
+   * clear 4.5:1 against a card — separation bought with a contrast failure is not separation,
+   * it is a smaller audience.
+   */
+  --bg: #eae5de;
   --surface: #ffffff;
-  --surface-sunken: #f7f5f1;
+  --surface-sunken: #f5f2ec;
   --surface-raised: #ffffff;
   --text: #191817;
-  --muted: #6c6a66;
-  --faint: #797369;
-  --border: #e7e3dc;
-  --border-strong: #d2ccc3;
+  --muted: #63605a;
+  --faint: #7b746a;
+  --border: #ddd7cd;
+  --border-strong: #c3bcaf;
 
   /* Accent */
   --accent: var(--brand);
@@ -332,15 +346,17 @@
      * not blue-blacks — but the ladder is what matters, and it now spans far enough that a
      * card is a card with the border removed.
      */
-    --bg: #0e0f10;
-    --surface: #17181a;
-    --surface-sunken: #121314;
-    --surface-raised: #212326;
+    /* The same ladder, measured the same way: canvas→card 1.19, card→border 1.38, and
+       --muted / --faint 1.39 apart instead of 1.08. Both still clear 4.5:1 on a card. */
+    --bg: #0a0b0c;
+    --surface: #1d1f23;
+    --surface-sunken: #131417;
+    --surface-raised: #2a2d32;
     --text: #eae8e5;
-    --muted: #8f8b85;
-    --faint: #8a857e;
-    --border: #26282b;
-    --border-strong: #363a3e;
+    --muted: #a49f97;
+    --faint: #8b857b;
+    --border: #33373b;
+    --border-strong: #4a4f55;
 
     --accent: var(--brand);
     --accent-contrast: #06201a;
@@ -674,7 +690,9 @@ main {
 .page {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
-  gap: var(--space-4);
+  /* 24px against an 18px radius. At 16px the corner arcs of neighbouring cards nearly touched
+     and the grid read as crowded rather than composed. */
+  gap: var(--space-5);
   align-content: start;
   margin-inline: auto;
   width: 100%;
@@ -4918,14 +4936,63 @@ main table:not(.grid) [data-align='action'] {
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
   min-width: 0;
+  position: relative;
   /* So contents can respond to the card's width rather than the viewport's — a legend beside
      a ring goes two-column in a wide card and stays one in a narrow one, on the same page. */
   container-type: inline-size;
+  /*
+   * One light source, not forty-two floating boxes.
+   *
+   * The codebase rejected drop shadows once, correctly: when every surface floats, none does.
+   * A one-pixel lit top edge is a different claim — it is the same light falling on every card
+   * from the same direction, so it reads as material rather than as elevation, and nothing is
+   * asserted to be above anything else.
+   */
+  box-shadow: inset 0 1px 0 0 rgb(255 255 255 / 0.05);
+  transition: border-color 0.13s ease, background 0.13s ease;
 }
-.card[data-tone='danger'] { background: var(--danger-bg); border-color: var(--danger-line); }
-.card[data-tone='warning'] { background: var(--warning-bg); border-color: var(--warning-line); }
-.card[data-tone='ok'] { background: var(--ok-bg); border-color: var(--ok-line); }
-.card[data-tone='info'] { background: var(--info-bg); border-color: var(--info-line); }
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme='dark']) .card {
+    box-shadow: inset 0 1px 0 0 rgb(255 255 255 / 0.9), 0 1px 2px -1px rgb(0 0 0 / 0.05);
+  }
+}
+:root[data-theme='light'] .card {
+  box-shadow: inset 0 1px 0 0 rgb(255 255 255 / 0.9), 0 1px 2px -1px rgb(0 0 0 / 0.05);
+}
+
+/*
+ * The states a card has never had.
+ *
+ * There was no :hover, :focus-visible or :active rule for `.card` anywhere in six thousand
+ * lines. A card that navigates offered a 30px corner arrow as its whole affordance and its
+ * only tab stop — so the pointer had to travel the width of the card to hit a coin, and the
+ * keyboard saw forty-two identical stops.
+ */
+.card:has(.card-out) { cursor: pointer; }
+.card:has(.card-out):hover { border-color: var(--border-strong); }
+.card:has(.card-out:focus-visible) {
+  border-color: var(--accent);
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+/* The arrow stays the accessible name and the tab stop; the whole card becomes its hit area. */
+.card-out::after { content: ''; position: absolute; inset: 0; border-radius: inherit; }
+/*
+ * A tint mixed into the card, not into the canvas.
+ *
+ * The tone backgrounds were standalone colours picked against white — and `--ok-bg #f0f6ee`
+ * against the old canvas was 1.045:1, *less* separation than a plain white card. The palette's
+ * proudest idea was costing the card its edge. Mixing the hue into `--surface` keeps every
+ * tinted card on exactly the same rung as an untinted one, in both themes, from one formula.
+ *
+ * The edge stripe carries the meaning at full strength, so the fill can stay quiet enough to
+ * read text on.
+ */
+.card[data-tone] { box-shadow: inset 3px 0 0 0 var(--tone), inset 0 1px 0 0 rgb(255 255 255 / 0.05); }
+.card[data-tone='danger'] { --tone: var(--danger); background: color-mix(in srgb, var(--danger) 9%, var(--surface)); border-color: var(--danger-line); }
+.card[data-tone='warning'] { --tone: var(--warning); background: color-mix(in srgb, var(--warning) 10%, var(--surface)); border-color: var(--warning-line); }
+.card[data-tone='ok'] { --tone: var(--ok); background: color-mix(in srgb, var(--ok) 9%, var(--surface)); border-color: var(--ok-line); }
+.card[data-tone='info'] { --tone: var(--info); background: color-mix(in srgb, var(--info) 10%, var(--surface)); border-color: var(--info-line); }
 /*
  * The hero, of which a page gets one.
  *
@@ -4956,13 +5023,27 @@ main table:not(.grid) [data-align='action'] {
  * a glance without any colour, and the content — a figure, a name, a sentence — becomes the
  * only thing on the card set in the reading font. That last one is most of the effect.
  */
+/*
+ * Three roles in one face, told apart by weight and tracking.
+ *
+ * Title, label and meta were all mono / --text-2xs / uppercase / 0.09em, separated only by
+ * --muted against --faint — which were 1.08:1 apart, i.e. one colour. So a card's name, the
+ * word above its figure and its qualifier all looked the same, and the micro-layer read as
+ * one undifferentiated band of small caps.
+ *
+ * Separated here by weight and tracking first, colour second. That ordering matters: it keeps
+ * working when the two greys are hard to tell apart, which is most of the point.
+ */
 .card-title {
   font-family: var(--font-mono);
   font-size: var(--text-2xs);
   text-transform: uppercase;
-  letter-spacing: 0.09em;
-  font-weight: var(--weight-strong);
-  color: var(--muted);
+  letter-spacing: 0.11em;
+  font-weight: var(--weight-loud);
+  color: var(--text);
+  /* Not a third grey: the same ink as the content, held back. A name is chrome, but it is the
+     card's own name and should not be quieter than the qualifier three rows below it. */
+  opacity: 0.7;
 }
 /* An accent title marks a card that is live rather than merely present. */
 .card[data-live] .card-title { color: var(--accent); }
@@ -4978,7 +5059,8 @@ main table:not(.grid) [data-align='action'] {
   font-family: var(--font-mono);
   font-size: var(--text-2xs);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
+  font-weight: var(--weight-normal);
   color: var(--faint);
 }
 
@@ -5350,7 +5432,9 @@ main table:not(.grid) [data-align='action'] {
   border-color: transparent;
   border-radius: var(--radius);
   padding: var(--space-4);
-  container-type: normal;
+  /* Was `normal`, which silently killed the @container query the legend layout depends on —
+     so a ring inside a nested card never got its two-column legend however wide the card. */
+  container-type: inline-size;
 }
 .card .card[data-tone='danger'] { background: var(--danger-bg); }
 .card .card[data-tone='warning'] { background: var(--warning-bg); }
@@ -6323,3 +6407,28 @@ main table:not(.grid) [data-align='action'] {
   color: var(--muted);
 }
 .doc-via[data-via='text'] { background: var(--brand-tint); color: var(--accent); }
+
+/*
+ * The comparison slot under a figure.
+ *
+ * Fixed height and always present, so a row of counters bottom-aligns whether or not each one
+ * has a trail to draw. An empty slot is invisible; an absent slot would let its neighbours
+ * fall out of line, which is the thing that reads as unfinished.
+ */
+.card-compare {
+  margin-top: auto;
+  padding-top: var(--space-3);
+  min-height: 34px;
+  display: flex;
+  align-items: flex-end;
+}
+.card-compare[data-empty] { min-height: 0; padding-top: 0; }
+.card-compare > * { width: 100%; }
+
+/* The library says what it is holding back, rather than silently being shorter. */
+.library-hidden {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--faint);
+  line-height: var(--leading-norm);
+}

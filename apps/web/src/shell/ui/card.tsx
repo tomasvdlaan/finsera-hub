@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
+import { Meter, Spark } from './viz.js';
 
 /**
  * What a card is about, when it is about something.
@@ -94,6 +95,9 @@ export function Figure({
   unit,
   note,
   size,
+  trail,
+  of,
+  tone,
 }: {
   label: string;
   value: string | number;
@@ -101,7 +105,37 @@ export function Figure({
   note?: ReactNode;
   /** The page's one hero figure, if it has one. */
   size?: 'hero';
+  /**
+   * The same measure over recent time.
+   *
+   * A counter answers "how many" and is always asked "is that normal" — a question one number
+   * cannot answer at all. Every span-3 tile in this library was label, number, prose, and none
+   * of them carried a comparison, which is most of what made a row of them read as flat.
+   *
+   * Costs nothing to fetch: the widgets that have a trail already hold the series they slice
+   * the current value out of.
+   */
+  trail?: number[];
+  /** A denominator, where an honest one exists. Never invented — see Meter. */
+  of?: number;
+  tone?: string;
 }) {
+  /*
+   * The slot exists whether or not it has anything in it.
+   *
+   * Reserved rather than conditional so a row of tiles bottom-aligns on one baseline: the
+   * previous version let content sit at three different heights while the chart cards below
+   * all aligned, and that mismatch is visible even when you cannot name it. A tile with no
+   * honest comparison keeps an empty slot and stays a bare number, which is the correct
+   * outcome and now a deliberate-looking one.
+   */
+  const comparison =
+    trail && trail.length > 1 ? (
+      <Spark points={trail} height={26} fill={false} tone={tone ?? 'var(--accent)'} />
+    ) : of !== undefined && of > 0 ? (
+      <Meter value={typeof value === 'number' ? value : 0} of={of} tone={tone} />
+    ) : null;
+
   return (
     <>
       <div className="card-label">{label}</div>
@@ -110,6 +144,9 @@ export function Figure({
         {unit && <span className="unit">{unit}</span>}
       </div>
       {note && <div className="card-note">{note}</div>}
+      <div className="card-compare" data-empty={comparison === null || undefined}>
+        {comparison}
+      </div>
     </>
   );
 }

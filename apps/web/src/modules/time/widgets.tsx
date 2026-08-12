@@ -53,13 +53,21 @@ export const timeWidgets: Record<string, WidgetDef> = {
       const { data, loading } = useShared<{ entries: Array<{ effectiveMinutes: number }> }>(
         `/time/day?date=${today}`,
       );
+      // The fortnight behind today, so the figure can be compared with itself. Already shared
+      // with four other widgets, so this costs no request.
+      const recent = useShared<{ days: Day[] }>('/time/recent');
       const total = (data?.entries ?? []).reduce((n, e) => n + (e.effectiveMinutes ?? 0), 0);
       return (
         <Card to="/time">
           {loading ? (
             <Skeleton height="3rem" />
           ) : (
-            <Figure label="Logged today" value={hours(total)} note={total === 0 ? 'nothing yet' : undefined} />
+            <Figure
+              label="Logged today"
+              value={hours(total)}
+              note={total === 0 ? 'nothing yet' : undefined}
+              trail={fill(recent.data?.days ?? [], 14).map((d) => d.value)}
+            />
           )}
         </Card>
       );
@@ -186,6 +194,8 @@ export const timeWidgets: Record<string, WidgetDef> = {
   'time:calendar-heat': {
     title: 'Working pattern',
     description: 'A quarter of days as a grid. Every Monday in one column, so a habit shows up as a stripe and a holiday as a gap.',
+    // Hidden until there is something to show: a quarter-grid of three days is decoration.
+    needs: ['worked_days', 20],
     slot: 'dashboard',
     defaultSpan: 4,
     minSpan: 3,
@@ -264,6 +274,8 @@ export const timeWidgets: Record<string, WidgetDef> = {
   'time:person-load': {
     title: 'Load per person',
     description: 'Hours each person has logged this fortnight. No capacity bar unless a capacity was actually entered.',
+    // Hidden until there is something to show: a comparison between people needs two people.
+    needs: ['people_logging', 2],
     slot: 'dashboard',
     defaultSpan: 6,
     minSpan: 4,
@@ -532,6 +544,8 @@ export const timeWidgets: Record<string, WidgetDef> = {
   'time:approvals': {
     title: 'Waiting on you',
     description: "Weeks somebody has submitted and nobody has decided on. Approving one releases its hours to be invoiced.",
+    // Hidden until there is something to show: nothing to approve is a state; a permanent one is not.
+    needs: ['pending_weeks', 1],
     slot: 'dashboard',
     defaultSpan: 6,
     minSpan: 4,

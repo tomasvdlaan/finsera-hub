@@ -184,6 +184,21 @@ export class ShellController {
   }
 
   /** Names plus contracted hours — the denominator a load chart needs, or null where unset. */
+  /**
+   * How much of each kind of thing exists.
+   *
+   * The widget picker uses it to hide widgets that cannot say anything true yet. A scatter of
+   * six finished cards, a receivables chart with no issued invoice, a per-person load with one
+   * person — each renders correctly and means nothing, and a library of forty options where a
+   * third are structurally empty teaches people that the library is not worth opening.
+   *
+   * Counts only, and cheap ones: this runs on every visit to the dashboard's picker.
+   */
+  @Get('volume')
+  async volume(@CurrentActor() actor: Actor) {
+    return this.dashboards.volume(actor);
+  }
+
   @Get('capacities')
   capacities() {
     return this.users.capacities();
