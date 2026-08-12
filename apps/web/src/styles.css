@@ -5894,6 +5894,41 @@ main table:not(.grid) [data-align='action'] {
   min-width: 0;
 }
 .act-row:first-child { border-top: 0; padding-top: var(--space-1); }
+/*
+ * A row you can act on should answer the pointer.
+ *
+ * `.act-row` had no hover state at all, so a list of things with buttons on them read as
+ * printed output — the single clearest difference between a report and a product. The rule
+ * bleeds into the card's own padding so the highlight reaches the card edge rather than
+ * stopping short and looking like a misaligned box.
+ */
+.act-row {
+  margin-inline: calc(var(--space-4) * -1);
+  padding-inline: var(--space-4);
+  border-radius: var(--radius-sm);
+  transition: background 0.12s ease;
+}
+.act-row:hover,
+.act-row:focus-within { background: var(--wash); }
+
+/*
+ * Buttons appear on approach.
+ *
+ * Always-visible actions on every row make a list of five rows into a wall of ten buttons,
+ * and the eye reads the buttons instead of the content. Revealed on hover — and on
+ * focus-within, so the keyboard is not second class — the list reads as content until the
+ * moment it needs to be a control.
+ *
+ * Opacity rather than display, so the row does not resize under the pointer and the buttons
+ * stay in the tab order for anyone navigating without one.
+ */
+.act-row-buttons { opacity: 0; transition: opacity 0.12s ease; }
+.act-row:hover .act-row-buttons,
+.act-row:focus-within .act-row-buttons { opacity: 1; }
+/* Touch and reduced-motion users get no hover, so nothing may depend on it. */
+@media (hover: none), (prefers-reduced-motion: reduce) {
+  .act-row-buttons { opacity: 1; }
+}
 .act-row-text { display: grid; gap: 3px; min-width: 0; flex: 1; }
 .act-row-text > span { overflow: hidden; text-overflow: ellipsis; }
 .act-row-buttons { display: flex; gap: var(--space-2); flex: none; }
@@ -6132,6 +6167,8 @@ main table:not(.grid) [data-align='action'] {
   padding: var(--space-3) var(--space-4);
   margin-bottom: var(--space-2);
 }
+.board-stuck .act-row { margin-inline: 0; }
+.board-stuck .act-row:hover { border-color: var(--border-strong); }
 .board-stuck .act-row[data-blocked] { border-color: var(--danger-line); background: var(--danger-bg); }
 .board-stuck .act-row a { color: var(--text); text-decoration: none; font-weight: var(--weight-strong); }
 .board-stuck .act-row a:hover { text-decoration: underline; }
@@ -6432,3 +6469,13 @@ main table:not(.grid) [data-align='action'] {
   color: var(--faint);
   line-height: var(--leading-norm);
 }
+
+/* A card that could not load says so, in its own frame, with its own name still on it. */
+.card-failed {
+  margin: 0;
+  font-size: var(--text-xs);
+  line-height: var(--leading-norm);
+  color: var(--danger);
+}
+/* Fills whatever the card is, so nothing moves when the data lands. */
+.card-waiting { flex: 1; min-height: 3rem; border-radius: var(--radius); }

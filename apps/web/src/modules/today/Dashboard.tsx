@@ -251,7 +251,27 @@ export function Dashboard() {
               onSpan={(span) =>
                 persist(layout.map((p) => (p.id === placement.id ? { ...p, span } : p)))
               }
-              onRemove={() => persist(layout.filter((p) => p.id !== placement.id))}
+              onRemove={() => {
+                /*
+                 * Removable in one click, recoverable in one click.
+                 *
+                 * A configured widget — settings, span, position — was gone for good on a
+                 * misclick, and the only recovery was Reset, which throws away the whole
+                 * layout to undo one mistake. The undo carries the placement itself, so it
+                 * comes back where it was rather than appended to the end.
+                 */
+                const gone = layout.find((p) => p.id === placement.id);
+                const at = layout.findIndex((p) => p.id === placement.id);
+                persist(layout.filter((p) => p.id !== placement.id));
+                toast.ok(`${def.title} removed`, {
+                  undo: () => {
+                    if (!gone) return;
+                    const back = [...layout.filter((p) => p.id !== placement.id)];
+                    back.splice(at, 0, gone);
+                    persist(back);
+                  },
+                });
+              }}
               onSettings={() => setConfiguring(placement.id)}
             />
           ))}

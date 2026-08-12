@@ -5,7 +5,8 @@ import { Empty } from '../../shell/ui/primitives.js';
 import { Skeleton } from '../../shell/ui/data.js';
 import { useShared } from '../../lib/useShared.js';
 import { api } from '../../lib/api.js';
-import { Act } from '../../shell/ui/act.js';
+import { Act, ActRow } from '../../shell/ui/act.js';
+import { refreshShared } from '../../lib/useShared.js';
 import type { SettingDef, WidgetDef, WidgetProps } from '../types.js';
 
 interface Task {
@@ -67,9 +68,16 @@ function Counter({
 }) {
   const { tasks, loading, error } = useBoard(settings.scope);
   const found = pick(tasks);
-  if (error) return <Card><p className="error">{error}</p></Card>;
   return (
-    <Card to="/work" tone={loading ? undefined : tone?.(found)}>
+    /*
+     * `name` because a counter has no visible title — its label lives inside the Figure — so
+     * without it four of these announced themselves to a screen reader as "Open".
+     *
+     * The error goes to the card rather than being hand-rendered here: the previous version
+     * returned a bare untitled card containing red text, so a failed counter was
+     * indistinguishable from the three beside it.
+     */
+    <Card to="/work" name={label} tone={loading ? undefined : tone?.(found)} error={error}>
       {loading ? <Skeleton height="3rem" /> : <Figure label={label} value={found.length} note={note(found)} />}
     </Card>
   );
@@ -81,19 +89,82 @@ const today = () => new Date().toISOString().slice(0, 10);
 const overdue = (t: Task[]) => t.filter((x) => x.dueOn && x.dueOn < today());
 const oldest = (t: Task[]) => t.reduce((n, x) => Math.max(n, x.daysInColumn ?? 0), 0);
 
-/** A list of cards, which is the other shape a board widget takes. */
-function TaskList({ tasks, empty }: { tasks: Task[]; empty: string }) {
-  if (tasks.length === 0) return <Empty>{empty}</Empty>;
+/**
+ * A list of cards, each of which can be moved from here.
+ *
+ * These two widgets were dead ends: a name, a day count, and a corner arrow to the board —
+ * so noticing that something had stalled and doing anything about it were separate errands,
+ * and the second one is the errand nobody runs. The endpoint is the same one `scrum:my-board`
+ * uses thirty lines away.
+ *
+ * The button needs the board's columns to know what "next" is, and columns belong to a
+ * project — so a row whose project has no board loaded stays a plain row rather than
+ * guessing. That is why `boards` is a map and not a single board.
+ */
+function TaskList({
+  tasks,
+  empty,
+  boards,
+  onMoved,
+}: {
+  tasks: Task[];
+  empty: string;
+  boards?: Map<string, BoardColumn[]>;
+  onMoved?: () => void;
+}) {
+  if (tasks.length === 0) {
+    // The `action` slot on Empty had never been passed by anybody. An empty state that only
+    // shrugs is a dead end in the one place a person is most likely to want a way forward.
+    return (
+      <Empty action={<Link to="/board" className="act">Open the board</Link>}>{empty}</Empty>
+    );
+  }
   return (
-    <ul>
-      {tasks.map((t) => (
-        <li key={t.id}>
-          <Link to={`/tasks/${t.id}`}>{t.title}</Link>
-          {t.daysInColumn > 0 && <span className="muted"> · {t.daysInColumn}d</span>}
-        </li>
-      ))}
+    <ul className="act-rows">
+      {tasks.map((t) => {
+        const columns = boards?.get(t.projectId) ?? [];
+        const at = columns.findIndex((c) => c.key === t.status);
+        const next = at >= 0 ? columns[at + 1] : undefined;
+        return (
+          <ActRow
+            key={t.id}
+            title={<Link to={`/tasks/${t.id}`}>{t.title}</Link>}
+            meta={t.daysInColumn > 0 ? `${t.daysInColumn} days here` : undefined}
+          >
+            {next && (
+              <Act
+                run={() => api.post(`/scrum/tasks/${t.id}/move`, { status: next.key })}
+                onDone={onMoved}
+              >
+                → {next.label}
+              </Act>
+            )}
+          </ActRow>
+        );
+      })}
     </ul>
   );
+}
+
+/**
+ * The columns of every project on screen, so a row can know what comes next.
+ *
+ * One request per project rather than one per card — these lists are a handful of cards
+ * across at most a few projects, and `useShared` collapses the repeats anyway.
+ */
+function useBoards(projectIds: string[]): Map<string, BoardColumn[]> {
+  const unique = [...new Set(projectIds)].sort();
+  // Deliberately capped. A cross-project list with a dozen projects in it would otherwise
+  // fire a dozen requests to decorate rows nobody scrolled to.
+  const a = useShared<{ columns: BoardColumn[] }>(unique[0] ? `/scrum/boards/${unique[0]}` : null);
+  const b = useShared<{ columns: BoardColumn[] }>(unique[1] ? `/scrum/boards/${unique[1]}` : null);
+  const c = useShared<{ columns: BoardColumn[] }>(unique[2] ? `/scrum/boards/${unique[2]}` : null);
+  const out = new Map<string, BoardColumn[]>();
+  [a, b, c].forEach((r, i) => {
+    const id = unique[i];
+    if (id && r.data?.columns) out.set(id, r.data.columns);
+  });
+  return out;
 }
 
 /** Just the fields this file reads, matching what the board endpoint returns. */
@@ -226,16 +297,28 @@ export const scrumWidgets: Record<string, WidgetDef> = {
     permission: 'scrum.tasks.read',
     settings: [SCOPE],
     Component: ({ settings }) => {
-      const { tasks, loading } = useBoard(settings.scope);
+      const { tasks, loading, error } = useBoard(settings.scope);
       const rows = waiting(tasks);
+      const boards = useBoards(rows.map((t) => t.projectId));
       return (
         <Card
           title="Waiting on someone else"
-          sub="Nothing here is yours to move — but a fortnight of silence is worth a nudge."
+          /*
+           * The old line read "nothing here is yours to move", which was true when this was a
+           * list and stopped being true the moment each row grew a button. What is accurate
+           * now is narrower: the *waiting* is not yours, but the moment it ends, moving the
+           * card on is — and that is the click this widget exists to save.
+           */
+          sub="The waiting is not yours. Moving it on, once they come back, is."
           tone={oldest(rows) >= 7 ? 'warning' : undefined}
           to="/work"
+          error={error}
         >
-          {loading ? <Skeleton height="4rem" /> : <TaskList tasks={rows} empty="Nothing is with a client." />}
+          {loading ? (
+            <Skeleton height="4rem" />
+          ) : (
+            <TaskList tasks={rows} empty="Nothing is with a client." boards={boards} onMoved={refreshShared} />
+          )}
         </Card>
       );
     },
@@ -287,9 +370,9 @@ export const scrumWidgets: Record<string, WidgetDef> = {
     defaultSpan: 6,
     permission: 'scrum.tasks.read',
     Component: ({ entityId }) => {
-      const { data, loading } = useShared<Task[]>(entityId ? `/scrum/tasks?projectId=${entityId}` : null);
+      const { data, loading, error } = useShared<Task[]>(entityId ? `/scrum/tasks?projectId=${entityId}` : null);
       return (
-        <Card title="Open cards" to={entityId ? `/board?projectId=${entityId}` : undefined}>
+        <Card title="Open cards" to={entityId ? `/board?projectId=${entityId}` : undefined} error={error}>
           {loading ? <Skeleton height="4rem" /> : <TaskList tasks={data ?? []} empty="Nothing open on this project." />}
         </Card>
       );
@@ -309,13 +392,13 @@ export const scrumWidgets: Record<string, WidgetDef> = {
     permission: 'scrum.tasks.read',
     settings: [PROJECT],
     Component: ({ settings }) => {
-      const { data, loading } = useShared<Flow>(
+      const { data, loading, error } = useShared<Flow>(
         settings.projectId ? `/scrum/projects/${settings.projectId}/flow` : null,
       );
       const samples = data?.cycle.samples ?? [];
       if (!settings.projectId) {
         return (
-          <Card title="How long cards actually take">
+          <Card title="How long cards actually take" error={error}>
             <Empty>Pick a project in this widget&rsquo;s settings.</Empty>
           </Card>
         );
@@ -358,7 +441,7 @@ export const scrumWidgets: Record<string, WidgetDef> = {
     permission: 'scrum.tasks.read',
     settings: [PROJECT],
     Component: ({ settings }) => {
-      const { data, loading } = useShared<Flow>(
+      const { data, loading, error } = useShared<Flow>(
         settings.projectId ? `/scrum/projects/${settings.projectId}/flow` : null,
       );
       const p85 = data?.cycle.meaningful ? data.cycle.p85 : null;
@@ -369,6 +452,7 @@ export const scrumWidgets: Record<string, WidgetDef> = {
         .map((a) => ({ label: a.title, value: a.minutes, of: p85 }));
       return (
         <Card
+          error={error}
           title="What is going stale"
           sub={p85 ? `against p85 of ${dur(p85)}` : 'no baseline yet — too few finished cards'}
           to={settings.projectId ? `/board/flow?projectId=${settings.projectId}` : undefined}
@@ -390,12 +474,12 @@ export const scrumWidgets: Record<string, WidgetDef> = {
     permission: 'scrum.tasks.read',
     settings: [PROJECT],
     Component: ({ settings }) => {
-      const { data, loading } = useShared<Flow>(
+      const { data, loading, error } = useShared<Flow>(
         settings.projectId ? `/scrum/projects/${settings.projectId}/flow` : null,
       );
       const n = data?.reopened ?? 0;
       return (
-        <Card tone={n > 0 ? 'warning' : undefined} to={settings.projectId ? `/board/flow?projectId=${settings.projectId}` : undefined}>
+        <Card tone={n > 0 ? 'warning' : undefined} to={settings.projectId ? `/board/flow?projectId=${settings.projectId}` : undefined} error={error}>
           {loading ? (
             <Skeleton height="3rem" />
           ) : (
@@ -422,13 +506,14 @@ export const scrumWidgets: Record<string, WidgetDef> = {
     permission: 'scrum.tasks.read',
     settings: [PROJECT],
     Component: ({ settings }) => {
-      const { data, loading } = useShared<Flow>(
+      const { data, loading, error } = useShared<Flow>(
         settings.projectId ? `/scrum/projects/${settings.projectId}/flow` : null,
       );
       const weeks = data?.throughput ?? [];
       const total = weeks.reduce((n, w) => n + w.count, 0);
       return (
         <Card
+          error={error}
           title="Delivery rhythm"
           sub={loading ? undefined : `${total} finished over ${weeks.length} weeks`}
           to={settings.projectId ? `/board/flow?projectId=${settings.projectId}` : undefined}

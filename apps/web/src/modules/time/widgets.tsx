@@ -50,7 +50,7 @@ export const timeWidgets: Record<string, WidgetDef> = {
     permission: 'time.read',
     Component: () => {
       const today = new Date().toISOString().slice(0, 10);
-      const { data, loading } = useShared<{ entries: Array<{ effectiveMinutes: number }> }>(
+      const { data, loading, error } = useShared<{ entries: Array<{ effectiveMinutes: number }> }>(
         `/time/day?date=${today}`,
       );
       // The fortnight behind today, so the figure can be compared with itself. Already shared
@@ -58,7 +58,7 @@ export const timeWidgets: Record<string, WidgetDef> = {
       const recent = useShared<{ days: Day[] }>('/time/recent');
       const total = (data?.entries ?? []).reduce((n, e) => n + (e.effectiveMinutes ?? 0), 0);
       return (
-        <Card to="/time">
+        <Card to="/time" error={error}>
           {loading ? (
             <Skeleton height="3rem" />
           ) : (
@@ -84,12 +84,13 @@ export const timeWidgets: Record<string, WidgetDef> = {
     settings: [DAYS],
     Component: ({ settings }) => {
       const count = Math.max(7, Math.min(90, Number(settings.days) || 14));
-      const { data, loading } = useShared<{ days: Day[] }>('/time/recent');
+      const { data, loading, error } = useShared<{ days: Day[] }>('/time/recent');
       const days = fill(data?.days ?? [], count);
       const total = days.reduce((n, d) => n + d.value, 0);
       const worked = days.filter((d) => d.value > 0).length;
       return (
         <Card
+          error={error}
           title="Your rhythm"
           sub={`${total.toFixed(1).replace('.', ',')} h over ${worked} of ${count} days`}
           to="/time"
@@ -109,13 +110,13 @@ export const timeWidgets: Record<string, WidgetDef> = {
     defaultSpan: 6,
     permission: 'time.read',
     Component: ({ entityId }) => {
-      const { data, loading } = useShared<{ spentMinutes: number; budgetMinutes: number | null }>(
+      const { data, loading, error } = useShared<{ spentMinutes: number; budgetMinutes: number | null }>(
         entityId ? `/time/projects/${entityId}/burn` : null,
       );
       const spent = data?.spentMinutes ?? 0;
       const budget = data?.budgetMinutes ?? null;
       return (
-        <Card title="Budget burn" to="/time">
+        <Card title="Budget burn" to="/time" error={error}>
           {loading ? (
             <Skeleton height="3rem" />
           ) : (
@@ -158,7 +159,7 @@ export const timeWidgets: Record<string, WidgetDef> = {
     minSpan: 3,
     permission: 'time.read',
     Component: () => {
-      const { data, loading } = useShared<{ days: Array<{ date: string; entries?: Array<{ projectName?: string; effectiveMinutes: number }> }> }>(
+      const { data, loading, error } = useShared<{ days: Array<{ date: string; entries?: Array<{ projectName?: string; effectiveMinutes: number }> }> }>(
         '/time/recent',
       );
       const byProject = new Map<string, number>();
@@ -175,7 +176,7 @@ export const timeWidgets: Record<string, WidgetDef> = {
         tone: `color-mix(in srgb, var(--accent) ${Math.max(22, 100 - i * 16)}%, var(--surface-sunken))`,
       }));
       return (
-        <Card title="Where the week went" sub={`${rows.length} projects`} to="/time/week">
+        <Card title="Where the week went" sub={`${rows.length} projects`} to="/time/week" error={error}>
           {loading ? (
             <Skeleton height="4rem" />
           ) : rows.length === 0 ? (
@@ -201,7 +202,7 @@ export const timeWidgets: Record<string, WidgetDef> = {
     minSpan: 3,
     permission: 'time.read',
     Component: () => {
-      const { data, loading } = useShared<{ days: Day[] }>('/time/recent');
+      const { data, loading, error } = useShared<{ days: Day[] }>('/time/recent');
       /*
        * Aligned to weeks, not to the fetch.
        *
@@ -220,7 +221,7 @@ export const timeWidgets: Record<string, WidgetDef> = {
       ];
       const worked = cells.filter((c) => c.value > 0).length;
       return (
-        <Card title="Working pattern" sub={`${worked} of ${span} days had an hour on them`} to="/time">
+        <Card title="Working pattern" sub={`${worked} of ${span} days had an hour on them`} to="/time" error={error}>
           {loading ? (
             <Skeleton height="5rem" />
           ) : (
@@ -245,14 +246,14 @@ export const timeWidgets: Record<string, WidgetDef> = {
     minSpan: 3,
     permission: 'time.read',
     Component: () => {
-      const { data, loading } = useShared<{ days: Array<{ entries?: Array<{ taskId: string | null; effectiveMinutes: number; billable: boolean }> }> }>(
+      const { data, loading, error } = useShared<{ days: Array<{ entries?: Array<{ taskId: string | null; effectiveMinutes: number; billable: boolean }> }> }>(
         '/time/recent',
       );
       const all = (data?.days ?? []).flatMap((d) => d.entries ?? []);
       const loose = all.filter((e) => !e.taskId && e.billable);
       const minutes = loose.reduce((n, e) => n + (e.effectiveMinutes ?? 0), 0);
       return (
-        <Card tone={loose.length > 0 ? 'warning' : undefined} to="/time">
+        <Card tone={loose.length > 0 ? 'warning' : undefined} to="/time" error={error}>
           {loading ? (
             <Skeleton height="3rem" />
           ) : (
@@ -282,7 +283,7 @@ export const timeWidgets: Record<string, WidgetDef> = {
     permission: 'time.read',
     Component: () => {
       // `everyone`, or this only ever returns the viewer's own hours and draws one row.
-      const { data, loading } = useShared<{
+      const { data, loading, error } = useShared<{
         days: Array<{ entries?: Array<{ personId: string; personName?: string; effectiveMinutes: number }> }>;
       }>('/time/recent?everyone=true');
       const capacity = useShared<Array<{ id: string; displayName: string; weeklyHours: number | null }>>(
@@ -321,6 +322,7 @@ export const timeWidgets: Record<string, WidgetDef> = {
         });
       return (
         <Card
+          error={error}
           title="Load per person"
           sub="Last fortnight. A bar appears only where contracted hours are set."
           to="/time/week"
@@ -437,7 +439,7 @@ export const timeWidgets: Record<string, WidgetDef> = {
     minSpan: 4,
     permission: 'time.write',
     Component: () => {
-      const { data, loading } = useShared<{
+      const { data, loading, error } = useShared<{
         days: Array<{ date: string; totalMinutes: number; entries?: Array<{ id: string; taskId: string | null; description: string | null; effectiveMinutes: number; billable: boolean; projectId: string }> }>;
       }>('/time/recent');
       const tasks = useShared<Array<{ id: string; title: string; projectId: string }>>('/scrum/tasks');
@@ -465,7 +467,7 @@ export const timeWidgets: Record<string, WidgetDef> = {
         .filter((e) => e.billable && !e.taskId && !fixed.includes(e.id));
 
       return (
-        <Card title="Timesheet health" tone={loose.length > 0 ? 'warning' : undefined}>
+        <Card title="Timesheet health" tone={loose.length > 0 ? 'warning' : undefined} error={error}>
           {loading ? (
             <Skeleton height="4rem" />
           ) : (
@@ -551,7 +553,7 @@ export const timeWidgets: Record<string, WidgetDef> = {
     minSpan: 4,
     permission: 'time.approve',
     Component: () => {
-      const { data, loading } = useShared<
+      const { data, loading, error } = useShared<
         Array<{
           id: string; personId: string; personName: string; weekOf: string;
           minutes: number; entries: number; withoutTask: number;
@@ -570,6 +572,7 @@ export const timeWidgets: Record<string, WidgetDef> = {
 
       return (
         <Card
+          error={error}
           title="Waiting on you"
           sub={loading || rows.length === 0 ? undefined : 'Approving releases the hours to be invoiced'}
           tone={rows.length > 0 ? 'info' : undefined}

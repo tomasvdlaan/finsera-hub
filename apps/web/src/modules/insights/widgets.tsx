@@ -40,7 +40,7 @@ export const insightsWidgets: Record<string, WidgetDef> = {
     permission: 'insights.read',
     settings: [ROWS],
     Component: ({ settings }) => {
-      const { data, loading } = useShared<Insight[]>('/insights?status=open');
+      const { data, loading, error } = useShared<Insight[]>('/insights?status=open');
       const rows = (data ?? [])
         // The severity that never reaches "Needs you" is `info`, by an earlier decision that
         // is worth keeping: a queue that includes things nobody has to do stops being a queue.
@@ -48,6 +48,7 @@ export const insightsWidgets: Record<string, WidgetDef> = {
         .slice(0, limit(settings));
       return (
         <Card
+          error={error}
           title="Needs you"
           sub={loading ? undefined : `${rows.length} open`}
           tone={rows.some((i) => i.severity === 'urgent') ? 'danger' : undefined}
@@ -79,7 +80,7 @@ export const insightsWidgets: Record<string, WidgetDef> = {
     minSpan: 4,
     permission: 'scrum.tasks.read',
     Component: () => {
-      const { data, loading } = useShared<Blocked[]>('/scrum/tasks?blockedOnUserId=me');
+      const { data, loading, error } = useShared<Blocked[]>('/scrum/tasks?blockedOnUserId=me');
       const rows = data ?? [];
       return (
         /*
@@ -89,7 +90,7 @@ export const insightsWidgets: Record<string, WidgetDef> = {
          * where a person stopped working and named you as the reason, and that is a different
          * kind of urgent — an insight can wait a day.
          */
-        <Card title="Blocked on you" tone={rows.length > 0 ? 'danger' : undefined}>
+        <Card title="Blocked on you" tone={rows.length > 0 ? 'danger' : undefined} error={error}>
           {loading ? (
             <Skeleton height="3rem" />
           ) : rows.length === 0 ? (
