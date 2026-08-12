@@ -6576,3 +6576,145 @@ main table:not(.grid) [data-align='action'] {
 /* Only where the blank line would reach a client. An unnamed internal hour is untidy; an
    unnamed billable one is a blank line on an invoice, and only the second earns the colour. */
 .tracker-name-it[data-billable] { border-color: var(--warning-line); color: var(--warning); }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * CLIENTS
+ *
+ * A directory is the thing you need least about a client. These two views answer the two
+ * questions you actually have: is anything at stake, and has anyone gone quiet.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+.viewswitch { display: flex; gap: 2px; padding: 3px; border-radius: var(--radius-pill); background: var(--surface-sunken); }
+.viewswitch button {
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--text-sm);
+  color: var(--muted);
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+}
+.viewswitch button.active { background: var(--surface); color: var(--text); font-weight: var(--weight-strong); }
+
+.stagefilter { display: flex; gap: var(--space-2); flex-wrap: wrap; margin-bottom: var(--space-4); }
+.stagefilter button {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  border: 1px solid var(--border);
+  background: none;
+  font: inherit;
+  font-size: var(--text-sm);
+  color: var(--muted);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+}
+.stagefilter button:hover { border-color: var(--border-strong); color: var(--text); }
+.stagefilter button.active { background: var(--surface-sunken); border-color: var(--border-strong); color: var(--text); }
+.stagefilter b { font-variant-numeric: tabular-nums; color: var(--faint); }
+
+/* One row per client, laid out as columns so the eye can run down "unbilled" or "last
+   meeting" rather than reading each row as a sentence. */
+.clientlist { list-style: none; margin: 0; padding: 0; display: grid; }
+.clientlist li {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) repeat(2, minmax(0, 1fr)) minmax(0, 1.4fr) auto;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-3);
+  margin-inline: calc(var(--space-3) * -1);
+  border-top: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  transition: background 0.12s ease;
+}
+.clientlist li:first-child { border-top: 0; }
+.clientlist li:hover { background: var(--wash); }
+@media (max-width: 60rem) {
+  .clientlist li { grid-template-columns: 1fr 1fr; }
+  .client-open { grid-column: span 2; }
+}
+
+.client-id { display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
+.client-id i {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-sm);
+  display: grid;
+  place-items: center;
+  font-size: var(--text-2xs);
+  font-family: var(--font-mono);
+  font-weight: var(--weight-loud);
+  color: #fff;
+  flex: none;
+}
+.client-id > span { display: grid; gap: 2px; min-width: 0; }
+.client-id a { font-weight: var(--weight-strong); text-decoration: none; color: var(--text); }
+.client-id a:hover { text-decoration: underline; }
+.client-id small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.client-col { display: grid; gap: 3px; min-width: 0; font-size: var(--text-sm); }
+.client-col b { font-weight: var(--weight-medium); }
+/* Silence is the one thing on this row worth colouring. */
+.client-col b[data-warn] { color: var(--warning); font-weight: var(--weight-strong); }
+.client-do { display: flex; align-items: center; gap: var(--space-2); }
+.client-do .act { text-decoration: none; }
+
+/* ── The pipeline ────────────────────────────────────────────────────────── */
+.pipeline {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: var(--space-4);
+  align-items: start;
+}
+.pipeline-col {
+  display: grid;
+  gap: var(--space-3);
+  align-content: start;
+  padding: var(--space-4);
+  border-radius: var(--radius-card);
+  background: var(--surface-sunken);
+  min-width: 0;
+}
+.pipeline-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--muted);
+}
+.pipeline-head b { color: var(--text); font-variant-numeric: tabular-nums; }
+/* Each column says what it means, once. A pipeline whose stages are only names is a pipeline
+   where two people file the same client differently. */
+.pipeline-note { margin: 0; font-size: var(--text-2xs); color: var(--faint); }
+.pipeline-col[data-stage='active'] .pipeline-head b { color: var(--accent); }
+.pipeline-col[data-stage='dormant'] .pipeline-head b,
+.pipeline-col[data-stage='lost'] .pipeline-head b { color: var(--faint); }
+
+.pipeline-card {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+.pipeline-card .client-id i { width: 24px; height: 24px; }
+.pipeline-fact { display: flex; justify-content: space-between; gap: var(--space-2); font-size: var(--text-xs); }
+.pipeline-fact > span { color: var(--muted); }
+.pipeline-fact b { font-variant-numeric: tabular-nums; }
+.pipeline-fact em { font-style: normal; color: var(--danger); }
+.pipeline-quiet {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--warning);
+}
+/* A column with nobody in it keeps its height, so the board does not reflow every time a
+   client moves and the columns stay comparable. */
+.pipeline-empty { height: 3rem; border: 1px dashed var(--border); border-radius: var(--radius); }
