@@ -46,6 +46,12 @@ services:
       MODEL_EMBEDDING: ${MODEL_EMBEDDING:-google:gemini-embedding-001}
       STORAGE_DRIVER: ${STORAGE_DRIVER:-local}
       STORAGE_PATH: /app/storage
+      # Recall dials back in to /api/meetings/recall, so the API needs to know the
+      # address the outside world reaches it at. Unset means meeting capture refuses
+      # to start a bot rather than booking one that can never connect.
+      RECALL_API_KEY: ${RECALL_API_KEY:-}
+      RECALL_REGION_URL: ${RECALL_REGION_URL:-https://eu-central-1.recall.ai}
+      RECALL_WEBHOOK_BASE: ${RECALL_WEBHOOK_BASE:-}
     volumes:
       # Uploaded files live outside the database, so they need durable storage of their
       # own — and the backup job needs to see them.
@@ -92,15 +98,27 @@ services:
     volumes:
       - ./backup.sh:/backup.sh:ro
       - storage:/storage:ro
-      - backups:/backups
+      # A host directory rather than a named volume: deploy/offsite.sh runs on the
+      # host and needs to read these, and this image ships no rsync or ssh to do it
+      # from inside.
+      - ./backups:/backups
     depends_on:
       postgres:
         condition: service_healthy
+    # A backup job that fails silently is worse than none — it looks healthy right up
+    # until a restore. Unhealthy once nothing has been written for 26 hours.
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - test -n "$$(find /backups -name '*.sql.gz' -mmin -1560 -print -quit)"
+      interval: 5m
+      timeout: 10s
+      retries: 3
+      start_period: 2m
     restart: unless-stopped
 
 volumes:
   pgdata:
   storage:
-  backups:
   caddy_data:
   caddy_config:

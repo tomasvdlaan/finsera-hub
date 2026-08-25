@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { PageHeader } from '../../shell/ui/layout.js';
 import { Card } from '../../shell/ui/card.js';
+import { Badge } from '../../shell/ui/primitives.js';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 
@@ -39,6 +40,25 @@ export function subjectPath(insight: Insight): string | null {
   }
 }
 
+/**
+ * What a severity looks like, in the two places a row can say it.
+ *
+ * Both were saying nothing. The badge was a bare `.badge`, which is the neutral grey one, so
+ * "urgent" and "attention" rendered identically — on the one screen in the product whose entire
+ * job is to rank. And the coloured left edge was written as `border-left-color` on
+ * `li.insight.sev-urgent` (0,2,1), which loses to the `border` shorthand in `ul.insights
+ * li.insight` (0,2,2) eight lines above it, so every row drew the plain `--border`.
+ *
+ * `data-edge` is the utility that already exists for exactly this — it paints the edge as a
+ * pseudo-element, so there is no shorthand for a neighbouring rule to overwrite and no
+ * specificity race to lose. `info` gets no edge: it is the absence of a reason to look.
+ */
+const SEVERITY: Record<Insight['severity'], { edge?: 'danger' | 'warning'; tone: 'danger' | 'warning' | 'neutral' }> = {
+  urgent: { edge: 'danger', tone: 'danger' },
+  attention: { edge: 'warning', tone: 'warning' },
+  info: { tone: 'neutral' },
+};
+
 export function InsightRow({
   insight,
   onDismiss,
@@ -49,14 +69,15 @@ export function InsightRow({
   onRestore?: () => void;
 }) {
   const path = subjectPath(insight);
+  const sev = SEVERITY[insight.severity];
   return (
-    <li className={`insight sev-${insight.severity}`}>
+    <li className="insight" data-edge={sev.edge}>
       <div>
         <strong>{path ? <Link to={path}>{insight.title}</Link> : insight.title}</strong>
         {insight.detail && <div className="muted">{insight.detail}</div>}
       </div>
       <div className="insight-actions">
-        <span className="badge">{insight.severity}</span>
+        <Badge tone={sev.tone}>{insight.severity}</Badge>
         {onDismiss && (
           <button className="link-button" onClick={onDismiss}>
             dismiss

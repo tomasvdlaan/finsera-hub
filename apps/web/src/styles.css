@@ -882,6 +882,59 @@ textarea {
   border-radius: var(--radius-sm);
   background: var(--surface);
   color: var(--text);
+  /* Nothing here ever pushes its container sideways. */
+  max-width: 100%;
+}
+
+/*
+ * A field as wide as the thing it asks for.
+ *
+ * This block styled a text input's padding, border and radius and never its width, so every
+ * free-text field in the app was the browser's default ~170px whatever it held. Measured, that
+ * meant "Add a client — a name is enough, everything else can come later" showing its first
+ * twenty characters inside a 1377px panel, and three more placeholders on the documents page
+ * cut off at 72–88%. The placeholder is the only instruction most of these fields have.
+ *
+ * Sized by growing inside the flex row they already sit in rather than by a fixed width: in a
+ * panel the field takes the room the row has, and in a page header — where the same `.row` is
+ * used for a search box — there is no spare room to take, so it settles at the basis. One rule
+ * gets both, and neither has to know where it is.
+ *
+ * Deliberately not `width: 100%`: that wraps the button that follows onto its own line, because
+ * `.row` wraps. Number, date and colour inputs are left alone — they are as wide as they need
+ * to be, and stretching a date field across a panel is the opposite of this fix.
+ */
+.row > input:not([type]),
+.row > input[type='text'],
+.row > input[type='search'],
+.row > input[type='email'],
+.row > input[type='url'],
+.row > input[type='tel'] {
+  flex: 1 1 18rem;
+  min-width: 0;
+}
+
+/*
+ * A search box and its button stay on one line.
+ *
+ * `.row` wraps, which is right in a panel and wrong in a page header: the header's actions are
+ * a single control, and a submit button dropping under its own field reads as two. The field
+ * can shrink instead — it has `min-width: 0` above, so there is always somewhere for the space
+ * to come from.
+ */
+.page-actions .row {
+  flex-wrap: nowrap;
+  margin: 0;
+}
+/*
+ * A fixed basis rather than a growing one, because there is nothing here to grow into.
+ * `.page-actions` is shrink-to-fit, so a field that is allowed to shrink reports its smallest
+ * size as the width it needs and gets exactly that — which is the browser default it started
+ * at. Pinning the basis makes the header ask for the room instead. `.page-header-row` wraps, so
+ * a narrow window moves the whole group under the title rather than squeezing it.
+ */
+.page-actions .row > input {
+  flex: 0 0 18rem;
 }
 input::placeholder,
 textarea::placeholder {
@@ -1434,18 +1487,12 @@ ul.insights li.insight {
   padding: 0.6rem 0.8rem;
   margin-bottom: 0.4rem;
   border: 1px solid var(--border);
-  border-left-width: 3px;
-  border-radius: 6px;
+  border-radius: var(--radius);
   background: var(--surface);
-}
-li.insight.sev-urgent {
-  border-left-color: var(--danger);
-}
-li.insight.sev-attention {
-  border-left-color: var(--warning);
-}
-li.insight.sev-info {
-  border-left-color: var(--border);
+  /* The edge is drawn by [data-edge] as a pseudo-element, which needs room not to sit on the
+     text. `border-left-width: 3px` plus three `sev-*` colour rules used to live here; the
+     colours never applied, because the shorthand above outranked them. */
+  padding-left: calc(0.8rem + var(--edge));
 }
 .insight-actions {
   display: flex;
@@ -5234,10 +5281,39 @@ main table:not(.grid) [data-align='action'] {
   background: var(--surface);
   border: 1px solid var(--border);
   min-width: 0;
-  overflow-x: auto;
-  scrollbar-width: none;
+  /*
+   * Wrapping, not scrolling — and the focus ring is why.
+   *
+   * This was `overflow-x: auto`, which makes the pill a scroll container, and a scroll container
+   * clips its descendants' box-shadows. The focus ring is a box-shadow (see `:focus-visible`), so
+   * tabbing through the only navigation in the product showed nothing at all. The comment there
+   * claims a shadow survives an ancestor's overflow because it is painted inside the element's
+   * own box; that is true of an inset shadow and false of a spread one, which is what a ring is.
+   *
+   * Scrolling was also the wrong answer to the width problem it was solving. The set needs 648px:
+   * the bar has room at 1280 and not at 1024, where the eighth anchor was clipped and the
+   * scrollbar suppressed by the rule that used to sit here — a destination that existed and could
+   * not be seen or reached. Wrapping degrades honestly instead: below 1180 the pill takes its own
+   * row, and narrower still the anchors stack inside it. Nothing is ever hidden.
+   */
+  overflow: visible;
+  flex-wrap: wrap;
+  row-gap: 2px;
 }
-.topbar-pill::-webkit-scrollbar { display: none; }
+
+/*
+ * Below this the bar cannot hold brand, eight anchors, the clock and three controls on one line.
+ * The pill drops to its own full-width row rather than any of them being squeezed out.
+ */
+@media (max-width: 1180px) {
+  .topbar { flex-wrap: wrap; }
+  .topbar-pill {
+    order: 3;
+    width: 100%;
+    /* A stadium radius on a block that may now be two rows tall reads as a mistake. */
+    border-radius: var(--radius-lg);
+  }
+}
 .anchor {
   display: flex;
   align-items: center;
@@ -5819,30 +5895,54 @@ main table:not(.grid) [data-align='action'] {
  * first screen on four integers that only say whether there is anything to act on.
  */
 .daystrip { display: flex; align-items: baseline; gap: var(--space-5); flex-wrap: wrap; }
-.daystrip a {
+/*
+ * A stat, whether or not it is a link.
+ *
+ * Every rule below was written for `a`, and half the stats in the app are not links — a figure
+ * with nowhere to go renders as a plain `span` wrapper instead. Four things followed from that,
+ * and all four were visible on the Clients and Time headers:
+ *
+ * the wrapper never became a flex row, so label and figure had no gap and ran together as
+ * "ACTIVE2"; `.daystrip span` matched the wrapper as well as the label, so the `<b>` inside it
+ * inherited the monospace label face; it inherited `--muted` too, leaving the figure exactly as
+ * loud as the word above it — the inversion this whole design rests on, backwards; and
+ * `[data-warn]` was scoped to `a`, so a stat that had something to say could not say it.
+ *
+ * Child combinators throughout, so the label rule can no longer reach past the label.
+ */
+.daystrip > a,
+.daystrip > span {
   display: flex;
   align-items: baseline;
   gap: var(--space-2);
   text-decoration: none;
   color: inherit;
 }
-.daystrip span {
+.daystrip > * > span {
   font-family: var(--font-mono);
   font-size: var(--text-2xs);
   text-transform: uppercase;
   letter-spacing: 0.09em;
   color: var(--muted);
 }
-.daystrip b { font-size: var(--text-md); font-weight: var(--weight-strong); font-variant-numeric: tabular-nums; }
+.daystrip b {
+  font-size: var(--text-md);
+  font-weight: var(--weight-strong);
+  font-variant-numeric: tabular-nums;
+  /* Said outright rather than inherited: the wrapper is a label in the link variant and not in
+     the other, and a figure should not change colour based on which one it landed in. */
+  font-family: inherit;
+  color: var(--text);
+}
 .daystrip em {
   font-style: normal;
   font-family: var(--font-mono);
   font-size: var(--text-2xs);
   color: var(--muted);
 }
-.daystrip a:hover b { color: var(--accent); }
-.daystrip a[data-warn] b, .daystrip a[data-warn] em { color: var(--warning); }
-.daystrip a[data-alarm] b { color: var(--danger); }
+.daystrip > a:hover b { color: var(--accent); }
+.daystrip > [data-warn] b, .daystrip > [data-warn] em { color: var(--warning); }
+.daystrip > [data-alarm] b { color: var(--danger); }
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * ACTIONS INSIDE A CARD
