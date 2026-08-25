@@ -59,7 +59,7 @@ It makes builds slow, not fragile. Speed is not the constraint here.
 ## 4. Get the code and configure
 
 ```bash
-git clone https://github.com/tomasvdlaan/finger-hub.git /opt/finsera
+git clone https://github.com/tomasvdlaan/finsera-hub.git /opt/finsera
 cp /opt/finsera/deploy/.env.example /opt/finsera/deploy/.env
 ```
 
