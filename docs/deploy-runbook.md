@@ -1,8 +1,13 @@
 # Deployment runbook — hub.finsera.nl
 
 Closes G0 criterion 9 (decision log): the stack verified on a real server rather than
-only locally. Target is one **Netcup VPS 1000 G12** — 4 vCores, 8 GB, 256 GB NVMe,
-€10.37/month including VAT.
+only locally. Target is one **Netcup VPS 1000 G12** in **Amsterdam** — 4 vCores, 8 GB
+DDR5, 256 GB NVMe, €10.37/month including 19% German VAT (reverse-charged to ~€8.71
+once a Dutch VAT ID is on the account).
+
+Amsterdam because Netcup offers it and we are a Dutch company: the residency answer
+becomes "in the Netherlands" rather than "somewhere in the EU", and latency to the
+office is single-digit milliseconds.
 
 Not Hetzner, which D4 names: their Cost-Optimized line (CX, CAX) is capacity
 constrained and was not orderable when we provisioned, and the x86 plans that were
@@ -17,9 +22,16 @@ only things that differ.
 ## 0. Before you start
 
 - A Netcup account. No credit card needed — SEPA direct debit and PayPal both work.
+  Netcup runs identity checks on some new customers, occasionally by phone, so order
+  before the day you intend to deploy.
+- Two panels, which is the confusing part. **CCP** (customercontrolpanel.de) holds
+  billing and contracts. **SCP** (servercontrolpanel.de) manages the server itself —
+  images, console, snapshots. Credentials for each arrive in separate emails, and both
+  use email-token 2FA by default.
 - Access to DNS for finsera.nl at **ZXCS** (`ns.zxcs.eu/.be/.nl`).
-- An SSH keypair. Upload the public key during server creation; never enable password
-  login.
+- An SSH keypair, generated for this server rather than reused from anything else.
+  On Netcup the key is stored in the SCP *first*, then selected while installing the
+  image — there is no key field at order time, which is the step people miss.
 
 Note what already lives on this domain and must not be disturbed: the apex and `www`
 point at Vercel (the marketing site), and MX points at Microsoft 365. Adding `hub` as
@@ -27,11 +39,20 @@ a new record touches neither.
 
 ## 1. Create the server
 
-**VPS 1000 G12**, Nuremberg or Vienna, Ubuntu 24.04 or 26.04 LTS, your SSH key attached.
-Note the IPv4 address.
+Order **VPS 1000 G12** in **Amsterdam**, with hourly billing unless you are certain —
+the 12-month term is cheaper per month but a wrong choice is then yours for a year.
 
-Order it before you plan to deploy: Netcup runs manual identity checks on some new
-accounts, so provisioning can take hours rather than minutes.
+Ordering does not install an operating system. When the SCP credentials arrive:
+
+1. SCP → **Options → SSH keys** → paste the public key (the `.pub` file, never the
+   other one).
+2. SCP → **Media → Images** → Ubuntu 24.04 or 26.04 LTS → select the stored SSH key,
+   set timezone Europe/Amsterdam, and install.
+3. Wait for the installation email, then `ssh root@<ip>`. If it asks for a password,
+   the key was not selected during install — redo step 2 rather than falling back to
+   password login.
+
+Note the IPv4 address; it is in the SCP and in the setup email.
 
 Netcup has no managed cloud firewall, so the host firewall is the firewall — step 3
 sets it up. That is the one real ergonomic difference from Hetzner.
