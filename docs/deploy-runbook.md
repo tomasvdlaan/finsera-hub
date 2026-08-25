@@ -1,7 +1,14 @@
 # Deployment runbook — hub.finsera.nl
 
 Closes G0 criterion 9 (decision log): the stack verified on Hetzner rather than only
-locally. Target is decision D4 — one CX23 in Nuremberg or Helsinki, ~€6/month.
+locally. Target is decision D4 — one CPX22 in Nuremberg or Helsinki, ~€19.49/month.
+
+Not the CX23 this originally specified: Hetzner's Cost-Optimized line is capacity
+constrained and was not orderable when we provisioned. CPX12 is the cheaper
+Regular Performance plan but has only 2 GB, which Postgres with pgvector plus
+document parsing will not survive once real data lands. **Check the console for
+CX23 availability per location before ordering** — it is a third of the price for
+the same 4 GB, and rescaling down to it later is a supported path.
 
 The stack is deliberately identical to the local one. `deploy/.env` and DNS are the
 only things that differ.
@@ -20,8 +27,9 @@ a new record touches neither.
 
 ## 1. Create the server
 
-Nuremberg or Helsinki, **CX23** (2 vCPU, 4 GB, 40 GB NVMe, 20 TB traffic), Ubuntu
-24.04 LTS, your SSH key attached. Enable the cloud firewall with **only** 22, 80 and
+Nuremberg or Helsinki, **CPX22** (2 vCPU AMD, 4 GB, 80 GB NVMe, 20 TB traffic), Ubuntu
+24.04 LTS, your SSH key attached. Take CX23 instead if any location has it — same RAM,
+~€14/month cheaper. Enable the cloud firewall with **only** 22, 80 and
 443 inbound. Note the IPv4 address.
 
 Do not skip the firewall on the theory that nothing is listening yet — Postgres
@@ -155,8 +163,9 @@ Volumes survive rebuilds, restarts and reboots. The one command that destroys th
 - **Up to 24 hours of data loss** — nightly dumps, no WAL archiving. Acceptable for a
   team of 2–4; revisit if it stops being.
 - **Disk pressure from backups.** Each nightly run writes a *full* tarball of the
-  documents directory and keeps 30 of them, on the same 40 GB disk. Fine while
-  `storage` is small; size it again when Phase 3 lands. Retention pruning only runs
+  documents directory and keeps 30 of them, on the same 80 GB disk. CPX22's larger
+  disk buys real headroom here that CX23 would not have; size it again when Phase 3
+  lands. Retention pruning only runs
   after a fully successful cycle, so failures cannot eat the good copies.
 - **The client portal is not deployed.** It is absent from the production compose and
   will want its own hostname (`portal.finsera.nl`) and its own Zitadel application at
