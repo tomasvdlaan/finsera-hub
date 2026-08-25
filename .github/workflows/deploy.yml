@@ -1,0 +1,57 @@
+# Deploys hub.finsera.nl when the production branch moves.
+#
+# Branch model: main is where work lands, production is what is running. Deploying is
+# fast-forwarding production onto main and pushing; rolling back is resetting it to an
+# older commit and pushing. The branch is therefore a record of what is live, which a
+# server that pulls main directly can never tell you.
+name: Deploy
+
+on:
+  push:
+    branches: [production]
+  # Re-run a deploy without a new commit — after fixing something on the server, or to
+  # confirm the current state still builds from scratch.
+  workflow_dispatch:
+
+concurrency:
+  # Two deploys building the same compose project at once corrupt each other. Queue
+  # rather than cancel: a half-finished deploy that gets killed leaves the server in a
+  # state nobody chose.
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # A deploy takes several minutes on 4 shared vCores and the rollback path builds a
+    # second time. The default 360 would let a wedged build burn an hour.
+    timeout-minutes: 30
+    steps:
+      - name: Open an SSH session to the server
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          # Pinned host key, not accept-new: trusting whatever answers on first contact
+          # is exactly the check this is supposed to be.
+          printf '%s\n' "${{ secrets.DEPLOY_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Deploy
+        # The key is restricted on the server to run deploy/update.sh and nothing else,
+        # so this command is advisory — a stolen secret still cannot get a shell.
+        run: |
+          ssh -o BatchMode=yes -o ConnectTimeout=20 \
+            root@${{ secrets.DEPLOY_HOST }} 'deploy' 2>&1 | tee deploy.log
+          if grep -q '\[deploy\] FAILED' deploy.log; then exit 1; fi
+
+      - name: Report
+        if: always()
+        run: |
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "### Deployed to hub.finsera.nl" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### Deploy failed — the server rolled itself back" >> "$GITHUB_STEP_SUMMARY"
+            echo "Check the log above. The previous commit should still be serving." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          tail -40 deploy.log >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
