@@ -21,6 +21,8 @@ coverage/
 # production stack secrets
 deploy/.env
 
-# uploaded files (local storage driver)
-storage/
+# uploaded files (local storage driver). Anchored to the runtime directory: a bare
+# `storage/` also matches src/core/storage/, which silently excluded the storage
+# service from every clone and broke the first real deploy.
+apps/api/storage/
 deploy/backups/
