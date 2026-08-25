@@ -1,22 +1,22 @@
 # Deployment runbook — hub.finsera.nl
 
-Closes G0 criterion 9 (decision log): the stack verified on Hetzner rather than only
-locally. Target is decision D4 — one CPX22 in Nuremberg or Helsinki, ~€19.49/month.
+Closes G0 criterion 9 (decision log): the stack verified on a real server rather than
+only locally. Target is one **Netcup VPS 1000 G12** — 4 vCores, 8 GB, 256 GB NVMe,
+€10.37/month including VAT.
 
-Not the CX23 this originally specified: Hetzner's Cost-Optimized line is capacity
-constrained and was not orderable when we provisioned. CPX12 is the cheaper
-Regular Performance plan but has only 2 GB, which Postgres with pgvector plus
-document parsing will not survive once real data lands. **Check the console for
-CX23 availability per location before ordering** — it is a third of the price for
-the same 4 GB, and rescaling down to it later is a supported path.
+Not Hetzner, which D4 names: their Cost-Optimized line (CX, CAX) is capacity
+constrained and was not orderable when we provisioned, and the x86 plans that were
+cost twice as much for half the memory. Netcup's G12 generation bills hourly with no
+minimum term, which removes the contract inflexibility that ruled it out originally.
+Nothing in the stack is provider-specific — it is Docker Compose and Caddy on Ubuntu
+— so moving back to Hetzner later is an afternoon, not a migration.
 
 The stack is deliberately identical to the local one. `deploy/.env` and DNS are the
 only things that differ.
 
 ## 0. Before you start
 
-- A Hetzner account. No credit card needed — SEPA direct debit, bank transfer and
-  PayPal all work, which is what unblocks this.
+- A Netcup account. No credit card needed — SEPA direct debit and PayPal both work.
 - Access to DNS for finsera.nl at **ZXCS** (`ns.zxcs.eu/.be/.nl`).
 - An SSH keypair. Upload the public key during server creation; never enable password
   login.
@@ -27,10 +27,14 @@ a new record touches neither.
 
 ## 1. Create the server
 
-Nuremberg or Helsinki, **CPX22** (2 vCPU AMD, 4 GB, 80 GB NVMe, 20 TB traffic), Ubuntu
-24.04 LTS, your SSH key attached. Take CX23 instead if any location has it — same RAM,
-~€14/month cheaper. Enable the cloud firewall with **only** 22, 80 and
-443 inbound. Note the IPv4 address.
+**VPS 1000 G12**, Nuremberg or Vienna, Ubuntu 24.04 or 26.04 LTS, your SSH key attached.
+Note the IPv4 address.
+
+Order it before you plan to deploy: Netcup runs manual identity checks on some new
+accounts, so provisioning can take hours rather than minutes.
+
+Netcup has no managed cloud firewall, so the host firewall is the firewall — step 3
+sets it up. That is the one real ergonomic difference from Hetzner.
 
 Do not skip the firewall on the theory that nothing is listening yet — Postgres
 publishes no port in the production compose, but that is one typo away from changing.
@@ -51,18 +55,36 @@ Wait for it: `dig +short hub.finsera.nl` must return your IP before step 5.
 
 ```bash
 apt update && apt upgrade -y
-apt install -y docker.io docker-compose-v2 git rsync curl gnupg
+apt install -y docker.io docker-compose-v2 git rsync curl gnupg ufw unattended-upgrades
 ```
 
-**Add swap before the first build.** `pnpm install` across the workspace plus a Vite
-build of the Tiptap-heavy web app will exhaust 4 GB and the build will be OOM-killed:
+**Firewall.** On Hetzner this was a managed object; here it runs on the host. Set it
+before the stack starts, and add the SSH rule first — a firewall enabled without it
+locks you out of your own server:
+
+```bash
+ufw default deny incoming && ufw default allow outgoing
+ufw allow 22/tcp && ufw allow 80/tcp && ufw allow 443/tcp
+ufw enable && ufw status verbose
+```
+
+Docker publishes ports by manipulating iptables directly and can bypass ufw. The
+production compose publishes only 80 and 443 (Postgres has no `ports:` entry), so this
+holds — but never add a `ports:` mapping to `postgres` and assume ufw will save you.
+
+**Unattended security updates**, so patching is not a thing you have to remember:
+
+```bash
+dpkg-reconfigure -plow unattended-upgrades
+```
+
+**Swap** is optional at 8 GB — the workspace install plus the Vite build fits. Add it
+anyway if you would rather the first build be slow than fail:
 
 ```bash
 fallocate -l 4G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
 echo '/swapfile none swap sw 0 0' >> /etc/fstab
 ```
-
-It makes builds slow, not fragile. Speed is not the constraint here.
 
 ## 4. Get the code and configure
 
@@ -135,8 +157,9 @@ heartbeat only fires on a genuine success. Once it passes by hand, add it to cro
 Then register the matching check on healthchecks.io (free) so a ping that stops
 arriving reaches you by email.
 
-Also enable a weekly Hetzner snapshot in the console (~€0.15/month) — it covers the
-whole disk, including the documents in the `storage` volume.
+There is no one-click whole-machine backup product here, so this step *is* your data
+protection rather than a supplement to it. Do not defer it past the first real record
+entered.
 
 ## 8. Verify, then trust
 
@@ -163,9 +186,8 @@ Volumes survive rebuilds, restarts and reboots. The one command that destroys th
 - **Up to 24 hours of data loss** — nightly dumps, no WAL archiving. Acceptable for a
   team of 2–4; revisit if it stops being.
 - **Disk pressure from backups.** Each nightly run writes a *full* tarball of the
-  documents directory and keeps 30 of them, on the same 80 GB disk. CPX22's larger
-  disk buys real headroom here that CX23 would not have; size it again when Phase 3
-  lands. Retention pruning only runs
+  documents directory and keeps 30 of them, on the same disk. 256 GB buys a lot of
+  headroom, but the growth is linear in document volume — size it again at Phase 3. Retention pruning only runs
   after a fully successful cycle, so failures cannot eat the good copies.
 - **The client portal is not deployed.** It is absent from the production compose and
   will want its own hostname (`portal.finsera.nl`) and its own Zitadel application at
