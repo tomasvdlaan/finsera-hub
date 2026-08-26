@@ -265,12 +265,28 @@ export function NoteList() {
    * anything, which for a stand-up you run every morning is three answers you already know —
    * and the room is where you were going anyway.
    */
-  const startCeremony = async (t: Template) => {
-    setBusy(t.name);
+  const startCeremony = (t: Template) => openRoom(t.name, `${t.label} — ${new Date().toISOString().slice(0, 10)}`);
+
+  /**
+   * A meeting that is not a ceremony and not about a client — just a meeting.
+   *
+   * The ceremonies were one click and everything else was a form, so the only meetings that
+   * got a room were the four the sprint prescribes. Most meetings are not any of those.
+   *
+   * Named after the time rather than the date, unlike a ceremony. A ceremony happens once a
+   * day so its date identifies it; these happen whenever, and three of them on one Tuesday
+   * all called "Meeting" is a list you cannot read. Rename it on the note if it deserves
+   * better — most will not.
+   */
+  const startBlank = () =>
+    openRoom(undefined, `Meeting at ${new Date().toTimeString().slice(0, 5)}`);
+
+  const openRoom = async (template: string | undefined, title: string) => {
+    setBusy(template ?? 'blank');
     setError(null);
     try {
       /*
-       * What the ceremony is about, which this never sent.
+       * What the meeting is about, which this never sent.
        *
        * Every ceremony note in the database had a null project — not through neglect, but
        * because this call only ever posted a title, a template and an attendee. A note with
@@ -281,8 +297,8 @@ export function NoteList() {
        */
       const [kind, id] = context.split(':');
       const note = await api.post<Note>('/meetings', {
-        title: `${t.label} — ${new Date().toISOString().slice(0, 10)}`,
-        template: t.name,
+        title,
+        template,
         sprintId: kind === 'sprint' ? id : null,
         projectId: kind === 'project' ? id : null,
         // Yourself, so the per-person block has a heading and the consent gate has somebody
@@ -297,7 +313,19 @@ export function NoteList() {
     }
   };
 
-  const createConversation = async (e: FormEvent, templateName?: string) => {
+  /**
+   * A named meeting, and whether it is happening now or already happened.
+   *
+   * Both are real and they are not the same thing. `room` is for a meeting about to start;
+   * `note` is for writing up one that is over, which no room should be opened for — a
+   * recording with nothing to record stamps a start time and a duration on a conversation
+   * that took place yesterday.
+   */
+  const createConversation = async (
+    e: FormEvent,
+    templateName?: string,
+    go: 'room' | 'note' = 'room',
+  ) => {
     e.preventDefault();
     if (!title.trim()) return;
     setBusy('custom');
@@ -312,7 +340,7 @@ export function NoteList() {
         projectId: forClient.length === 1 ? forClient[0]!.id : null,
         template: templateName || undefined,
       });
-      navigate(`/meetings/${note.id}`);
+      navigate(go === 'room' ? `/meetings/${note.id}/room` : `/meetings/${note.id}`);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -418,13 +446,29 @@ export function NoteList() {
               <span className="ceremony-box">{t.timeboxMinutes} min</span>
             </button>
           ))}
+          {/*
+            A meeting that is not one of the four above.
+
+            Beside the ceremonies rather than behind the composer, because most meetings are
+            not a ceremony and making the ordinary case the one that needs a form is how you
+            end up with a platform that only records stand-ups.
+          */}
+          <button
+            type="button"
+            className="ceremony"
+            disabled={busy !== null}
+            onClick={() => void startBlank()}
+            title="Open a room now. Nothing prefilled — name it later if it earns a name."
+          >
+            <span className="ceremony-label">{busy === 'blank' ? 'Opening…' : 'Blank meeting'}</span>
+          </button>
           <button
             type="button"
             className="ceremony ceremony-other"
             aria-expanded={composing}
             onClick={() => setComposing((v) => !v)}
           >
-            <span className="ceremony-label">Something else</span>
+            <span className="ceremony-label">Name it first</span>
           </button>
         </div>
         {/*
@@ -471,7 +515,21 @@ export function NoteList() {
             ))}
           </select>
           <button type="submit" className="act" data-variant="primary" disabled={!title.trim() || busy !== null}>
-            Create
+            Open a room
+          </button>
+          {/*
+            The way to write up a meeting that has already happened, which the band's other
+            buttons all assume has not. Without it the only route to a plain note was to open
+            a room for a conversation that was already over and immediately leave it.
+          */}
+          <button
+            type="button"
+            className="act"
+            disabled={!title.trim() || busy !== null}
+            title="Write it up without opening a room"
+            onClick={(e) => void createConversation(e, undefined, 'note')}
+          >
+            Just a note
           </button>
           {conversations.map((t) => (
             <button
