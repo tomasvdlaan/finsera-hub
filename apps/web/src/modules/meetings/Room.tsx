@@ -9,6 +9,7 @@ import { noteActions } from './actions.js';
 import { RichEditor } from './RichEditor.js';
 import { RoomBar } from './RoomBar.js';
 import { RoomRail, type BoardColumn, type BoardTask } from './RoomRail.js';
+import { Suggestions } from './Suggestions.js';
 import type { Sprint } from '../scrum/types.js';
 import { calloutNode, taskNode, type NoteCommand } from './noteCommands.js';
 import type { NoteDetail } from './types.js';
@@ -314,6 +315,18 @@ export function Room() {
             the notes are the meeting, everything else is context. */}
         <RichEditor noteId={id} commands={commands} />
       </main>
+
+      {/*
+        Above the rail in the DOM and fixed over the room in the layout: a suggestion is
+        about the last thirty seconds, and by the time it has been scrolled to it is about
+        nothing. See Suggestions.tsx.
+      */}
+      <Suggestions
+        noteId={live.noteId}
+        proposals={live.proposals}
+        context={live.context}
+        running={running}
+      />
 
       <RoomRail
         note={note}

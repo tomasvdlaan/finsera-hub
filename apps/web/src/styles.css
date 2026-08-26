@@ -7024,3 +7024,84 @@ main table:not(.grid) [data-align='action'] {
 .meet-bar[data-kind='standup'] > span { background: var(--viz-1); }
 .meet-bar[data-kind='sprint'] > span { background: var(--viz-2); }
 .meet-bar[data-kind='client'] > span { background: var(--viz-3); }
+
+/* ==========================================================================================
+   Suggestions — the agent asking, while it still matters
+   ========================================================================================== */
+
+/*
+ * Fixed over the room, bottom right.
+ *
+ * Not in the rail's flow: the rail scrolls, and a suggestion that has scrolled out of sight
+ * is a suggestion nobody answers. Bottom right rather than centre because it must never
+ * cover the notes — the meeting is the thing, this is the interruption, and an interruption
+ * that blocks the work earns itself a reflex dismissal.
+ */
+.suggestions {
+  position: fixed;
+  right: var(--space-4);
+  bottom: var(--space-4);
+  z-index: 40;
+  display: grid;
+  gap: var(--space-2);
+  width: min(22rem, calc(100vw - var(--space-4) * 2));
+  justify-items: stretch;
+}
+
+.suggestions-more {
+  margin: 0;
+  text-align: right;
+  font-size: var(--text-xs);
+  color: var(--faint);
+}
+
+/*
+ * Plane 3 — the tier the token comment reserves for "things that genuinely float over the
+ * document: the dialog, the command palette, the drag ghost". A suggestion popup is one of
+ * those, and inventing a fourth shadow for it would undo the point of having three.
+ */
+.suggestion {
+  background: var(--plane-3-bg);
+  border: 1px solid var(--plane-3-border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius);
+  padding: var(--space-3);
+  box-shadow: var(--plane-3-shadow);
+  display: grid;
+  gap: var(--space-2);
+  /* Arrives from the side rather than fading: a fade reads as something leaving. */
+  animation: suggestion-in 160ms ease-out;
+}
+@keyframes suggestion-in {
+  from { opacity: 0; transform: translateX(0.75rem); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .suggestion { animation: none; }
+}
+
+/* The kind, so the buttons underneath are read in the right frame. */
+.suggestion-kind {
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.suggestion[data-kind='action'] { border-left-color: var(--viz-1); }
+.suggestion[data-kind='decision'] { border-left-color: var(--viz-2); }
+.suggestion[data-kind='agenda_covered'] { border-left-color: var(--viz-3); }
+.suggestion[data-kind='note'] { border-left-color: var(--border-strong); }
+
+.suggestion-text { margin: 0; font-size: var(--text-sm); line-height: 1.45; }
+
+.suggestion-found {
+  display: grid;
+  gap: 2px;
+  padding: var(--space-2);
+  background: var(--surface-sunken);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+}
+
+.suggestion-buttons { display: flex; gap: var(--space-2); }
+.suggestion-buttons .act { flex: 1; justify-content: center; }

@@ -323,6 +323,62 @@ export class LiveRunner {
   }
 
   /**
+   * Accept or dismiss one of the agent's suggestions, mid-meeting.
+   *
+   * Everything a suggestion could become was already reachable — an action point, a covered
+   * agenda item — but only after the recording stopped, and only by working through a list.
+   * So the agent's contribution arrived as homework at exactly the moment the meeting was
+   * over and nobody wanted any.
+   *
+   * Accepting does now what stopping would have done later, which is the property worth
+   * keeping: an accepted action becomes the same proposed action point on the note, from
+   * the same source, so nothing behaves differently for having been decided early. It does
+   * NOT go straight onto the board — that needs a project and is a commitment the room
+   * should make deliberately, and the note offers it one step later.
+   */
+  async decideProposal(
+    actor: Actor,
+    noteId: string,
+    proposalId: string,
+    decision: 'accepted' | 'dismissed',
+  ): Promise<{ decided: boolean }> {
+    const entry = this.sessions.get(noteId);
+    if (!entry) throw new BadRequestException('This meeting is not being recorded');
+
+    const proposal = entry.live.decide(proposalId, decision);
+    // Already decided, or never existed. Not an error: two people in the room may press the
+    // same button, and the second press should agree with the first rather than fail.
+    if (!proposal) return { decided: false };
+
+    if (decision === 'accepted') {
+      try {
+        if (proposal.kind === 'action') {
+          await this.meetings.addActionItem(actor, noteId, { text: proposal.text, source: 'ai' });
+        } else if (proposal.kind === 'agenda_covered' && proposal.agendaItemId) {
+          await this.meetings.setAgendaCovered(actor, noteId, proposal.agendaItemId, true);
+        }
+        // A decision or a note needs nothing done to it: staying open is what puts it in the
+        // note at the end, and that is what accepting one means.
+      } catch (error) {
+        /*
+         * Put it back, or the suggestion is lost in both directions — decided here and never
+         * written anywhere. Open is the honest state for something that was not applied.
+         */
+        proposal.status = 'open';
+        throw error;
+      }
+    }
+
+    // So every screen watching this meeting agrees, including the one that did not press.
+    this.sessions.broadcast(noteId, {
+      type: 'proposal_decided',
+      id: proposal.id,
+      decision,
+    });
+    return { decided: true };
+  }
+
+  /**
    * Put the assistant's notes into the note while the meeting is still running.
    *
    * They were only ever written when the recording stopped, so a meeting produced nothing

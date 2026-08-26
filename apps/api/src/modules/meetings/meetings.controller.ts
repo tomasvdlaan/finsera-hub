@@ -204,6 +204,26 @@ export class MeetingsController {
     return { noteId: id, chatty: this.live.isChatty(id) };
   }
 
+  /**
+   * Accept or dismiss one of the agent's suggestions while the meeting is running.
+   *
+   * A rejected decision word is a 400 rather than a silent no-op: the two values do
+   * opposite things, and a typo that quietly dismissed everything would be discovered
+   * only by noticing that the note was empty afterwards.
+   */
+  @Post(':id/live/proposals/:proposalId')
+  decideProposal(
+    @CurrentActor() actor: Actor,
+    @Param('id') id: string,
+    @Param('proposalId') proposalId: string,
+    @Body() body: { decision: 'accepted' | 'dismissed' },
+  ) {
+    if (body?.decision !== 'accepted' && body?.decision !== 'dismissed') {
+      throw new BadRequestException("A decision is 'accepted' or 'dismissed'");
+    }
+    return this.live.decideProposal(actor, id, proposalId, body.decision);
+  }
+
   @Post(':id/live/stop')
   stopLive(@CurrentActor() actor: Actor, @Param('id') id: string) {
     return this.live.stop(actor, id);

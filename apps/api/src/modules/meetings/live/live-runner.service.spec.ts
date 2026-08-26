@@ -290,6 +290,101 @@ describe('LiveRunner', () => {
     expect(live.extract).toHaveBeenCalledOnce();
   });
 
+  // ── deciding a suggestion while it can still be decided ──
+
+  /**
+   * `Proposal.status` has existed since the type was written and nothing ever changed it.
+   * Every suggestion was created open and stayed open until the recording stopped, when all
+   * of them were written down at once — so the agent's contribution arrived as a pile of
+   * homework at the moment the meeting ended and the context for judging it had gone.
+   */
+  const withProposal = async (kind: 'action' | 'decision' = 'action') => {
+    const note = await noteWithConsent();
+    const session = new LiveSession(note.id, actor.userId);
+    sessions.start(note.id, session);
+    // A recording that captured nothing is not written up at all — stop() returns early —
+    // so without a line these tests would assert against an empty body and pass whatever
+    // the code did.
+    session.addLine('We should send them the drill-down.', { id: '7', name: 'Marieke' });
+    const [proposal] = session.mergeProposals(
+      [{ kind, text: 'Send DocHorse the supplier drill-down' }],
+      // Any unique id: a live proposal is in-memory until it is accepted, and only then
+      // does it become a row with a registry id of its own.
+      () => crypto.randomUUID(),
+    );
+    return { note, session, proposal: proposal! };
+  };
+
+  it('turns an accepted action into an action point there and then', async () => {
+    const { note, session, proposal } = await withProposal();
+
+    await runner.decideProposal(actor, note.id, proposal.id, 'accepted');
+
+    const after = await meetings.get(actor, note.id);
+    expect(after.actionItems).toHaveLength(1);
+    expect(after.actionItems[0]!.text).toBe('Send DocHorse the supplier drill-down');
+    // Marked, so it is not created a second time when the meeting stops.
+    expect(session.openProposals).toHaveLength(0);
+  });
+
+  it('does not add an accepted action twice when the meeting then stops', async () => {
+    const { note, proposal } = await withProposal();
+    sessions.attachCapture(note.id, joined);
+    await runner.decideProposal(actor, note.id, proposal.id, 'accepted');
+
+    await runner.stop(actor, note.id);
+
+    const after = await meetings.get(actor, note.id);
+    expect(after.actionItems).toHaveLength(1);
+  });
+
+  it('keeps a dismissed suggestion out of the note entirely', async () => {
+    const { note, proposal } = await withProposal('decision');
+    sessions.attachCapture(note.id, joined);
+    await runner.decideProposal(actor, note.id, proposal.id, 'dismissed');
+
+    await runner.stop(actor, note.id);
+
+    const body = await docs.markdown(note.id);
+    expect(body).not.toContain('supplier drill-down');
+  });
+
+  it('writes an accepted decision into the note rather than deleting it', async () => {
+    /*
+     * The inversion this guards against. The end-of-session write read `openProposals`, so
+     * accepting a decision — saying "yes, record that" — would have been the one way to
+     * make sure it was never recorded. Undecided and accepted both belong in the note.
+     */
+    const { note, proposal } = await withProposal('decision');
+    sessions.attachCapture(note.id, joined);
+    await runner.decideProposal(actor, note.id, proposal.id, 'accepted');
+
+    await runner.stop(actor, note.id);
+
+    expect(await docs.markdown(note.id)).toContain('supplier drill-down');
+  });
+
+  it('treats deciding the same suggestion twice as agreement, not an error', async () => {
+    // Two people in the room, one suggestion, both press. The second press must not create
+    // a second action point, and must not fail in front of the client either.
+    const { note, proposal } = await withProposal();
+
+    const first = await runner.decideProposal(actor, note.id, proposal.id, 'accepted');
+    const second = await runner.decideProposal(actor, note.id, proposal.id, 'dismissed');
+
+    expect(first.decided).toBe(true);
+    expect(second.decided).toBe(false);
+    const after = await meetings.get(actor, note.id);
+    expect(after.actionItems).toHaveLength(1);
+  });
+
+  it('refuses to decide anything on a meeting that is not being recorded', async () => {
+    const note = await noteWithConsent();
+    await expect(
+      runner.decideProposal(actor, note.id, 'whatever', 'accepted'),
+    ).rejects.toThrow(/not being recorded/i);
+  });
+
   // ── notes while it is still happening ──
 
   /**
