@@ -28,6 +28,7 @@ import type { LlmService } from '../../../core/llm/llm.service.js';
 import type { TtsService } from '../../../core/llm/tts.service.js';
 import { LiveRegistry } from './live-registry.service.js';
 import { NoteDocService } from '../doc/note-doc.service.js';
+import { appendMarkdown } from '../doc/note-edit.js';
 import { LiveRunner } from './live-runner.service.js';
 import { LiveSession } from './live-session.js';
 import type { LiveService } from './live.service.js';
@@ -287,6 +288,116 @@ describe('LiveRunner', () => {
     await events.onSegment(segment('Marieke', '7'));
     await waitFor(() => live.extract.mock.calls.length > 0, { label: 'the extraction pass' });
     expect(live.extract).toHaveBeenCalledOnce();
+  });
+
+  // ── notes while it is still happening ──
+
+  /**
+   * The complaint this answers: the agent appeared to take no notes at all and then put
+   * everything down at once when the meeting ended.
+   *
+   * It was taking them the whole time — the note-taker revises its section every ninety
+   * seconds — but they were held in memory and pushed to the panel, and the document was
+   * only written on stop. Notes you cannot see in the note are not notes yet.
+   */
+  it('writes the assistant’s notes into the note while the meeting is still running', async () => {
+    const note = await noteWithConsent();
+    const session = new LiveSession(note.id, actor.userId);
+    sessions.start(note.id, session);
+    const events = runner.eventsFor(actor, note.id, session);
+
+    testBehaviour.shouldRun.mockReturnValue(true);
+    testBehaviour.run.mockImplementation(async (ctx: { session: LiveSession }) => {
+      ctx.session.aiNotes = '- DocHorse asked for a supplier drill-down';
+      return { reason: 'Notes updated' };
+    });
+
+    await events.onSegment(segment('Marieke', '7'));
+
+    // Nothing has been stopped. The recording is still open.
+    expect(sessions.get(note.id)).toBeDefined();
+    await waitFor(
+      async () => (await docs.markdown(note.id)).includes('supplier drill-down'),
+      { label: 'the notes to reach the document' },
+    );
+
+    const body = await docs.markdown(note.id);
+    expect(body).toContain('Notes from the meeting');
+  });
+
+  it('leaves everything outside its own heading alone', async () => {
+    // Somebody typing their own summary during the meeting must keep it. This is why the
+    // write replaces one section by heading rather than setting the body.
+    const note = await noteWithConsent();
+    await docs.edit(note.id, actor, (tr) => appendMarkdown(tr, '## Mine\n\nDo not touch this.'));
+
+    const session = new LiveSession(note.id, actor.userId);
+    sessions.start(note.id, session);
+    const events = runner.eventsFor(actor, note.id, session);
+
+    testBehaviour.shouldRun.mockReturnValue(true);
+    testBehaviour.run.mockImplementation(async (ctx: { session: LiveSession }) => {
+      ctx.session.aiNotes = '- A point the agent heard';
+      return { reason: 'Notes updated' };
+    });
+    await events.onSegment(segment('Marieke', '7'));
+
+    await waitFor(
+      async () => (await docs.markdown(note.id)).includes('A point the agent heard'),
+      { label: 'the notes to reach the document' },
+    );
+    expect(await docs.markdown(note.id)).toContain('Do not touch this.');
+  });
+
+  it('does not rewrite a section that has not changed', async () => {
+    /*
+     * A quiet meeting leaves `aiNotes` untouched, and rewriting it anyway would commit a
+     * no-op revision every ninety seconds for as long as nobody said anything.
+     */
+    const note = await noteWithConsent();
+    const session = new LiveSession(note.id, actor.userId);
+    sessions.start(note.id, session);
+    const events = runner.eventsFor(actor, note.id, session);
+
+    testBehaviour.shouldRun.mockReturnValue(true);
+    testBehaviour.run.mockImplementation(async (ctx: { session: LiveSession }) => {
+      ctx.session.aiNotes = 'Same notes, unrevised';
+      return { reason: 'Notes updated' };
+    });
+
+    await events.onSegment(segment('Marieke', '7'));
+    await waitFor(
+      async () => (await docs.markdown(note.id)).includes('Same notes, unrevised'),
+      { label: 'the first write' },
+    );
+
+    const edit = vi.spyOn(docs, 'edit');
+    await events.onSegment(segment('Marieke', '7'));
+    await events.onSegment(segment('Marieke', '7'));
+    expect(edit).not.toHaveBeenCalled();
+    edit.mockRestore();
+  });
+
+  it('keeps recording when the notes cannot be written', async () => {
+    // Liveness is the thing at risk here, never the meeting. The end-of-session write
+    // covers the same section from the same source.
+    const note = await noteWithConsent();
+    const session = new LiveSession(note.id, actor.userId);
+    sessions.start(note.id, session);
+    const events = runner.eventsFor(actor, note.id, session);
+
+    testBehaviour.shouldRun.mockReturnValue(true);
+    testBehaviour.run.mockImplementation(async (ctx: { session: LiveSession }) => {
+      ctx.session.aiNotes = 'Notes that will not land';
+      return { reason: 'Notes updated' };
+    });
+    const edit = vi.spyOn(docs, 'edit').mockRejectedValue(new Error('document unavailable'));
+
+    await events.onSegment(segment('Marieke', '7'));
+
+    expect(sessions.get(note.id)).toBeDefined();
+    expect(session.lines).toHaveLength(1);
+    edit.mockRestore();
   });
 
   // ── what survives ──
