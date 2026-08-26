@@ -14,6 +14,8 @@ import { TtsService } from '../../../core/llm/tts.service.js';
 import { BehaviourRegistry, type BehaviourSettings } from './behaviours/behaviour.registry.js';
 import { applySession, sessionSummary } from './session-body.js';
 import { NoteDocService } from '../doc/note-doc.service.js';
+import { replaceSectionMarkdown } from '../doc/note-edit.js';
+import { AI_NOTES_SECTION } from './behaviours/note-taker.behaviour.js';
 
 /**
  * Runs one live meeting, whatever is supplying the audio.
@@ -28,6 +30,8 @@ import { NoteDocService } from '../doc/note-doc.service.js';
 @Injectable()
 export class LiveRunner {
   private readonly logger = new Logger(LiveRunner.name);
+  /** The last notes written into each document, so an unrevised section is not rewritten. */
+  private readonly writtenNotes = new Map<string, string>();
 
   constructor(
     private readonly registry: RegistryService,
@@ -310,12 +314,109 @@ export class LiveRunner {
         }
       }
 
-      // Push the assistant's notes to the screen as they are revised. The document is
-      // only written when the meeting ends, so a revision every ninety seconds does not
-      // fill the note's history with drafts.
+      // Into the document as they are revised, and onto the screens watching.
+      await this.writeNotes(actor, noteId, live);
       if (live.aiNotes) this.sessions.broadcast(noteId, { type: 'notes', markdown: live.aiNotes });
     } catch (error) {
       this.logger.warn(`Behaviours failed on ${noteId}: ${(error as Error).message}`);
+    }
+  }
+
+  /**
+   * Accept or dismiss one of the agent's suggestions, mid-meeting.
+   *
+   * Everything a suggestion could become was already reachable — an action point, a covered
+   * agenda item — but only after the recording stopped, and only by working through a list.
+   * So the agent's contribution arrived as homework at exactly the moment the meeting was
+   * over and nobody wanted any.
+   *
+   * Accepting does now what stopping would have done later, which is the property worth
+   * keeping: an accepted action becomes the same proposed action point on the note, from
+   * the same source, so nothing behaves differently for having been decided early. It does
+   * NOT go straight onto the board — that needs a project and is a commitment the room
+   * should make deliberately, and the note offers it one step later.
+   */
+  async decideProposal(
+    actor: Actor,
+    noteId: string,
+    proposalId: string,
+    decision: 'accepted' | 'dismissed',
+  ): Promise<{ decided: boolean }> {
+    const entry = this.sessions.get(noteId);
+    if (!entry) throw new BadRequestException('This meeting is not being recorded');
+
+    const proposal = entry.live.decide(proposalId, decision);
+    // Already decided, or never existed. Not an error: two people in the room may press the
+    // same button, and the second press should agree with the first rather than fail.
+    if (!proposal) return { decided: false };
+
+    if (decision === 'accepted') {
+      try {
+        if (proposal.kind === 'action') {
+          await this.meetings.addActionItem(actor, noteId, { text: proposal.text, source: 'ai' });
+        } else if (proposal.kind === 'agenda_covered' && proposal.agendaItemId) {
+          await this.meetings.setAgendaCovered(actor, noteId, proposal.agendaItemId, true);
+        }
+        // A decision or a note needs nothing done to it: staying open is what puts it in the
+        // note at the end, and that is what accepting one means.
+      } catch (error) {
+        /*
+         * Put it back, or the suggestion is lost in both directions — decided here and never
+         * written anywhere. Open is the honest state for something that was not applied.
+         */
+        proposal.status = 'open';
+        throw error;
+      }
+    }
+
+    // So every screen watching this meeting agrees, including the one that did not press.
+    this.sessions.broadcast(noteId, {
+      type: 'proposal_decided',
+      id: proposal.id,
+      decision,
+    });
+    return { decided: true };
+  }
+
+  /**
+   * Put the assistant's notes into the note while the meeting is still running.
+   *
+   * They were only ever written when the recording stopped, so a meeting produced nothing
+   * visible in the document for its whole length and then everything at once at the end.
+   * The notes existed the entire time — the note-taker revises them every ninety seconds —
+   * they were just held in memory and broadcast to the panel, which is a different thing
+   * from being in the note you have open.
+   *
+   * The original reason for waiting was that a revision every ninety seconds would fill the
+   * note's history with drafts. It does not: `steps` is a bounded in-memory buffer for
+   * collaborative sync, and there is no persisted history of a note body to fill. What a
+   * write actually costs is one debounced UPDATE and a re-index — which is strictly less
+   * than a person typing the same notes by hand, since their every pause flushes too.
+   *
+   * Safe against whatever else is happening in the document because it replaces one section
+   * by heading rather than writing the body: everything outside `## Notes from the meeting`
+   * is untouched, so somebody typing their own summary during the meeting keeps it.
+   */
+  private async writeNotes(actor: Actor, noteId: string, live: LiveSession): Promise<void> {
+    const markdown = live.aiNotes?.trim();
+    if (!markdown) return;
+    // The note-taker leaves `aiNotes` alone when nothing new was said, so an unchanged
+    // section means there is nothing to write — and writing it anyway would produce a
+    // no-op revision every ninety seconds for the length of a quiet meeting.
+    if (this.writtenNotes.get(noteId) === markdown) return;
+
+    try {
+      await this.docs.edit(noteId, actor, (tr) =>
+        replaceSectionMarkdown(tr, AI_NOTES_SECTION, markdown),
+      );
+      this.writtenNotes.set(noteId, markdown);
+    } catch (error) {
+      /*
+       * Never fatal. The end-of-session write covers the same section from the same source,
+       * so a failure here costs liveness and not the notes — and a meeting that stopped
+       * recording because the document was briefly unavailable would be a much worse trade.
+       */
+      this.logger.warn(`Could not write live notes on ${noteId}: ${(error as Error).message}`);
     }
   }
 
@@ -393,6 +494,11 @@ export class LiveRunner {
     this.conversation.forget(noteId);
     this.behaviours.forget(noteId);
     this.settings.delete(noteId);
+    /*
+     * Forgotten, or a second recording onto the same note would compare its first notes
+     * against the last ones from the previous recording and decline to write them.
+     */
+    this.writtenNotes.delete(noteId);
     const timer = this.timers.get(noteId);
     if (timer) {
       clearInterval(timer);

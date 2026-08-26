@@ -93,6 +93,22 @@ export interface WidgetDef {
    * error, and reasonably conclude the dashboard is broken.
    */
   permission?: string;
+  /**
+   * What has to exist before this widget can say anything true.
+   *
+   * `[key, floor]` against the counts from `GET /core/volume` — "at least 12 finished cards",
+   * "at least one issued invoice". A widget below its floor is hidden from the picker rather
+   * than offered and left to render an empty state.
+   *
+   * This is not the same as an empty state, and both are needed. An empty state says "there is
+   * nothing right now", which is a fact about today. This says "this cannot mean anything yet",
+   * which is a fact about the business — and a library where a third of the options are
+   * structurally empty teaches people the library is not worth opening.
+   *
+   * Deliberately blunt. A count and a floor, no expressions: anything finer is a rules engine
+   * for a question that is really "is there enough here to draw".
+   */
+  needs?: [key: string, floor: number];
   /** Required in the `entity-page` slot, meaningless in the `dashboard` one. */
   entityTypes?: EntityKind[];
   settings?: SettingDef[];
@@ -108,7 +124,15 @@ export interface RouteDeclaration {
    * grid without each of thirty pages remembering to. `'wide'` is for a table or a board,
    * `'read'` for a form or a document; omitted is the sensible middle.
    */
-  width?: 'default' | 'wide' | 'read';
+  /**
+   * `full` is for a page that *is* the viewport rather than a page of content.
+   *
+   * The three caps above exist to stop a line of prose running to 2,000 pixels, which is the
+   * right instinct for every page that reads. A document viewer is the opposite case: the
+   * whole job is to make the file as large as the screen allows, and capping it at a reading
+   * width renders an A4 page at the size of a postcard.
+   */
+  width?: 'default' | 'wide' | 'read' | 'full';
   /**
    * How much of the shell this page wants around it.
    *

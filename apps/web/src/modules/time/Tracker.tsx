@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { PageHeader, SubNav } from '../../shell/ui/layout.js';
 import { Link, useLocation } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { Badge, Button, Empty } from '../../shell/ui/primitives.js';
+import { Card } from '../../shell/ui/card.js';
+import { Rhythm } from '../../shell/ui/viz.js';
 import { elapsed, useRunningTimer } from '../../shell/useRunningTimer.js';
 import { notifyTimeChanged } from '../../shell/useDocumentTitle.js';
 import {
@@ -54,21 +56,6 @@ interface Day {
   totalMinutes: number;
 }
 
-/**
- * A colour per project, derived rather than stored.
- *
- * The dot beside an entry only has to be *consistent* — the same project the same colour
- * down the page — so hashing the id gets that for nothing and survives a project being
- * renamed. Storing a colour would mean a picker, a migration and a way to choose two that
- * look alike.
- */
-/**
- * A stable colour per target.
- *
- * Takes null now that an hour can be against a client, or against nothing at all — internal
- * work has no project id and used to crash this. Null gets its own fixed hue rather than a
- * derived one, so every internal hour shares a colour and reads as one thing.
- */
 /** Whether either time in the draft differs from the value the field was handed. */
 function timesChanged(
   entry: { startedAt: string | null; endedAt: string | null },
@@ -78,6 +65,21 @@ function timesChanged(
     draft.startedAt !== toLocalInput(entry.startedAt) ||
     draft.endedAt !== toLocalInput(entry.endedAt)
   );
+}
+
+/**
+ * A stable colour per target, derived rather than stored.
+ *
+ * The dot beside an entry only has to be *consistent* — the same project the same colour down
+ * the page — so hashing the id gets that for nothing and survives a rename. Storing a colour
+ * would mean a picker, a migration and a way to choose two that look alike.
+ *
+ * Takes null because an hour can be against a client, or against nothing at all: internal work
+ * has no project id. Null gets one fixed hue rather than a derived one, so every internal hour
+ * shares a colour and reads as one thing.
+ */
+function projectTone(id: string | null): string {
+  return `hsl(${projectHue(id)} 55% 50%)`;
 }
 
 function projectHue(id: string | null): number {
@@ -182,6 +184,14 @@ export function Tracker() {
   const [manualDuration, setManualDuration] = useState('');
   const [billable, setBillable] = useState(false);
   const [saving, setSaving] = useState(false);
+  /*
+   * Which way in is showing.
+   *
+   * The clock is first because it is the one that has to be reached without thinking — an
+   * hour written down later is an hour you already noticed, and the one you did not notice is
+   * the one this page exists to catch.
+   */
+  const [mode, setMode] = useState<'clock' | 'manual'>('clock');
   /*
    * Re-renders once a second while something is running.
    *
@@ -430,11 +440,105 @@ export function Tracker() {
   const week =
     days.reduce((sum, d) => sum + settled(d), 0) + liveMinutes;
 
+  /*
+   * Everything below is arithmetic over the entries already on screen.
+   *
+   * No extra request, and nothing here is an opinion: each finding names the count it found,
+   * so the rail can be checked against the list beside it.
+   */
+  const entries = days.flatMap((d) => d.entries);
+  const billableMinutes = entries
+    .filter((e) => e.billable)
+    .reduce((n, e) => n + e.effectiveMinutes, 0);
+  const billablePct = week > 0 ? Math.round((billableMinutes / week) * 100) : 0;
+  const workedDays = days.filter((d) => settled(d) > 0).length;
+
+  /** The fortnight as fourteen bars, including the days with nothing — those are the finding. */
+  const fortnight = Array.from({ length: 14 }, (_, i) => {
+    const d = new Date();
+    d.setDate(d.getDate() - (13 - i));
+    const date = d.toISOString().slice(0, 10);
+    return { date, value: (days.find((x) => x.date === date)?.totalMinutes ?? 0) / 60 };
+  });
+
+  const byProject = [
+    ...entries
+      .reduce((m, e) => {
+        const key = e.projectName;
+        const at = m.get(key) ?? {
+          name: key,
+          projectId: e.projectId,
+          clientName: e.clientName,
+          minutes: 0,
+        };
+        at.minutes += e.effectiveMinutes;
+        m.set(key, at);
+        return m;
+      }, new Map<string, { name: string; projectId: string | null; clientName: string | null; minutes: number }>())
+      .values(),
+  ].sort((a, b) => b.minutes - a.minutes);
+
+  /** The last three distinct things worked on, for the one-click continue. */
+  const recentTargets = [
+    ...entries
+      .reduce((m, e) => {
+        const key = `${e.projectId ?? e.clientId}|${e.description ?? ''}`;
+        const at = m.get(key) ?? {
+          key,
+          projectId: e.projectId,
+          clientId: e.clientId,
+          projectName: e.projectName,
+          description: e.description,
+          minutes: 0,
+        };
+        at.minutes += e.effectiveMinutes;
+        m.set(key, at);
+        return m;
+      }, new Map<string, { key: string; projectId: string | null; clientId: string | null; projectName: string; description: string | null; minutes: number }>())
+      .values(),
+  ].slice(0, 3);
+
+  const unnamed = entries.filter((e) => e.billable && !e.description);
+  const clientless = byProject.filter((p) => !p.clientName && p.minutes > 0);
+  type Finding = { key: string; text: string; action?: ReactNode };
+  const findings: Finding[] = ([
+    unnamed.length > 0
+      ? {
+          key: 'unnamed',
+          text: `${unnamed.length} billable ${unnamed.length === 1 ? 'entry has' : 'entries have'} no description — an invoice built from ${unnamed.length === 1 ? 'it' : 'them'} would show blank lines.`,
+          // Opens the first one for correction, which is where the fix actually happens. Not a
+          // bulk action: a description is a sentence about one hour, and one written for four
+          // at once is the blank line in a better disguise.
+          action: (
+            <button type="button" className="act" onClick={() => beginEdit(unnamed[0]!)}>
+              Name the first
+            </button>
+          ),
+        }
+      : null,
+    clientless.length > 0
+      ? {
+          key: 'clientless',
+          text: `${clientless.map((p) => p.name).join(', ')} ${clientless.length === 1 ? 'has' : 'have'} no client, so those hours cannot reach an invoice.`,
+          action: clientless[0]?.projectId ? (
+            <Link className="act" to={`/projects/${clientless[0].projectId}`}>
+              Attach one
+            </Link>
+          ) : undefined,
+        }
+      : null,
+    workedDays < 3 && week > 0
+      ? {
+          key: 'sparse',
+          text: `Only ${workedDays} of the last 14 days have any time on them. Anything not written down within a day or two is usually not written down at all.`,
+        }
+      : null,
+  ] as Array<Finding | null>).filter((f): f is Finding => f !== null);
+
   return (
     <>
       <PageHeader
         title="Time"
-        subtitle="Run a clock, write down an hour you forgot to run one for, and see what you have logged lately."
         tabs={
           <SubNav
             items={[
@@ -443,16 +547,60 @@ export function Tracker() {
             ]}
           />
         }
+        /*
+         * The totals move into the header.
+         *
+         * They were a pair of tiles beside the clock, which put the three numbers you glance
+         * at in the same visual weight as the control you use. In the header they cost one
+         * line and stay visible while you scroll the list they summarise.
+         */
+        meta={
+          <div className="daystrip">
+            <span>
+              <span>Today</span>
+              <b>{formatSpan(today)}</b>
+            </span>
+            <span>
+              <span>Last 14 days</span>
+              <b>{formatSpan(week)}</b>
+            </span>
+            {/* Only where there are hours to take a percentage of. A billable share of nought
+                hours is 0%, which reads as a bad week rather than an empty one. */}
+            {week > 0 && (
+              <span data-warn={billablePct < 60 || undefined}>
+                <span>Billable</span>
+                <b>{billablePct}%</b>
+              </span>
+            )}
+          </div>
+        }
       />
 
-      <div className="tracker-top">
-        {/*
-          The clock, and everything it needs to be started.
+      {/*
+        One composer, two ways in.
 
-          A timer you cannot label is a timer that produces entries called nothing, which is
-          the state most timesheets are found in — so the description and the project sit on
-          the same row as the button rather than being something you fix afterwards.
-        */}
+        Running a clock and writing down an hour you forgot were two separate blocks stacked
+        down the page — a panel with its own heading sitting under the clock, so the page
+        opened with two competing controls and you read both to find the one you wanted. They
+        are the same act with a different tense, so they are two tabs on one card.
+      */}
+      <div className="composer" data-span={12}>
+        <div className="composer-tabs" role="tablist">
+          {(['clock', 'manual'] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              role="tab"
+              aria-selected={mode === m}
+              className={mode === m ? 'composer-tab active' : 'composer-tab'}
+              onClick={() => setMode(m)}
+            >
+              {m === 'clock' ? 'Run a clock' : 'Write down an hour'}
+            </button>
+          ))}
+        </div>
+
+        {mode === 'clock' ? (
         <div className={forgotten ? 'tracker-clock tracker-warn' : 'tracker-clock'}>
           <span className={running ? 'timer-dot' : 'timer-dot timer-dot-idle'} aria-hidden="true" />
           <span className="tracker-elapsed" aria-live="polite">
@@ -496,24 +644,7 @@ export function Tracker() {
           )}
         </div>
 
-        {/* Where the week stands, next to the clock that is adding to it. */}
-        <div className="tracker-totals">
-          <div>
-            <div className="stat-label">Today</div>
-            <div className="stat-value">{formatSpan(today)}</div>
-          </div>
-          <div>
-            <div className="stat-label">Last 14 days</div>
-            <div className="stat-value">{formatSpan(week)}</div>
-          </div>
-        </div>
-      </div>
-
-      <section className="panel">
-        <header className="panel-head">
-          <h2>Add an entry</h2>
-          <span className="muted">for work you did without the clock running</span>
-        </header>
+        ) : (
         <div className="tracker-manual">
           <input
             value={description}
@@ -565,10 +696,43 @@ export function Tracker() {
             {saving ? 'Logging…' : 'Log'}
           </Button>
         </div>
-      </section>
+        )}
+
+        {/*
+          The things you were last working on, as one click each.
+
+          Starting a clock means naming the work and picking the target again every time, and
+          most of the time both are the same as yesterday. These are the last three distinct
+          targets, so the common case is one click and the form is for the uncommon one.
+        */}
+        {!running && recentTargets.length > 0 && (
+          <div className="composer-continue">
+            <span className="card-meta">Continue</span>
+            {recentTargets.map((t) => (
+              <button
+                key={t.key}
+                type="button"
+                className="continue-chip"
+                onClick={() =>
+                  void start(
+                    t.projectId ? { projectId: t.projectId } : { clientId: t.clientId },
+                    t.description ?? undefined,
+                  )
+                }
+              >
+                <i style={{ background: projectTone(t.projectId) }} aria-hidden="true" />
+                {t.description || t.projectName}
+                <small>{formatSpan(t.minutes)}</small>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
 
       {(error || timerError) && <p className="error">{error ?? timerError}</p>}
 
+      <div className="tracker-body" data-span={12}>
+        <div className="tracker-activity">
       <h2 className="tracker-recent-head">Recent activity</h2>
       {days.length === 0 ? (
         <Empty>
@@ -663,7 +827,28 @@ export function Tracker() {
               ) : (
                 <div key={entry.id} className="tracker-entry">
                   <span className="tracker-entry-what">
-                    {entry.description || <span className="muted">No description</span>}
+                    {entry.description || (
+                      <>
+                        {/*
+                          An unnamed hour is named here, not somewhere else.
+
+                          "No description" was a grey label stating a fact and offering nothing,
+                          on the row where the fix belongs. A billable one becomes an invoice
+                          line the client reads, so the prompt is only as loud as the
+                          consequence: an unnamed internal hour is untidy, an unnamed billable
+                          hour is a blank line on a bill.
+                        */}
+                        <em className="tracker-unnamed">Untitled entry</em>
+                        <button
+                          type="button"
+                          className="act tracker-name-it"
+                          data-billable={entry.billable || undefined}
+                          onClick={() => beginEdit(entry)}
+                        >
+                          Add a name
+                        </button>
+                      </>
+                    )}
                   </span>
                   <span className="tracker-entry-project">
                     <span
@@ -757,10 +942,67 @@ export function Tracker() {
         ))
       )}
 
-      <p className="muted">
-        <Link to="/time/week">See the week by project</Link>. Hover an entry to continue,
-        correct or delete it.
-      </p>
+        </div>
+
+        <aside className="tracker-rail">
+          <Card title="Last 14 days" sub={`Logged on ${workedDays} of 14 days`}>
+            <div className="card-fill">
+              <Rhythm days={fortnight} />
+            </div>
+          </Card>
+
+          {/*
+            What is wrong with the hours you have, in the order it costs you.
+
+            Every finding is computed from the entries on screen and names the number it found,
+            so nothing here is advice — it is arithmetic. An empty list is the good case and
+            says so rather than disappearing, because a card that vanishes when it is happy
+            teaches you not to look for it.
+          */}
+          <Card title="Worth fixing" tone={findings.length > 0 ? 'warning' : undefined}>
+            {findings.length === 0 ? (
+              <Empty>Every hour has a description, a target and a client.</Empty>
+            ) : (
+              <ul className="fixlist">
+                {findings.map((f) => (
+                  <li key={f.key}>
+                    <span>{f.text}</span>
+                    {f.action}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+
+          <Card title="By project" sub={`${byProject.length} in the last fortnight`}>
+            {byProject.length === 0 ? (
+              <Empty>Nothing logged yet.</Empty>
+            ) : (
+              <ul className="byproject">
+                {byProject.map((p) => (
+                  <li key={p.name}>
+                    <span className="byproject-head">
+                      <b>{p.name}</b>
+                      <span>{formatSpan(p.minutes)}</span>
+                    </span>
+                    <span className="byproject-bar">
+                      <i
+                        style={{
+                          width: `${Math.round((p.minutes / (byProject[0]?.minutes || 1)) * 100)}%`,
+                          background: projectTone(p.projectId),
+                        }}
+                      />
+                    </span>
+                    {/* An hour against a project with no client cannot reach an invoice, and
+                        that is worth saying beside the hours rather than at billing time. */}
+                    {!p.clientName && <small className="card-meta">No client — not invoiceable</small>}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+        </aside>
+      </div>
     </>
   );
 }

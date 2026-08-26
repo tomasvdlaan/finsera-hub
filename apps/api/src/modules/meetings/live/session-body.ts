@@ -7,7 +7,8 @@ export interface SessionSummary {
   aiNotes: string;
   state: { summary: string; decisions: string[]; openQuestions: string[] };
   lines: TranscriptLine[];
-  openProposals: Proposal[];
+  /** Everything not dismissed — see LiveSession.keptProposals. */
+  keptProposals: Proposal[];
   startedAt: Date;
 }
 
@@ -50,7 +51,7 @@ export function applySession(tr: Transform, session: SessionSummary): void {
 
   // Actions become action points on their own, so listing them here too would be a second
   // copy that goes stale the moment one is accepted or dismissed.
-  const suggestions = session.openProposals.filter((p) => p.kind !== 'action');
+  const suggestions = session.keptProposals.filter((p) => p.kind !== 'action');
 
   const section = (title: string, content: string) => {
     if (!content.trim()) return;
@@ -106,6 +107,6 @@ export const sessionSummary = (session: LiveSession): SessionSummary => ({
   aiNotes: session.aiNotes,
   state: session.state,
   lines: session.lines,
-  openProposals: session.openProposals,
+  keptProposals: session.keptProposals,
   startedAt: session.startedAt,
 });

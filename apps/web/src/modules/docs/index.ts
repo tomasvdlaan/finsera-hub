@@ -8,7 +8,8 @@ export const docsWebModule: WebModule = {
   name: 'docs',
   routes: [
     { path: '/docs', Component: DocumentList, width: 'wide' },
-    { path: '/docs/documents/:id', Component: DocumentDetail, width: 'read' },
+    // The viewer is the page: a document capped at reading width renders A4 as a postcard.
+    { path: '/docs/documents/:id', Component: DocumentDetail, width: 'full' },
   ],
   chatWidgets: { document: DocumentChatCard },
   widgets: docsWidgets

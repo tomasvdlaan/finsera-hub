@@ -75,6 +75,12 @@ export class DocsController {
   }
 
   /** Re-embed after an embedding-model change (see DocsService.reindex). */
+  /** Pull type, value and terms out of the current version and store them. */
+  @Post('documents/:id/extract')
+  extract(@CurrentActor() actor: Actor, @Param('id') id: string) {
+    return this.docs.extractTerms(actor, id);
+  }
+
   @Post('documents/:id/reindex')
   reindex(@CurrentActor() actor: Actor, @Param('id') id: string) {
     return this.docs.reindex(actor, id);

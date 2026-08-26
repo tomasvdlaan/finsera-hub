@@ -5,6 +5,7 @@ import {
   customType,
   index,
   integer,
+  jsonb,
   pgSchema,
   text,
   timestamp,
@@ -45,6 +46,32 @@ export const documents = docs.table(
     projectId: uuid('project_id'),
     category: text('category'), // free text — taxonomies calcify
     currentVersionId: uuid('current_version_id'),
+
+    /* ── What a model read, as opposed to what somebody typed ──────────────────────────
+     *
+     * Kept apart from the descriptive columns above on purpose. `title` and `category` are
+     * assertions by a person; everything here is derived, can be wrong, and can be regenerated.
+     * A screen showing them should be able to say which is which.
+     */
+
+    /** One paragraph, written when the text is indexed — the pipeline already reads it all. */
+    summary: text('summary'),
+    summarisedAt: timestamp('summarised_at', { withTimezone: true }),
+
+    /** The two extracted facts worth querying as columns rather than burying in jsonb. */
+    docType: text('doc_type'),
+    valueCents: bigint('value_cents', { mode: 'number' }),
+
+    /** Payment terms, notice, dates, counterparty — shapes differ per kind of document. */
+    terms: jsonb('terms'),
+    extractedAt: timestamp('extracted_at', { withTimezone: true }),
+    /**
+     * Which version was read.
+     *
+     * Extraction is a claim about a *file*, not about a document — so a v2 upload must be able
+     * to mark the old terms as describing something that is no longer on screen.
+     */
+    extractedVersionId: uuid('extracted_version_id'),
     uploadedBy: uuid('uploaded_by').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

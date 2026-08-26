@@ -42,15 +42,29 @@
    * a border. The canvas drops to what `--surface-sunken` used to be, and sunken goes lower
    * still so a well inside a card is not the same colour as the page behind it.
    */
-  --bg: #f2efea;
+  /*
+   * A ladder with rungs far enough apart to climb.
+   *
+   * The previous set put canvas against card at 1.15:1 and card against its own border at
+   * 1.28:1 — differences small enough to be rounding errors, which is why forty-two cards read
+   * as one grey field however they were styled. The comment above claims a card should be
+   * legible with its border removed; at 1.15 it was not, and the claim was aspirational.
+   * These are measured: canvas→card 1.25, card→border 1.43.
+   *
+   * `--faint` moves too. It sat 1.15:1 from `--muted`, which is one colour wearing two names,
+   * so the three monospace micro-roles that depend on them were visually identical. Both still
+   * clear 4.5:1 against a card — separation bought with a contrast failure is not separation,
+   * it is a smaller audience.
+   */
+  --bg: #eae5de;
   --surface: #ffffff;
-  --surface-sunken: #f7f5f1;
+  --surface-sunken: #f5f2ec;
   --surface-raised: #ffffff;
   --text: #191817;
-  --muted: #6c6a66;
-  --faint: #797369;
-  --border: #e7e3dc;
-  --border-strong: #d2ccc3;
+  --muted: #63605a;
+  --faint: #7b746a;
+  --border: #ddd7cd;
+  --border-strong: #c3bcaf;
 
   /* Accent */
   --accent: var(--brand);
@@ -332,15 +346,17 @@
      * not blue-blacks — but the ladder is what matters, and it now spans far enough that a
      * card is a card with the border removed.
      */
-    --bg: #0e0f10;
-    --surface: #17181a;
-    --surface-sunken: #121314;
-    --surface-raised: #212326;
+    /* The same ladder, measured the same way: canvas→card 1.19, card→border 1.38, and
+       --muted / --faint 1.39 apart instead of 1.08. Both still clear 4.5:1 on a card. */
+    --bg: #0a0b0c;
+    --surface: #1d1f23;
+    --surface-sunken: #131417;
+    --surface-raised: #2a2d32;
     --text: #eae8e5;
-    --muted: #8f8b85;
-    --faint: #8a857e;
-    --border: #26282b;
-    --border-strong: #363a3e;
+    --muted: #a49f97;
+    --faint: #8b857b;
+    --border: #33373b;
+    --border-strong: #4a4f55;
 
     --accent: var(--brand);
     --accent-contrast: #06201a;
@@ -674,7 +690,9 @@ main {
 .page {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
-  gap: var(--space-4);
+  /* 24px against an 18px radius. At 16px the corner arcs of neighbouring cards nearly touched
+     and the grid read as crowded rather than composed. */
+  gap: var(--space-5);
   align-content: start;
   margin-inline: auto;
   width: 100%;
@@ -682,6 +700,8 @@ main {
 .page[data-width='default'] { max-width: 90rem; }
 .page[data-width='wide'] { max-width: 120rem; }
 .page[data-width='read'] { max-width: 46rem; }
+/* No cap, and no reading-width instinct applied to a thing nobody reads as prose. */
+.page[data-width='full'] { max-width: none; }
 
 /* Anything that has not said otherwise takes the whole row, which is what it did before. */
 .page > * { grid-column: span 12; }
@@ -862,6 +882,59 @@ textarea {
   border-radius: var(--radius-sm);
   background: var(--surface);
   color: var(--text);
+  /* Nothing here ever pushes its container sideways. */
+  max-width: 100%;
+}
+
+/*
+ * A field as wide as the thing it asks for.
+ *
+ * This block styled a text input's padding, border and radius and never its width, so every
+ * free-text field in the app was the browser's default ~170px whatever it held. Measured, that
+ * meant "Add a client — a name is enough, everything else can come later" showing its first
+ * twenty characters inside a 1377px panel, and three more placeholders on the documents page
+ * cut off at 72–88%. The placeholder is the only instruction most of these fields have.
+ *
+ * Sized by growing inside the flex row they already sit in rather than by a fixed width: in a
+ * panel the field takes the room the row has, and in a page header — where the same `.row` is
+ * used for a search box — there is no spare room to take, so it settles at the basis. One rule
+ * gets both, and neither has to know where it is.
+ *
+ * Deliberately not `width: 100%`: that wraps the button that follows onto its own line, because
+ * `.row` wraps. Number, date and colour inputs are left alone — they are as wide as they need
+ * to be, and stretching a date field across a panel is the opposite of this fix.
+ */
+.row > input:not([type]),
+.row > input[type='text'],
+.row > input[type='search'],
+.row > input[type='email'],
+.row > input[type='url'],
+.row > input[type='tel'] {
+  flex: 1 1 18rem;
+  min-width: 0;
+}
+
+/*
+ * A search box and its button stay on one line.
+ *
+ * `.row` wraps, which is right in a panel and wrong in a page header: the header's actions are
+ * a single control, and a submit button dropping under its own field reads as two. The field
+ * can shrink instead — it has `min-width: 0` above, so there is always somewhere for the space
+ * to come from.
+ */
+.page-actions .row {
+  flex-wrap: nowrap;
+  margin: 0;
+}
+/*
+ * A fixed basis rather than a growing one, because there is nothing here to grow into.
+ * `.page-actions` is shrink-to-fit, so a field that is allowed to shrink reports its smallest
+ * size as the width it needs and gets exactly that — which is the browser default it started
+ * at. Pinning the basis makes the header ask for the room instead. `.page-header-row` wraps, so
+ * a narrow window moves the whole group under the title rather than squeezing it.
+ */
+.page-actions .row > input {
+  flex: 0 0 18rem;
 }
 input::placeholder,
 textarea::placeholder {
@@ -1414,18 +1487,12 @@ ul.insights li.insight {
   padding: 0.6rem 0.8rem;
   margin-bottom: 0.4rem;
   border: 1px solid var(--border);
-  border-left-width: 3px;
-  border-radius: 6px;
+  border-radius: var(--radius);
   background: var(--surface);
-}
-li.insight.sev-urgent {
-  border-left-color: var(--danger);
-}
-li.insight.sev-attention {
-  border-left-color: var(--warning);
-}
-li.insight.sev-info {
-  border-left-color: var(--border);
+  /* The edge is drawn by [data-edge] as a pseudo-element, which needs room not to sit on the
+     text. `border-left-width: 3px` plus three `sev-*` colour rules used to live here; the
+     colours never applied, because the shorthand above outranked them. */
+  padding-left: calc(0.8rem + var(--edge));
 }
 .insight-actions {
   display: flex;
@@ -4916,14 +4983,63 @@ main table:not(.grid) [data-align='action'] {
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
   min-width: 0;
+  position: relative;
   /* So contents can respond to the card's width rather than the viewport's — a legend beside
      a ring goes two-column in a wide card and stays one in a narrow one, on the same page. */
   container-type: inline-size;
+  /*
+   * One light source, not forty-two floating boxes.
+   *
+   * The codebase rejected drop shadows once, correctly: when every surface floats, none does.
+   * A one-pixel lit top edge is a different claim — it is the same light falling on every card
+   * from the same direction, so it reads as material rather than as elevation, and nothing is
+   * asserted to be above anything else.
+   */
+  box-shadow: inset 0 1px 0 0 rgb(255 255 255 / 0.05);
+  transition: border-color 0.13s ease, background 0.13s ease;
 }
-.card[data-tone='danger'] { background: var(--danger-bg); border-color: var(--danger-line); }
-.card[data-tone='warning'] { background: var(--warning-bg); border-color: var(--warning-line); }
-.card[data-tone='ok'] { background: var(--ok-bg); border-color: var(--ok-line); }
-.card[data-tone='info'] { background: var(--info-bg); border-color: var(--info-line); }
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme='dark']) .card {
+    box-shadow: inset 0 1px 0 0 rgb(255 255 255 / 0.9), 0 1px 2px -1px rgb(0 0 0 / 0.05);
+  }
+}
+:root[data-theme='light'] .card {
+  box-shadow: inset 0 1px 0 0 rgb(255 255 255 / 0.9), 0 1px 2px -1px rgb(0 0 0 / 0.05);
+}
+
+/*
+ * The states a card has never had.
+ *
+ * There was no :hover, :focus-visible or :active rule for `.card` anywhere in six thousand
+ * lines. A card that navigates offered a 30px corner arrow as its whole affordance and its
+ * only tab stop — so the pointer had to travel the width of the card to hit a coin, and the
+ * keyboard saw forty-two identical stops.
+ */
+.card:has(.card-out) { cursor: pointer; }
+.card:has(.card-out):hover { border-color: var(--border-strong); }
+.card:has(.card-out:focus-visible) {
+  border-color: var(--accent);
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+/* The arrow stays the accessible name and the tab stop; the whole card becomes its hit area. */
+.card-out::after { content: ''; position: absolute; inset: 0; border-radius: inherit; }
+/*
+ * A tint mixed into the card, not into the canvas.
+ *
+ * The tone backgrounds were standalone colours picked against white — and `--ok-bg #f0f6ee`
+ * against the old canvas was 1.045:1, *less* separation than a plain white card. The palette's
+ * proudest idea was costing the card its edge. Mixing the hue into `--surface` keeps every
+ * tinted card on exactly the same rung as an untinted one, in both themes, from one formula.
+ *
+ * The edge stripe carries the meaning at full strength, so the fill can stay quiet enough to
+ * read text on.
+ */
+.card[data-tone] { box-shadow: inset 3px 0 0 0 var(--tone), inset 0 1px 0 0 rgb(255 255 255 / 0.05); }
+.card[data-tone='danger'] { --tone: var(--danger); background: color-mix(in srgb, var(--danger) 9%, var(--surface)); border-color: var(--danger-line); }
+.card[data-tone='warning'] { --tone: var(--warning); background: color-mix(in srgb, var(--warning) 10%, var(--surface)); border-color: var(--warning-line); }
+.card[data-tone='ok'] { --tone: var(--ok); background: color-mix(in srgb, var(--ok) 9%, var(--surface)); border-color: var(--ok-line); }
+.card[data-tone='info'] { --tone: var(--info); background: color-mix(in srgb, var(--info) 10%, var(--surface)); border-color: var(--info-line); }
 /*
  * The hero, of which a page gets one.
  *
@@ -4954,13 +5070,27 @@ main table:not(.grid) [data-align='action'] {
  * a glance without any colour, and the content — a figure, a name, a sentence — becomes the
  * only thing on the card set in the reading font. That last one is most of the effect.
  */
+/*
+ * Three roles in one face, told apart by weight and tracking.
+ *
+ * Title, label and meta were all mono / --text-2xs / uppercase / 0.09em, separated only by
+ * --muted against --faint — which were 1.08:1 apart, i.e. one colour. So a card's name, the
+ * word above its figure and its qualifier all looked the same, and the micro-layer read as
+ * one undifferentiated band of small caps.
+ *
+ * Separated here by weight and tracking first, colour second. That ordering matters: it keeps
+ * working when the two greys are hard to tell apart, which is most of the point.
+ */
 .card-title {
   font-family: var(--font-mono);
   font-size: var(--text-2xs);
   text-transform: uppercase;
-  letter-spacing: 0.09em;
-  font-weight: var(--weight-strong);
-  color: var(--muted);
+  letter-spacing: 0.11em;
+  font-weight: var(--weight-loud);
+  color: var(--text);
+  /* Not a third grey: the same ink as the content, held back. A name is chrome, but it is the
+     card's own name and should not be quieter than the qualifier three rows below it. */
+  opacity: 0.7;
 }
 /* An accent title marks a card that is live rather than merely present. */
 .card[data-live] .card-title { color: var(--accent); }
@@ -4976,7 +5106,8 @@ main table:not(.grid) [data-align='action'] {
   font-family: var(--font-mono);
   font-size: var(--text-2xs);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
+  font-weight: var(--weight-normal);
   color: var(--faint);
 }
 
@@ -5150,10 +5281,39 @@ main table:not(.grid) [data-align='action'] {
   background: var(--surface);
   border: 1px solid var(--border);
   min-width: 0;
-  overflow-x: auto;
-  scrollbar-width: none;
+  /*
+   * Wrapping, not scrolling — and the focus ring is why.
+   *
+   * This was `overflow-x: auto`, which makes the pill a scroll container, and a scroll container
+   * clips its descendants' box-shadows. The focus ring is a box-shadow (see `:focus-visible`), so
+   * tabbing through the only navigation in the product showed nothing at all. The comment there
+   * claims a shadow survives an ancestor's overflow because it is painted inside the element's
+   * own box; that is true of an inset shadow and false of a spread one, which is what a ring is.
+   *
+   * Scrolling was also the wrong answer to the width problem it was solving. The set needs 648px:
+   * the bar has room at 1280 and not at 1024, where the eighth anchor was clipped and the
+   * scrollbar suppressed by the rule that used to sit here — a destination that existed and could
+   * not be seen or reached. Wrapping degrades honestly instead: below 1180 the pill takes its own
+   * row, and narrower still the anchors stack inside it. Nothing is ever hidden.
+   */
+  overflow: visible;
+  flex-wrap: wrap;
+  row-gap: 2px;
 }
-.topbar-pill::-webkit-scrollbar { display: none; }
+
+/*
+ * Below this the bar cannot hold brand, eight anchors, the clock and three controls on one line.
+ * The pill drops to its own full-width row rather than any of them being squeezed out.
+ */
+@media (max-width: 1180px) {
+  .topbar { flex-wrap: wrap; }
+  .topbar-pill {
+    order: 3;
+    width: 100%;
+    /* A stadium radius on a block that may now be two rows tall reads as a mistake. */
+    border-radius: var(--radius-lg);
+  }
+}
 .anchor {
   display: flex;
   align-items: center;
@@ -5348,7 +5508,9 @@ main table:not(.grid) [data-align='action'] {
   border-color: transparent;
   border-radius: var(--radius);
   padding: var(--space-4);
-  container-type: normal;
+  /* Was `normal`, which silently killed the @container query the legend layout depends on —
+     so a ring inside a nested card never got its two-column legend however wide the card. */
+  container-type: inline-size;
 }
 .card .card[data-tone='danger'] { background: var(--danger-bg); }
 .card .card[data-tone='warning'] { background: var(--warning-bg); }
@@ -5733,30 +5895,54 @@ main table:not(.grid) [data-align='action'] {
  * first screen on four integers that only say whether there is anything to act on.
  */
 .daystrip { display: flex; align-items: baseline; gap: var(--space-5); flex-wrap: wrap; }
-.daystrip a {
+/*
+ * A stat, whether or not it is a link.
+ *
+ * Every rule below was written for `a`, and half the stats in the app are not links — a figure
+ * with nowhere to go renders as a plain `span` wrapper instead. Four things followed from that,
+ * and all four were visible on the Clients and Time headers:
+ *
+ * the wrapper never became a flex row, so label and figure had no gap and ran together as
+ * "ACTIVE2"; `.daystrip span` matched the wrapper as well as the label, so the `<b>` inside it
+ * inherited the monospace label face; it inherited `--muted` too, leaving the figure exactly as
+ * loud as the word above it — the inversion this whole design rests on, backwards; and
+ * `[data-warn]` was scoped to `a`, so a stat that had something to say could not say it.
+ *
+ * Child combinators throughout, so the label rule can no longer reach past the label.
+ */
+.daystrip > a,
+.daystrip > span {
   display: flex;
   align-items: baseline;
   gap: var(--space-2);
   text-decoration: none;
   color: inherit;
 }
-.daystrip span {
+.daystrip > * > span {
   font-family: var(--font-mono);
   font-size: var(--text-2xs);
   text-transform: uppercase;
   letter-spacing: 0.09em;
   color: var(--muted);
 }
-.daystrip b { font-size: var(--text-md); font-weight: var(--weight-strong); font-variant-numeric: tabular-nums; }
+.daystrip b {
+  font-size: var(--text-md);
+  font-weight: var(--weight-strong);
+  font-variant-numeric: tabular-nums;
+  /* Said outright rather than inherited: the wrapper is a label in the link variant and not in
+     the other, and a figure should not change colour based on which one it landed in. */
+  font-family: inherit;
+  color: var(--text);
+}
 .daystrip em {
   font-style: normal;
   font-family: var(--font-mono);
   font-size: var(--text-2xs);
   color: var(--muted);
 }
-.daystrip a:hover b { color: var(--accent); }
-.daystrip a[data-warn] b, .daystrip a[data-warn] em { color: var(--warning); }
-.daystrip a[data-alarm] b { color: var(--danger); }
+.daystrip > a:hover b { color: var(--accent); }
+.daystrip > [data-warn] b, .daystrip > [data-warn] em { color: var(--warning); }
+.daystrip > [data-alarm] b { color: var(--danger); }
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * ACTIONS INSIDE A CARD
@@ -5808,6 +5994,41 @@ main table:not(.grid) [data-align='action'] {
   min-width: 0;
 }
 .act-row:first-child { border-top: 0; padding-top: var(--space-1); }
+/*
+ * A row you can act on should answer the pointer.
+ *
+ * `.act-row` had no hover state at all, so a list of things with buttons on them read as
+ * printed output — the single clearest difference between a report and a product. The rule
+ * bleeds into the card's own padding so the highlight reaches the card edge rather than
+ * stopping short and looking like a misaligned box.
+ */
+.act-row {
+  margin-inline: calc(var(--space-4) * -1);
+  padding-inline: var(--space-4);
+  border-radius: var(--radius-sm);
+  transition: background 0.12s ease;
+}
+.act-row:hover,
+.act-row:focus-within { background: var(--wash); }
+
+/*
+ * Buttons appear on approach.
+ *
+ * Always-visible actions on every row make a list of five rows into a wall of ten buttons,
+ * and the eye reads the buttons instead of the content. Revealed on hover — and on
+ * focus-within, so the keyboard is not second class — the list reads as content until the
+ * moment it needs to be a control.
+ *
+ * Opacity rather than display, so the row does not resize under the pointer and the buttons
+ * stay in the tab order for anyone navigating without one.
+ */
+.act-row-buttons { opacity: 0; transition: opacity 0.12s ease; }
+.act-row:hover .act-row-buttons,
+.act-row:focus-within .act-row-buttons { opacity: 1; }
+/* Touch and reduced-motion users get no hover, so nothing may depend on it. */
+@media (hover: none), (prefers-reduced-motion: reduce) {
+  .act-row-buttons { opacity: 1; }
+}
 .act-row-text { display: grid; gap: 3px; min-width: 0; flex: 1; }
 .act-row-text > span { overflow: hidden; text-overflow: ellipsis; }
 .act-row-buttons { display: flex; gap: var(--space-2); flex: none; }
@@ -5854,3 +6075,1033 @@ main table:not(.grid) [data-align='action'] {
   text-transform: uppercase;
   color: var(--muted);
 }
+
+/* The typed half of a person's record, shown under the row being edited. */
+.person-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: var(--space-4);
+  align-items: end;
+  margin-top: var(--space-5);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--border);
+}
+.person-form .field { margin-bottom: 0; }
+/* A deactivated person stays in the table — their hours and cards are still theirs — but
+   reads as past tense rather than as an equal row. */
+.data-table tr[data-inactive] td { opacity: 0.55; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * MY LANE
+ *
+ * The board's shape, at widget size. It mirrors the thing it is about, which is why it needs
+ * no legend — four lanes read as four columns because that is what they are.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+.lanes {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+}
+/* Four lanes at widget width give each about 90px; below that a title is two words and an
+   ellipsis, so they stack rather than shrink further. */
+@container (max-width: 30rem) {
+  .lanes { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+.lane { display: grid; gap: var(--space-2); align-content: start; min-width: 0; }
+.lane-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding-bottom: var(--space-2);
+  /* The rule is the lane's identity: it takes the flow colour, so the four columns are
+     distinguishable before a single card is read. */
+  border-bottom: 2px solid var(--border);
+}
+.lane-head span {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lane-head b { font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
+.lane[data-flow='active'] .lane-head { border-bottom-color: var(--accent); }
+.lane[data-flow='waiting'] .lane-head { border-bottom-color: var(--warning); }
+.lane[data-flow='done'] .lane-head { border-bottom-color: var(--ok); }
+.lane[data-flow='done'] .lane-head span,
+.lane[data-flow='done'] .lane-head b { opacity: 0.6; }
+
+.lane-cards { display: grid; gap: var(--space-2); min-width: 0; }
+.lane-card {
+  display: grid;
+  gap: 3px;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  /* The project's own colour, derived from its id so it is the same everywhere and needs no
+     stored palette. On the left edge rather than as a dot: it costs no width, and at four
+     lanes width is the scarce thing. */
+  border-left: 3px solid var(--project, var(--border-strong));
+  text-decoration: none;
+  color: var(--text);
+  font-size: var(--text-xs);
+  line-height: 1.35;
+  min-width: 0;
+  transition: background 0.12s ease, transform 0.12s ease;
+}
+.lane-card:hover { background: var(--surface-raised); transform: translateY(-1px); }
+.lane-card-title {
+  /* Two lines, then ellipsis. One line loses too many card titles to a truncation; three
+     makes a lane of five cards taller than the widget. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.lane-card-age {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+/* Warms with age rather than flipping at a threshold, because a card is not fine on day six
+   and alarming on day seven. */
+.lane-card[data-age='warm'] { background: var(--warning-bg); }
+.lane-card[data-age='warm'] .lane-card-age { color: var(--warning); }
+.lane-card[data-age='old'] { background: var(--danger-bg); }
+.lane-card[data-age='old'] .lane-card-age { color: var(--danger); font-weight: var(--weight-strong); }
+
+.lane-empty {
+  display: block;
+  height: 34px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+}
+.lane-more { font-size: var(--text-2xs); color: var(--faint); font-family: var(--font-mono); }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * MY BOARD
+ *
+ * One project's columns as figures, then only the cards that have stopped moving, then how
+ * the sprint is going. The shape of the board without being a copy of it.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+.board-of { color: var(--faint); font-weight: var(--weight-normal); }
+
+.board-cols {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
+  gap: var(--space-2);
+  margin-bottom: var(--space-5);
+}
+.board-col {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface-sunken);
+  min-width: 0;
+}
+/*
+ * Only the columns work is actually in get a colour.
+ *
+ * Four tinted boxes is four things claiming attention, which is none. Doing and waiting are
+ * the two a person can act on, so they are the two that are lit — and an empty column of any
+ * kind fades rather than shouting about its zero.
+ */
+.board-col[data-flow='active'] { border-color: var(--accent-line); background: var(--brand-tint); }
+.board-col[data-flow='waiting'] { border-color: var(--warning-line); background: var(--warning-bg); }
+.board-col[data-empty] { opacity: 0.5; background: none; border-color: var(--border); }
+.board-col-name {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.board-col[data-flow='active'] .board-col-name { color: var(--accent); }
+.board-col[data-flow='waiting'] .board-col-name { color: var(--warning); }
+.board-col-figure {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-strong);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+.board-col-figure small {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-normal);
+  color: var(--muted);
+  letter-spacing: 0;
+}
+
+.board-section {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--muted);
+  margin-bottom: var(--space-2);
+}
+.board-section b { color: var(--text); }
+
+/* A stopped card is a bordered block rather than a table row: it is a thing to deal with, and
+   the border is what separates "two items" from "a list of two". */
+.board-stuck .act-row {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-2);
+}
+.board-stuck .act-row { margin-inline: 0; }
+.board-stuck .act-row:hover { border-color: var(--border-strong); }
+.board-stuck .act-row[data-blocked] { border-color: var(--danger-line); background: var(--danger-bg); }
+.board-stuck .act-row a { color: var(--text); text-decoration: none; font-weight: var(--weight-strong); }
+.board-stuck .act-row a:hover { text-decoration: underline; }
+
+.board-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: auto;
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border);
+}
+.board-bar {
+  flex: 1;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-sunken);
+  overflow: hidden;
+  min-width: 4rem;
+}
+.board-bar i { display: block; height: 100%; background: var(--accent); border-radius: var(--radius-pill); }
+.board-behind { color: var(--warning); font-size: var(--text-xs); white-space: nowrap; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * A DOCUMENT
+ *
+ * Three panes. Reading a document and deciding what to do about it are different jobs, and
+ * doing them in sequence down one column means scrolling away from the thing being decided.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+.doc-page {
+  grid-column: span 12;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  /* The viewport minus the top bar, so the file fills the screen rather than the page
+     growing past it and putting the panel below the fold. */
+  height: calc(100vh - 7rem);
+  gap: var(--space-4);
+}
+
+.doc-head { display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap; }
+.doc-back {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--muted);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.doc-back:hover { color: var(--text); }
+/* The file's own kind, in its own colour, because "which of these is the PDF" is a question
+   people ask of a list of attachments. */
+.doc-kind {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: var(--weight-loud);
+  letter-spacing: 0.06em;
+  padding: var(--space-2) var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--danger-bg);
+  color: var(--danger);
+  flex: none;
+}
+.doc-head-text { flex: 1; min-width: 12rem; }
+.doc-head-text h1 {
+  font-size: var(--text-2xl);
+  letter-spacing: -0.02em;
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.doc-type {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--brand-tint);
+  color: var(--accent);
+  border: 1px solid var(--accent-line);
+}
+.doc-head-actions { display: flex; gap: var(--space-2); }
+.doc-head-actions .act { text-decoration: none; padding: var(--space-3) var(--space-4); font-size: var(--text-sm); }
+
+.doc-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 26rem;
+  gap: var(--space-4);
+  min-height: 0;
+}
+@media (max-width: 68rem) {
+  /* Below this the panel is narrower than its own facts, so it goes under the file and the
+     page scrolls — one column of two readable things beats two of unreadable ones. */
+  .doc-body { grid-template-columns: 1fr; }
+  .doc-page { height: auto; }
+}
+.doc-viewer {
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+  min-height: 24rem;
+  display: flex;
+}
+.doc-viewer > * { flex: 1; min-height: 0; }
+
+.doc-side {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: var(--space-4);
+  overflow-y: auto;
+  min-height: 0;
+  display: grid;
+  align-content: start;
+  gap: var(--space-4);
+}
+.doc-side .page-tabs { margin-top: 0; }
+.doc-side .page-tab { border: 0; background: none; cursor: pointer; font-family: inherit; }
+.doc-side .page-tab small { font-family: var(--font-mono); color: var(--faint); }
+
+/*
+ * The model's paragraph, labelled as the model's.
+ *
+ * It sits above facts a person entered and reads exactly like them, so the label is the only
+ * thing separating "what the document says" from "what somebody typed" — and that matters
+ * most when the number underneath is a price.
+ */
+.doc-summary {
+  padding: var(--space-4);
+  border-radius: var(--radius);
+  background: var(--brand-tint);
+  border: 1px solid var(--accent-line);
+  display: grid;
+  gap: var(--space-3);
+}
+.doc-summary[data-empty] { background: var(--surface-sunken); border-color: var(--border); }
+.doc-summary p { margin: 0; font-size: var(--text-sm); line-height: var(--leading-norm); }
+
+.doc-facts { margin: 0; display: grid; gap: 0; }
+.doc-facts > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--text-sm);
+}
+.doc-facts > div:last-child { border-bottom: 0; }
+.doc-facts dt {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+.doc-facts dd { margin: 0; text-align: right; min-width: 0; }
+.doc-filename { font-family: var(--font-mono); font-size: var(--text-xs); word-break: break-all; }
+/* A figure read from a file that is no longer on screen. */
+.doc-facts dd[data-stale] { color: var(--warning); }
+.doc-stale { font-size: var(--text-xs); color: var(--warning); margin: 0; }
+
+.doc-section {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--muted);
+}
+.doc-section b { color: var(--faint); font-weight: var(--weight-normal); }
+
+.doc-versions { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
+.doc-versions li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: var(--text-sm);
+}
+.doc-versions li[data-showing] { border-color: var(--accent-line); background: var(--brand-tint); }
+.doc-v { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--muted); flex: none; }
+.doc-versions li[data-showing] .doc-v { color: var(--accent); }
+.doc-v-text { flex: 1; display: grid; gap: 2px; min-width: 0; }
+.doc-v-text b { font-size: var(--text-xs); word-break: break-all; }
+.doc-versions .act { text-decoration: none; flex: none; }
+.doc-newversion { display: grid; gap: var(--space-2); }
+
+.doc-ask { display: flex; gap: var(--space-2); }
+.doc-ask input { flex: 1; min-width: 0; }
+/* Passages, set as quotations. The endpoint returns the parts of the document nearest the
+   question, and quoting them is the difference between finding the clause and paraphrasing it. */
+.doc-passages { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3); }
+.doc-passages li {
+  font-size: var(--text-sm);
+  line-height: var(--leading-norm);
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--accent-line);
+  color: var(--muted);
+}
+
+.doc-activity { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3); }
+.doc-activity li { display: grid; gap: 2px; font-size: var(--text-sm); }
+
+/* ── The documents overview ──────────────────────────────────────────────── */
+.doc-filters { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+.doc-filters .card-meta { margin-left: auto; }
+
+/*
+ * Cards rather than table rows.
+ *
+ * The question asked of a document store is "which of these is the contract", and a row of
+ * filename-size-date cannot answer it. A card has room for the summary, which can.
+ */
+.doc-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(19rem, 1fr));
+  gap: var(--space-4);
+}
+.doc-card {
+  display: grid;
+  gap: var(--space-2);
+  align-content: start;
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  text-decoration: none;
+  color: var(--text);
+  transition: border-color 0.12s ease, transform 0.12s ease;
+}
+.doc-card:hover { border-color: var(--border-strong); transform: translateY(-1px); }
+.doc-card-head { display: flex; align-items: center; gap: var(--space-2); }
+.doc-card-value { margin-left: auto; font-variant-numeric: tabular-nums; font-size: var(--text-sm); }
+.doc-card strong { font-size: var(--text-base); letter-spacing: -0.012em; line-height: 1.3; }
+.doc-card p {
+  margin: 0;
+  font-size: var(--text-xs);
+  line-height: var(--leading-norm);
+  color: var(--muted);
+  /* Three lines: enough for a summary to be a summary, few enough that a long one cannot make
+     one card twice the height of its neighbours. */
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.doc-card-foot { margin-top: var(--space-2); }
+
+.doc-hits { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-4); }
+.doc-hits li { display: grid; gap: var(--space-2); }
+.doc-hits li > a { font-weight: var(--weight-strong); }
+.doc-hits p { margin: 0; font-size: var(--text-sm); color: var(--muted); line-height: var(--leading-norm); }
+/* Which kind of match. "Meaning" is a weaker claim than "words" and should not look identical. */
+.doc-via {
+  justify-self: start;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 2px 7px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  color: var(--muted);
+}
+.doc-via[data-via='text'] { background: var(--brand-tint); color: var(--accent); }
+
+/*
+ * The comparison slot under a figure.
+ *
+ * Fixed height and always present, so a row of counters bottom-aligns whether or not each one
+ * has a trail to draw. An empty slot is invisible; an absent slot would let its neighbours
+ * fall out of line, which is the thing that reads as unfinished.
+ */
+.card-compare {
+  margin-top: auto;
+  padding-top: var(--space-3);
+  min-height: 34px;
+  display: flex;
+  align-items: flex-end;
+}
+.card-compare[data-empty] { min-height: 0; padding-top: 0; }
+.card-compare > * { width: 100%; }
+
+/* The library says what it is holding back, rather than silently being shorter. */
+.library-hidden {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--faint);
+  line-height: var(--leading-norm);
+}
+
+/* A card that could not load says so, in its own frame, with its own name still on it. */
+.card-failed {
+  margin: 0;
+  font-size: var(--text-xs);
+  line-height: var(--leading-norm);
+  color: var(--danger);
+}
+/* Fills whatever the card is, so nothing moves when the data lands. */
+.card-waiting { flex: 1; min-height: 3rem; border-radius: var(--radius); }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * THE TRACKER
+ *
+ * One composer with two ways in, the list of what has been logged, and a rail that says what
+ * is wrong with it. See Tracker.tsx for why the clock and the manual form became one card.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+.composer {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  box-shadow: inset 0 1px 0 0 rgb(255 255 255 / 0.05);
+  padding: var(--space-4) var(--space-5) var(--space-5);
+  display: grid;
+  gap: var(--space-4);
+}
+.composer-tabs { display: flex; gap: var(--space-1); border-bottom: 1px solid var(--border); }
+.composer-tab {
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  padding: var(--space-2) var(--space-3);
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--muted);
+  cursor: pointer;
+}
+.composer-tab:hover { color: var(--text); }
+.composer-tab.active { color: var(--text); border-bottom-color: var(--accent); font-weight: var(--weight-strong); }
+
+/*
+ * What you were last doing, as one click.
+ *
+ * Starting a clock otherwise means naming the work and picking the target every time, and
+ * most of the time both are yesterday's. The chips are the common case; the form above is
+ * for the uncommon one.
+ */
+.composer-continue {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+.continue-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border);
+  background: var(--surface-sunken);
+  font: inherit;
+  font-size: var(--text-xs);
+  color: var(--text);
+  cursor: pointer;
+  max-width: 20rem;
+}
+.continue-chip:hover { border-color: var(--accent); }
+.continue-chip i { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.continue-chip small { color: var(--faint); font-family: var(--font-mono); }
+
+/* The list and the rail. Below the breakpoint the rail goes under, because a 20rem column of
+   findings squeezed beside a list of entries is neither. */
+.tracker-body { display: grid; grid-template-columns: minmax(0, 1fr) 22rem; gap: var(--space-5); }
+@media (max-width: 64rem) { .tracker-body { grid-template-columns: 1fr; } }
+.tracker-activity { min-width: 0; display: grid; gap: var(--space-4); align-content: start; }
+.tracker-rail { display: grid; gap: var(--space-4); align-content: start; min-width: 0; }
+
+/* Findings: a sentence and the one control that acts on it. */
+.fixlist { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-4); }
+.fixlist li { display: grid; gap: var(--space-2); font-size: var(--text-sm); line-height: var(--leading-norm); }
+.fixlist .act { justify-self: start; text-decoration: none; }
+
+.byproject { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-4); }
+.byproject li { display: grid; gap: var(--space-2); }
+.byproject-head { display: flex; justify-content: space-between; gap: var(--space-3); font-size: var(--text-sm); }
+.byproject-head span { font-variant-numeric: tabular-nums; color: var(--muted); }
+.byproject-bar { height: 6px; border-radius: var(--radius-pill); background: var(--surface-sunken); overflow: hidden; }
+.byproject-bar i { display: block; height: 100%; border-radius: var(--radius-pill); }
+
+/* An hour with no name, and the button that gives it one. */
+.tracker-unnamed { font-style: italic; color: var(--faint); }
+.tracker-name-it {
+  margin-left: var(--space-2);
+  padding: 2px var(--space-2);
+  font-size: var(--text-2xs);
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+/* Only where the blank line would reach a client. An unnamed internal hour is untidy; an
+   unnamed billable one is a blank line on an invoice, and only the second earns the colour. */
+.tracker-name-it[data-billable] { border-color: var(--warning-line); color: var(--warning); }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * CLIENTS
+ *
+ * A directory is the thing you need least about a client. These two views answer the two
+ * questions you actually have: is anything at stake, and has anyone gone quiet.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+.viewswitch { display: flex; gap: 2px; padding: 3px; border-radius: var(--radius-pill); background: var(--surface-sunken); }
+.viewswitch button {
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--text-sm);
+  color: var(--muted);
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+}
+.viewswitch button.active { background: var(--surface); color: var(--text); font-weight: var(--weight-strong); }
+
+.stagefilter { display: flex; gap: var(--space-2); flex-wrap: wrap; margin-bottom: var(--space-4); }
+.stagefilter button {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  border: 1px solid var(--border);
+  background: none;
+  font: inherit;
+  font-size: var(--text-sm);
+  color: var(--muted);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+}
+.stagefilter button:hover { border-color: var(--border-strong); color: var(--text); }
+.stagefilter button.active { background: var(--surface-sunken); border-color: var(--border-strong); color: var(--text); }
+.stagefilter b { font-variant-numeric: tabular-nums; color: var(--faint); }
+
+/* One row per client, laid out as columns so the eye can run down "unbilled" or "last
+   meeting" rather than reading each row as a sentence. */
+.clientlist { list-style: none; margin: 0; padding: 0; display: grid; }
+.clientlist li {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) repeat(2, minmax(0, 1fr)) minmax(0, 1.4fr) auto;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-3);
+  margin-inline: calc(var(--space-3) * -1);
+  border-top: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  transition: background 0.12s ease;
+}
+.clientlist li:first-child { border-top: 0; }
+.clientlist li:hover { background: var(--wash); }
+@media (max-width: 60rem) {
+  .clientlist li { grid-template-columns: 1fr 1fr; }
+  .client-open { grid-column: span 2; }
+}
+
+.client-id { display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
+.client-id i {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-sm);
+  display: grid;
+  place-items: center;
+  font-size: var(--text-2xs);
+  font-family: var(--font-mono);
+  font-weight: var(--weight-loud);
+  color: #fff;
+  flex: none;
+}
+.client-id > span { display: grid; gap: 2px; min-width: 0; }
+.client-id a { font-weight: var(--weight-strong); text-decoration: none; color: var(--text); }
+.client-id a:hover { text-decoration: underline; }
+.client-id small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.client-col { display: grid; gap: 3px; min-width: 0; font-size: var(--text-sm); }
+.client-col b { font-weight: var(--weight-medium); }
+/* Silence is the one thing on this row worth colouring. */
+.client-col b[data-warn] { color: var(--warning); font-weight: var(--weight-strong); }
+.client-do { display: flex; align-items: center; gap: var(--space-2); }
+.client-do .act { text-decoration: none; }
+
+/* ── The pipeline ────────────────────────────────────────────────────────── */
+.pipeline {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: var(--space-4);
+  align-items: start;
+}
+.pipeline-col {
+  display: grid;
+  gap: var(--space-3);
+  align-content: start;
+  padding: var(--space-4);
+  border-radius: var(--radius-card);
+  background: var(--surface-sunken);
+  min-width: 0;
+}
+.pipeline-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--muted);
+}
+.pipeline-head b { color: var(--text); font-variant-numeric: tabular-nums; }
+/* Each column says what it means, once. A pipeline whose stages are only names is a pipeline
+   where two people file the same client differently. */
+.pipeline-note { margin: 0; font-size: var(--text-2xs); color: var(--faint); }
+.pipeline-col[data-stage='active'] .pipeline-head b { color: var(--accent); }
+.pipeline-col[data-stage='dormant'] .pipeline-head b,
+.pipeline-col[data-stage='lost'] .pipeline-head b { color: var(--faint); }
+
+.pipeline-card {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+.pipeline-card .client-id i { width: 24px; height: 24px; }
+.pipeline-fact { display: flex; justify-content: space-between; gap: var(--space-2); font-size: var(--text-xs); }
+.pipeline-fact > span { color: var(--muted); }
+.pipeline-fact b { font-variant-numeric: tabular-nums; }
+.pipeline-fact em { font-style: normal; color: var(--danger); }
+.pipeline-quiet {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--warning);
+}
+/* A column with nobody in it keeps its height, so the board does not reflow every time a
+   client moves and the columns stay comparable. */
+.pipeline-empty { height: 3rem; border: 1px dashed var(--border); border-radius: var(--radius); }
+
+/* ==========================================================================================
+   Meetings — the hub
+   ========================================================================================== */
+
+/* A row of chips used as a filter. Named because three pages now want the same arrangement. */
+.chip-row { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+
+/*
+ * Start a room.
+ *
+ * A band rather than a card, because it is not a thing to read — it is the one control the
+ * page exists to put within reach, and every morning it is the only thing touched. Sunken so
+ * it reads as part of the page furniture rather than as the first item in the list below it.
+ */
+.startbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+.startbar-label {
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--faint);
+  flex: none;
+}
+.startbar-chips { display: flex; gap: var(--space-2); flex-wrap: wrap; flex: 1; }
+/* The context select owns the right edge, away from the buttons that act immediately. */
+.startbar-context { display: flex; align-items: center; gap: var(--space-2); flex: none; }
+.startbar-context .faint { font-size: var(--text-xs); }
+
+/* In the band the ceremony chips sit on one line, so the timebox rides beside the label. */
+.startbar .ceremony {
+  flex-direction: row;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+}
+.ceremony-box { font-size: var(--text-xs); color: var(--faint); }
+.startbar .ceremony:hover:not(:disabled) .ceremony-box { color: var(--accent); }
+/* Dashed, because it opens a form rather than starting anything. */
+.ceremony-other { border-style: dashed !important; }
+
+.startbar-compose {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  align-items: center;
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+.startbar-compose input { flex: 1; min-width: 14rem; }
+
+/*
+ * The page proper: the list, and a rail of things you look up rather than work through.
+ *
+ * The rail is fixed and the list takes the rest, so a long meeting title never squeezes the
+ * search box into two characters — the failure the equal-columns version had at 1280px.
+ */
+.meet-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 22rem;
+  gap: var(--space-4);
+  align-items: start;
+}
+.meet-main, .meet-rail { display: grid; gap: var(--space-4); align-content: start; }
+@media (max-width: 60rem) {
+  .meet-body { grid-template-columns: minmax(0, 1fr); }
+}
+
+.meet-group + .meet-group { margin-top: var(--space-4); }
+.meet-group-label {
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--faint);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: var(--space-1);
+}
+
+/*
+ * One meeting.
+ *
+ * The whole row is the link. Half of these rows have a title, a summary and a set of numbers
+ * that all want to be clickable, and making each of them a target separately is how you end up
+ * with a row that does nothing when clicked between two of them.
+ */
+.meet-row {
+  display: grid;
+  grid-template-columns: 2.5rem minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-2);
+  border-bottom: 1px solid var(--border);
+  color: inherit;
+  text-decoration: none;
+  /* The left edge carries what kind of meeting it was — see .meet-row::before. */
+  position: relative;
+}
+.meet-row:last-child { border-bottom: 0; }
+.meet-row:hover { background: var(--wash); }
+.meet-row::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: var(--space-2);
+  bottom: var(--space-2);
+  width: 2px;
+  border-radius: 2px;
+  background: var(--border-strong);
+}
+.meet-row[data-kind='standup']::before { background: var(--viz-1); }
+.meet-row[data-kind='sprint']::before { background: var(--viz-2); }
+.meet-row[data-kind='client']::before { background: var(--viz-3); }
+
+.meet-date { display: grid; justify-items: center; line-height: 1.1; padding-left: var(--space-2); }
+.meet-date small { font-size: var(--text-xs); color: var(--faint); text-transform: uppercase; }
+.meet-date strong { font-size: var(--text-lg); font-variant-numeric: tabular-nums; }
+
+.meet-main-col { display: grid; gap: 3px; min-width: 0; }
+.meet-title { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; font-weight: 600; }
+.meet-said {
+  font-size: var(--text-sm);
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* An unwritten note says so in the voice of an absence, not of a value. */
+.meet-said[data-empty] { color: var(--faint); font-style: italic; }
+
+.meet-figures { display: flex; gap: var(--space-4); flex: none; }
+.meet-fig { display: grid; justify-items: end; gap: 2px; }
+.meet-fig small {
+  font-size: var(--text-xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.meet-fig strong { font-variant-numeric: tabular-nums; font-weight: 600; }
+.meet-fig strong[data-open] { color: var(--warning); }
+@media (max-width: 75rem) {
+  /* Length goes before the actions do: how long it ran is the least actionable of the two. */
+  .meet-fig:nth-child(2) { display: none; }
+}
+
+/*
+ * Who was there.
+ *
+ * Initials rather than photographs, which this platform has never had and would have to
+ * invent a store for. Overlapped so a stack of four costs the width of two.
+ */
+.faces { display: flex; flex: none; padding-left: var(--space-2); }
+.face {
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--bg);
+  border: 2px solid var(--surface);
+  margin-left: -0.5rem;
+}
+.face:first-child { margin-left: 0; }
+.face[data-i='0'] { background: var(--viz-1); }
+.face[data-i='1'] { background: var(--viz-2); }
+.face[data-i='2'] { background: var(--viz-3); }
+.face[data-i='3'] { background: var(--viz-4); }
+.face-more { background: var(--surface-sunken); color: var(--muted); border-color: var(--surface); }
+
+.meet-search { display: flex; gap: var(--space-2); margin-bottom: var(--space-2); }
+.meet-search input { flex: 1; min-width: 0; }
+.meet-hits { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3); }
+.meet-hits li { display: grid; gap: 2px; }
+.meet-hits p { margin: 0; font-size: var(--text-sm); color: var(--muted); }
+.meet-hits strong { color: var(--text); background: var(--accent-bg); }
+
+.meet-bars { list-style: none; margin: var(--space-3) 0 0; padding: 0; display: grid; gap: var(--space-3); }
+.meet-bar-head { display: flex; justify-content: space-between; font-size: var(--text-sm); }
+.meet-bar-head strong { font-variant-numeric: tabular-nums; }
+.meet-bar {
+  display: block;
+  height: 4px;
+  margin-top: 4px;
+  border-radius: 2px;
+  background: var(--surface-sunken);
+  overflow: hidden;
+}
+.meet-bar > span { display: block; height: 100%; border-radius: 2px; background: var(--border-strong); }
+.meet-bar[data-kind='standup'] > span { background: var(--viz-1); }
+.meet-bar[data-kind='sprint'] > span { background: var(--viz-2); }
+.meet-bar[data-kind='client'] > span { background: var(--viz-3); }
+
+/* ==========================================================================================
+   Suggestions — the agent asking, while it still matters
+   ========================================================================================== */
+
+/*
+ * Fixed over the room, bottom right.
+ *
+ * Not in the rail's flow: the rail scrolls, and a suggestion that has scrolled out of sight
+ * is a suggestion nobody answers. Bottom right rather than centre because it must never
+ * cover the notes — the meeting is the thing, this is the interruption, and an interruption
+ * that blocks the work earns itself a reflex dismissal.
+ */
+.suggestions {
+  position: fixed;
+  right: var(--space-4);
+  bottom: var(--space-4);
+  z-index: 40;
+  display: grid;
+  gap: var(--space-2);
+  width: min(22rem, calc(100vw - var(--space-4) * 2));
+  justify-items: stretch;
+}
+
+.suggestions-more {
+  margin: 0;
+  text-align: right;
+  font-size: var(--text-xs);
+  color: var(--faint);
+}
+
+/*
+ * Plane 3 — the tier the token comment reserves for "things that genuinely float over the
+ * document: the dialog, the command palette, the drag ghost". A suggestion popup is one of
+ * those, and inventing a fourth shadow for it would undo the point of having three.
+ */
+.suggestion {
+  background: var(--plane-3-bg);
+  border: 1px solid var(--plane-3-border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius);
+  padding: var(--space-3);
+  box-shadow: var(--plane-3-shadow);
+  display: grid;
+  gap: var(--space-2);
+  /* Arrives from the side rather than fading: a fade reads as something leaving. */
+  animation: suggestion-in 160ms ease-out;
+}
+@keyframes suggestion-in {
+  from { opacity: 0; transform: translateX(0.75rem); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .suggestion { animation: none; }
+}
+
+/* The kind, so the buttons underneath are read in the right frame. */
+.suggestion-kind {
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.suggestion[data-kind='action'] { border-left-color: var(--viz-1); }
+.suggestion[data-kind='decision'] { border-left-color: var(--viz-2); }
+.suggestion[data-kind='agenda_covered'] { border-left-color: var(--viz-3); }
+.suggestion[data-kind='note'] { border-left-color: var(--border-strong); }
+
+.suggestion-text { margin: 0; font-size: var(--text-sm); line-height: 1.45; }
+
+.suggestion-found {
+  display: grid;
+  gap: 2px;
+  padding: var(--space-2);
+  background: var(--surface-sunken);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+}
+
+.suggestion-buttons { display: flex; gap: var(--space-2); }
+.suggestion-buttons .act { flex: 1; justify-content: center; }

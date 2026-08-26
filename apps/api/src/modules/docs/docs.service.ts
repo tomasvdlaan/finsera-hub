@@ -15,6 +15,8 @@ import { LinkService } from '../../core/links/link.service.js';
 import { FileTypeRegistry } from '../../core/files/file-type.registry.js';
 import type { Preview } from '../../core/files/file-type.js';
 import { EmbeddingService } from '../../core/llm/embedding.service.js';
+import { LlmService } from '../../core/llm/llm.service.js';
+import { z } from 'zod';
 import { PermissionService } from '../../core/permissions/permission.service.js';
 import { RegistryService } from '../../core/registry/registry.service.js';
 import { StorageService } from '../../core/storage/storage.service.js';
@@ -55,6 +57,7 @@ export class DocsService {
     private readonly embeddings: EmbeddingService,
     private readonly fileTypes: FileTypeRegistry,
     private readonly crm: CrmService,
+    private readonly llm: LlmService,
   ) {}
 
   // ── upload and versioning ──────────────────────────────────
@@ -228,6 +231,12 @@ export class DocsService {
         sizeBytes: versions.sizeBytes,
         version: versions.version,
         indexed: sql<boolean>`${versions.extractedText} IS NOT NULL`,
+        // On the list as well as the detail: a folder of forty files called `scan_004.pdf` is
+        // the case the summary exists for, and it cannot help there if you have to open each
+        // one to see it.
+        summary: documents.summary,
+        docType: documents.docType,
+        valueCents: documents.valueCents,
       })
       .from(documents)
       .leftJoin(versions, eq(versions.id, documents.currentVersionId))
@@ -395,6 +404,129 @@ export class DocsService {
     };
   }
 
+  /* ══════════════════════════════════════════════════════════════════════════
+   * WHAT THE DOCUMENT SAYS
+   *
+   * Two derived things, kept apart from the descriptive columns because they can be wrong and
+   * can be regenerated. Any screen showing them should be able to say which is which.
+   * ══════════════════════════════════════════════════════════════════════════ */
+
+  /**
+   * A paragraph, written once when the text is indexed.
+   *
+   * On the indexing path rather than on demand because the pipeline has already read every
+   * word to chunk it — the text is in memory, the cost is one extra call, and a summary that
+   * only appears when somebody asks is a summary nobody sees. A folder of forty files named
+   * `scan_004.pdf` is the case this exists for.
+   *
+   * Never throws. A document whose summary failed is a document with no summary, which is
+   * exactly what it was a moment earlier; letting this bubble would fail the upload.
+   */
+  private async summarise(documentId: string, text: string): Promise<void> {
+    if (!LlmService.hasCredentials() || text.trim().length < 200) return;
+    try {
+      const { object } = await this.llm.generateStructured({
+        schema: z.object({
+          summary: z
+            .string()
+            .describe('Two or three sentences on what this document is and what it commits anyone to.'),
+        }),
+        system:
+          'You summarise business documents for a Dutch BI consultancy. Be specific about ' +
+          'amounts, parties and dates when the document states them, and say nothing the ' +
+          'document does not. Never guess a figure. Write in English whatever the source language.',
+        // Truncated: the opening of a document carries what it is, and a hundred-page annex
+        // costs tokens without changing the answer.
+        messages: [{ role: 'user', content: text.slice(0, 12_000) }],
+      });
+      await this.db
+        .update(documents)
+        .set({ summary: object.summary, summarisedAt: new Date() })
+        .where(eq(documents.id, documentId));
+    } catch (e) {
+      this.logger.warn(`Could not summarise ${documentId}: ${(e as Error).message}`);
+    }
+  }
+
+  /**
+   * Type, value and terms, pulled out on request.
+   *
+   * On demand rather than automatic, unlike the summary, because this is the half that can be
+   * confidently wrong. A summary that misreads a document is vague; a *value* that misreads one
+   * is a number somebody may repeat to a client. Making it an action means a person asked for
+   * it and is looking at the answer when it arrives.
+   *
+   * Every field is nullable and the model is told to leave anything it cannot find empty. Null
+   * here means "not stated", which is a real answer about a document.
+   */
+  async extractTerms(actor: Actor, documentId: string) {
+    await this.require(actor, 'docs.write');
+    const doc = await this.rawDocument(documentId);
+    if (!LlmService.hasCredentials()) {
+      throw new BadRequestException('No model is configured, so nothing can be extracted');
+    }
+
+    const [current] = await this.db
+      .select({ id: versions.id, text: versions.extractedText })
+      .from(versions)
+      .where(eq(versions.id, doc.currentVersionId!))
+      .limit(1);
+    if (!current?.text?.trim()) {
+      throw new BadRequestException('No text could be read from this file, so there is nothing to extract');
+    }
+
+    const { object } = await this.llm.generateStructured({
+      schema: z.object({
+        docType: z
+          .string()
+          .nullable()
+          .describe('quote, invoice, contract, report, letter, or another short lower-case noun'),
+        valueCents: z
+          .number()
+          .int()
+          .nullable()
+          .describe('The headline total in cents, excluding VAT. Null unless the document states a total.'),
+        currency: z.string().nullable().describe('ISO code, e.g. EUR'),
+        counterparty: z.string().nullable().describe('The other party named in the document'),
+        startsOn: z.string().nullable().describe('ISO date, or null'),
+        endsOn: z.string().nullable().describe('ISO date, or null'),
+        paymentTermDays: z.number().int().nullable(),
+        noticeDays: z.number().int().nullable(),
+      }),
+      system:
+        'You extract terms from business documents. Leave a field null unless the document ' +
+        'states it plainly — a plausible guess is worse than an empty field here, because ' +
+        'somebody will repeat these numbers to a client. Amounts are in cents, excluding VAT.',
+      messages: [{ role: 'user', content: current.text.slice(0, 20_000) }],
+    });
+
+    const { docType, valueCents, ...terms } = object;
+    const [row] = await this.db
+      .update(documents)
+      .set({
+        docType,
+        valueCents,
+        terms,
+        extractedAt: new Date(),
+        // Stamped with the version that was read, so a v2 upload can mark these as describing
+        // a file that is no longer on screen.
+        extractedVersionId: current.id,
+      })
+      .where(eq(documents.id, documentId))
+      .returning();
+
+    await this.db.transaction((tx) =>
+      this.audit.record(tx, {
+        actorId: actor.userId ?? null,
+        action: 'docs.terms.extracted',
+        entityType: 'document',
+        entityId: documentId,
+        detail: { docType, valueCents },
+      }),
+    );
+    return row;
+  }
+
   // ── indexing ───────────────────────────────────────────────
 
   /** Chunk and embed a version. Replaces any existing chunks for that version. */
@@ -408,6 +540,9 @@ export class DocsService {
 
     const pieces = chunkText(version.extractedText);
     if (pieces.length === 0) return 0;
+
+    // Fire-and-forget: a summary is worth having and is never worth failing an upload for.
+    void this.summarise(version.documentId, version.extractedText);
 
     await this.db.delete(chunks).where(eq(chunks.versionId, versionId));
 

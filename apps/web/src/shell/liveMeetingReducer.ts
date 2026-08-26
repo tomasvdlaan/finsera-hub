@@ -27,6 +27,14 @@ export interface Proposal {
   kind: 'action' | 'decision' | 'note' | 'agenda_covered';
   text: string;
   agendaItemId?: string;
+  /**
+   * Whether anyone has decided about it yet.
+   *
+   * Kept on the client rather than dropping decided proposals, so a suggestion that was
+   * handled cannot be re-added by the next `proposals` message — that merge skips ids it
+   * already knows, so forgetting one is precisely what would bring it back.
+   */
+  status: 'open' | 'accepted' | 'dismissed';
 }
 
 /** What the extraction pass has gathered so far. Replaced wholesale each pass. */
@@ -243,6 +251,24 @@ function applyMessage(state: LiveState, message: Record<string, unknown>): LiveS
       const known = new Set(state.proposals.map((p) => p.id));
       const fresh = incoming.filter((p) => !known.has(p.id));
       return fresh.length === 0 ? state : { ...state, proposals: [...state.proposals, ...fresh] };
+    }
+
+    /*
+     * Someone decided a suggestion — possibly not on this screen.
+     *
+     * Kept rather than removed, because the popup needs to know the difference between
+     * "never seen" and "handled", and because a proposal that vanished from state would be
+     * re-added by the next `proposals` message: the dedupe there is by id against what is
+     * already known, so forgetting it is what would make it come back.
+     */
+    case 'proposal_decided': {
+      const id = String(message.id);
+      const decision = message.decision as 'accepted' | 'dismissed';
+      if (!state.proposals.some((p) => p.id === id && p.status === 'open')) return state;
+      return {
+        ...state,
+        proposals: state.proposals.map((p) => (p.id === id ? { ...p, status: decision } : p)),
+      };
     }
 
     // Replaced, not appended: the note-taker owns its section and rewrites it. Appending

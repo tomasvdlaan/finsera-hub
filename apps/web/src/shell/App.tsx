@@ -9,7 +9,7 @@ import {
   useLocation,
 } from 'react-router-dom';
 import type { CurrentUser } from '@platform/contracts';
-import { api } from '../lib/api.js';
+import { api, isExpiredSession, isRefused } from '../lib/api.js';
 import { webModules } from '../modules/index.js';
 import type { NavItem } from '../modules/types.js';
 import { AssistantPage } from './AssistantPage.js';
@@ -24,11 +24,13 @@ import { MeetingChatProvider } from './MeetingChat.js';
 import { Moved, MOVED_ROOTS } from './moved.js';
 import { NavProvider } from './useNav.js';
 import { Modules } from './Modules.js';
+import { People } from './People.js';
 import { Settings } from './Settings.js';
 import { DialogProvider } from './ui/Dialog.js';
 import { ToastProvider } from './ui/Toast.js';
 import { useDocumentTitle } from './useDocumentTitle.js';
 import { AuthProvider, useAuth } from './AuthProvider.js';
+import { clearSession, displayNameOf } from '../lib/auth.js';
 
 
 /**
@@ -118,15 +120,50 @@ function Shell() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [counts, setCounts] = useState<NavCounts>({});
   const [error, setError] = useState<string | null>(null);
+  /** Authenticated, and turned away by the platform — a deactivated or unlisted account. */
+  const [refused, setRefused] = useState<string | null>(null);
+  /** The session was rejected outright and has been dropped; say so on the sign-in screen. */
+  const [expired, setExpired] = useState(false);
 
   useEffect(() => {
     if (!user) return;
+    setRefused(null);
     Promise.all([api.get<NavItem[]>('/core/navigation'), api.get<CurrentUser>('/core/me')])
       .then(([n, m]) => {
         setNav(n);
         setMe(m);
       })
-      .catch((e: Error) => setError(e.message));
+      .catch((e: Error) => {
+        /*
+         * Three outcomes, and they are not the same failure.
+         *
+         * The old code treated all of them as an error banner over a shell that still
+         * believed you were signed in. With `/core/me` failed there was no `me`, and the
+         * avatar — the only route to Sign out — was rendered on `me`. So the one session
+         * you could not use was also the one you could not leave, and clearing the tab's
+         * storage by hand was the only way back to a sign-in screen.
+         */
+        if (isExpiredSession(e)) {
+          // The token is dead. Nothing is recoverable from it, so drop it and offer the
+          // sign-in screen — which is what clearing storage by hand accomplished.
+          setExpired(true);
+          /*
+           * No local `setUser` needed: removing the stored user raises `userUnloaded`, which
+           * AuthProvider already listens for and which sets `user` to null for the whole app.
+           * Going through the event rather than around it means every consumer agrees, and
+           * the API client stops sending the dead token on the next call.
+           */
+          void clearSession();
+          return;
+        }
+        if (isRefused(e)) {
+          // The token is fine; this account is not welcome. Signing in again returns the
+          // identical answer, so it must not be offered — only an explanation and a way out.
+          setRefused(e.message);
+          return;
+        }
+        setError(e.message);
+      });
 
     /*
      * Counts for the rail, and failing quietly on purpose.
@@ -146,6 +183,15 @@ function Shell() {
     return (
       <div className="centered">
         <h1>Finsera Platform</h1>
+        {/*
+          Why you are looking at this again, when you had not signed out.
+
+          Without it an expired session just drops you here with no explanation, which reads
+          as the app having forgotten you rather than as a session that ran its course.
+        */}
+        {expired && (
+          <p className="muted">Your session expired, so it has been signed out. Sign in to carry on.</p>
+        )}
         <button onClick={login}>Sign in</button>
         {authError && <p className="error">Sign-in failed: {authError}</p>}
       </div>
@@ -209,9 +255,11 @@ function Shell() {
             <ChromeLayout
               nav={nav}
               me={me}
+              fallbackName={displayNameOf(user)}
               counts={counts}
               onSearch={() => setSearchOpen(true)}
               error={error}
+              refused={refused}
               onLogout={logout}
             />
           }
@@ -235,6 +283,7 @@ function Shell() {
           {/* Before the :id route, or "starred" is read as a conversation id. */}
           <Route path="/assistant/starred" element={<Page><StarredAnswers /></Page>} />
           <Route path="/assistant/:id" element={<Page><AssistantPage /></Page>} />
+          <Route path="/settings/people" element={<Page width="wide"><People /></Page>} />
           <Route path="/settings/modules" element={<Page><Modules /></Page>} />
           <Route path="/settings" element={<Page width="read"><Settings /></Page>} />
           {/* Every address the app used to serve, before the URLs were named after the
@@ -271,23 +320,51 @@ function Shell() {
 function ChromeLayout({
   nav,
   me,
+  fallbackName,
   counts,
   error,
+  refused,
   onSearch,
   onLogout,
 }: {
   nav: NavItem[];
   me: CurrentUser | null;
+  fallbackName?: string;
   counts: NavCounts;
   error: string | null;
+  /** The token is good and the platform refused it anyway — see Shell. */
+  refused: string | null;
   onSearch: () => void;
   onLogout: () => void;
 }) {
   return (
     <div className="layout-top">
-      <TopNav nav={nav} counts={counts} me={me} onSearch={onSearch} onLogout={onLogout} />
+      <TopNav
+        nav={nav}
+        counts={counts}
+        me={me}
+        fallbackName={fallbackName}
+        onSearch={onSearch}
+        onLogout={onLogout}
+      />
 
       <main>
+        {/*
+          Refusal is not an error banner above a working page — nothing behind it works.
+          It says what happened, who it happened to, and leaves the avatar as the way out.
+        */}
+        {refused ? (
+          <div className="centered">
+            <h1>No access to the platform</h1>
+            <p className="muted">{refused}</p>
+            <p className="muted">
+              You are signed in as {fallbackName ?? 'this account'}, and the platform will not
+              let it in. Signing in again will reach the same answer — an administrator has to
+              restore the account. Sign out from the menu at the top right.
+            </p>
+          </div>
+        ) : (
+          <>
         {error && (
           <p className="error">
             API error: {error}
@@ -296,6 +373,8 @@ function ChromeLayout({
         )}
         <LivePill />
         <Outlet />
+          </>
+        )}
       </main>
 
     </div>

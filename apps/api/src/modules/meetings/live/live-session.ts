@@ -58,9 +58,11 @@ export class LiveSession {
   /**
    * Notes the assistant is keeping, revised as the meeting goes.
    *
-   * Held here rather than written straight to the document because it is rewritten
-   * wholesale every couple of minutes, and persisting each revision would fill the note's
-   * history with drafts nobody asked for.
+   * Held here as the working copy, and written into the document each time the note-taker
+   * revises it — see LiveRunner.writeNotes. It used to be held here and nowhere else until
+   * the recording stopped, on the theory that persisting each revision would fill the
+   * note's history with drafts; there is no persisted history of a note body for it to
+   * fill, and the cost of that theory was a meeting that appeared to take no notes at all.
    */
   aiNotes = '';
 
@@ -170,8 +172,44 @@ export class LiveSession {
     return added;
   }
 
+  /**
+   * Accept or dismiss a suggestion, while the meeting is still going.
+   *
+   * `status` has been on this type since the beginning and nothing ever changed it: every
+   * proposal was created `open` and stayed open until the recording stopped, at which point
+   * all of them were written down and you triaged the pile afterwards. Deciding in the
+   * moment is better because the context is still in the room — a week later you cannot
+   * tell a real commitment from something the model misheard.
+   *
+   * The rest of the pipeline already accounts for a decided proposal: `openProposals` is
+   * what the end-of-session write and the action-point creation both read, so dismissing
+   * keeps something out of the note and accepting stops it being added twice. Deciding one
+   * twice is a no-op rather than an error — two people in the room may press at once.
+   */
+  decide(proposalId: string, decision: 'accepted' | 'dismissed'): Proposal | null {
+    const proposal = this.proposals.find((p) => p.id === proposalId);
+    if (!proposal || proposal.status !== 'open') return null;
+    proposal.status = decision;
+    return proposal;
+  }
+
   get openProposals(): Proposal[] {
     return this.proposals.filter((p) => p.status === 'open');
+  }
+
+  /**
+   * Everything not thrown away — what the note should end up holding.
+   *
+   * Distinct from `openProposals`, and the distinction is load-bearing. Accepting a decision
+   * or a note means "yes, record that", so reading `openProposals` when writing the note
+   * would make accepting one the way to delete it. Undecided and accepted both belong in the
+   * note; only a dismissal keeps something out.
+   *
+   * Creating action points still reads `openProposals`, because an accepted action has
+   * already been created and adding it again would give you it twice.
+   */
+  get keptProposals(): Proposal[] {
+    return this.proposals.filter((p) => p.status !== 'dismissed');
   }
 
   get durationSeconds(): number {

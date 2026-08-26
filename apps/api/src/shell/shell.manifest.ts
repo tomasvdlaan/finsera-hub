@@ -27,6 +27,18 @@ export const coreManifest = defineManifest({
       // feed can never widen access — it only reorders what is reachable by time.
       adminOnly: false,
     },
+    {
+      capability: 'core.people.manage',
+      description: "Change a colleague's role, status, and what the business records about them.",
+      /*
+       * Admin only, and this is the clearest case for it in the product.
+       *
+       * The capability grants the power to make somebody else an administrator, which is the
+       * one permission that can be used to acquire every other permission. A member who could
+       * use it would not be a member.
+       */
+      adminOnly: true,
+    },
   ],
 
   aiTools: [

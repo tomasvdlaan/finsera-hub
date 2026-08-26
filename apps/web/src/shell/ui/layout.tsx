@@ -13,7 +13,7 @@ import { Link, NavLink } from 'react-router-dom';
  * - `read` — a document or a form. Capped at a comfortable measure, because a 1400px line of
  *   prose is unreadable however much room there is for it.
  */
-export type PageWidth = 'default' | 'wide' | 'read';
+export type PageWidth = 'default' | 'wide' | 'read' | 'full';
 
 /**
  * The page.

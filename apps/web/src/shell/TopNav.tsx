@@ -50,6 +50,7 @@ export function TopNav({
   nav,
   counts,
   me,
+  fallbackName,
   onSearch,
   onLogout,
 }: {
@@ -57,6 +58,17 @@ export function TopNav({
   nav: NavItem[];
   counts: NavCounts;
   me: CurrentUser | null;
+  /**
+   * Who the token says you are, for when the API will not say.
+   *
+   * `me` comes from `/core/me`, and gating the avatar on it meant that any failure of that
+   * one call — an expired token, a deactivated account, the API being down — removed the
+   * only route to Sign out along with it. The session was then unreachable from the UI and
+   * could only be cleared through developer tools, which is not a recovery path.
+   *
+   * This comes from the token already in hand, so it survives every one of those.
+   */
+  fallbackName?: string;
   onSearch: () => void;
   onLogout: () => void;
 }) {
@@ -64,6 +76,9 @@ export function TopNav({
   const { running, busy, stop } = useRunningTimer();
   const [menu, setMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  /* The API's answer when there is one, the token's when there is not. */
+  const name = me?.displayName ?? fallbackName;
 
   /*
    * Close on a click anywhere else, and on Escape.
@@ -176,7 +191,14 @@ export function TopNav({
           <span aria-hidden="true">✦</span>
         </button>
 
-        {me && (
+        {/*
+          Always, whenever there is a session at all.
+
+          Sign out is the one control that has to work when everything else has failed —
+          it is the way out of a session the server no longer accepts, and it was the first
+          thing to disappear when that happened.
+        */}
+        {name && (
           <div className="me" ref={menuRef}>
             <button
               type="button"
@@ -185,20 +207,36 @@ export function TopNav({
               aria-expanded={menu}
               onClick={() => setMenu((o) => !o)}
             >
-              {me.displayName.slice(0, 1).toUpperCase()}
+              {name.slice(0, 1).toUpperCase()}
             </button>
             {menu && (
               <div className="me-menu" role="menu">
                 <div className="me-who">
-                  <b>{me.displayName}</b>
-                  <span>{me.role}</span>
+                  <b>{name}</b>
+                  {/*
+                    The role comes from the API, so when the API is refusing us there is no
+                    role to state. Saying so is better than showing a blank line where one
+                    was: it explains why the pages behind this menu are empty.
+                  */}
+                  <span>{me ? me.role : 'Not signed in to the platform'}</span>
                 </div>
-                <NavLink to="/settings" role="menuitem" onClick={() => setMenu(false)}>
-                  Organisation
-                </NavLink>
-                <NavLink to="/settings/modules" role="menuitem" onClick={() => setMenu(false)}>
-                  Platform modules
-                </NavLink>
+                {/*
+                  The settings pages all read from the API, so they are dead ends while it
+                  is refusing us. Offering them would be offering three more error screens.
+                */}
+                {me && (
+                  <>
+                    <NavLink to="/settings" role="menuitem" onClick={() => setMenu(false)}>
+                      Organisation
+                    </NavLink>
+                    <NavLink to="/settings/people" role="menuitem" onClick={() => setMenu(false)}>
+                      People
+                    </NavLink>
+                    <NavLink to="/settings/modules" role="menuitem" onClick={() => setMenu(false)}>
+                      Platform modules
+                    </NavLink>
+                  </>
+                )}
                 <button type="button" role="menuitem" onClick={onLogout}>
                   Sign out
                 </button>

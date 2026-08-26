@@ -205,7 +205,9 @@ function AiTab({
    * item, so the persisted rows win — they are the ones with an accept button that works.
    */
   const liveOnly = live.proposals.filter(
-    (p) => p.kind !== 'action' || !proposed.some((a) => a.text === p.text),
+    // Decided ones are gone from here too: accepting turns an action into the row below,
+    // and dismissing means it was not wanted anywhere.
+    (p) => p.status === 'open' && (p.kind !== 'action' || !proposed.some((a) => a.text === p.text)),
   );
 
   return (

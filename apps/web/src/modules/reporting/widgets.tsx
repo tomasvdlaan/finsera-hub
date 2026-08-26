@@ -1,6 +1,6 @@
 import { Card, Figure } from '../../shell/ui/card.js';
 import { Skeleton } from '../../shell/ui/data.js';
-import { Split, Legend, Buckets, Bullet, Funnel, Timeline, type Slice } from '../../shell/ui/viz.js';
+import { Split, Legend, Buckets, Bullet, Horizon, type Slice } from '../../shell/ui/viz.js';
 import { useShared } from '../../lib/useShared.js';
 import { Empty } from '../../shell/ui/primitives.js';
 import type { WidgetDef } from '../types.js';
@@ -40,7 +40,7 @@ export const reportingWidgets: Record<string, WidgetDef> = {
     minSpan: 4,
     permission: 'reporting.read',
     Component: () => {
-      const { data, loading } = useShared<Overview>('/reporting/overview');
+      const { data, loading, error } = useShared<Overview>('/reporting/overview');
       const total = data?.outstanding?.totalCents ?? 0;
       const late = data?.outstanding?.overdueCents ?? 0;
       const slices: Slice[] = [
@@ -48,7 +48,7 @@ export const reportingWidgets: Record<string, WidgetDef> = {
         { label: 'Overdue', value: late, tone: 'var(--danger)' },
       ];
       return (
-        <Card to="/money/invoices" tone={late > 0 ? 'danger' : undefined}>
+        <Card to="/money/invoices" tone={late > 0 ? 'danger' : undefined} error={error}>
           {loading ? (
             <Skeleton height="3rem" />
           ) : (
@@ -80,9 +80,9 @@ export const reportingWidgets: Record<string, WidgetDef> = {
     minSpan: 3,
     permission: 'reporting.read',
     Component: () => {
-      const { data, loading } = useShared<Overview>('/reporting/overview');
+      const { data, loading, error } = useShared<Overview>('/reporting/overview');
       return (
-        <Card to="/reporting">
+        <Card to="/reporting" error={error}>
           {loading ? (
             <Skeleton height="3rem" />
           ) : (
@@ -102,12 +102,14 @@ export const reportingWidgets: Record<string, WidgetDef> = {
   'reporting:ar-aging': {
     title: 'Receivables, by age',
     description: 'What is owed, sorted by how long it has been owed. The bucket on the right is the one that phones people.',
+    // Hidden until there is something to show: nothing is owed until something is issued.
+    needs: ['issued_invoices', 1],
     slot: 'dashboard',
     defaultSpan: 6,
     minSpan: 4,
     permission: 'reporting.read',
     Component: () => {
-      const { data, loading } = useShared<Receivables>('/reporting/receivables');
+      const { data, loading, error } = useShared<Receivables>('/reporting/receivables');
       const a = data?.aging;
       const bins = [
         { label: 'Not yet due', value: a?.current.cents ?? 0, tone: 'var(--accent)' },
@@ -119,6 +121,7 @@ export const reportingWidgets: Record<string, WidgetDef> = {
       const owed = bins.reduce((n, b) => n + b.value, 0);
       return (
         <Card
+          error={error}
           title="Receivables, by age"
           sub={loading || owed === 0 ? undefined : late > 0 ? `${euros(late)} of it is past due` : 'nothing is past due'}
           tone={(a?.d60plus.cents ?? 0) > 0 ? 'danger' : undefined}
@@ -146,15 +149,18 @@ export const reportingWidgets: Record<string, WidgetDef> = {
   'reporting:who-pays-late': {
     title: 'Who pays late',
     description: 'Average days past the due date, per client — measured against their own terms, not against the calendar.',
+    // Hidden until there is something to show: an average over one invoice is that invoice.
+    needs: ['paid_invoices', 2],
     slot: 'dashboard',
     defaultSpan: 6,
     minSpan: 4,
     permission: 'reporting.read',
     Component: () => {
-      const { data, loading } = useShared<Receivables>('/reporting/receivables');
+      const { data, loading, error } = useShared<Receivables>('/reporting/receivables');
       const rows = data?.byClient ?? [];
       return (
         <Card
+          error={error}
           title="Who pays late"
           sub="Days past the due date, averaged. Negative is early."
           to="/money/invoices"
@@ -182,12 +188,14 @@ export const reportingWidgets: Record<string, WidgetDef> = {
   'reporting:budget-burn': {
     title: 'Every budget at once',
     description: 'Spend against budget for all projects, on one scale. A project with no budget says so rather than showing a bar.',
+    // Hidden until there is something to show: every row would say "no budget set".
+    needs: ['budgeted_projects', 1],
     slot: 'dashboard',
     defaultSpan: 6,
     minSpan: 4,
     permission: 'reporting.read',
     Component: () => {
-      const { data, loading } = useShared<Project[]>('/reporting/project-profitability');
+      const { data, loading, error } = useShared<Project[]>('/reporting/project-profitability');
       const rows = (data ?? []).map((p) => ({
         label: p.projectName,
         value: p.earnedCents,
@@ -195,7 +203,7 @@ export const reportingWidgets: Record<string, WidgetDef> = {
         note: p.clientName ?? undefined,
       }));
       return (
-        <Card title="Every budget at once" sub={`${rows.length} projects`} to="/reporting">
+        <Card title="Every budget at once" sub={`${rows.length} projects`} to="/reporting" error={error}>
           {loading ? <Skeleton height="5rem" /> : <Bullet rows={rows} format={euros} />}
         </Card>
       );
@@ -205,29 +213,52 @@ export const reportingWidgets: Record<string, WidgetDef> = {
   /* ── Business owner ───────────────────────────────────────────────────── */
 
   'reporting:pipeline-funnel': {
-    title: 'Pipeline, stage by stage',
-    description: 'Quoted, sent, accepted — and what fell out between them.',
+    title: 'Quotes by state',
+    description: 'What is drafted, out, and signed right now. A snapshot, not a conversion rate.',
     slot: 'dashboard',
     defaultSpan: 6,
     minSpan: 4,
     permission: 'reporting.read',
     Component: () => {
-      const { data, loading } = useShared<{
+      const { data, loading, error } = useShared<{
         byStatus: Record<string, { count: number; exVatCents: number } | undefined>;
       }>('/reporting/pipeline');
       const at = (key: string) => data?.byStatus?.[key];
-      const stages = [
-        { label: 'Drafted', key: 'draft' },
-        { label: 'Sent', key: 'sent' },
-        { label: 'Accepted', key: 'accepted' },
+      /*
+       * Bins, not a funnel — and this is a correction rather than a preference.
+       *
+       * /reporting/pipeline is `GROUP BY status` over current rows: a snapshot of mutually
+       * exclusive states. A funnel renders "% of above", which asserts that the drafted quotes
+       * became the sent ones. They did not; they are a different set of quotes, today. Nothing
+       * in this system tracks a quote's cohort over time, so the conversion rate the funnel
+       * displayed was a number the data cannot support.
+       */
+      const bins = [
+        { label: 'Drafted', key: 'draft', tone: 'var(--info)' },
+        { label: 'Sent', key: 'sent', tone: 'var(--warning)' },
+        { label: 'Accepted', key: 'accepted', tone: 'var(--accent)' },
       ].map((st) => ({
-        label: st.label,
+        label: `${st.label}${at(st.key)?.count ? ` · ${at(st.key)!.count}` : ''}`,
         value: Number(at(st.key)?.exVatCents ?? 0),
-        count: at(st.key)?.count ?? 0,
+        tone: st.tone,
       }));
+      const out = bins.reduce((n, b) => n + b.value, 0);
       return (
-        <Card title="Pipeline, stage by stage" to="/money/quotes">
-          {loading ? <Skeleton height="6rem" /> : <Funnel stages={stages} format={euros} />}
+        <Card
+          error={error}
+          title="Quotes by state"
+          sub={loading || out === 0 ? undefined : `${euros(out)} of quotes exist right now`}
+          to="/money/quotes"
+        >
+          {loading ? (
+            <Skeleton height="6rem" />
+          ) : out === 0 ? (
+            <Empty>No quotes yet.</Empty>
+          ) : (
+            <div className="card-fill">
+              <Buckets bins={bins} format={euros} />
+            </div>
+          )}
         </Card>
       );
     },
@@ -236,12 +267,14 @@ export const reportingWidgets: Record<string, WidgetDef> = {
   'reporting:client-concentration': {
     title: 'How much rides on one client',
     description: 'Revenue share per client. The number a consultancy should look at before it feels the problem.',
+    // Hidden until there is something to show: concentration needs revenue to concentrate.
+    needs: ['paid_invoices', 1],
     slot: 'dashboard',
     defaultSpan: 6,
     minSpan: 4,
     permission: 'reporting.read',
     Component: () => {
-      const { data, loading } = useShared<{
+      const { data, loading, error } = useShared<{
         // The row is passed through from the view, so the keys stay snake_case — only
         // ex_vat_cents is converted from the bigint string Postgres returns.
         byClient?: Array<{ client_name: string; ex_vat_cents: number }>;
@@ -259,6 +292,7 @@ export const reportingWidgets: Record<string, WidgetDef> = {
       }));
       return (
         <Card
+          error={error}
           title="How much rides on one client"
           sub={biggest ? `${biggest.client_name} is ${share}% of the year` : undefined}
           // Above about half the year from one client, losing them is not a bad quarter.
@@ -283,17 +317,20 @@ export const reportingWidgets: Record<string, WidgetDef> = {
   'reporting:whats-ending': {
     title: 'What is ending',
     description: 'Contracts and projects reaching their end date in the next quarter, on a scale — three in one week is a different problem from three in a quarter.',
+    // Hidden until there is something to show: a horizon with no events is a rule.
+    needs: ['ending_contracts', 1],
     slot: 'dashboard',
     defaultSpan: 6,
     minSpan: 4,
     permission: 'reporting.read',
     Component: () => {
-      const { data, loading } = useShared<
+      const { data, loading, error } = useShared<
         Array<{ id: string; title: string; endsOn: string; clientName: string | null; daysUntilEnd: number }>
       >('/reporting/renewals');
       const rows = data ?? [];
       return (
         <Card
+          error={error}
           title="What is ending"
           sub={loading ? undefined : `${rows.length} in the next 90 days`}
           to="/money/contracts"
@@ -302,7 +339,7 @@ export const reportingWidgets: Record<string, WidgetDef> = {
             <Skeleton height="4rem" />
           ) : (
             <>
-              <Timeline
+              <Horizon
                 events={rows.map((r) => ({ date: r.endsOn, label: r.title, tone: 'var(--warning)' }))}
                 days={90}
               />

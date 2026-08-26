@@ -34,7 +34,49 @@ export const userManager = new UserManager({
 });
 
 export const login = () => userManager.signinRedirect();
-export const logout = () => userManager.signoutRedirect();
+
+/**
+ * Drop the stored session without going anywhere.
+ *
+ * What clearing the tab's storage by hand used to do, which was the only way out of a stale
+ * session: the app trusted whatever was stored, the API rejected it, and every screen
+ * failed while the shell went on believing you were signed in. `signoutRedirect` is not the
+ * same thing — it needs the identity provider to still recognise the session, which for an
+ * expired or revoked one it may not, and it navigates away before the reason can be read.
+ */
+export const clearSession = () => userManager.removeUser();
+/**
+ * Sign out, and end up signed out either way.
+ *
+ * `signoutRedirect` asks the identity provider to end its own session, which is the right
+ * thing to do and is also the thing most likely to fail on a session worth ending — a
+ * revoked or expired token may have no `id_token_hint` the provider will still accept.
+ * Letting that reject would leave the stored session in place, which is the trap this whole
+ * change is about: the sign-out button not signing you out.
+ *
+ * So the local session is dropped whatever happens. The worst case is a provider session
+ * outliving the app's, which the next sign-in resolves; the alternative worst case was a
+ * user who cannot leave.
+ */
+export const logout = async () => {
+  try {
+    await userManager.signoutRedirect();
+  } catch {
+    await userManager.removeUser();
+  }
+};
 export const getUser = (): Promise<User | null> => userManager.getUser();
+
+/**
+ * What to call the person holding this token.
+ *
+ * Read from the ID token, so it is available before — and regardless of whether — the API
+ * agrees to say anything about them. Falls through the claims Zitadel may or may not have
+ * been asked for, and gives up rather than inventing a name.
+ */
+export function displayNameOf(user: User | null): string | undefined {
+  const p = user?.profile;
+  return p?.name ?? p?.preferred_username ?? p?.email ?? undefined;
+}
 
 // The API client lives in lib/api.ts — it consumes getUser() for the bearer token.

@@ -22,7 +22,7 @@ const session = (over: Partial<SessionSummary> = {}): SessionSummary => ({
   aiNotes: '',
   state: { summary: '', decisions: [], openQuestions: [] },
   lines: [line(0, 'Hello')],
-  openProposals: [],
+  keptProposals: [],
   startedAt: new Date('2026-07-29T14:35:00'),
   ...over,
 });
@@ -43,7 +43,7 @@ const applyTo = (body: string, over: Partial<SessionSummary> = {}): string => {
 describe('applySession', () => {
   it('records the proposals that are not actions', () => {
     const body = applyTo('', {
-      openProposals: [
+      keptProposals: [
         proposal('action', 'Send the dataset'),
         proposal('note', 'They are on Snowflake now'),
         proposal('decision', 'Weekly rather than daily refresh'),
@@ -57,7 +57,7 @@ describe('applySession', () => {
   });
 
   it('leaves actions out of the body, because they become action points', () => {
-    const body = applyTo('', { openProposals: [proposal('action', 'Send the dataset')] });
+    const body = applyTo('', { keptProposals: [proposal('action', 'Send the dataset')] });
 
     expect(body).not.toContain('Send the dataset');
     expect(body).not.toContain('Suggested by the assistant');

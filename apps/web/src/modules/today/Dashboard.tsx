@@ -20,7 +20,7 @@ import { Button } from '../../shell/ui/primitives.js';
 import { useToast } from '../../shell/ui/Toast.js';
 import { api } from '../../lib/api.js';
 import { useDocumentTitle } from '../../shell/useDocumentTitle.js';
-import { libraryFor, resolve, settingsFor, type Placement } from '../../shell/widgets.js';
+import { hiddenCount, libraryFor, resolve, settingsFor, type Placement } from '../../shell/widgets.js';
 import type { Span, WidgetDef } from '../types.js';
 import { WidgetSettings } from './WidgetSettings.js';
 import { DayStrip } from './DayStrip.js';
@@ -123,8 +123,16 @@ export function Dashboard() {
   const [picking, setPicking] = useState(false);
   const [configuring, setConfiguring] = useState<string | null>(null);
   const [error, setError] = useState<string>();
+  /** Counts, so the picker can hide what cannot say anything yet. See widgets.ts. */
+  const [volume, setVolume] = useState<Record<string, number>>();
 
   useEffect(() => {
+    api
+      .get<Record<string, number>>('/core/volume')
+      .then(setVolume)
+      // A picker that offers everything is a worse failure than one that offers too much, so
+      // this failing quietly leaves the library unfiltered rather than empty.
+      .catch(() => setVolume(undefined));
     api
       .get<{ layout: Placement[]; custom: boolean }>('/core/dashboard')
       .then((d) => {
@@ -162,7 +170,8 @@ export function Dashboard() {
   if (!layout) return <p className="muted">Loading…</p>;
 
   const placed = resolve(layout);
-  const library = libraryFor('dashboard', () => true);
+  const library = libraryFor('dashboard', () => true, volume);
+  const hidden = hiddenCount('dashboard', volume);
   const configuringPair = placed.find((p) => p.placement.id === configuring);
 
   const onDragEnd = (e: DragEndEvent) => {
@@ -242,7 +251,27 @@ export function Dashboard() {
               onSpan={(span) =>
                 persist(layout.map((p) => (p.id === placement.id ? { ...p, span } : p)))
               }
-              onRemove={() => persist(layout.filter((p) => p.id !== placement.id))}
+              onRemove={() => {
+                /*
+                 * Removable in one click, recoverable in one click.
+                 *
+                 * A configured widget — settings, span, position — was gone for good on a
+                 * misclick, and the only recovery was Reset, which throws away the whole
+                 * layout to undo one mistake. The undo carries the placement itself, so it
+                 * comes back where it was rather than appended to the end.
+                 */
+                const gone = layout.find((p) => p.id === placement.id);
+                const at = layout.findIndex((p) => p.id === placement.id);
+                persist(layout.filter((p) => p.id !== placement.id));
+                toast.ok(`${def.title} removed`, {
+                  undo: () => {
+                    if (!gone) return;
+                    const back = [...layout.filter((p) => p.id !== placement.id)];
+                    back.splice(at, 0, gone);
+                    persist(back);
+                  },
+                });
+              }}
               onSettings={() => setConfiguring(placement.id)}
             />
           ))}
@@ -263,6 +292,12 @@ export function Dashboard() {
             <h2>Add a widget</h2>
             <button type="button" onClick={() => setPicking(false)} aria-label="Close">✕</button>
           </div>
+          {hidden > 0 && (
+            <p className="library-hidden">
+              {hidden} more {hidden === 1 ? 'widget appears' : 'widgets appear'} once there is
+              enough data for {hidden === 1 ? 'it' : 'them'} to mean something.
+            </p>
+          )}
           <ul className="library">
             {library.map(({ key, def }) => (
               <li key={key}>

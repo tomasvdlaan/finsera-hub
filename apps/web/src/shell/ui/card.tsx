@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
+import { Meter, Spark } from './viz.js';
 
 /**
  * What a card is about, when it is about something.
@@ -27,12 +28,24 @@ export function Card({
   span,
   to,
   aside,
+  name,
   live,
+  loading,
+  error,
   children,
 }: {
   title?: ReactNode;
   /** One line under the title. Not a paragraph — those go in the body. */
   sub?: ReactNode;
+  /**
+   * What to call this card when it has no visible title.
+   *
+   * A counter is `<Card to="/work">` with a `Figure` inside, so the card itself has no title
+   * and the link fell back to the literal string "Open" — four cards in the tab order all
+   * announcing themselves as "Open", which tells a screen-reader user nothing about which of
+   * the four they are on. The figure's own label is the honest name.
+   */
+  name?: string;
   tone?: Tone;
   /** Columns on the twelve-column page grid. */
   span?: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 12;
@@ -48,10 +61,26 @@ export function Card({
    * colour on liveness only works while liveness is rare, so it is a boolean and not a tone.
    */
   live?: boolean;
+  /**
+   * The request behind this card, so the card draws its own waiting and failure.
+   *
+   * Every widget was doing this by hand, and nine of them dropped `error` entirely — so a
+   * failed `/time/recent` rendered "0h 00m · every billable hour is against a card". Not a
+   * blank widget: a confidently wrong one, which is worse than a broken one because the
+   * reader has already believed it.
+   *
+   * Passing the pair here means no widget decides how failure looks, and none can forget to.
+   */
+  loading?: boolean;
+  error?: string;
   children?: ReactNode;
 }) {
   const arrow = to ? (
-    <Link to={to} className="card-out" aria-label={typeof title === 'string' ? title : 'Open'}>
+    <Link
+              to={to}
+              className="card-out"
+              aria-label={name ?? (typeof title === 'string' ? title : 'Open')}
+            >
       <span aria-hidden="true">↗</span>
     </Link>
   ) : null;
@@ -76,7 +105,19 @@ export function Card({
         whitespace with no reading in it. Cornered instead.
       */}
       {to && !aside && !title && <div className="card-corner">{arrow}</div>}
-      {children}
+      {/*
+        Order matters: an error outranks a skeleton, because a request that failed is not
+        still arriving and a spinner that never resolves is the worst of the three states.
+      */}
+      {error ? (
+        <p className="card-failed">{error}</p>
+      ) : loading ? (
+        /* Fills the card rather than guessing a height. Nine hand-picked skeleton heights
+           across two files meant every load ended in a reflow as the real content landed. */
+        <span className="skeleton card-waiting" aria-hidden="true" />
+      ) : (
+        children
+      )}
     </div>
   );
 }
@@ -94,6 +135,9 @@ export function Figure({
   unit,
   note,
   size,
+  trail,
+  of,
+  tone,
 }: {
   label: string;
   value: string | number;
@@ -101,7 +145,37 @@ export function Figure({
   note?: ReactNode;
   /** The page's one hero figure, if it has one. */
   size?: 'hero';
+  /**
+   * The same measure over recent time.
+   *
+   * A counter answers "how many" and is always asked "is that normal" — a question one number
+   * cannot answer at all. Every span-3 tile in this library was label, number, prose, and none
+   * of them carried a comparison, which is most of what made a row of them read as flat.
+   *
+   * Costs nothing to fetch: the widgets that have a trail already hold the series they slice
+   * the current value out of.
+   */
+  trail?: number[];
+  /** A denominator, where an honest one exists. Never invented — see Meter. */
+  of?: number;
+  tone?: string;
 }) {
+  /*
+   * The slot exists whether or not it has anything in it.
+   *
+   * Reserved rather than conditional so a row of tiles bottom-aligns on one baseline: the
+   * previous version let content sit at three different heights while the chart cards below
+   * all aligned, and that mismatch is visible even when you cannot name it. A tile with no
+   * honest comparison keeps an empty slot and stays a bare number, which is the correct
+   * outcome and now a deliberate-looking one.
+   */
+  const comparison =
+    trail && trail.length > 1 ? (
+      <Spark points={trail} height={26} fill={false} tone={tone ?? 'var(--accent)'} />
+    ) : of !== undefined && of > 0 ? (
+      <Meter value={typeof value === 'number' ? value : 0} of={of} tone={tone} />
+    ) : null;
+
   return (
     <>
       <div className="card-label">{label}</div>
@@ -110,6 +184,9 @@ export function Figure({
         {unit && <span className="unit">{unit}</span>}
       </div>
       {note && <div className="card-note">{note}</div>}
+      <div className="card-compare" data-empty={comparison === null || undefined}>
+        {comparison}
+      </div>
     </>
   );
 }

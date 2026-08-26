@@ -31,11 +31,11 @@ export const meetingsWidgets: Record<string, WidgetDef> = {
     permission: 'meetings.read',
     settings: [ROWS],
     Component: ({ settings }) => {
-      const { data, loading } = useShared<{ notes?: Note[] } | Note[]>('/meetings');
+      const { data, loading, error } = useShared<{ notes?: Note[] } | Note[]>('/meetings');
       const all = Array.isArray(data) ? data : (data?.notes ?? []);
       const rows = all.slice(0, Math.max(1, Math.min(15, Number(settings.rows) || 5)));
       return (
-        <Card title="Recent meetings" to="/meetings">
+        <Card title="Recent meetings" to="/meetings" error={error}>
           {loading ? (
             <Skeleton height="4rem" />
           ) : rows.length === 0 ? (
@@ -88,7 +88,7 @@ export const meetingsWidgets: Record<string, WidgetDef> = {
     minSpan: 4,
     permission: 'meetings.write',
     Component: () => {
-      const { data, loading } = useShared<
+      const { data, loading, error } = useShared<
         Array<{ id: string; text: string; noteId: string; noteTitle: string; dueOn: string | null; projectId: string | null }>
       >('/meetings/open-actions');
       const projects = useShared<Array<{ id: string; name: string }>>('/crm/projects');
@@ -104,6 +104,7 @@ export const meetingsWidgets: Record<string, WidgetDef> = {
          * three screens away.
          */
         <Card
+          error={error}
           title="Came out of a meeting"
           sub={loading ? undefined : rows.length === 0 ? undefined : `${rows.length} proposed, none decided`}
           tone={rows.length > 0 ? 'info' : undefined}
@@ -182,7 +183,7 @@ export const meetingsWidgets: Record<string, WidgetDef> = {
     permission: 'meetings.write',
     Component: () => {
       const navigate = useNavigate();
-      const { data, loading } = useShared<{ notes?: Note[] } | Note[]>('/meetings');
+      const { data, loading, error } = useShared<{ notes?: Note[] } | Note[]>('/meetings');
       const all = Array.isArray(data) ? data : (data?.notes ?? []);
       const today = new Date().toISOString().slice(0, 10);
       // Today onwards, soonest first. A meeting note is created before the meeting happens,
@@ -192,7 +193,7 @@ export const meetingsWidgets: Record<string, WidgetDef> = {
         .sort((a, b) => (a.meetingDate ?? '').localeCompare(b.meetingDate ?? ''))[0];
 
       return (
-        <Card title="Next meeting" live={next?.meetingDate === today}>
+        <Card title="Next meeting" live={next?.meetingDate === today} error={error}>
           {loading ? (
             <Skeleton height="3rem" />
           ) : !next ? (

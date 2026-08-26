@@ -28,6 +28,7 @@ import type { LlmService } from '../../../core/llm/llm.service.js';
 import type { TtsService } from '../../../core/llm/tts.service.js';
 import { LiveRegistry } from './live-registry.service.js';
 import { NoteDocService } from '../doc/note-doc.service.js';
+import { appendMarkdown } from '../doc/note-edit.js';
 import { LiveRunner } from './live-runner.service.js';
 import { LiveSession } from './live-session.js';
 import type { LiveService } from './live.service.js';
@@ -287,6 +288,211 @@ describe('LiveRunner', () => {
     await events.onSegment(segment('Marieke', '7'));
     await waitFor(() => live.extract.mock.calls.length > 0, { label: 'the extraction pass' });
     expect(live.extract).toHaveBeenCalledOnce();
+  });
+
+  // ── deciding a suggestion while it can still be decided ──
+
+  /**
+   * `Proposal.status` has existed since the type was written and nothing ever changed it.
+   * Every suggestion was created open and stayed open until the recording stopped, when all
+   * of them were written down at once — so the agent's contribution arrived as a pile of
+   * homework at the moment the meeting ended and the context for judging it had gone.
+   */
+  const withProposal = async (kind: 'action' | 'decision' = 'action') => {
+    const note = await noteWithConsent();
+    const session = new LiveSession(note.id, actor.userId);
+    sessions.start(note.id, session);
+    // A recording that captured nothing is not written up at all — stop() returns early —
+    // so without a line these tests would assert against an empty body and pass whatever
+    // the code did.
+    session.addLine('We should send them the drill-down.', { id: '7', name: 'Marieke' });
+    const [proposal] = session.mergeProposals(
+      [{ kind, text: 'Send DocHorse the supplier drill-down' }],
+      // Any unique id: a live proposal is in-memory until it is accepted, and only then
+      // does it become a row with a registry id of its own.
+      () => crypto.randomUUID(),
+    );
+    return { note, session, proposal: proposal! };
+  };
+
+  it('turns an accepted action into an action point there and then', async () => {
+    const { note, session, proposal } = await withProposal();
+
+    await runner.decideProposal(actor, note.id, proposal.id, 'accepted');
+
+    const after = await meetings.get(actor, note.id);
+    expect(after.actionItems).toHaveLength(1);
+    expect(after.actionItems[0]!.text).toBe('Send DocHorse the supplier drill-down');
+    // Marked, so it is not created a second time when the meeting stops.
+    expect(session.openProposals).toHaveLength(0);
+  });
+
+  it('does not add an accepted action twice when the meeting then stops', async () => {
+    const { note, proposal } = await withProposal();
+    sessions.attachCapture(note.id, joined);
+    await runner.decideProposal(actor, note.id, proposal.id, 'accepted');
+
+    await runner.stop(actor, note.id);
+
+    const after = await meetings.get(actor, note.id);
+    expect(after.actionItems).toHaveLength(1);
+  });
+
+  it('keeps a dismissed suggestion out of the note entirely', async () => {
+    const { note, proposal } = await withProposal('decision');
+    sessions.attachCapture(note.id, joined);
+    await runner.decideProposal(actor, note.id, proposal.id, 'dismissed');
+
+    await runner.stop(actor, note.id);
+
+    const body = await docs.markdown(note.id);
+    expect(body).not.toContain('supplier drill-down');
+  });
+
+  it('writes an accepted decision into the note rather than deleting it', async () => {
+    /*
+     * The inversion this guards against. The end-of-session write read `openProposals`, so
+     * accepting a decision — saying "yes, record that" — would have been the one way to
+     * make sure it was never recorded. Undecided and accepted both belong in the note.
+     */
+    const { note, proposal } = await withProposal('decision');
+    sessions.attachCapture(note.id, joined);
+    await runner.decideProposal(actor, note.id, proposal.id, 'accepted');
+
+    await runner.stop(actor, note.id);
+
+    expect(await docs.markdown(note.id)).toContain('supplier drill-down');
+  });
+
+  it('treats deciding the same suggestion twice as agreement, not an error', async () => {
+    // Two people in the room, one suggestion, both press. The second press must not create
+    // a second action point, and must not fail in front of the client either.
+    const { note, proposal } = await withProposal();
+
+    const first = await runner.decideProposal(actor, note.id, proposal.id, 'accepted');
+    const second = await runner.decideProposal(actor, note.id, proposal.id, 'dismissed');
+
+    expect(first.decided).toBe(true);
+    expect(second.decided).toBe(false);
+    const after = await meetings.get(actor, note.id);
+    expect(after.actionItems).toHaveLength(1);
+  });
+
+  it('refuses to decide anything on a meeting that is not being recorded', async () => {
+    const note = await noteWithConsent();
+    await expect(
+      runner.decideProposal(actor, note.id, 'whatever', 'accepted'),
+    ).rejects.toThrow(/not being recorded/i);
+  });
+
+  // ── notes while it is still happening ──
+
+  /**
+   * The complaint this answers: the agent appeared to take no notes at all and then put
+   * everything down at once when the meeting ended.
+   *
+   * It was taking them the whole time — the note-taker revises its section every ninety
+   * seconds — but they were held in memory and pushed to the panel, and the document was
+   * only written on stop. Notes you cannot see in the note are not notes yet.
+   */
+  it('writes the assistant’s notes into the note while the meeting is still running', async () => {
+    const note = await noteWithConsent();
+    const session = new LiveSession(note.id, actor.userId);
+    sessions.start(note.id, session);
+    const events = runner.eventsFor(actor, note.id, session);
+
+    testBehaviour.shouldRun.mockReturnValue(true);
+    testBehaviour.run.mockImplementation(async (ctx: { session: LiveSession }) => {
+      ctx.session.aiNotes = '- DocHorse asked for a supplier drill-down';
+      return { reason: 'Notes updated' };
+    });
+
+    await events.onSegment(segment('Marieke', '7'));
+
+    // Nothing has been stopped. The recording is still open.
+    expect(sessions.get(note.id)).toBeDefined();
+    await waitFor(
+      async () => (await docs.markdown(note.id)).includes('supplier drill-down'),
+      { label: 'the notes to reach the document' },
+    );
+
+    const body = await docs.markdown(note.id);
+    expect(body).toContain('Notes from the meeting');
+  });
+
+  it('leaves everything outside its own heading alone', async () => {
+    // Somebody typing their own summary during the meeting must keep it. This is why the
+    // write replaces one section by heading rather than setting the body.
+    const note = await noteWithConsent();
+    await docs.edit(note.id, actor, (tr) => appendMarkdown(tr, '## Mine\n\nDo not touch this.'));
+
+    const session = new LiveSession(note.id, actor.userId);
+    sessions.start(note.id, session);
+    const events = runner.eventsFor(actor, note.id, session);
+
+    testBehaviour.shouldRun.mockReturnValue(true);
+    testBehaviour.run.mockImplementation(async (ctx: { session: LiveSession }) => {
+      ctx.session.aiNotes = '- A point the agent heard';
+      return { reason: 'Notes updated' };
+    });
+    await events.onSegment(segment('Marieke', '7'));
+
+    await waitFor(
+      async () => (await docs.markdown(note.id)).includes('A point the agent heard'),
+      { label: 'the notes to reach the document' },
+    );
+    expect(await docs.markdown(note.id)).toContain('Do not touch this.');
+  });
+
+  it('does not rewrite a section that has not changed', async () => {
+    /*
+     * A quiet meeting leaves `aiNotes` untouched, and rewriting it anyway would commit a
+     * no-op revision every ninety seconds for as long as nobody said anything.
+     */
+    const note = await noteWithConsent();
+    const session = new LiveSession(note.id, actor.userId);
+    sessions.start(note.id, session);
+    const events = runner.eventsFor(actor, note.id, session);
+
+    testBehaviour.shouldRun.mockReturnValue(true);
+    testBehaviour.run.mockImplementation(async (ctx: { session: LiveSession }) => {
+      ctx.session.aiNotes = 'Same notes, unrevised';
+      return { reason: 'Notes updated' };
+    });
+
+    await events.onSegment(segment('Marieke', '7'));
+    await waitFor(
+      async () => (await docs.markdown(note.id)).includes('Same notes, unrevised'),
+      { label: 'the first write' },
+    );
+
+    const edit = vi.spyOn(docs, 'edit');
+    await events.onSegment(segment('Marieke', '7'));
+    await events.onSegment(segment('Marieke', '7'));
+    expect(edit).not.toHaveBeenCalled();
+    edit.mockRestore();
+  });
+
+  it('keeps recording when the notes cannot be written', async () => {
+    // Liveness is the thing at risk here, never the meeting. The end-of-session write
+    // covers the same section from the same source.
+    const note = await noteWithConsent();
+    const session = new LiveSession(note.id, actor.userId);
+    sessions.start(note.id, session);
+    const events = runner.eventsFor(actor, note.id, session);
+
+    testBehaviour.shouldRun.mockReturnValue(true);
+    testBehaviour.run.mockImplementation(async (ctx: { session: LiveSession }) => {
+      ctx.session.aiNotes = 'Notes that will not land';
+      return { reason: 'Notes updated' };
+    });
+    const edit = vi.spyOn(docs, 'edit').mockRejectedValue(new Error('document unavailable'));
+
+    await events.onSegment(segment('Marieke', '7'));
+
+    expect(sessions.get(note.id)).toBeDefined();
+    expect(session.lines).toHaveLength(1);
+    edit.mockRestore();
   });
 
   // ── what survives ──
