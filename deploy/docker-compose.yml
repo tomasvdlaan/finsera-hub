@@ -39,6 +39,15 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       ZITADEL_ISSUER: ${ZITADEL_ISSUER}
       ZITADEL_CLIENT_ID: ${ZITADEL_CLIENT_ID}
+      # The rest of the auth configuration, which used to stop at the two above — so a
+      # deployed instance could not name its project, could not rename either role, and
+      # ran a portal that refused every request for want of its own client id.
+      ZITADEL_PORTAL_CLIENT_ID: ${ZITADEL_PORTAL_CLIENT_ID:-}
+      ZITADEL_INTERNAL_ROLE: ${ZITADEL_INTERNAL_ROLE:-internal}
+      ZITADEL_PORTAL_ROLE: ${ZITADEL_PORTAL_ROLE:-portal_client}
+      ZITADEL_PROJECT_ID: ${ZITADEL_PROJECT_ID:-}
+      # No default: unset leaves the gate enforced, which is the point of it (G6).
+      PORTAL_ROLE_CHECK: ${PORTAL_ROLE_CHECK:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY:-}
       MODEL_STRONG: ${MODEL_STRONG:-anthropic:claude-opus-4-8}

@@ -9,13 +9,16 @@ RUN corepack enable pnpm
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
 COPY packages/config/package.json packages/config/
 COPY packages/contracts/package.json packages/contracts/
+COPY packages/note-doc/package.json packages/note-doc/
 COPY apps/api/package.json apps/api/
 COPY apps/web/package.json apps/web/
 RUN pnpm install --frozen-lockfile
 
 COPY packages packages
 COPY apps/api apps/api
-RUN pnpm --filter @platform/contracts build && pnpm --filter @platform/api build
+# Every workspace package that publishes a build, rather than a hand-listed one:
+# note-doc was added after this file was written and silently went unbuilt.
+RUN pnpm -r --filter "./packages/*" run build && pnpm --filter @platform/api build
 
 # Production dependency tree only, hoisted into apps/api/node_modules so the runtime
 # stage needs no pnpm and no symlink farm.
