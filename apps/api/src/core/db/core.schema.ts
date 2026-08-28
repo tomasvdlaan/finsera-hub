@@ -473,8 +473,16 @@ export const mentions = core.table(
      * notification becomes something people turn off.
      */
     uniqueIndex('mentions_once').on(t.commentId, t.userId),
-    /* Naming yourself is not a message. Enforced here so no caller can decide otherwise. */
-    check('mentions_not_self', sql`${t.userId} <> ${t.authorId}`),
+    /*
+     * Naming yourself is allowed.
+     *
+     * It was forbidden here at first, on the reasoning that a message to yourself is not a
+     * message. That is true of an automatic notification and false of a deliberate one: `@me
+     * chase this Friday` is a reminder somebody typed on purpose, and on a team this size the
+     * inbox is also a personal queue. Forbidding it also meant the whole feature was
+     * unusable until a second person signed in, which is a poor property for a thing you
+     * cannot otherwise test.
+     */
   ],
 );
 

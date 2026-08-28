@@ -70,9 +70,9 @@ export class MentionService {
       userIds: string[];
     },
   ): Promise<void> {
-    // Naming yourself is not a message — the check constraint agrees, and this keeps the
-    // insert from tripping it.
-    const named = [...new Set(input.userIds)].filter((id) => id !== input.authorId);
+    // Yourself included: see the note on `mentions_not_self` in the schema for why a
+    // deliberate note-to-self is a reminder rather than noise.
+    const named = [...new Set(input.userIds)];
     if (named.length === 0) return;
 
     await tx

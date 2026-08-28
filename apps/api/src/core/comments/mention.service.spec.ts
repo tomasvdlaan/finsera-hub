@@ -40,9 +40,10 @@ function manifests() {
  *
  * The store exists because the Inbox is an insights engine — rules that sweep views and
  * resolve when the world changes — and a mention resolves when a person has read it. What is
- * worth testing is not that a row appears: it is the four ways a notification stops being
- * trustworthy, which are notifying twice, notifying yourself, notifying about something that
- * is no longer there, and letting one person clear another's.
+ * worth testing is not that a row appears: it is the ways a notification stops being
+ * trustworthy — notifying twice, notifying about something that is no longer there, letting
+ * one person clear another's, and naming somebody who merely joined in rather than being
+ * addressed.
  */
 describe('mentions', () => {
   let comments: CommentService;
@@ -93,9 +94,19 @@ describe('mentions', () => {
     expect(await mentions.listFor(tomas)).toHaveLength(0);
   });
 
-  it('does not notify you about your own comment', async () => {
-    // The check constraint says the same thing, so this is testing that nothing tries.
-    await comments.add(tomas, { subjectId: subject, body: 'Note to self — @Tomas do the thing' });
+  it('lets you leave yourself a reminder', async () => {
+    /*
+     * Deliberately allowed. An automatic self-notification would be noise; a name you typed
+     * yourself is a reminder, and on a team this size the inbox is also a personal queue.
+     * It is also the only way the feature can be exercised before a second person signs in.
+     */
+    await comments.add(tomas, { subjectId: subject, body: 'Note to self — @Tomas chase Friday' });
+    expect(await mentions.listFor(tomas)).toHaveLength(1);
+  });
+
+  it('does not name you just because you joined in', async () => {
+    // The distinction that matters: writing in a thread is not being addressed in it.
+    await comments.add(tomas, { subjectId: subject, body: 'Looks fine to me' });
     expect(await mentions.listFor(tomas)).toHaveLength(0);
   });
 

@@ -8660,10 +8660,16 @@ a.btn { text-decoration: none; }
  * Sticky, because the board below it is now tall enough to scroll and the controls that act
  * on it should not scroll away from it.
  */
+/*
+ * Not sticky, deliberately.
+ *
+ * It was, at `top: 0`, which put it exactly where `.topbar` already sticks — and the top bar
+ * carries a higher z-index, so the toolbar slid underneath it and vanished the moment the
+ * page moved. Sticking it below the bar means hard-coding the bar's height, which is a number
+ * that changes the next time the avatar does. The board is about one screen tall now, so
+ * there is little to scroll past and nothing to solve.
+ */
 .board-toolbar {
-  position: sticky;
-  top: 0;
-  z-index: 5;
   display: flex;
   align-items: center;
   gap: var(--space-2);
@@ -8794,27 +8800,33 @@ a.btn { text-decoration: none; }
    The task, over the board
    ========================================================================================== */
 
-.task-scrim {
-  position: fixed;
-  inset: 0;
-  z-index: 60;
-  background: rgb(0 0 0 / 0.46);
-  display: grid;
-  place-items: center;
-  padding: var(--space-5);
-}
+/*
+ * The dialog itself, in the top layer.
+ *
+ * No z-index anywhere here on purpose: `showModal()` lifts the element out of the document's
+ * stacking contexts entirely, which is the only way to be reliably above a sticky top bar that
+ * has one of its own.
+ */
 .task-modal {
-  width: min(1120px, 100%);
-  height: min(848px, 100%);
+  width: min(1120px, calc(100vw - 2rem));
+  height: min(848px, calc(100dvh - 2rem));
+  max-width: none;
+  max-height: none;
+  padding: 0;
   display: flex;
   flex-direction: column;
   background: var(--surface);
+  color: var(--text);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-lg);
   box-shadow: var(--plane-3-shadow);
   overflow: hidden;
 }
-.task-modal:focus { outline: none; }
+.task-modal:focus,
+.task-modal:focus-visible { outline: none; }
+.task-modal::backdrop { background: rgb(0 0 0 / 0.55); }
+/* A dialog is display:none until it is open; flex must only apply once it is. */
+.task-modal:not([open]) { display: none; }
 .task-modal-empty { padding: var(--space-6); display: grid; gap: var(--space-3); place-items: center; }
 
 .task-modal-head {
@@ -8851,6 +8863,7 @@ a.btn { text-decoration: none; }
   .task-modal-side { border-left: 0; border-bottom: 1px solid var(--border); order: -1; }
 }
 
+.task-badges { margin-top: 2px; }
 .task-modal-title {
   margin: var(--space-2) 0 0;
   font-size: var(--text-xl);
@@ -8889,8 +8902,21 @@ a.btn { text-decoration: none; }
 .task-time-bar > span.over { background: var(--warning); }
 .task-time-over { margin: 0; font-size: var(--text-2xs); color: var(--warning); }
 
-.task-props { display: grid; grid-template-columns: 5.5rem minmax(0, 1fr); gap: var(--space-2) var(--space-3); margin: 0; align-items: center; }
-.task-props dt { font-size: var(--text-2xs); letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint); }
+/*
+ * Label above value, not beside it.
+ *
+ * Side by side, a 5.5rem label column left every select about eleven characters wide, so
+ * "Waiting on client" and "2026-08-28" both arrived truncated. Stacked, each control gets the
+ * whole rail and the labels stay out of its way.
+ */
+.task-props { display: grid; gap: var(--space-3); margin: 0; }
+.task-props dt {
+  font-size: var(--text-2xs);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--faint);
+  margin-bottom: 4px;
+}
 .task-props dd { margin: 0; display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
 .task-props dd select, .task-props dd input { min-width: 0; flex: 1; }
 .task-prop-hours { width: 4.5rem; flex: none !important; }
@@ -8909,13 +8935,22 @@ a.btn { text-decoration: none; }
    Formatting controls for the rich text that was always there
    ========================================================================================== */
 
+/*
+ * The framed variant is the same box with its padding moved inwards.
+ *
+ * `.markdown-editor` already carries a border, a radius, a background and padding. Adding a
+ * second border here drew a box inside a box, and the toolbar sat in the outer one's padding
+ * looking like a floating strip — which is exactly what it looked like. The frame is not new;
+ * only the toolbar is, and it needs the edges the padding was occupying.
+ */
 .markdown-editor[data-framed] {
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  padding: 0;
   overflow: hidden;
 }
-.markdown-editor[data-framed]:focus-within { border-color: var(--accent); }
-.markdown-editor[data-framed] .ProseMirror { padding: var(--space-3); }
+.markdown-editor[data-framed] .tiptap {
+  padding: var(--space-3);
+  min-height: 6rem;
+}
 
 .md-toolbar {
   display: flex;

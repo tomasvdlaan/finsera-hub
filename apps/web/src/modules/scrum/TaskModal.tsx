@@ -70,7 +70,7 @@ export function TaskModal({
   const [subtaskTitle, setSubtaskTitle] = useState('');
   const [blocking, setBlocking] = useState(false);
   const [reason, setReason] = useState('');
-  const dialog = useRef<HTMLDivElement>(null);
+  const dialog = useRef<HTMLDialogElement>(null);
 
   const at = siblings.indexOf(taskId);
   const previous = at > 0 ? siblings[at - 1] : undefined;
@@ -100,7 +100,7 @@ export function TaskModal({
    */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') return onClose();
+      // Escape arrives as the dialog's `cancel` event instead — see onCancel above.
       const target = e.target as HTMLElement | null;
       const typing =
         target?.isContentEditable ||
@@ -111,18 +111,20 @@ export function TaskModal({
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [onClose, onNavigate, previous, next]);
+  }, [onNavigate, previous, next]);
 
   /*
-   * Focus moves into the dialog, and back out to where it came from.
+   * Open it, and let the browser do the rest.
    *
-   * A modal takes the whole screen away, so leaving focus behind on the card underneath
-   * means a keyboard reader is reading one thing and pointing at another.
+   * `showModal()` moves focus in, traps it, makes everything behind inert and restores focus
+   * to whatever opened it on close — all of which this component used to half-do by hand.
    */
   useEffect(() => {
-    const returnTo = document.activeElement as HTMLElement | null;
-    dialog.current?.focus();
-    return () => returnTo?.focus?.();
+    const el = dialog.current;
+    if (el && !el.open) el.showModal();
+    return () => {
+      if (el?.open) el.close();
+    };
   }, []);
 
   const patch = async (body: Record<string, unknown>) => {
@@ -188,19 +190,31 @@ export function TaskModal({
     }
   };
 
+  /*
+   * A real `<dialog>`, opened with showModal().
+   *
+   * Not a positioned div with a high z-index, which is what this was and why the top bar
+   * stayed lit above the scrim: `.topbar` is sticky and sits in its own stacking context, so
+   * no number on a descendant of `main` can climb over it. `showModal()` puts the element in
+   * the top layer, above every stacking context on the page by construction, and brings the
+   * things a modal is supposed to have — the background goes inert, focus is trapped, and the
+   * backdrop is a real pseudo-element rather than a div pretending.
+   */
   const shell = (children: React.ReactNode) => (
-    <div className="task-scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div
-        className="task-modal"
-        ref={dialog}
-        tabIndex={-1}
-        role="dialog"
-        aria-modal="true"
-        aria-label={task ? task.title : 'Task'}
-      >
-        {children}
-      </div>
-    </div>
+    <dialog
+      className="task-modal"
+      ref={dialog}
+      aria-label={task ? task.title : 'Task'}
+      /* Escape fires `cancel` natively; the browser would otherwise close it behind React's back. */
+      onCancel={(e) => {
+        e.preventDefault();
+        onClose();
+      }}
+      /* A click on the backdrop lands on the dialog itself, never on its contents. */
+      onMouseDown={(e) => e.target === e.currentTarget && onClose()}
+    >
+      {children}
+    </dialog>
   );
 
   if (error && !task) {
@@ -367,7 +381,7 @@ export function TaskModal({
             </form>
           ) : null}
 
-          <section className="task-modal-section">
+          <div className="task-modal-section">
             <h3>Description</h3>
             <MarkdownEditor
               value={task.description ?? ''}
@@ -376,9 +390,9 @@ export function TaskModal({
               placeholder="What needs doing? Paste a screenshot straight in."
               onSave={(markdown) => void patch({ description: markdown || null })}
             />
-          </section>
+          </div>
 
-          <section className="task-modal-section">
+          <div className="task-modal-section">
             <h3>
               Subtasks{' '}
               {task.children.length > 0 && (
@@ -422,7 +436,7 @@ export function TaskModal({
                 Add
               </Button>
             </form>
-          </section>
+          </div>
 
           {/*
             In the page, not behind a tab.
@@ -430,10 +444,10 @@ export function TaskModal({
             The thread was on the task page only, so from the board you could neither read a
             conversation nor join one — and a comment nobody sees is a comment nobody writes.
           */}
-          <section className="task-modal-section">
+          <div className="task-modal-section">
             <h3>Discussion {task.commentCount > 0 && <span className="faint">{task.commentCount}</span>}</h3>
             <Comments entityId={task.id} />
-          </section>
+          </div>
         </div>
 
         <aside className="task-modal-side">

@@ -82,9 +82,15 @@ export function Comments({ entityId }: { entityId: string }) {
     if (at < 0) return null;
     if (at > 0 && /[\w@]/.test(before[at - 1] ?? '')) return null;
     const typed = before.slice(at + 1);
-    // A name, not a paragraph: two words is enough for "First Last" and stops the menu
-    // reappearing halfway down a sentence that happened to contain an address.
-    if (/\n/.test(typed) || typed.split(/\s+/).length > 2) return null;
+    /*
+     * A name, not a paragraph.
+     *
+     * Bounded by length rather than by word count, which is the version that broke: "Tomas
+     * van der Laan" is four words, so a two-word cap closed the menu halfway through the
+     * only name on this team. What actually stops it running away is the prefix match below
+     * — once nothing matches, there is nothing to show.
+     */
+    if (/\n/.test(typed) || typed.length > 40) return null;
     return typed;
   }, []);
 

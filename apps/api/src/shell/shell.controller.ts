@@ -391,17 +391,10 @@ export class ShellController {
     return this.mentions_.markRead(actor, body?.ids);
   }
 
-  /**
-   * Who can be named, for the picker.
-   *
-   * Active people, minus you. Naming yourself records nothing — the table forbids it — so
-   * offering your own name would be offering a choice that does nothing, and on a team of
-   * one that is the only choice there is.
-   */
+  /** Who can be named, for the picker. Active people, yourself included. */
   @Get('mentionable')
-  async mentionable(@CurrentActor() actor: Actor) {
-    const people = await this.mentions_.mentionable();
-    return people.filter((p) => p.id !== actor.userId);
+  mentionable() {
+    return this.mentions_.mentionable();
   }
 
   @Get('comments/:entityId')
