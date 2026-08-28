@@ -25,6 +25,7 @@
     "@nestjs/platform-express": "^11.0.0",
     "@nestjs/platform-ws": "^11.1.28",
     "@nestjs/websockets": "^11.1.28",
+    "@platform/board-doc": "workspace:*",
     "@platform/contracts": "workspace:*",
     "@platform/note-doc": "workspace:*",
     "ai": "^7.0.37",

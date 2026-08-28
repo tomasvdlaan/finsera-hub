@@ -87,7 +87,29 @@ export class ShellController {
       email: user!.email,
       displayName: user!.displayName,
       role: user!.role,
+      capabilities: await this.capabilitiesOf(actor),
     };
+  }
+
+  /**
+   * Every capability this actor holds, asked of the same service that enforces them.
+   *
+   * Deliberately `permissions.can()` per capability rather than reimplementing the rule here.
+   * The rule today is "members hold everything not marked adminOnly", and the moment that is
+   * written down twice it has two versions — the one that decides what the UI offers and the
+   * one that decides what the server allows. Those disagreeing is how somebody is shown a
+   * control that then refuses them.
+   *
+   * The list is small — under fifty across eleven modules — and this is one request at sign-in.
+   */
+  private async capabilitiesOf(actor: Actor): Promise<string[]> {
+    const declared = [
+      ...new Set(this.manifests.all().flatMap((m) => m.permissions.map((p) => p.capability))),
+    ];
+    const held = await Promise.all(
+      declared.map(async (c) => ((await this.permissions.can(actor, c)) ? c : null)),
+    );
+    return held.filter((c): c is string => c !== null).sort();
   }
 
   /**

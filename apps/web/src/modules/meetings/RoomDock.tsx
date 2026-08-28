@@ -7,9 +7,25 @@ import { Composer, ConversationView } from '../../shell/conversation/index.js';
 import { Empty } from '../../shell/ui/primitives.js';
 import { LiveTab } from './LiveTab.js';
 import { AgendaPanel, BoardPanel, PeoplePanel, type BoardColumn, type BoardTask } from './RoomPanels.js';
+import { RichEditor } from './RichEditor.js';
+import type { NoteCommand } from './noteCommands.js';
+import type { Stage } from './RoomStrip.js';
 import type { NoteDetail } from './types.js';
 
-export type DockTab = 'agent' | 'transcript' | 'agenda' | 'board' | 'people' | 'recording';
+/**
+ * `board` is the SCRUM board. The whiteboard is NOT here: it takes the stage instead, because
+ * it is a thing you make rather than a thing you glance at, and a canvas in a drawer is a
+ * canvas nobody draws on. `note` is its counterweight — it appears only while the whiteboard
+ * has the stage, so the note is never more than one click away.
+ */
+export type DockTab =
+  | 'agent'
+  | 'transcript'
+  | 'agenda'
+  | 'board'
+  | 'note'
+  | 'people'
+  | 'recording';
 
 const money = (cents: number) =>
   new Intl.NumberFormat('nl-NL', { style: 'currency', currency: 'EUR' }).format(cents / 100);
@@ -46,6 +62,8 @@ const KIND: Record<Proposal['kind'], string> = {
  */
 export function RoomDock({
   note,
+  stage,
+  commands,
   live,
   running,
   open,
@@ -69,6 +87,10 @@ export function RoomDock({
   busyId,
 }: {
   note: NoteDetail;
+  /** What the stage is showing; the note tab exists only when it is not the note. */
+  stage: Stage;
+  /** Slash-menu commands, so the note is as editable here as it is on stage. */
+  commands: NoteCommand[];
   live: LiveState;
   running: boolean;
   open: boolean;
@@ -98,6 +120,13 @@ export function RoomDock({
     { key: 'transcript', label: 'Transcript', count: live.lines.length || undefined },
     { key: 'agenda', label: 'Agenda', count: note.agenda.filter((a) => !a.covered).length || undefined },
     { key: 'board', label: 'Board', count: tasks.length || undefined },
+    /*
+     * The note, only while something else has the stage.
+     *
+     * Listed second-to-last rather than first because it is a fallback, not a destination: when
+     * the note IS the stage this tab would be the same thing twice.
+     */
+    ...(stage === 'board' ? [{ key: 'note' as const, label: 'Note' }] : []),
     { key: 'people', label: 'People', count: note.attendees.length || undefined },
     { key: 'recording', label: running ? 'Recording' : 'Start recording' },
   ];
@@ -156,6 +185,18 @@ export function RoomDock({
             {tab === 'board' && (
               <div className="room-dock-panel room-dock-columns">
                 <BoardPanel note={note} columns={columns} tasks={tasks} />
+              </div>
+            )}
+            {tab === 'note' && (
+              <div className="room-dock-panel room-dock-note">
+                {/*
+                  * The real editor, not a rendering of it.
+                  *
+                  * A read-only copy would be a second thing to keep in step, and would go stale
+                  * the moment the assistant wrote a line. This is the same collaborative
+                  * document, so a note jotted here while the board is up is a note in the note.
+                  */}
+                <RichEditor noteId={note.id} commands={commands} />
               </div>
             )}
             {tab === 'people' && (

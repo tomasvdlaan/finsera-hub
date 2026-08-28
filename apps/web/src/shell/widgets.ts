@@ -32,7 +32,7 @@ export function widgets(): ReadonlyMap<string, WidgetDef> {
  * viability there is a property of the record rather than of the business.
  */
 export function libraryFor(
-  slot: 'dashboard' | 'entity-page',
+  slot: 'dashboard' | 'entity-page' | 'meeting-room',
   can: (permission: string) => boolean,
   volume?: Record<string, number>,
 ): Array<{ key: string; def: WidgetDef }> {
@@ -52,7 +52,7 @@ export function viable(def: WidgetDef, volume?: Record<string, number>): boolean
 
 /** How many the picker is holding back, so the drawer can say so rather than silently shrink. */
 export function hiddenCount(
-  slot: 'dashboard' | 'entity-page',
+  slot: 'dashboard' | 'entity-page' | 'meeting-room',
   volume: Record<string, number> | undefined,
 ): number {
   if (!volume) return 0;

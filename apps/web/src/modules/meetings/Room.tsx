@@ -10,7 +10,8 @@ import { RichEditor } from './RichEditor.js';
 import { RoomBar } from './RoomBar.js';
 import { RoomDock, type DockTab } from './RoomDock.js';
 import type { BoardColumn, BoardTask } from './RoomPanels.js';
-import { RoomStrip } from './RoomStrip.js';
+import { RoomStrip, type Stage } from './RoomStrip.js';
+import { widgets } from '../../shell/widgets.js';
 import { Suggestions } from './Suggestions.js';
 import type { Sprint } from '../scrum/types.js';
 import { calloutNode, taskNode, type NoteCommand } from './noteCommands.js';
@@ -25,8 +26,10 @@ interface Template {
 /**
  * The room you run a meeting from.
  *
- * One screen. The note is a sheet on a ground and has the stage to itself, because the note
- * is the thing the meeting is making. A band under the title carries the three facts you
+ * One screen. The stage holds the thing the meeting is making, one at a time: the note as a
+ * sheet on a ground, or the whiteboard taking the whole area. They are peers — both are
+ * artefacts of this meeting — and whichever is not on stage stays reachable from the dock, so
+ * choosing one never means losing sight of the other. A band under the title carries the facts you
  * glance at without looking away from the conversation — where the agenda is, what the board
  * says, how much is waiting on you — and everything else is in a dock along the bottom that
  * is a heartbeat when closed and a panel when opened.
@@ -67,6 +70,36 @@ export function Room() {
   const [sprint, setSprint] = useState<Sprint | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [dock, setDock] = useState<DockTab | null>(null);
+
+  /**
+   * What the stage is showing.
+   *
+   * The room has one stage and it holds the thing you are making. A whiteboard is a second such
+   * thing rather than reference material, so it takes the stage rather than sitting in the dock
+   * — a canvas in a drawer is a canvas nobody draws on. Whichever one is not on stage is still
+   * reachable from the dock, so nothing is ever more than a click away.
+   */
+  const [stage, setStage] = useState<Stage>('note');
+
+  /**
+   * Whatever module offers a whiteboard, if one is installed.
+   *
+   * Resolved by slot rather than imported, so this file names no other module and the editor
+   * stays in its own lazily-loaded chunk. If nothing fills the slot there is simply no
+   * whiteboard stage, and the switch does not appear.
+   */
+  const boardWidget = widgets().get('whiteboard:meeting-board');
+
+  /*
+   * Warm whatever the stage widget will need, while the room loads.
+   *
+   * Switching the stage should feel like turning a page, and it cannot if the first switch has
+   * to download an editor first. Asked of the widget rather than imported from it, so this file
+   * still names no other module — see WidgetDef.prefetch.
+   */
+  useEffect(() => {
+    boardWidget?.prefetch?.();
+  }, [boardWidget]);
   const [ending, setEnding] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -296,6 +329,9 @@ export function Room() {
       />
 
       <RoomStrip
+        stage={stage}
+        onStage={setStage}
+        hasBoard={!!boardWidget}
         note={note}
         columns={columns}
         tasks={tasks}
@@ -313,17 +349,34 @@ export function Room() {
         like a document rather than one panel among five, and a measure that runs the width of
         a 27-inch screen is not a document.
       */}
-      <main className="room-stage">
-        <article className="room-sheet">
+      {/*
+        The stage: one thing at a time, at the size that thing needs.
+
+        The note gets a ground and a reading width. The board gets the whole area and no
+        scrolling, because a canvas scrolls itself. Only one is mounted at a time — Excalidraw
+        reads its container size once at mount and never re-measures, so parking it behind
+        `display: none` would latch it into its narrow-window layout for the rest of the session.
+      */}
+      {stage === 'note' ? (
+        <main className="room-stage">
+          <article className="room-sheet">
+            {error && <p className="error">{error}</p>}
+            {running && live.aiNotes && (
+              <span className="tag room-writing" title="The assistant is writing into its own section">
+                ✦ assistant writing
+              </span>
+            )}
+            <RichEditor noteId={id} commands={commands} />
+          </article>
+        </main>
+      ) : (
+        <main className="room-stage room-stage-canvas">
           {error && <p className="error">{error}</p>}
-          {running && live.aiNotes && (
-            <span className="tag room-writing" title="The assistant is writing into its own section">
-              ✦ assistant writing
-            </span>
+          {boardWidget && (
+            <boardWidget.Component settings={{}} entityId={note.id} entityType="meeting_note" />
           )}
-          <RichEditor noteId={id} commands={commands} />
-        </article>
-      </main>
+        </main>
+      )}
 
       {/*
         Suggestions rise in front of the dock, one at a time.
@@ -343,6 +396,8 @@ export function Room() {
       />
 
       <RoomDock
+        stage={stage}
+        commands={commands}
         note={note}
         live={live}
         running={running}

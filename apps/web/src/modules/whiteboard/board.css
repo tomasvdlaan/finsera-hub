@@ -1,0 +1,304 @@
+/*
+ * The whiteboard's styles.
+ *
+ * Every class here is prefixed `wb-`, not `board-`, and that is not decoration. The shell
+ * stylesheet already defines `.board-bar` — the SCRUM sprint progress bar, `flex: 1; height:
+ * 8px` — and this page's header claimed the same name. styles.css loads after this file, so
+ * the header inherited `flex: 1` and grew to half the viewport, shoving the canvas below the
+ * fold. Nothing errored; it just looked broken.
+ *
+ * The module is called `whiteboard` rather than `board` for exactly the same reason SCRUM
+ * already owns that word. The stylesheet has to keep the same distance.
+ *
+ * The board page, and the parts of Excalidraw we hide.
+ *
+ * IMPORTANT: the selectors under `.wb-surface` target Excalidraw's INTERNAL class names.
+ * Those are not public API. They were verified against @excalidraw/excalidraw 0.18.1 —
+ * upgrading the package means opening a board and checking this list by hand.
+ *
+ * This is the accepted cost of the rule that we never patch or fork the editor: a stylesheet
+ * that targets a third-party component is ordinary, a patched node_modules is not.
+ */
+
+.wb-page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+}
+
+.wb-page-error {
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+}
+
+.wb-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  height: 56px;
+  flex: 0 0 auto;
+  padding: 0 1rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.wb-back {
+  color: var(--muted);
+  font-size: 0.875rem;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.wb-back:hover {
+  color: var(--text);
+}
+
+.wb-title {
+  font-weight: 600;
+}
+
+.wb-title-input {
+  font: inherit;
+  font-weight: 600;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* The canvas takes everything the bar left. `position: relative` anchors our toolbar. */
+.wb-surface {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.wb-error {
+  position: absolute;
+  z-index: 10;
+  top: 0.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  margin: 0;
+}
+
+.wb-toolbar {
+  position: absolute;
+  z-index: 5;
+  top: 0.75rem;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 0.125rem;
+  padding: 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 8%);
+}
+
+.wb-toolbar-gap {
+  width: 1px;
+  height: 20px;
+  margin: 0 0.375rem;
+  background: var(--border);
+}
+
+/* ── Excalidraw chrome we replace ── */
+
+/*
+ * These target Excalidraw's INTERNAL class names, which are not public API.
+ *
+ * Every selector below was read off a live editor running @excalidraw/excalidraw **0.18.1**
+ * and confirmed by eye. Upgrading the package means opening a board and checking this list
+ * again — an obsolete selector here does not error, it just quietly stops hiding something.
+ *
+ * **Each one names `.excalidraw` explicitly, and that is load-bearing rather than tidy.**
+ * Excalidraw's own rules are `.excalidraw .shapes-section { display: flex }` — the same
+ * specificity as an obvious `.wb-surface .shapes-section`, and its stylesheet is imported by
+ * `BoardEditor`, which lives in the lazily-loaded chunk. So it is injected AFTER this file and
+ * a tie goes to it: every rule below silently did nothing, and the board shipped with two
+ * toolbars stacked on top of each other. Naming `.excalidraw` here makes these three-class
+ * selectors that win on specificity regardless of which stylesheet loaded last.
+ *
+ * This is the accepted cost of never patching or forking the editor: a stylesheet that targets
+ * a third-party component is ordinary; a patched node_modules is not.
+ */
+
+/*
+ * Their hamburger — the button ONLY, not the column it sits in.
+ *
+ * `.App-menu_top__left` is tempting and wrong: the contextual style panel
+ * (`.selected-shape-actions` — stroke, fill, width, opacity, layer order) renders into that
+ * same column when something is selected. Hiding the column takes the style controls with it,
+ * and the failure is invisible until you actually select a shape and find you cannot recolour
+ * it. The trigger button is what we are replacing; the column is not.
+ *
+ * The menu itself is all file operations — open, save-as, export — that a board does not have.
+ */
+.wb-surface .excalidraw .main-menu-trigger {
+  display: none;
+}
+
+/*
+ * Their tool island, replaced by ours.
+ *
+ * `display: none` on the whole `shapes-section`, not `visibility: hidden` on the toolbar
+ * inside it: hidden leaves the box in the layout, and the wrapper paints its own dark
+ * background, so the board showed an empty black slab where the tools used to be.
+ */
+.wb-surface .excalidraw .shapes-section {
+  display: none;
+}
+
+/*
+ * The same toolbar again, in their narrow-window layout.
+ *
+ * Below roughly 730px Excalidraw stops rendering `.shapes-section` and builds a different
+ * island entirely, so the rule above matches nothing and their tools reappear underneath ours.
+ * Our toolbar carries every tool at any width, so there is nothing to fall back to.
+ */
+.wb-surface .excalidraw .App-toolbar--mobile,
+.wb-surface .excalidraw .mobile-misc-tools-container {
+  display: none;
+}
+
+/* The shape library — a gallery of stock drawings, and a sharing surface we have no story
+   for. Nothing else in the product offers it. */
+.wb-surface .excalidraw .sidebar-trigger {
+  display: none;
+}
+
+/* Their splash over an empty canvas, which advertises the file menu we just removed. */
+.wb-surface .excalidraw .welcome-screen-center {
+  display: none;
+}
+
+/*
+ * `layer-ui__wrapper__footer-left` is deliberately NOT hidden.
+ *
+ * It holds zoom and — the reason it matters — undo/redo. `ExcalidrawImperativeAPI` exposes no
+ * `undo()`, so our toolbar cannot offer those buttons; hiding this would leave ⌘Z as the only
+ * way to undo, discoverable by nobody.
+ */
+
+/* ── the library ── */
+
+.wb-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 1rem;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.wb-card a {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+}
+
+.wb-card-preview {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  /* The thumbnail is a fixed 480x360; contain keeps a wide board from being stretched. */
+  object-fit: contain;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.wb-tool-on {
+  background: var(--border);
+}
+
+.wb-card-title {
+  display: block;
+  margin-top: 0.5rem;
+  font-weight: 600;
+}
+
+/* ── presence ── */
+
+.wb-peers {
+  position: absolute;
+  z-index: 5;
+  top: 0.75rem;
+  right: 0.75rem;
+  display: flex;
+  /* Overlap comes from the negative margin below — `gap` cannot be negative. */
+}
+
+.wb-peer {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin-left: -6px;
+  border: 2px solid var(--surface);
+  border-radius: 50%;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: #fff;
+  /* The initials sit on a generated hue; a dark shadow keeps them legible on the light ones. */
+  text-shadow: 0 1px 1px rgb(0 0 0 / 35%);
+}
+
+.wb-peers-offline {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.wb-status {
+  position: absolute;
+  z-index: 10;
+  top: 0.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 0.25rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+
+/* ── embedded in another page's layout ── */
+
+/*
+ * Fill the container, whatever it is.
+ *
+ * Used when the board is not the whole page — in the meeting room it is handed the stage. No
+ * `min-height`: the host decides how much room a board is worth, and a minimum here would push
+ * the meeting dock off the bottom of the screen.
+ */
+.wb-surface-fill {
+  height: 100%;
+}
+
+.wb-popout {
+  position: absolute;
+  z-index: 6;
+  top: 0.5rem;
+  right: 0.5rem;
+  padding: 0.125rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  font-size: 0.75rem;
+  text-decoration: none;
+  color: var(--muted);
+}
+.wb-popout:hover {
+  color: var(--text);
+}
