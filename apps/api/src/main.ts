@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import { join } from 'node:path';
 import { NestFactory } from '@nestjs/core';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { WsAdapter } from '@nestjs/platform-ws';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module.js';
@@ -12,7 +13,17 @@ async function bootstrap() {
     await runMigrations(join(__dirname, '..', 'drizzle'));
   }
 
-  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { bufferLogs: true });
+  /*
+   * Big enough for a screenshot pasted into a note.
+   *
+   * Express defaults the JSON body to 100kb, which nothing in this application announced and
+   * nothing tested — so inserting an image into a note failed with "request entity too large"
+   * for any file over about 75kb, which is to say every screenshot anyone has ever taken. The
+   * image is base64 in a JSON body (see MeetingsController.uploadImage), and base64 costs a
+   * third on top, so the limit is the 10MB file we accept plus room for the encoding.
+   */
+  app.useBodyParser('json', { limit: '14mb' });
   app.useLogger(app.get(Logger));
   app.setGlobalPrefix('api', { exclude: [] });
   app.enableShutdownHooks();

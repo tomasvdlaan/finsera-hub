@@ -6,13 +6,13 @@ import type { AudioSegment, CaptureEvents, MeetingCaptureProvider } from './capt
 import { RecallProvider } from './capture/recall.provider.js';
 import { LiveRegistry } from './live-registry.service.js';
 import { LiveService } from './live.service.js';
-import { LiveSession } from './live-session.js';
+import { LiveSession, type Proposal } from './live-session.js';
 import { ConversationService } from './conversation.service.js';
 import { AiToolRegistry } from '../../../core/llm/tool-registry.service.js';
 import { LlmService } from '../../../core/llm/llm.service.js';
 import { TtsService } from '../../../core/llm/tts.service.js';
 import { BehaviourRegistry, type BehaviourSettings } from './behaviours/behaviour.registry.js';
-import { applySession, sessionSummary } from './session-body.js';
+import { NOTED_SECTION, applySession, notedMarkdown, sessionSummary } from './session-body.js';
 import { NoteDocService } from '../doc/note-doc.service.js';
 import { replaceSectionMarkdown } from '../doc/note-edit.js';
 import { AI_NOTES_SECTION } from './behaviours/note-taker.behaviour.js';
@@ -303,8 +303,9 @@ export class LiveRunner {
       for (const result of results) {
         if (result.proposals?.length) {
           const added = live.mergeProposals(result.proposals, () => this.registry.newId());
-          if (added.length > 0) {
-            this.sessions.broadcast(noteId, { type: 'proposals', proposals: added });
+          const suggestions = await this.recordNotes(actor, noteId, live, added);
+          if (suggestions.length > 0) {
+            this.sessions.broadcast(noteId, { type: 'proposals', proposals: suggestions });
           }
         }
         if (result.speak) await this.say(noteId, live, result.speak);
@@ -420,6 +421,54 @@ export class LiveRunner {
     }
   }
 
+  /**
+   * Put what it noticed into the document, and keep it out of the waiting pile.
+   *
+   * A note is an observation — "Tomas mentioned the scheduling logic could be inverted" —
+   * and there is nothing to decide about one. Asking anyway produced a column of cards whose
+   * only possible answer was yes, next to a document that did not contain the thing the
+   * meeting was about. So notes go straight in, and the cards are left for the two kinds of
+   * suggestion that genuinely need an answer: an action, which becomes somebody's task, and
+   * a decision, which is a claim about what the room agreed.
+   *
+   * They are marked accepted rather than dropped, so the session still deduplicates them by
+   * text and the end-of-session write knows they are already on the page.
+   *
+   * Returns what is still worth showing as a suggestion. Every path that produces proposals
+   * calls this — the behaviours, the runner's extraction and the socket's — because three
+   * copies of this rule is how the bot and the browser came to write different notes for the
+   * same meeting.
+   */
+  async recordNotes(
+    actor: Actor,
+    noteId: string,
+    live: LiveSession,
+    added: Proposal[],
+  ): Promise<Proposal[]> {
+    const notes = added.filter((p) => p.kind === 'note');
+    if (notes.length === 0) return added;
+
+    for (const note of notes) live.decide(note.id, 'accepted');
+
+    const markdown = notedMarkdown(live.keptProposals);
+    if (markdown) {
+      try {
+        await this.docs.edit(noteId, actor, (tr) =>
+          replaceSectionMarkdown(tr, NOTED_SECTION, markdown),
+        );
+      } catch (error) {
+        /*
+         * Never fatal, for the same reason as writeNotes: applySession replaces this exact
+         * section from the same source when the recording stops, so a failure here costs
+         * liveness rather than the notes.
+         */
+        this.logger.warn(`Could not write live notes on ${noteId}: ${(error as Error).message}`);
+      }
+    }
+
+    return added.filter((p) => p.kind !== 'note');
+  }
+
   /** Say something aloud and record that it was said. */
   private async say(noteId: string, live: LiveSession, text: string): Promise<void> {
     const entry = this.sessions.get(noteId);
@@ -474,7 +523,10 @@ export class LiveRunner {
         note.agenda.map((a) => ({ id: a.id, title: a.title, covered: a.covered })),
         () => this.registry.newId(),
       );
-      if (added.length > 0) this.sessions.broadcast(noteId, { type: 'proposals', proposals: added });
+      const suggestions = await this.recordNotes(actor, noteId, live, added);
+      if (suggestions.length > 0) {
+        this.sessions.broadcast(noteId, { type: 'proposals', proposals: suggestions });
+      }
       this.sessions.broadcast(noteId, { type: 'state', state });
     } catch (error) {
       this.logger.warn(`Extraction failed on ${noteId}: ${(error as Error).message}`);

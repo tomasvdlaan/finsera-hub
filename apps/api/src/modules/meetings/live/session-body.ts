@@ -13,6 +13,29 @@ export interface SessionSummary {
 }
 
 /**
+ * The heading the extracted notes live under.
+ *
+ * Separate from the note-taker's section on purpose. The note-taker revises one running
+ * write-up and rewrites it wholesale every pass; these are discrete observations that
+ * accumulate. Sharing a heading would mean each one clobbering the other every ninety
+ * seconds, which is the one failure mode a live document cannot recover from.
+ */
+export const NOTED_SECTION = 'Noted during the meeting';
+
+/**
+ * The extracted notes as a list, in the order they were heard.
+ *
+ * Dismissed ones are gone — saying "not that" about a note has to mean it leaves the
+ * document, or the button is decoration.
+ */
+export function notedMarkdown(proposals: Proposal[]): string {
+  return proposals
+    .filter((p) => p.kind === 'note' && p.status !== 'dismissed')
+    .map((p) => `- ${p.text}`)
+    .join('\n');
+}
+
+/**
  * Write what a finished recording produced into the note.
  *
  * This exists because there are two capture paths — the meeting bot (LiveRunner) and the
@@ -39,6 +62,10 @@ export interface SessionSummary {
  * actions, silently discarding the rest at the moment the recording stopped. The panel had
  * shown them for the whole meeting. Persisting them under a heading is not the same as
  * making them decidable, but it is the difference between a record and a loss.
+ *
+ * Notes are no longer among them. They go into the document as they are heard — see
+ * LiveRunner.recordNotes — so what happens here is a replacement of that same section, not a
+ * second copy of it under a different heading.
  */
 export function applySession(tr: Transform, session: SessionSummary): void {
   const at = stamp(session.startedAt);
@@ -49,9 +76,21 @@ export function applySession(tr: Transform, session: SessionSummary): void {
     replaceSectionMarkdown(tr, AI_NOTES_SECTION, session.aiNotes.trim());
   }
 
+  /*
+   * The notes, in their own section, replaced rather than appended.
+   *
+   * They were written here as they were heard, so this is usually a no-op that confirms what
+   * is already on the page — and the thing that repairs it when a live write failed.
+   */
+  const noted = notedMarkdown(session.keptProposals);
+  if (noted) replaceSectionMarkdown(tr, NOTED_SECTION, noted);
+
   // Actions become action points on their own, so listing them here too would be a second
-  // copy that goes stale the moment one is accepted or dismissed.
-  const suggestions = session.keptProposals.filter((p) => p.kind !== 'action');
+  // copy that goes stale the moment one is accepted or dismissed. Notes are excluded for the
+  // opposite reason: they are already in the document, above.
+  const suggestions = session.keptProposals.filter(
+    (p) => p.kind !== 'action' && p.kind !== 'note',
+  );
 
   const section = (title: string, content: string) => {
     if (!content.trim()) return;
