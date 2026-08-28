@@ -701,11 +701,18 @@ export class MeetingsService {
       .limit(1);
     if (!item) throw new NotFoundException('Action point not found');
     if (item.status === 'accepted') return this.get(actor, noteId);
-    if (!note.projectId) {
-      throw new BadRequestException(
-        'Link this note to a project before turning action points into tasks',
-      );
-    }
+    /*
+     * A meeting with no project still produces work.
+     *
+     * This used to refuse, on the reasoning that a task belongs to a project — which is true
+     * of the schema and false of the meeting. A stand-up raises "renew the certificate" and
+     * the answer was to go and link a project that does not exist, or lose the commitment.
+     * So a note with no project sends its tasks to the internal project, made on first use.
+     *
+     * It is not a silent reassignment: the note keeps no project, and the card says which
+     * board it landed on.
+     */
+    const projectId = note.projectId ?? (await this.crm.internalProject(actor)).id;
 
     /*
      * Work raised inside a sprint belongs to that sprint.
@@ -731,7 +738,7 @@ export class MeetingsService {
     const fromRetro = note.template === 'retrospective';
 
     const task = await this.scrum.createTask(actor, {
-      projectId: note.projectId,
+      projectId,
       title: item.text,
       description: `From the meeting note "${note.title}" (${note.meetingDate}).`,
       assigneeId: item.assigneeId ?? undefined,
