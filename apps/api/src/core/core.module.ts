@@ -18,6 +18,8 @@ import { RegistryService } from './registry/registry.service.js';
 import { DbIntegrityService } from './db/integrity.service.js';
 import { SettingsService } from './settings/settings.service.js';
 import { TtsService } from './llm/tts.service.js';
+import { UsageService } from './usage/usage.service.js';
+import { ModelConfigService } from './usage/model-config.service.js';
 import { StorageService } from './storage/storage.service.js';
 
 /**
@@ -45,6 +47,8 @@ const services = [
   SettingsService,
   DbIntegrityService,
   TtsService,
+  UsageService,
+  ModelConfigService,
 ];
 
 @Global()

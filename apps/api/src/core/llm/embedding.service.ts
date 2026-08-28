@@ -1,4 +1,5 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { UsageService, type UsageContext } from '../usage/usage.service.js';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { embed, embedMany, type EmbeddingModel } from 'ai';
 import { EMBEDDING_DIMENSIONS } from './embedding.constants.js';
@@ -49,20 +50,49 @@ export class EmbeddingService {
     return Boolean(process.env.GOOGLE_GENERATIVE_AI_API_KEY);
   }
 
-  async embedOne(text: string): Promise<number[]> {
-    const { embedding } = await embed({
+  /**
+   * Optional, exactly as on LlmService: metering must never be the reason a search cannot run.
+   */
+  constructor(@Optional() @Inject(UsageService) private readonly usage?: UsageService) {}
+
+  /**
+   * Tokens for an embedding call.
+   *
+   * The SDK reports usage inconsistently across embedding providers, so this falls back to
+   * four characters per token — the standard approximation. Marked in the record as an
+   * estimate would be better than a comment, but the column would be one more thing to read
+   * on a row that is already a rounding error next to a single generation call.
+   */
+  private async meter(texts: string[], reported: number | undefined, ctx?: UsageContext) {
+    if (!this.usage) return;
+    const tokens = reported ?? Math.ceil(texts.reduce((n, t) => n + t.length, 0) / 4);
+    await this.usage.recordTokens(
+      'google',
+      'embed',
+      process.env.MODEL_EMBEDDING ?? 'google:gemini-embedding-001',
+      { inputTokens: tokens },
+      // 'unattributed' rather than a guess: every real caller passes a context, so a row
+      // landing here means a new call site was added without one, and it should look like
+      // the gap it is instead of being quietly filed under somebody else's name.
+      ctx ?? { module: 'unattributed', feature: 'embed' },
+    );
+  }
+
+  async embedOne(text: string, ctx?: UsageContext): Promise<number[]> {
+    const result = await embed({
       model: this.resolve(),
       value: text,
       providerOptions: this.providerOptions(),
     });
-    return embedding;
+    await this.meter([text], (result as { usage?: { tokens?: number } }).usage?.tokens, ctx);
+    return result.embedding;
   }
 
   /**
    * Embed many chunks. Batched because a 40-page contract is hundreds of chunks, and one
    * request per chunk would be both slow and rate-limited.
    */
-  async embedBatch(texts: string[]): Promise<number[][]> {
+  async embedBatch(texts: string[], ctx?: UsageContext): Promise<number[][]> {
     if (texts.length === 0) return [];
     const model = this.resolve();
     const out: number[][] = [];
@@ -70,12 +100,13 @@ export class EmbeddingService {
     const BATCH = 64;
     for (let i = 0; i < texts.length; i += BATCH) {
       const slice = texts.slice(i, i + BATCH);
-      const { embeddings } = await embedMany({
+      const batch = await embedMany({
         model,
         values: slice,
         providerOptions: this.providerOptions(),
       });
-      out.push(...embeddings);
+      await this.meter(slice, (batch as { usage?: { tokens?: number } }).usage?.tokens, ctx);
+      out.push(...batch.embeddings);
     }
 
     this.logger.log(`Embedded ${texts.length} chunk(s)`);

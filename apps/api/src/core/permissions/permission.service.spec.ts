@@ -20,6 +20,8 @@ function makeManifests() {
       permissions: [
         { capability: 'demo.items.create', description: 'Create demo items.' },
         { capability: 'demo.items.read', description: 'Read demo items.' },
+        // The opt-out of members-hold-everything, so the policy has something to withhold.
+        { capability: 'demo.people.manage', description: 'Govern other people.', adminOnly: true },
       ],
     }),
   );
@@ -89,6 +91,60 @@ describe('PermissionService', () => {
     await expect(permissions.can(admin, 'demo.items.destroy')).rejects.toThrow(
       /Unknown capability/,
     );
+  });
+
+  it('withholds an adminOnly capability from a member', async () => {
+    const permissions = new PermissionService(testDb, makeManifests());
+    expect(await permissions.can(admin, 'demo.people.manage')).toBe(true);
+    expect(await permissions.can(member, 'demo.people.manage')).toBe(false);
+  });
+
+  it('refuses rather than returns, so a caller cannot forget to check', async () => {
+    const permissions = new PermissionService(testDb, makeManifests());
+    await expect(permissions.require(member, 'demo.people.manage')).rejects.toThrow(
+      /Missing capability/,
+    );
+    await expect(permissions.require(admin, 'demo.people.manage')).resolves.toBeUndefined();
+  });
+});
+
+/**
+ * The three capabilities that separate a colleague from the person who runs the business.
+ *
+ * Asserted against the REAL time manifest rather than the demo one, because the thing being
+ * tested is not that `adminOnly` works — the case above covers that — it is that these three
+ * specific capabilities carry the flag. They were open to every member until this change, which
+ * meant a member could read a colleague's hours, edit them, and approve their own week. A test
+ * against a stand-in manifest would keep passing if somebody dropped the flag from the real one.
+ */
+describe('the owner boundary on time', () => {
+  beforeEach(resetDb);
+
+  // CRM as well as time: sealing validates cross-module references, and `time` points a
+  // structural ref at crm's `project`. Registering time alone fails validation, which is the
+  // manifest contract working rather than a problem to route around.
+  const load = async () => {
+    const { timeManifest } = await import('../../modules/time/time.manifest.js');
+    const { crmManifest } = await import('../../modules/crm/crm.manifest.js');
+    const manifests = new ManifestRegistry();
+    manifests.register(crmManifest);
+    manifests.register(timeManifest);
+    manifests.seal();
+    return new PermissionService(testDb, manifests);
+  };
+
+  it.each(['time.entries.read_all', 'time.entries.manage', 'time.approve'])(
+    'gives %s to an admin and withholds it from a member',
+    async (capability) => {
+      const permissions = await load();
+      expect(await permissions.can(admin, capability)).toBe(true);
+      expect(await permissions.can(member, capability)).toBe(false);
+    },
+  );
+
+  it('leaves logging your own hours open to everyone — that is the job', async () => {
+    const permissions = await load();
+    expect(await permissions.can(member, 'time.entries.write_own')).toBe(true);
   });
 });
 

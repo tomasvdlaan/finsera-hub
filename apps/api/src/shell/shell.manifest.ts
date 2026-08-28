@@ -39,6 +39,27 @@ export const coreManifest = defineManifest({
        */
       adminOnly: true,
     },
+    {
+      capability: 'core.costs.read',
+      description: 'What the platform spends at its AI and meeting providers.',
+      /*
+       * Admin only, for a reason that is not obvious: the numbers themselves are harmless,
+       * but they are attributed per person. A member who could open this page could see how
+       * much their colleague's use of the assistant cost last month, which is a fact about
+       * how somebody works rather than about what the platform spends.
+       */
+      adminOnly: true,
+    },
+    {
+      capability: 'core.models.manage',
+      description: 'Choose which AI model answers questions and which does the cheap work.',
+      /*
+       * Admin only. This is a spending control as much as a quality one — the gap between the
+       * cheapest and dearest option in the list is more than tenfold per token — and it
+       * changes behaviour for everybody at once, not for the person who set it.
+       */
+      adminOnly: true,
+    },
   ],
 
   aiTools: [

@@ -10,7 +10,7 @@ export const salesWidgets: Record<string, WidgetDef> = {
     slot: 'entity-page',
     entityTypes: ['client'],
     defaultSpan: 6,
-    permission: 'sales.read',
+    permission: 'sales.quotes.read',
     Component: ({ entityId }) =>
       entityId ? (
         <Card title="Quotes">
@@ -24,7 +24,7 @@ export const salesWidgets: Record<string, WidgetDef> = {
     slot: 'entity-page',
     entityTypes: ['client'],
     defaultSpan: 6,
-    permission: 'sales.read',
+    permission: 'sales.quotes.read',
     Component: ({ entityId }) =>
       entityId ? (
         <Card title="Contracts">

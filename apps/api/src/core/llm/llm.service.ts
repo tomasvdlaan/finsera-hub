@@ -1,7 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { z } from 'zod';
+import { UsageService, type UsageContext } from '../usage/usage.service.js';
+import { ModelConfigService } from '../usage/model-config.service.js';
 import {
   generateObject,
   generateText,
@@ -22,6 +24,8 @@ export interface GenerateOptions {
   maxSteps?: number;
   /** Injected in tests — production resolves the model from configuration. */
   model?: LanguageModel;
+  /** Who to bill this to on the costs page. Absent means the call goes unmetered. */
+  context?: UsageContext;
 }
 
 export interface TokenUsage {
@@ -115,12 +119,55 @@ const readUsage = (u?: {
 export class LlmService {
   private readonly logger = new Logger(LlmService.name);
 
+  /**
+   * Optional so the five specs that construct this directly keep working, and because a
+   * platform that cannot meter must still be able to think. Absent, calls simply go
+   * unrecorded — which is why the page reports the period it has data for rather than
+   * implying it has always been watching.
+   */
+  constructor(
+    @Optional() @Inject(UsageService) private readonly usage?: UsageService,
+    @Optional() @Inject(ModelConfigService) private readonly models?: ModelConfigService,
+  ) {}
+
+  /**
+   * The configured 'provider:model' string for a role.
+   *
+   * Split out from `resolveModel` because metering needs the identifier and not the client:
+   * the SDK's model object does not reliably carry the id back, and pricing the wrong model
+   * is worse than not pricing it.
+   */
+  async specFor(role: ModelRole = 'strong'): Promise<string> {
+    // Absent in the specs that construct this directly, where the environment is the whole
+    // configuration and there is no table to read.
+    if (this.models) return this.models.specFor(role);
+    return role === 'fast'
+      ? (process.env.MODEL_FAST ?? 'anthropic:claude-haiku-4-5-20251001')
+      : (process.env.MODEL_STRONG ?? 'anthropic:claude-opus-4-8');
+  }
+
+  /**
+   * Record what a completed call cost.
+   *
+   * Awaited rather than fired and forgotten: it is one small insert against a call that just
+   * spent seconds at a vendor, and a floating promise here would write into a closed pool
+   * whenever a test finishes before it lands. `UsageService` swallows its own failures, so
+   * this cannot fail the generation it is measuring.
+   */
+  private async meter(
+    role: ModelRole | undefined,
+    kind: string,
+    usage: TokenUsage,
+    ctx?: UsageContext,
+  ): Promise<void> {
+    if (!this.usage || !ctx) return;
+    const spec = await this.specFor(role ?? 'strong');
+    await this.usage.recordTokens(spec.split(':')[0] ?? 'unknown', kind, spec, usage, ctx);
+  }
+
   /** Resolve a 'provider:model' string. Only anthropic today; the switch is the seam. */
-  resolveModel(role: ModelRole = 'strong'): LanguageModel {
-    const spec =
-      role === 'fast'
-        ? (process.env.MODEL_FAST ?? 'anthropic:claude-haiku-4-5-20251001')
-        : (process.env.MODEL_STRONG ?? 'anthropic:claude-opus-4-8');
+  async resolveModel(role: ModelRole = 'strong'): Promise<LanguageModel> {
+    const spec = await this.specFor(role);
 
     const [provider, ...rest] = spec.split(':');
     const modelId = rest.join(':');
@@ -169,8 +216,9 @@ export class LlmService {
     system?: string;
     messages: GenerateOptions['messages'];
     role?: ModelRole;
+    context?: UsageContext;
   }): Promise<{ object: T; usage: { inputTokens: number; outputTokens: number } }> {
-    const model = this.resolveModel(opts.role ?? 'fast');
+    const model = await this.resolveModel(opts.role ?? 'fast');
 
     // The SDK's generics recurse deep enough on nested schemas that TypeScript gives up.
     // Inference is severed here, in the one wrapper, rather than at every call site —
@@ -191,13 +239,13 @@ export class LlmService {
       maxRetries: 2,
     });
 
+    const usage = readUsage(result.usage);
+    await this.meter(opts.role ?? 'fast', 'generate', usage, opts.context);
+
     // Validated rather than trusted: the SDK asked for this shape, this asserts it got it.
     return {
       object: opts.schema.parse(result.object),
-      usage: {
-        inputTokens: result.usage?.inputTokens ?? 0,
-        outputTokens: result.usage?.outputTokens ?? 0,
-      },
+      usage: { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens },
     };
   }
 
@@ -212,9 +260,10 @@ export class LlmService {
     data: Buffer;
     mediaType: string;
     role?: ModelRole;
+    context?: UsageContext;
   }): Promise<{ text: string; usage: { inputTokens: number; outputTokens: number } }> {
     const result = await generateText({
-      model: this.resolveModel(opts.role ?? 'fast'),
+      model: await this.resolveModel(opts.role ?? 'fast'),
       messages: [
         {
           role: 'user',
@@ -226,12 +275,14 @@ export class LlmService {
       ],
       maxRetries: 2,
     });
+    const usage = readUsage(result.usage);
+    // 'transcribe' rather than 'generate': this is the audio path, and it is the one most
+    // worth being able to isolate on the page.
+    await this.meter(opts.role ?? 'fast', 'transcribe', usage, opts.context);
+
     return {
       text: result.text,
-      usage: {
-        inputTokens: result.usage?.inputTokens ?? 0,
-        outputTokens: result.usage?.outputTokens ?? 0,
-      },
+      usage: { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens },
     };
   }
 
@@ -246,7 +297,7 @@ export class LlmService {
    * cannot do both and the caller needs the totals in the same sequence as the deltas.
    */
   async *stream(opts: GenerateOptions): AsyncGenerator<GenerationEvent> {
-    const model = opts.model ?? this.resolveModel(opts.role);
+    const model = opts.model ?? (await this.resolveModel(opts.role));
 
     const result = streamText({
       model,
@@ -283,6 +334,8 @@ export class LlmService {
         (usage.cacheReadTokens ? ` (${usage.cacheReadTokens} cached)` : ''),
     );
 
+    await this.meter(opts.role, 'generate', usage, opts.context);
+
     yield {
       type: 'done',
       result: {
@@ -295,7 +348,7 @@ export class LlmService {
   }
 
   async generate(opts: GenerateOptions): Promise<GenerateResult> {
-    const model = opts.model ?? this.resolveModel(opts.role);
+    const model = opts.model ?? (await this.resolveModel(opts.role));
 
     // Multi-step: the model may call a tool, read the result, then call another before
     // answering ("which clients are active?" → "how many hours on their projects?").
@@ -319,6 +372,8 @@ export class LlmService {
           ? ` (cache: ${usage.cacheReadTokens} read, ${usage.cacheWriteTokens} written)`
           : ''),
     );
+
+    await this.meter(opts.role, 'generate', usage, opts.context);
 
     return {
       text: result.text,

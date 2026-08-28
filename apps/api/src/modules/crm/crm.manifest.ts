@@ -37,6 +37,22 @@ export const crmManifest = defineManifest({
     { capability: 'crm.clients.write', description: 'Create and edit clients and contacts.' },
     { capability: 'crm.projects.read', description: 'View projects.' },
     { capability: 'crm.projects.write', description: 'Create and edit projects.' },
+    /*
+     * Separate from `write`, and admin-only.
+     *
+     * Editing a project's budget and deciding who works on it are different powers. The second
+     * is how the owner allocates the only resource this business really has, and a member
+     * quietly adding themselves to an engagement — or taking somebody else off one — is not a
+     * thing that should be possible without anybody noticing.
+     *
+     * Reading membership stays on `crm.projects.read`: who is on a project is not a secret from
+     * the people doing the work, it is how they know who to ask.
+     */
+    {
+      capability: 'crm.projects.assign',
+      description: 'Decide who works on a project.',
+      adminOnly: true,
+    },
   ],
 
   navigation: [

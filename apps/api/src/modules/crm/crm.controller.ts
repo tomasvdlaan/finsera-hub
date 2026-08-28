@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query } from '@nestjs/common';
 import type { Actor } from '@platform/contracts';
 import { CurrentActor } from '../../core/auth/current-actor.decorator.js';
 import {
@@ -75,8 +75,10 @@ export class CrmController {
     @CurrentActor() actor: Actor,
     @Query('clientId') clientId?: string,
     @Query('status') status?: string,
+    /** Opt-in, so callers that only want the projects keep paying for only the projects. */
+    @Query('withMembers') withMembers?: string,
   ) {
-    return this.crm.listProjects(actor, { clientId, status });
+    return this.crm.listProjects(actor, { clientId, status, withMembers: withMembers === 'true' });
   }
 
   @Post('projects')
@@ -87,6 +89,38 @@ export class CrmController {
   @Get('projects/:id')
   getProject(@CurrentActor() actor: Actor, @Param('id') id: string) {
     return this.crm.getProject(actor, id);
+  }
+
+  /* ── Who is on a project ── Reading is open to anyone who can see the project; changing it
+   * takes `crm.projects.assign`, which is admin-only. See crm.manifest.ts. */
+
+  @Get('projects/:id/members')
+  listMembers(@CurrentActor() actor: Actor, @Param('id') id: string) {
+    return this.crm.listMembers(actor, id);
+  }
+
+  @Put('projects/:id/members')
+  addMember(
+    @CurrentActor() actor: Actor,
+    @Param('id') id: string,
+    @Body() body: { userId: string; role?: 'lead' | 'contributor' },
+  ) {
+    return this.crm.addMember(actor, id, body);
+  }
+
+  @Delete('projects/:id/members/:userId')
+  removeMember(
+    @CurrentActor() actor: Actor,
+    @Param('id') id: string,
+    @Param('userId') userId: string,
+  ) {
+    return this.crm.removeMember(actor, id, userId);
+  }
+
+  /** Every project one person is on — the other direction of the same table. */
+  @Get('people/:userId/projects')
+  projectsFor(@CurrentActor() actor: Actor, @Param('userId') userId: string) {
+    return this.crm.projectsFor(actor, userId);
   }
 
   @Patch('projects/:id')

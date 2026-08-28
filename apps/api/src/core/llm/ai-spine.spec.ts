@@ -94,14 +94,14 @@ function build(denied = new Set<string>()) {
 }
 
 /** Run a block with env overrides, restoring afterwards. `undefined` unsets a var. */
-function withEnv(vars: Record<string, string | undefined>, fn: () => void) {
+async function withEnv(vars: Record<string, string | undefined>, fn: () => void | Promise<void>) {
   const saved = new Map(Object.keys(vars).map((k) => [k, process.env[k]]));
   try {
     for (const [k, v] of Object.entries(vars)) {
       if (v === undefined) delete process.env[k];
       else process.env[k] = v;
     }
-    fn();
+    await fn();
   } finally {
     for (const [k, v] of saved) {
       if (v === undefined) delete process.env[k];
@@ -371,20 +371,25 @@ describe('AI spine', () => {
    * an earlier version assumed Anthropic and broke the moment the default was pointed
    * at Gemini, which is exactly the kind of environment coupling a test should not have.
    */
-  it('refuses to resolve a model without an API key', () => {
+  // `resolveModel` became async when the model turned into a stored setting rather than an
+  // environment variable, so these assert on a rejected promise rather than a thrown call.
+  it('refuses to resolve a model without an API key', async () => {
     const llm = new LlmService();
-    withEnv({ MODEL_STRONG: 'anthropic:claude-opus-4-8', ANTHROPIC_API_KEY: undefined }, () => {
-      expect(() => llm.resolveModel('strong')).toThrow(/ANTHROPIC_API_KEY/);
+    await withEnv({ MODEL_STRONG: 'anthropic:claude-opus-4-8', ANTHROPIC_API_KEY: undefined }, async () => {
+      await expect(llm.resolveModel('strong')).rejects.toThrow(/ANTHROPIC_API_KEY/);
     });
-    withEnv({ MODEL_STRONG: 'google:gemini-2.5-pro', GOOGLE_GENERATIVE_AI_API_KEY: undefined }, () => {
-      expect(() => llm.resolveModel('strong')).toThrow(/GOOGLE_GENERATIVE_AI_API_KEY/);
-    });
+    await withEnv(
+      { MODEL_STRONG: 'google:gemini-2.5-pro', GOOGLE_GENERATIVE_AI_API_KEY: undefined },
+      async () => {
+        await expect(llm.resolveModel('strong')).rejects.toThrow(/GOOGLE_GENERATIVE_AI_API_KEY/);
+      },
+    );
   });
 
-  it('rejects an unsupported provider string', () => {
+  it('rejects an unsupported provider string', async () => {
     const llm = new LlmService();
-    withEnv({ MODEL_STRONG: 'openai:gpt-4' }, () => {
-      expect(() => llm.resolveModel('strong')).toThrow(/Unsupported LLM provider/);
+    await withEnv({ MODEL_STRONG: 'openai:gpt-4' }, async () => {
+      await expect(llm.resolveModel('strong')).rejects.toThrow(/Unsupported LLM provider/);
     });
   });
 

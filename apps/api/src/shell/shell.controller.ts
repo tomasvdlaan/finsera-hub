@@ -1,10 +1,12 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
   ForbiddenException,
   Get,
   Headers,
+  NotFoundException,
   Param,
   Patch,
   Post,
@@ -18,6 +20,8 @@ import { CommentService } from '../core/comments/comment.service.js';
 import { CurrentActor } from '../core/auth/current-actor.decorator.js';
 import { Public } from '../core/auth/public.decorator.js';
 import { UserService } from '../core/auth/user.service.js';
+import { UsageService } from '../core/usage/usage.service.js';
+import { ModelConfigService } from '../core/usage/model-config.service.js';
 import { PermissionService } from '../core/permissions/permission.service.js';
 import { DashboardService } from '../core/registry/dashboard.service.js';
 import { INTERNAL_ROLE, PORTAL_ROLE, roleClaims, rolesFrom } from '../core/auth/roles.js';
@@ -41,6 +45,8 @@ export class ShellController {
     private readonly settings: SettingsService,
     private readonly dashboards: DashboardService,
     private readonly permissions: PermissionService,
+    private readonly usage: UsageService,
+    private readonly models: ModelConfigService,
   ) {}
 
   /** The organisation's own legal details — printed on every invoice and quote. */
@@ -181,10 +187,84 @@ export class ShellController {
    * screens. This is the managed view, and the two are separate so the second's fields never
    * arrive on a screen that only needed the first.
    */
+  /**
+   * What the platform spent at its providers, over a period.
+   *
+   * One endpoint returning every grouping the page shows, rather than four. The four answers
+   * are the same rows read four ways, and splitting them would let a write land between two
+   * requests and produce a total that disagrees with its own breakdown.
+   *
+   * Dates are inclusive-exclusive and default to the current calendar month, which is the
+   * period a bill arrives for.
+   */
+  @Get('costs')
+  async costs(
+    @CurrentActor() actor: Actor,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    await this.permissions.require(actor, 'core.costs.read');
+
+    const now = new Date();
+    const start = from ? new Date(`${from}T00:00:00Z`) : new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    // Exclusive: `to` names the last day a reader means to include, so the range ends at the
+    // start of the day after it. Off by one here silently drops today's spending.
+    const end = to ? new Date(new Date(`${to}T00:00:00Z`).getTime() + 24 * 60 * 60 * 1000) : now;
+
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+      throw new BadRequestException('from and to must be YYYY-MM-DD dates');
+    }
+
+    return { from: start.toISOString(), to: end.toISOString(), ...(await this.usage.summary(start, end)) };
+  }
+
+  /**
+   * Which model answers, and what else this deployment could use.
+   *
+   * The options come from the server rather than the client because availability depends on
+   * which API keys this deployment holds — a list hard-coded in the frontend would offer a
+   * choice that breaks every AI feature the moment it is picked.
+   */
+  @Get('models')
+  async modelSettings(@CurrentActor() actor: Actor) {
+    await this.permissions.require(actor, 'core.models.manage');
+    return { current: await this.models.current(), options: this.models.options() };
+  }
+
+  /** Choose a model for one slot, or send null to hand it back to the environment. */
+  @Put('models/:role')
+  async setModel(
+    @CurrentActor() actor: Actor,
+    @Param('role') role: string,
+    @Body() body: { model: string | null },
+  ) {
+    await this.permissions.require(actor, 'core.models.manage');
+    if (role !== 'strong' && role !== 'fast') {
+      throw new BadRequestException("role must be 'strong' or 'fast'");
+    }
+    return this.models.set(role, body.model ?? null);
+  }
+
   @Get('people')
   async people(@CurrentActor() actor: Actor) {
     await this.permissions.require(actor, 'core.people.manage');
     return this.users.people(actor);
+  }
+
+  /**
+   * One colleague.
+   *
+   * Behind the same capability as the directory: a page about a person carries their contracted
+   * hours and — for an admin — their cost rate, which is the one field on the row from which a
+   * salary can be inferred. Declared before `people/:id/…` nothing, but after `people`, so the
+   * literal segment is never swallowed by the parameter.
+   */
+  @Get('people/:id')
+  async person(@CurrentActor() actor: Actor, @Param('id') id: string) {
+    await this.permissions.require(actor, 'core.people.manage');
+    const person = await this.users.person(actor, id);
+    if (!person) throw new NotFoundException('No such person');
+    return person;
   }
 
   @Patch('people/:id')
