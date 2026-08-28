@@ -2303,10 +2303,14 @@ a.badge:hover {
   border-left: 3px solid var(--border);
   overflow: hidden;
 }
-.task-card-story { border-left-color: color-mix(in srgb, var(--accent) 65%, transparent); }
-.task-card-bug { border-left-color: color-mix(in srgb, var(--danger) 65%, transparent); }
-.task-card-chore { border-left-color: var(--border-strong); }
-.task-card-spike { border-left-color: color-mix(in srgb, var(--warning) 65%, transparent); }
+/*
+ * Type does not colour the edge any more; it is a badge on the card.
+ *
+ * The edge was painted by type, which spent the danger colour on the word "bug" — so an
+ * ordinary bug looked like an emergency and a genuinely blocked story had nothing left to
+ * shout with. The edge now means trouble and only trouble, and the rules below are the whole
+ * of what may colour it.
+ */
 /* Age, then blocked — a blocked card is more urgent than an old one, and it wins the edge. */
 .task-card.age-stale { border-left-color: var(--warning); }
 .task-card.age-old,
@@ -6082,7 +6086,16 @@ main table:not(.grid) [data-align='action'] {
   color: var(--faint);
 }
 
-.avatar {
+/*
+ * The signed-in person's own avatar, in the top bar.
+ *
+ * Scoped, and that scoping is a bug fix rather than tidying. This was a bare `.avatar` 3,700
+ * lines below `.avatar-sm` and `.avatar-empty`, at the same specificity — so it won, and
+ * every avatar in the product took the top bar's size and colour. A 24px unassigned marker
+ * meant to be a dashed grey outline rendered as a 38px filled brand-green disc, which is why
+ * the loudest mark on every card on the board was the word "nobody".
+ */
+.topbar .avatar {
   width: 38px;
   height: 38px;
   border-radius: 50%;
@@ -8636,3 +8649,299 @@ a.btn { text-decoration: none; }
   font-size: var(--text-xs);
   color: var(--warning);
 }
+
+/* ==========================================================================================
+   The board, given the page
+   ========================================================================================== */
+
+/*
+ * One toolbar, where six rows were.
+ *
+ * Sticky, because the board below it is now tall enough to scroll and the controls that act
+ * on it should not scroll away from it.
+ */
+.board-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  padding: var(--space-2) 0 var(--space-3);
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+/* The project names the board; "Board" was already the highlighted word in the nav above. */
+.board-project {
+  font-size: var(--text-md);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  border-color: transparent;
+  background: transparent;
+  padding-left: 0;
+}
+.board-project:hover { border-color: var(--border); background: var(--surface); }
+.board-count { font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
+.board-toolbar-sep { width: 1px; height: 20px; background: var(--border); }
+.board-toolbar-gap { flex: 1; }
+
+/* How many filters are on, on the button that hides them. */
+.chip-count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  margin-left: 5px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+/* The two controls that became popovers rather than rows. */
+.board-panel {
+  position: relative;
+  z-index: 4;
+  margin-top: var(--space-2);
+  padding: var(--space-3);
+  background: var(--plane-3-bg);
+  border: 1px solid var(--plane-3-border);
+  border-radius: var(--radius);
+  box-shadow: var(--plane-3-shadow);
+}
+.board-panel .filter-bar,
+.board-panel .quick-add { margin: 0; }
+
+.board-help { position: relative; }
+.board-help > summary {
+  list-style: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  color: var(--faint);
+  font-size: var(--text-xs);
+}
+.board-help > summary::-webkit-details-marker { display: none; }
+.board-help[open] > summary { border-color: var(--accent); color: var(--accent); }
+.board-help-body {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  width: 22rem;
+  padding: var(--space-3);
+  background: var(--plane-3-bg);
+  border: 1px solid var(--plane-3-border);
+  border-radius: var(--radius);
+  box-shadow: var(--plane-3-shadow);
+  font-size: var(--text-xs);
+  color: var(--muted);
+  line-height: 1.7;
+  z-index: 6;
+}
+
+/*
+ * The board fills what is left of the window.
+ *
+ * `100dvh` rather than `vh`: on a phone the toolbar bar collapses as you scroll and `vh`
+ * measures the taller of the two, so the last card would sit permanently under the chrome.
+ */
+.board-stage { min-height: 0; }
+.board-stage .board {
+  margin: var(--space-3) 0 0;
+  min-height: calc(100dvh - 13rem);
+  align-items: stretch;
+}
+.board-column { display: flex; flex-direction: column; }
+.board-column-body { flex: 1; }
+
+/* ==========================================================================================
+   The card — badges first
+   ========================================================================================== */
+
+.task-card { flex-direction: column; align-items: stretch; gap: 0; }
+.task-card-body { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+
+/*
+ * The badges, above the title.
+ *
+ * They answer "is this mine to worry about" before the title answers "what is it", which is
+ * the order a column is actually read in: you scan for the one that matters, then read words.
+ */
+.task-badges { display: flex; flex-wrap: wrap; gap: 4px; }
+.task-badges:empty { display: none; }
+
+.badge.type-story { color: var(--accent); border-color: var(--accent-line); background: var(--accent-bg); }
+.badge.type-bug { color: var(--danger); border-color: var(--danger-line); background: var(--danger-bg); }
+.badge.type-chore { color: var(--muted); border-color: var(--border); background: var(--surface-sunken); }
+.badge.type-spike { color: var(--info); border-color: var(--info-line); background: var(--info-bg); }
+.badge-blocked { color: var(--danger); border-color: var(--danger); background: var(--danger-bg); font-weight: 600; }
+
+.task-card .task-open { height: auto; font-size: var(--text-sm); line-height: 1.35; text-align: left; }
+
+.task-card-meta { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+/* Who has it on the left, what it costs on the right — the two are asked about separately. */
+.task-card-gap { flex: 1; }
+.task-comments { display: inline-flex; align-items: center; gap: 3px; }
+
+/* ==========================================================================================
+   The task, over the board
+   ========================================================================================== */
+
+.task-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgb(0 0 0 / 0.46);
+  display: grid;
+  place-items: center;
+  padding: var(--space-5);
+}
+.task-modal {
+  width: min(1120px, 100%);
+  height: min(848px, 100%);
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--plane-3-shadow);
+  overflow: hidden;
+}
+.task-modal:focus { outline: none; }
+.task-modal-empty { padding: var(--space-6); display: grid; gap: var(--space-3); place-items: center; }
+
+.task-modal-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+.task-modal-step { display: flex; align-items: center; gap: var(--space-1); font-size: var(--text-xs); }
+.task-modal-where { flex: 1; font-size: var(--text-xs); }
+.task-modal-out { display: flex; align-items: center; gap: var(--space-3); font-size: var(--text-xs); }
+
+.task-modal-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 19rem;
+  flex: 1;
+  min-height: 0;
+}
+.task-modal-main { padding: var(--space-4) var(--space-5); overflow-y: auto; min-width: 0; }
+.task-modal-side {
+  border-left: 1px solid var(--border);
+  background: var(--surface-sunken);
+  padding: var(--space-4);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+@media (max-width: 60rem) {
+  /* One column, properties first: on a narrow screen the decisions matter more than the prose. */
+  .task-modal-body { grid-template-columns: minmax(0, 1fr); }
+  .task-modal-side { border-left: 0; border-bottom: 1px solid var(--border); order: -1; }
+}
+
+.task-modal-title {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-xl);
+  line-height: 1.28;
+  letter-spacing: -0.012em;
+}
+.task-modal-section { margin-top: var(--space-5); }
+.task-modal-section > h3 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-2xs);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--faint);
+  font-weight: 600;
+}
+.task-modal-section > h3 .faint { letter-spacing: 0; text-transform: none; }
+
+/* Blocked, and who by — above everything, because it is why the card is not moving. */
+.task-block-banner {
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--danger);
+  background: var(--danger-bg);
+  border-radius: var(--radius);
+}
+.task-block-head { display: flex; align-items: center; gap: var(--space-2); color: var(--danger); }
+.task-block-reason { margin: var(--space-2) 0 0; font-size: var(--text-sm); }
+.task-block-who { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-2); font-size: var(--text-xs); }
+.task-block-form { display: flex; gap: var(--space-2); margin-top: var(--space-3); }
+.task-block-form input { flex: 1; }
+
+.task-time { display: grid; gap: 5px; }
+.task-time-line { display: flex; justify-content: space-between; font-size: var(--text-xs); color: var(--muted); }
+.task-time-bar { display: block; height: 4px; border-radius: 2px; background: var(--surface-raised); overflow: hidden; }
+.task-time-bar > span { display: block; height: 100%; background: var(--accent); }
+.task-time-bar > span.over { background: var(--warning); }
+.task-time-over { margin: 0; font-size: var(--text-2xs); color: var(--warning); }
+
+.task-props { display: grid; grid-template-columns: 5.5rem minmax(0, 1fr); gap: var(--space-2) var(--space-3); margin: 0; align-items: center; }
+.task-props dt { font-size: var(--text-2xs); letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint); }
+.task-props dd { margin: 0; display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.task-props dd select, .task-props dd input { min-width: 0; flex: 1; }
+.task-prop-hours { width: 4.5rem; flex: none !important; }
+.task-prop-assignee { gap: var(--space-2); }
+
+.task-modal-history > h3 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-2xs);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--faint);
+  font-weight: 600;
+}
+
+/* ==========================================================================================
+   Formatting controls for the rich text that was always there
+   ========================================================================================== */
+
+.markdown-editor[data-framed] {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.markdown-editor[data-framed]:focus-within { border-color: var(--accent); }
+.markdown-editor[data-framed] .ProseMirror { padding: var(--space-3); }
+
+.md-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-sunken);
+}
+.md-tool {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+.md-tool:hover { background: var(--wash); color: var(--text); }
+.md-tool-on { background: var(--surface-raised); color: var(--text); }
+.md-sep { width: 1px; height: 15px; background: var(--border); margin: 0 4px; }
+/* The mark itself, so the button shows what it does rather than naming it. */
+.md-hl { background: var(--warning-bg); color: var(--warning); padding: 0 3px; border-radius: 2px; }
+.md-code { font-family: var(--font-mono); font-size: 10px; }
+.md-toolbar-end { margin-left: auto; display: flex; align-items: center; gap: var(--space-2); }
