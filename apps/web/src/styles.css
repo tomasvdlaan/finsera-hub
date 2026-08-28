@@ -3730,6 +3730,17 @@ a.badge:hover {
 .room-pulse-off {
   background: var(--dock-faint);
 }
+/*
+ * Paused: lit, but still.
+ *
+ * Deliberately not the warning colour. Nothing is wrong — somebody chose this — and dressing a
+ * deliberate state as a fault sends people looking for the problem. The absence of the pulse is
+ * the signal, which is also what the wave beside it stops doing.
+ */
+.room-pulse-paused {
+  background: var(--dock-muted);
+  animation: none;
+}
 .room-wave {
   display: flex;
   align-items: flex-end;
@@ -8635,4 +8646,10 @@ a.btn { text-decoration: none; }
   margin: var(--space-1) 0 0;
   font-size: var(--text-xs);
   color: var(--warning);
+}
+
+/* A break in the transcript — a pause, not something anybody said. */
+.room-transcript-break {
+  color: var(--dock-muted);
+  font-style: italic;
 }

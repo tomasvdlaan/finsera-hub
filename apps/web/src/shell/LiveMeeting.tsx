@@ -50,6 +50,23 @@ interface LiveMeeting {
   startBot: (noteId: string, meetingUrl: string) => Promise<void>;
   startCapture: (noteId: string, source: 'microphone' | 'tab', deviceId?: string) => Promise<void>;
   stop: () => Promise<void>;
+  /**
+   * Stop listening, without ending the meeting.
+   *
+   * Releases the microphone or the shared tab as well as telling the server, so the operating
+   * system's own recording indicator goes out — which is the only part of this a person in the
+   * room can actually verify.
+   */
+  pause: () => Promise<void>;
+  /**
+   * Listen again.
+   *
+   * A microphone comes back on its own, because the browser remembers that permission. A shared
+   * tab cannot: `getDisplayMedia` needs a fresh gesture every time, by design. So resuming a
+   * tab capture ends in `needsAudio` and the existing "Share audio again" button, rather than
+   * pretending it can reacquire silently and quietly recording nothing.
+   */
+  unpause: () => Promise<void>;
   configure: (next: { enabled?: string[]; maySpeak?: boolean }) => void;
   setChatty: (on: boolean) => void;
 }
@@ -394,6 +411,54 @@ export function LiveMeetingProvider({ children }: { children: ReactNode }) {
     }
   }, [live.noteId, releaseLocal]);
 
+  const pause = useCallback(async () => {
+    const noteId = live.noteId;
+    if (!noteId) return;
+    try {
+      await api.post(`/meetings/${noteId}/live/pause`, {});
+      /*
+       * Released after the server has agreed, not before.
+       *
+       * If the call fails the meeting is still being listened to, and a browser that had
+       * already dropped its microphone would be showing "paused" while the bot kept hearing
+       * everything — the one failure this feature must not have.
+       */
+      releaseLocal();
+    } catch (e) {
+      dispatch({ type: 'failed', message: (e as Error).message });
+    }
+  }, [live.noteId, releaseLocal]);
+
+  const unpause = useCallback(async () => {
+    const noteId = live.noteId;
+    if (!noteId) return;
+    try {
+      await api.post(`/meetings/${noteId}/live/resume`, {});
+    } catch (e) {
+      dispatch({ type: 'failed', message: (e as Error).message });
+      return;
+    }
+    // A bot needs nothing from this tab; only browser capture has anything to pick back up.
+    if (live.source === 'bot') return;
+    const source = live.source === 'tab' ? 'tab' : 'microphone';
+    if (source === 'tab') {
+      // Cannot be reacquired without a gesture. Ask for one rather than failing silently.
+      dispatch({ type: 'needsAudio' });
+      return;
+    }
+    try {
+      stream.current = await acquire('microphone');
+      capturing.current = true;
+      dispatch({ type: 'audioOk' });
+      // Started directly: the socket never closed, so no `ready` is coming to start it for us.
+      recordSegment();
+    } catch (e) {
+      releaseLocal();
+      dispatch({ type: 'needsAudio' });
+      dispatch({ type: 'failed', message: (e as Error).message });
+    }
+  }, [live.noteId, live.source, acquire, releaseLocal, recordSegment]);
+
   /*
    * Behaviour settings are per meeting, so they are addressed by note id — read from a ref
    * rather than from state, because these callbacks are handed to a checkbox that outlives
@@ -426,6 +491,8 @@ export function LiveMeetingProvider({ children }: { children: ReactNode }) {
         chatty,
         resume,
         resumeAudio,
+        pause,
+        unpause,
         startBot,
         startCapture,
         stop,

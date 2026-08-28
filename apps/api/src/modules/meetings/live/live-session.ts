@@ -8,6 +8,15 @@
 export interface TranscriptLine {
   /** Stable identity, so a line delivered twice is recognisable as one line. */
   id: string;
+  /**
+   * What this line is.
+   *
+   * Almost always speech. `paused` marks a stretch where listening was deliberately
+   * suspended, and it exists because a gap in a transcript is otherwise indistinguishable
+   * from nobody having spoken — and the two want opposite answers to "what was discussed
+   * here?". Optional so every line ever written before this stays valid.
+   */
+  kind?: 'speech' | 'paused';
   /** Seconds from the start of the session, so the UI can show a timeline. */
   at: number;
   text: string;
@@ -115,6 +124,41 @@ export class LiveSession {
     };
     this.lines.push(line);
     if (speaker) this.speakers.set(speaker.id, speaker.name);
+    return line;
+  }
+
+  /**
+   * Whether listening is suspended.
+   *
+   * Held here rather than only in the runner because it is per-meeting state that outlives any
+   * one socket: a tab that reloads mid-pause has to learn the meeting is paused from somewhere,
+   * and the session is the thing that survives.
+   */
+  paused = false;
+
+  /**
+   * Record that listening stopped, or started again.
+   *
+   * A line rather than a separate list of intervals, so it travels with the transcript
+   * everywhere the transcript already goes — the live view, the saved record, and the window
+   * the model reads. That last one is the point: told plainly that a stretch is missing, the
+   * extraction stops stitching the two sides of a gap into one conversation.
+   *
+   * Returns null when nothing changed, so pausing an already-paused meeting is not an event and
+   * does not litter the transcript with markers nobody asked for.
+   */
+  mark(kind: 'paused' | 'resumed'): TranscriptLine | null {
+    const wantPaused = kind === 'paused';
+    if (this.paused === wantPaused) return null;
+    this.paused = wantPaused;
+
+    const line: TranscriptLine = {
+      id: `${this.noteId}-${this.lines.length}-${Date.now()}`,
+      at: Math.round((Date.now() - this.startedAt.getTime()) / 1000),
+      text: wantPaused ? '— listening paused —' : '— listening resumed —',
+      kind: wantPaused ? 'paused' : 'speech',
+    };
+    this.lines.push(line);
     return line;
   }
 

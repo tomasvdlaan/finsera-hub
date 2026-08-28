@@ -268,6 +268,36 @@ describe('LiveGateway', () => {
 
   // ── the loop ──
 
+  it('refuses audio while the meeting is paused', async () => {
+    const note = await noteWithConsent();
+    const socket = new FakeSocket();
+    await gateway.handleConnection(socket as never, request(`token=t&noteId=${note.id}`));
+
+    await runner.pause(actor, note.id);
+    live.transcribeSegment.mockClear();
+
+    await socket.deliver({
+      type: 'audio',
+      mimeType: 'audio/webm',
+      data: Buffer.from('pretend audio').toString('base64'),
+    });
+
+    /*
+     * The browser stops recording when it pauses, so ordinarily nothing arrives at all. This
+     * is the segment already in flight, or a tab running older code — and it must not be able
+     * to keep a paused transcript growing.
+     */
+    expect(live.transcribeSegment).not.toHaveBeenCalled();
+    // The only line on the wire is the pause marker itself — nothing anybody said.
+    const spoken = socket
+      .messagesOfType('line')
+      .filter((m) => (m.line as { kind?: string }).kind !== 'paused');
+    expect(spoken).toHaveLength(0);
+    // Not an error: the client did nothing wrong and has nothing to fix.
+    expect(socket.messagesOfType('error')).toHaveLength(0);
+    expect(socket.closed).toBe(false);
+  });
+
   it('transcribes a segment into a line, and never stores the audio', async () => {
     const note = await noteWithConsent();
     const socket = new FakeSocket();
@@ -309,7 +339,17 @@ describe('LiveGateway', () => {
     // One long segment crosses the threshold in a single step.
     live.transcribeSegment.mockResolvedValueOnce('word '.repeat(300));
     await socket.deliver({ type: 'audio', data: Buffer.from('x').toString('base64') });
-    await waitFor(() => live.extract.mock.calls.length > 0, { label: 'the extraction pass' });
+    /*
+     * Waits for the message, not for the call that eventually produces it.
+     *
+     * `extract` being called is the START of the tick: `recordNotes` is awaited after it and
+     * the broadcast comes after that, so waiting on the call count could return before either
+     * had happened. It usually did not, which is the worst kind of race — this test failed
+     * roughly once in a handful of runs and only when something else shifted the timing.
+     */
+    await waitFor(() => socket.messagesOfType('proposals').length > 0, {
+      label: 'the extraction pass',
+    });
 
     expect(live.extract).toHaveBeenCalledOnce();
     expect(socket.messagesOfType('proposals')).toHaveLength(1);

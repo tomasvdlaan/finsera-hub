@@ -60,6 +60,19 @@ export interface CaptureSession {
   speak(audio: Buffer, mimeType: string): Promise<void>;
   /** True while the bot's own audio is playing, so transcription can ignore itself. */
   isSpeaking(): boolean;
+  /**
+   * Stop or start taking audio in, without leaving the meeting.
+   *
+   * Optional, and honestly so: how deaf a provider can be made varies, and the layer above
+   * does not depend on the answer. A browser genuinely stops — it releases the microphone or
+   * the shared tab, and the operating system's recording indicator goes out. A bot sitting in
+   * somebody else's call cannot promise that much: the most it can do is discard what arrives
+   * and drop any half-finished utterance, so nothing is transcribed, stored or charged.
+   *
+   * Which is why the runner refuses paused segments itself rather than relying on this. This
+   * is the improvement where it is available, never the guarantee.
+   */
+  setListening?(listening: boolean): Promise<void>;
   leave(): Promise<void>;
 }
 

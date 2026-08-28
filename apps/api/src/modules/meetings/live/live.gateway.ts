@@ -46,6 +46,11 @@ const graceMs = (): number => Number(process.env.LIVE_RECONNECT_GRACE_MS ?? RECO
  *   client → { type: 'audio', mimeType, data }  base64 segment, ~25s, self-contained
  *   client → { type: 'stop' }
  *
+ * Pause is deliberately NOT on this socket: it is a property of the meeting rather than of one
+ * tab's connection, every other tab has to hear about it, and it has to work from a phone that
+ * is not the one holding the microphone. It is POST /meetings/:id/live/pause, and the result
+ * arrives here as `paused` for everybody.
+ *
  *   server → ready      { noteId, startedAt, mode: 'source' | 'watching', source? }
  *                       'source' means this socket is expected to send audio; a second tab
  *                       on the same meeting, or any tab watching a bot, gets 'watching'.
@@ -59,6 +64,9 @@ const graceMs = (): number => Number(process.env.LIVE_RECONNECT_GRACE_MS ?? RECO
  *   server → spoke      { text } — what the assistant said aloud
  *   server → error      { message } — one bad segment, not the end of the meeting
  *   server → ended      { reason } — the capture provider dropped
+ *   server → listening  { paused } — whether the agent is listening. State rather than an
+ *                       event, so a tab that connects mid-pause is told the same thing as one
+ *                       that watched it happen.
  *   server → stopped    { costCents, lines } — written and saved
  *
  * This list said seven for a while and the server sent twelve, which is a bad way to write a
@@ -265,6 +273,16 @@ export class LiveGateway implements OnGatewayConnection, OnGatewayDisconnect, On
     }
 
     if (message.type !== 'audio' || !message.data) return;
+
+    /*
+     * Refused while paused, before anything is transcribed.
+     *
+     * The browser stops recording and releases the device when it pauses, so in the ordinary
+     * case nothing arrives here at all. This is for the case that is not ordinary: a segment
+     * already in flight when the pause landed, or a tab running older code. Silent rather than
+     * an error — the client did nothing wrong, and there is nothing for it to fix.
+     */
+    if (client.session.paused) return;
 
     try {
       const audio = Buffer.from(message.data, 'base64');
