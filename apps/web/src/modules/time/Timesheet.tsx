@@ -2,6 +2,12 @@ import { useCallback, useEffect, useState } from 'react';
 import { PageHeader, SubNav } from '../../shell/ui/layout.js';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api.js';
+import { Card } from '../../shell/ui/card.js';
+import { Block } from '../../shell/ui/layout.js';
+import { PendingApprovals, SubmitWeek } from './Approvals.js';
+import { ExportHours } from './ExportHours.js';
+import { useCan } from '../../shell/useCan.js';
+import { shiftDay } from '../../lib/dates.js';
 import {
   DAY_LABELS,
   formatDayHeader,
@@ -43,6 +49,16 @@ export function Timesheet() {
   const [week, setWeek] = useState<Week | null>(null);
   const [weekOf, setWeekOf] = useState<string | undefined>();
   const [error, setError] = useState<string | null>(null);
+  /*
+   * One counter, both blocks.
+   *
+   * Handing your week in changes what the approvals list should say, and approving changes what
+   * the hand-in block should say — they are two views of one row. Without this, submitting left
+   * the list beside it insisting nothing was waiting.
+   */
+  const { can } = useCan();
+  const [changed, setChanged] = useState(0);
+  const refresh = () => setChanged((n) => n + 1);
 
   const load = useCallback(async () => {
     const q = weekOf ? `?weekOf=${weekOf}` : '';
@@ -61,26 +77,41 @@ export function Timesheet() {
 
 
 
-  if (!week) return <p className="muted">{error ?? 'Loading…'}</p>;
+  /*
+   * A page that cannot load is still a page.
+   *
+   * This used to return a bare line of text, which took the header, the week navigation, the
+   * tab strip and the back link with it — so a slow request left somebody on a screen with no
+   * way off it but the browser's back button. The header renders first and always; only the
+   * grid waits.
+   */
+  const dayTotal = (day: string) => (week?.rows ?? []).reduce((sum, r) => sum + (r.days[day] ?? 0), 0);
 
-  const dayTotal = (day: string) => week.rows.reduce((sum, r) => sum + (r.days[day] ?? 0), 0);
 
   return (
     <>
       <PageHeader
-        title={`Week of ${week.weekOf}`}
+        title={week ? `Week of ${week.weekOf}` : 'This week'}
         subtitle="Read-only overview. Click any day to open it and edit the entries behind it."
         tabs={<SubNav items={CLOCK} />}
         back={{ to: '/time', label: 'Back to day view' }}
       />
 
       <div className="row">
-        <button onClick={() => setWeekOf(shiftWeek(week.weekOf, -1))}>← Previous</button>
+        <button disabled={!week} onClick={() => week && setWeekOf(shiftWeek(week.weekOf, -1))}>
+          ← Previous
+        </button>
         <button onClick={() => setWeekOf(undefined)}>This week</button>
-        <button onClick={() => setWeekOf(shiftWeek(week.weekOf, 1))}>Next →</button>
+        <button disabled={!week} onClick={() => week && setWeekOf(shiftWeek(week.weekOf, 1))}>
+          Next →
+        </button>
       </div>
 
       {error && <p className="error">{error}</p>}
+      {!week && !error && <p className="muted">Loading…</p>}
+
+      {week && (
+        <>
 
       <div className="grid-scroll">
         <table className="grid">
@@ -123,7 +154,7 @@ export function Timesheet() {
             ))}
             {week.rows.length === 0 && (
               <tr>
-                <td colSpan={9} className="muted">
+                <td colSpan={week.days.length + 2} className="muted">
                   Nothing logged this week.
                 </td>
               </tr>
@@ -146,6 +177,48 @@ export function Timesheet() {
       <p className="muted">
         {formatHours(week.billableMinutes)}h billable of {formatHours(week.totalMinutes)}h logged.
       </p>
+        </>
+      )}
+
+      {/*
+        Handing the week in, and — for whoever may decide — everybody else's.
+
+        Both sit under the grid rather than above it: you read the week, then you act on it. The
+        approvals block renders nothing at all for a member, so the layout below is theirs too.
+      */}
+      {week && (
+        <Block span={5}>
+          <Card title="Hand in this week">
+            <SubmitWeek weekOf={week.weekOf} refreshKey={changed} onChange={refresh} />
+          </Card>
+        </Block>
+      )}
+      <Block span={7}>
+        <Card title="Waiting on a decision">
+          <PendingApprovals refreshKey={changed} onChange={refresh} />
+        </Card>
+      </Block>
+
+      {/*
+        Out of the platform.
+        
+        Whose hours depends on who is asking: an admin exports the team's week, everybody else
+        exports their own. The server decides either way — this only picks the default.
+      */}
+      {week && (
+        <Block span={12}>
+          <Card
+            title="Export these hours"
+            sub={can('time.entries.read_all') ? 'Everybody, for this week' : 'Your hours, for this week'}
+          >
+            <ExportHours
+              from={week.weekOf}
+              to={shiftDay(week.weekOf, 6)}
+              personId={can('time.entries.read_all') ? 'all' : undefined}
+            />
+          </Card>
+        </Block>
+      )}
     </>
   );
 }

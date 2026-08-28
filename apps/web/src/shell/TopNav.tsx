@@ -3,6 +3,7 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import type { CurrentUser } from '@platform/contracts';
 import { Count } from './ui/primitives.js';
 import { elapsed, useRunningTimer } from './useRunningTimer.js';
+import { useCan } from './useCan.js';
 import type { NavItem } from '../modules/types.js';
 
 export interface NavCounts {
@@ -85,6 +86,7 @@ export function TopNav({
   onLogout: () => void;
 }) {
   const navigate = useNavigate();
+  const { can } = useCan();
   const { running, busy, stop } = useRunningTimer();
   const [menu, setMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -244,6 +246,11 @@ export function TopNav({
                     <NavLink to="/settings/people" role="menuitem" onClick={() => setMenu(false)}>
                       People
                     </NavLink>
+                    {can('core.costs.read') && (
+                      <NavLink to="/settings/costs" role="menuitem" onClick={() => setMenu(false)}>
+                        Platform costs
+                      </NavLink>
+                    )}
                     <NavLink to="/settings/modules" role="menuitem" onClick={() => setMenu(false)}>
                       Platform modules
                     </NavLink>

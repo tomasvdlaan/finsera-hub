@@ -1,4 +1,5 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { UsageService, type UsageContext } from '../usage/usage.service.js';
 import { LOCAL_SAMPLE_RATE, isLocalSpeechAvailable, speakLocally } from './tts.local.js';
 
 /** Gemini returns 24 kHz mono PCM; Recall plays MP3. */
@@ -43,13 +44,19 @@ export class TtsService {
     return isLocalSpeechAvailable() ? 'local' : 'gemini';
   }
 
+  constructor(@Optional() @Inject(UsageService) private readonly usage?: UsageService) {}
+
   async speak(
     text: string,
-    opts: { voice?: string; style?: string } = {},
+    opts: { voice?: string; style?: string; context?: UsageContext } = {},
   ): Promise<{ mp3: Buffer; mimeType: 'audio/mp3' }> {
+    const ctx = opts.context ?? { module: 'meetings', feature: 'speak' };
     if (this.provider() === 'local') {
       try {
         const pcm = await speakLocally(text, process.env.TTS_LOCAL_VOICE ?? 'Xander');
+        // Recorded at zero rather than skipped: silence on the page would look like the
+        // feature is unused, when in fact it is being served for free.
+        await this.usage?.recordSpeech('local', text.length, true, ctx);
         return { mp3: await pcmToMp3(pcm, LOCAL_SAMPLE_RATE), mimeType: 'audio/mp3' };
       } catch (error) {
         // Falling through to the hosted model beats saying nothing at all.
@@ -90,6 +97,8 @@ export class TtsService {
     };
     const encoded = body.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
     if (!encoded) throw new Error('The model returned no audio');
+
+    await this.usage?.recordSpeech(model, text.length, false, ctx);
 
     return { mp3: await pcmToMp3(Buffer.from(encoded, 'base64')), mimeType: 'audio/mp3' };
   }

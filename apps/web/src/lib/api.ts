@@ -75,6 +75,34 @@ async function request<T>(
   return (text ? JSON.parse(text) : null) as T;
 }
 
+/**
+ * A file the endpoint generates, rather than JSON.
+ *
+ * Separate from `request` because everything after the status check differs: there is nothing
+ * to parse, and the filename lives in a header rather than in a body.
+ *
+ * It exists at all because a plain `<a href="/api/…">` does not carry the bearer token — the
+ * browser would fetch it unauthenticated and cheerfully save the 401 as a `.csv`, which is a
+ * failure somebody discovers when they open it in front of their accountant.
+ */
+async function file(path: string): Promise<{ blob: Blob; filename: string }> {
+  const user = await getUser();
+  const res = await fetch(`/api${path}`, {
+    headers: user?.access_token ? { Authorization: `Bearer ${user.access_token}` } : {},
+  });
+
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    throw new ApiError(detail?.message ?? `${res.status} ${res.statusText}`, res.status);
+  }
+
+  // `filename="uren_entries_mijn_2026-08-24.csv"` — fall back rather than saving something
+  // called "download" if a proxy ever strips the header.
+  const disposition = res.headers.get('content-disposition') ?? '';
+  const filename = /filename="?([^"]+)"?/.exec(disposition)?.[1] ?? 'export.csv';
+  return { blob: await res.blob(), filename };
+}
+
 export const api = {
   get: <T,>(path: string) => request<T>('GET', path),
   post: <T,>(path: string, body: unknown, signal?: AbortSignal) =>
@@ -82,4 +110,5 @@ export const api = {
   patch: <T,>(path: string, body: unknown) => request<T>('PATCH', path, body),
   put: <T,>(path: string, body: unknown) => request<T>('PUT', path, body),
   del: <T,>(path: string) => request<T>('DELETE', path),
+  file,
 };

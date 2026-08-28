@@ -360,8 +360,8 @@ export function Room() {
         `display: none` would latch it into its narrow-window layout for the rest of the session.
       */}
       {stage === 'note' ? (
-        <main className="room-stage">
-          <article className="room-sheet">
+        <main className="room-stage room-stage-doc">
+          <article className="room-doc">
             {error && <p className="error">{error}</p>}
             {running && live.aiNotes && (
               <span className="tag room-writing" title="The assistant is writing into its own section">

@@ -345,7 +345,7 @@ export class DocsService {
   }
 
   private async semanticSearch(query: string, limit: number): Promise<SearchHit[]> {
-    const embedding = await this.embeddings.embedOne(query);
+    const embedding = await this.embeddings.embedOne(query, { module: 'docs', feature: 'search' });
     const literal = `[${embedding.join(',')}]`;
 
     const result = await this.db.execute(sql`
@@ -388,7 +388,7 @@ export class DocsService {
       return { title: doc.title, passages: current?.text ? [current.text.slice(0, 4000)] : [] };
     }
 
-    const embedding = await this.embeddings.embedOne(question);
+    const embedding = await this.embeddings.embedOne(question, { module: 'docs', feature: 'ask' });
     const literal = `[${embedding.join(',')}]`;
     const result = await this.db.execute(sql`
       SELECT c.content
@@ -426,6 +426,7 @@ export class DocsService {
     if (!LlmService.hasCredentials() || text.trim().length < 200) return;
     try {
       const { object } = await this.llm.generateStructured({
+        context: { module: 'docs', feature: 'understand' },
         schema: z.object({
           summary: z
             .string()
@@ -476,6 +477,7 @@ export class DocsService {
     }
 
     const { object } = await this.llm.generateStructured({
+      context: { module: 'docs', feature: 'classify' },
       schema: z.object({
         docType: z
           .string()
@@ -547,7 +549,7 @@ export class DocsService {
     await this.db.delete(chunks).where(eq(chunks.versionId, versionId));
 
     const vectors = EmbeddingService.isConfigured()
-      ? await this.embeddings.embedBatch(pieces.map((p) => p.content))
+      ? await this.embeddings.embedBatch(pieces.map((p) => p.content), { module: 'docs', feature: 'index' })
       : [];
 
     await this.db.insert(chunks).values(

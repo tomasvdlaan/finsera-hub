@@ -57,6 +57,7 @@ export class WakeWordBehaviour implements MeetingBehaviour {
       .join('\n');
 
     const result = await ctx.llm.generate({
+      context: { module: 'meetings', feature: 'wake-word' },
       role: 'fast',
       system: [
         'You are answering a question asked aloud in a live business meeting.',

@@ -89,3 +89,114 @@ describe('UserService provisioning', () => {
     expect(rows).toHaveLength(1);
   });
 });
+
+/**
+ * Keeping a name in step with the identity provider.
+ *
+ * The bug this closes is a quiet one: somebody changes their name in Zitadel and this platform
+ * shows the old one forever, on every task, timesheet and person page. Nothing errors, so
+ * nothing prompts anybody to look, and `updatePerson` accepts no name to correct it with.
+ *
+ * `fetchUserInfo` is stubbed throughout — the real one is a network call to the issuer, and
+ * what is worth testing is the decision made about its answer, not the call.
+ */
+describe('UserService profile refresh', () => {
+  let service: UserService;
+  const SUB = 'sub-renamed';
+
+  /** The stored row as it stands, by subject. */
+  const stored = async () =>
+    (await testDb.select().from(users).where(eq(users.oidcSubject, SUB)))[0]!;
+
+  /** Replace the issuer call with a fixed answer, and count how often it is asked. */
+  function stubUserInfo(answer: { name?: string; email?: string } | null) {
+    const calls = { count: 0 };
+    service.fetchUserInfo = async () => {
+      calls.count += 1;
+      return answer === null ? null : { sub: SUB, ...answer };
+    };
+    return calls;
+  }
+
+  beforeEach(async () => {
+    await resetDb();
+    await truncate(sql`TRUNCATE core.users CASCADE`);
+    service = new UserService(testDb);
+    await testDb.insert(users).values({
+      id: crypto.randomUUID(),
+      oidcSubject: SUB,
+      email: 'oldname@finsera.nl',
+      displayName: 'Old Name',
+      role: 'member',
+    });
+  });
+
+  it('adopts a name and email changed upstream', async () => {
+    stubUserInfo({ name: 'New Name', email: 'newname@finsera.nl' });
+
+    await service.resolveFromClaims({ sub: SUB, roles: [] }, 'tok');
+
+    const row = await stored();
+    expect(row.displayName).toBe('New Name');
+    expect(row.email).toBe('newname@finsera.nl');
+  });
+
+  it('asks the issuer once, not on every request', async () => {
+    // resolveFromClaims runs per request, so an unthrottled refresh would put a network call
+    // in front of every single API call the shell makes.
+    const calls = stubUserInfo({ name: 'New Name', email: 'newname@finsera.nl' });
+
+    await service.resolveFromClaims({ sub: SUB, roles: [] }, 'tok');
+    await service.resolveFromClaims({ sub: SUB, roles: [] }, 'tok');
+    await service.resolveFromClaims({ sub: SUB, roles: [] }, 'tok');
+
+    expect(calls.count).toBe(1);
+  });
+
+  it('leaves role and employment alone — the issuer has no opinion on those', async () => {
+    // A profile refresh that reset a role would be a privilege change wearing a name change's
+    // clothes. Promote first, then refresh, and the promotion must survive.
+    await testDb.update(users).set({ role: 'admin', jobTitle: 'Partner' }).where(eq(users.oidcSubject, SUB));
+    stubUserInfo({ name: 'New Name', email: 'newname@finsera.nl' });
+
+    const actor = await service.resolveFromClaims({ sub: SUB, roles: [] }, 'tok');
+
+    expect(actor.role).toBe('admin');
+    const row = await stored();
+    expect(row.role).toBe('admin');
+    expect(row.jobTitle).toBe('Partner');
+    expect(row.isActive).toBe(true);
+  });
+
+  it('keeps the stored name when the issuer is unreachable', async () => {
+    // fetchUserInfo swallows its own failures and returns null. Signing in must still work,
+    // with the name that is already known, rather than blanking it.
+    stubUserInfo(null);
+
+    const actor = await service.resolveFromClaims({ sub: SUB, roles: [] }, 'tok');
+
+    expect(actor.userId).toBeTruthy();
+    expect((await stored()).displayName).toBe('Old Name');
+  });
+
+  it('does not overwrite a good name with an empty one', async () => {
+    // A userinfo response missing `name` must fall through to the email and then to what is
+    // stored — never to undefined, which the column rejects and which would 500 the request.
+    stubUserInfo({ email: 'oldname@finsera.nl' });
+
+    await service.resolveFromClaims({ sub: SUB, roles: [] }, 'tok');
+
+    expect((await stored()).displayName).toBe('oldname@finsera.nl');
+  });
+
+  it('does not call the issuer for a deactivated account', async () => {
+    // Refused on the way in, without a round trip spent on somebody being turned away.
+    await testDb.update(users).set({ isActive: false }).where(eq(users.oidcSubject, SUB));
+    const calls = stubUserInfo({ name: 'New Name' });
+
+    await expect(service.resolveFromClaims({ sub: SUB, roles: [] }, 'tok')).rejects.toThrow(
+      /deactivated/,
+    );
+    expect(calls.count).toBe(0);
+  });
+});

@@ -1063,7 +1063,7 @@ export class MeetingsService {
     if (pieces.length === 0) return 0;
 
     const vectors = EmbeddingService.isConfigured()
-      ? await this.embeddings.embedBatch(pieces.map((p) => p.content))
+      ? await this.embeddings.embedBatch(pieces.map((p) => p.content), { module: 'meetings', feature: 'index' })
       : [];
 
     await this.db.insert(noteChunks).values(
@@ -1108,7 +1108,7 @@ export class MeetingsService {
 
     if (EmbeddingService.isConfigured()) {
       try {
-        const [vector] = await this.embeddings.embedBatch([q]);
+        const [vector] = await this.embeddings.embedBatch([q], { module: 'meetings', feature: 'search' });
         if (vector) {
           const semantic = await this.db.execute(sql`
             SELECT n.id, n.title, n.meeting_date, n.client_id,

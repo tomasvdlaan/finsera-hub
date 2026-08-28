@@ -53,6 +53,13 @@ export interface Project {
   retainerPeriod: string | null;
   startsOn: string | null;
   endsOn: string | null;
+  /**
+   * Who is on it — present only when the list was asked for with `withMembers=true`.
+   *
+   * Optional rather than defaulted to an empty array, so "nobody is on this" and "we did not
+   * ask" stay different facts. A row that renders "nobody yet" for the second is wrong.
+   */
+  members?: Array<{ userId: string; role: 'lead' | 'contributor'; displayName: string }>;
 }
 
 /** Money is stored as integer cents; formatting is the only place it becomes decimal. */

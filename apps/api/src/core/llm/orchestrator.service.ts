@@ -150,6 +150,7 @@ export class OrchestratorService {
         messages: [...history, { role: 'user', content: question }],
         tools,
         maxSteps: 8,
+        context: { module: 'assistant', feature: 'ask', actorId: actor.userId },
         model: input.model,
       })) {
         if (event.type === 'done') result = event.result;
@@ -1003,6 +1004,7 @@ export class OrchestratorService {
     try {
       const { text } = await this.llm.generate({
         role: 'fast',
+        context: { module: 'assistant', feature: 'retitle' },
         system:
           'Name this conversation in at most six words. No quotes, no trailing punctuation, ' +
           'no preamble — reply with the title alone. Prefer the specific noun over the ' +

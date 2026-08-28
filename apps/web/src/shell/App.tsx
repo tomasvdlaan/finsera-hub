@@ -26,6 +26,8 @@ import { Moved, MOVED_ROOTS } from './moved.js';
 import { NavProvider } from './useNav.js';
 import { Modules } from './Modules.js';
 import { People } from './People.js';
+import { Costs } from './Costs.js';
+import { PersonDetail } from './PersonDetail.js';
 import { Settings } from './Settings.js';
 import { DialogProvider } from './ui/Dialog.js';
 import { ToastProvider } from './ui/Toast.js';
@@ -288,6 +290,10 @@ function Shell() {
           <Route path="/assistant/starred" element={<Page><StarredAnswers /></Page>} />
           <Route path="/assistant/:id" element={<Page><AssistantPage /></Page>} />
           <Route path="/settings/people" element={<Page width="wide"><People /></Page>} />
+          {/* Admin-only server-side; the nav hides the link, the API refuses the data. */}
+          <Route path="/settings/costs" element={<Page width="wide"><Costs /></Page>} />
+          {/* One colleague. Behind core.people.manage like the directory it hangs off. */}
+          <Route path="/settings/people/:id" element={<Page width="wide"><PersonDetail /></Page>} />
           <Route path="/settings/modules" element={<Page><Modules /></Page>} />
           <Route path="/settings" element={<Page width="read"><Settings /></Page>} />
           {/* Every address the app used to serve, before the URLs were named after the

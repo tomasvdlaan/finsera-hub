@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { PageHeader } from '../../shell/ui/layout.js';
 import { EntityWidgets } from '../../shell/ui/EntityWidgets.js';
+import { ProjectTeam } from './ProjectTeam.js';
 import { Link, useParams } from 'react-router-dom';
 import type { EntityRef } from '@platform/contracts';
 import { api } from '../../lib/api.js';
@@ -164,6 +165,17 @@ export function ProjectDetail() {
         without CRM changing", which was a claim about a mechanism that had never been built —
         the component was imported by name three lines below it. It is true now.
       */}
+      {/*
+        Who is on it, before what is on it.
+
+        A project page answered every question except the first one anybody asks about a piece
+        of work, which is who is doing it. Reading is open; changing takes crm.projects.assign.
+      */}
+      <section data-span={6}>
+        <h2>Team</h2>
+        <ProjectTeam projectId={id} />
+      </section>
+
       <EntityWidgets entityId={id} entityType="project" />
 
       <section>

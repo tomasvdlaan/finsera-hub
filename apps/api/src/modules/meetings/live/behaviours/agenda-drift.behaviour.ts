@@ -59,6 +59,7 @@ export class AgendaDriftBehaviour implements MeetingBehaviour {
     const open = ctx.note.agenda.filter((a) => !a.covered);
 
     const result = await ctx.llm.generateStructured<DriftCheck>({
+      context: { module: 'meetings', feature: 'agenda-drift' },
       schema: DRIFT,
       role: 'fast',
       system: [

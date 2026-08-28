@@ -8,6 +8,7 @@ import {
   index,
   numeric,
   pgSchema,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -180,5 +181,45 @@ export const projects = crm.table(
       (${t.budgetAmountCents} IS NULL OR ${t.budgetAmountCents} >= 0) AND
       (${t.retainerAmountCents} IS NULL OR ${t.retainerAmountCents} >= 0)
     `),
+  ],
+);
+
+/**
+ * Who works on a project, as opposed to who is accountable for it.
+ *
+ * `projects.ownerId` is the commercial owner — one person, answerable for the engagement. It
+ * says nothing about who does the work, which is why every assignee picker and every "my
+ * projects" view has had nothing to read.
+ *
+ * Informational, not access control: `PermissionService.canSee()` stays permissive and everyone
+ * still sees every record. This is the shape that would let that change later; changing it is a
+ * separate decision, because the failure mode is somebody locked out of the project they are
+ * mid-delivery on.
+ *
+ * Shaped like `scrum.sprintCapacity`: composite key, bare `userId` with no cross-schema FK, and
+ * a cascade only from the owning side. Not a registry entity — a membership is a join row, not
+ * a record with a name and a URL.
+ */
+export const projectMembers = crm.table(
+  'project_members',
+  {
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    /** core.users id; no cross-schema FK by design. */
+    userId: uuid('user_id').notNull(),
+    /** What they are on THIS project. Not a job title — that describes the person. */
+    role: text('role').notNull().default('contributor'),
+    addedAt: timestamp('added_at', { withTimezone: true }).notNull().defaultNow(),
+    addedBy: uuid('added_by'),
+  },
+  (t) => [
+    primaryKey({ columns: [t.projectId, t.userId] }),
+    index('project_members_user_idx').on(t.userId),
+    check('project_members_role_known', sql`${t.role} IN ('lead','contributor')`),
+    // At most one lead per project. Two leads is an unanswered question, not a richer model.
+    uniqueIndex('project_members_one_lead')
+      .on(t.projectId)
+      .where(sql`${t.role} = 'lead'`),
   ],
 );
