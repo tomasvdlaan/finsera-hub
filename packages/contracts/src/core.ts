@@ -56,5 +56,19 @@ export const currentUserSchema = z.object({
   email: z.string(),
   displayName: z.string(),
   role: z.enum(['admin', 'member']),
+  /**
+   * Every capability this person actually holds, resolved server-side from the manifests.
+   *
+   * The frontend had no way to ask this, so `libraryFor` — which takes a `can` predicate for
+   * exactly this purpose — was called with `() => true` at both of its call sites and the
+   * `permission` field on every widget was inert. Seven of them named `time.read`, a capability
+   * that is declared in no manifest at all, and nothing noticed because nothing was checking.
+   *
+   * Sent as a list rather than as a rule the client re-derives: the policy lives in
+   * `permission.service.ts`, and a second implementation of it in the browser is a second
+   * implementation to disagree with the first. The browser only ever consults this list, and
+   * it is a courtesy — the server still refuses on every call.
+   */
+  capabilities: z.array(z.string()),
 });
 export type CurrentUser = z.infer<typeof currentUserSchema>;

@@ -13,6 +13,7 @@ import { ReportingModule } from './modules/reporting/reporting.module.js';
 import { SalesModule } from './modules/sales/sales.module.js';
 import { ScrumModule } from './modules/scrum/scrum.module.js';
 import { TimeModule } from './modules/time/time.module.js';
+import { WhiteboardModule } from './modules/whiteboard/whiteboard.module.js';
 
 /**
  * The composition root — the ONLY place where core, shell, and modules meet.
@@ -44,6 +45,7 @@ import { TimeModule } from './modules/time/time.module.js';
     InsightsModule,
     MeetingsModule,
     PortalModule,
+    WhiteboardModule,
   ],
 })
 export class AppModule {}

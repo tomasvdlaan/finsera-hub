@@ -12,42 +12,13 @@ import {
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { StorageService } from '../../core/storage/storage.service.js';
+import { imageResponseHeaders, safeStorageKey } from '../../core/storage/storage-key.js';
 import type { Actor } from '@platform/contracts';
 import { CurrentActor } from '../../core/auth/current-actor.decorator.js';
 import { Public } from '../../core/auth/public.decorator.js';
 import { LiveRunner } from './live/live-runner.service.js';
 import { MeetingsService, type CreateNoteInput } from './meetings.service.js';
 import { TEMPLATE_LIST } from './templates.js';
-
-/**
- * A storage key that is safe to read.
- *
- * Keys are random paths chosen at upload, so a malformed one means someone is trying it
- * on. Checked rather than trusted: without this, `../../` in the path would read anything
- * the process can.
- */
-export function safeStorageKey(key: string | string[]): string {
-  const joined = Array.isArray(key) ? key.join('/') : key;
-  const decoded = decodeURIComponent(joined);
-  if (!decoded || decoded.includes('..') || decoded.startsWith('/') || decoded.includes('\\')) {
-    throw new BadRequestException('Bad image key');
-  }
-  return decoded;
-}
-
-function mimeFromKey(key: string): string {
-  const ext = key.split('.').pop()?.toLowerCase();
-  return (
-    {
-      png: 'image/png',
-      jpg: 'image/jpeg',
-      jpeg: 'image/jpeg',
-      gif: 'image/gif',
-      webp: 'image/webp',
-      svg: 'image/svg+xml',
-    }[ext ?? ''] ?? 'application/octet-stream'
-  );
-}
 
 @Controller('meetings')
 export class MeetingsController {
@@ -114,12 +85,10 @@ export class MeetingsController {
     if (!(await this.storage.exists(safe))) throw new BadRequestException('Unknown image');
 
     const data = await this.storage.get(safe);
-    res.setHeader('Content-Type', mimeFromKey(safe));
-    res.setHeader('Cache-Control', 'private, max-age=86400');
-    res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'");
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    // A leaked URL a crawler has indexed is a worse problem than a leaked URL.
-    res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+    // Shared with the whiteboard's image route — same bytes, same tree, same reasoning.
+    for (const [header, value] of Object.entries(imageResponseHeaders(safe))) {
+      res.setHeader(header, value);
+    }
     res.send(data);
   }
 

@@ -110,8 +110,19 @@ export const navigationSchema = z.object({
   hidden: z.boolean().optional(),
 });
 
+/**
+ * Where a module's block can be placed.
+ *
+ * `meeting-room` is the odd one out and worth explaining: it is not a page the shell composes
+ * but a tab inside another module's screen. It exists as a slot rather than as a direct import
+ * because the alternative — the meetings module importing the whiteboard's editor — would both
+ * defeat that editor's code-split (every meeting room would download it) and reintroduce the
+ * "ClientDetail has to know that billing, sales, docs and meetings all exist" problem the web
+ * module types call out by name. A room says which slot it offers; modules say what they put
+ * in it; neither names the other.
+ */
 export const widgetSchema = z.object({
-  slot: z.enum(['timeline', 'dashboard', 'entity-page']),
+  slot: z.enum(['timeline', 'dashboard', 'entity-page', 'meeting-room']),
   component: z.string(), // key the web shell resolves to a React component
 });
 

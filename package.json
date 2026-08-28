@@ -14,9 +14,11 @@
     "typecheck": "turbo typecheck",
     "test": "turbo test",
     "boundaries": "pnpm --filter @platform/api boundaries",
-    "verify": "turbo lint typecheck build test && pnpm boundaries && pnpm routes && pnpm widgets",
+    "verify": "turbo lint typecheck build test && pnpm boundaries && pnpm routes && pnpm widgets && pnpm migrations && pnpm bundle",
     "routes": "node scripts/check-routes.mjs",
-    "widgets": "node scripts/check-widgets.mjs"
+    "widgets": "node scripts/check-widgets.mjs",
+    "migrations": "pnpm --filter @platform/api db:check",
+    "bundle": "node scripts/check-bundle.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

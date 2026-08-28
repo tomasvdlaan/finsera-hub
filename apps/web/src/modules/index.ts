@@ -13,6 +13,7 @@ import { reportingWebModule } from './reporting/index.js';
 import { salesWebModule } from './sales/index.js';
 import { scrumWebModule } from './scrum/index.js';
 import { timeWebModule } from './time/index.js';
+import { whiteboardWebModule } from './whiteboard/index.js';
 
 /**
  * The composition root for frontend modules — the one file that changes when a module
@@ -32,6 +33,7 @@ export const webModules: WebModule[] = [
   reportingWebModule,
   insightsWebModule,
   meetingsWebModule,
+  whiteboardWebModule,
 ];
 
 /**
