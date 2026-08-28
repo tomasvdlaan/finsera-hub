@@ -16,12 +16,23 @@ const clock = (seconds: number) =>
  * It is deliberately not interactive beyond opening the panel that holds the detail. Reading
  * it should never cost anything.
  *
+ * The stage switch is the one exception, and it earns it: it is the only control that changes
+ * what you are working on rather than what you are looking at, and this band — the thing your
+ * eye is already on between glances — is where you would look for it. Putting it in the title
+ * bar would have meant that bar saying two things, and it exists to say one.
+ *
  * On the agenda: the segments are equal width and say covered, current, or not yet. They are
  * not proportional to time spent, because nothing records time spent per item — an agenda
  * item knows only whether it has been covered. A bar drawn to imply minutes we do not measure
  * would be the most convincing lie on the screen.
  */
+/** Which artefact the stage is showing. Both are things this meeting is making. */
+export type Stage = 'note' | 'board';
+
 export function RoomStrip({
+  stage,
+  onStage,
+  hasBoard,
   note,
   columns,
   tasks,
@@ -41,6 +52,10 @@ export function RoomStrip({
   /** Suggestions and action points with nobody's decision on them yet. */
   waiting: number;
   onOpen: (tab: 'agenda' | 'board' | 'agent') => void;
+  stage: Stage;
+  onStage: (stage: Stage) => void;
+  /** False when no module offers a whiteboard, in which case there is nothing to switch to. */
+  hasBoard: boolean;
 }) {
   const [, tick] = useState(0);
 
@@ -66,6 +81,32 @@ export function RoomStrip({
 
   return (
     <div className="room-strip">
+      {hasBoard && (
+        <div className="room-strip-zone room-strip-stage">
+          <span className="room-strip-label">Stage</span>
+          <div className="room-strip-value" role="tablist" aria-label="What the stage shows">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={stage === 'note'}
+              className={stage === 'note' ? 'room-stage-tab room-stage-tab-on' : 'room-stage-tab'}
+              onClick={() => onStage('note')}
+            >
+              Note
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={stage === 'board'}
+              className={stage === 'board' ? 'room-stage-tab room-stage-tab-on' : 'room-stage-tab'}
+              onClick={() => onStage('board')}
+            >
+              Whiteboard
+            </button>
+          </div>
+        </div>
+      )}
+
       <button
         type="button"
         className="room-strip-zone room-strip-agenda"

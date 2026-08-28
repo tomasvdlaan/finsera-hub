@@ -3294,6 +3294,92 @@ a.badge:hover {
   position: relative;
   height: fit-content;
 }
+/*
+ * The stage, when a canvas has it.
+ *
+ * The opposite of the sheet in every way that matters: no centring, no reading width, no
+ * padding, and crucially no scrolling — an infinite canvas scrolls itself, and a scroll bar
+ * around one is a second, conflicting way to move that makes both feel broken. `min-height: 0`
+ * is what lets it actually shrink to the space left over rather than pushing the dock off.
+ */
+.room-stage-canvas {
+  display: block;
+  overflow: hidden;
+  padding: 0;
+  min-height: 0;
+  position: relative;
+}
+
+/*
+ * The whiteboard shows its own collaborators; in here the room already has.
+ *
+ * Two rows of faces on one screen, meaning subtly different things — who is in the meeting
+ * versus who has the board open — is worse than one. The room's is the truthful one during a
+ * meeting, so the board's avatar stack steps aside. Live cursors stay: those say who is
+ * drawing *right now*, which the room's row cannot tell you.
+ */
+.room-stage-canvas .wb-peers {
+  display: none;
+}
+
+/*
+ * Excalidraw's own islands, lifted clear of the dock.
+ *
+ * Its zoom, undo/redo and help controls sit `bottom: 16px` inside their container — which in
+ * the room is exactly where the dock floats, so they end up underneath it. The canvas itself is
+ * left to run the full height on purpose: it is a drawing surface, and having it pass behind a
+ * floating dock is normal. Only the controls have to move.
+ *
+ * Measured from the same tokens the dock is placed with, so the two cannot drift apart.
+ *
+ * `.excalidraw` is named in the selector on purpose. Its own rule is `.excalidraw
+ * .layer-ui__wrapper__footer { bottom: 16px }` — the same specificity as the obvious
+ * two-class version of this — and its stylesheet is imported by the lazily-loaded editor, so
+ * it is injected after this file and wins the tie. The extra class is what makes this stick.
+ */
+.room-stage-canvas .excalidraw .layer-ui__wrapper__footer {
+  bottom: calc(var(--space-4) + 3.5rem + var(--space-2));
+}
+
+/* The switch between what the stage is showing. See RoomStrip. */
+.room-strip-stage {
+  flex: none;
+}
+.room-stage-tab {
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  background: none;
+  padding: 0.125rem 0.625rem;
+  font: inherit;
+  font-size: var(--text-xs);
+  color: var(--muted);
+  cursor: pointer;
+}
+.room-stage-tab:hover {
+  color: var(--text);
+}
+.room-stage-tab-on {
+  border-color: var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 600;
+}
+
+/*
+ * The note, while the board has the stage.
+ *
+ * It scrolls, unlike every other dock panel, because this one holds a document rather than a
+ * list. Kept to a reading measure for the same reason the sheet is: a note the width of the
+ * dock is not a note.
+ */
+.room-dock-note {
+  overflow-y: auto;
+}
+.room-dock-note .rich-editor {
+  max-width: 46rem;
+  margin: 0 auto;
+}
+
 .room-writing {
   position: absolute;
   top: var(--space-4);

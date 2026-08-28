@@ -58,7 +58,7 @@ export type SettingDef =
  * widget would put a client's quotes on a project. Declared as a list because one widget
  * genuinely can serve two — a file is filed under either.
  */
-export type EntityKind = 'client' | 'project';
+export type EntityKind = 'client' | 'project' | 'meeting_note';
 
 export interface WidgetProps {
   /** What this placement was configured with, defaults already applied. */
@@ -75,7 +75,19 @@ export interface WidgetDef {
   title: string;
   /** One line in the picker saying what it tells you — not what it is made of. */
   description: string;
-  slot: 'dashboard' | 'entity-page';
+  slot: 'dashboard' | 'entity-page' | 'meeting-room';
+  /**
+   * Warm anything expensive this widget will need, before it is rendered.
+   *
+   * For a widget whose real weight is behind a `React.lazy` — the whiteboard's editor is a few
+   * hundred kilobytes — a host that knows the widget is *likely* can call this so the first
+   * render is not a download. Optional, idempotent, and never awaited: a host must work
+   * identically whether or not a widget defines it.
+   *
+   * It exists so a host can do that warming WITHOUT importing the module, which is the whole
+   * point of resolving widgets by slot.
+   */
+  prefetch?: () => void;
   Component: ComponentType<WidgetProps>;
   defaultSpan: Span;
   /**
