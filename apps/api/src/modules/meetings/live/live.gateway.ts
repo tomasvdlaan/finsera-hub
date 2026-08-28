@@ -310,8 +310,11 @@ export class LiveGateway implements OnGatewayConnection, OnGatewayDisconnect, On
         note.agenda.map((a) => ({ id: a.id, title: a.title, covered: a.covered })),
         () => this.registry.newId(),
       );
-      if (added.length > 0) {
-        this.sessions.broadcast(session.noteId, { type: 'proposals', proposals: added });
+      // Notes go into the document instead of onto the pile — the same call the runner
+      // makes, so the browser microphone and the bot produce the same note.
+      const suggestions = await this.runner.recordNotes(actor, session.noteId, session, added);
+      if (suggestions.length > 0) {
+        this.sessions.broadcast(session.noteId, { type: 'proposals', proposals: suggestions });
       }
       this.sessions.broadcast(session.noteId, { type: 'state', state });
       this.sessions.broadcast(session.noteId, {

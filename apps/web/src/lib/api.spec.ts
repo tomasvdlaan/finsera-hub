@@ -1,4 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+/*
+ * Type-only, so it is erased before it can run — the module below must not be imported for
+ * real until './auth.js' has been mocked, which is what the dynamic import at the bottom of
+ * this block is for.
+ */
+import type { ApiError as ApiErrorType } from './api.js';
 
 /**
  * `auth.ts` builds a UserManager at import time and reads `window.location`, so importing the
@@ -7,7 +13,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
  */
 vi.mock('./auth.js', () => ({ getUser: async () => null }));
 
-const { api } = await import('./api.js');
+const { api, ApiError, isExpiredSession, isRefused } = await import('./api.js');
 
 /**
  * What the client does with a response body.
@@ -60,5 +66,76 @@ describe('api response bodies', () => {
   it('falls back to the status when a failure carries no body', async () => {
     respond({ status: 502, body: '' });
     await expect(api.get('/scrum/sprints')).rejects.toThrow(/502/);
+  });
+});
+
+/**
+ * Why a call failed, not just that it did.
+ *
+ * The lockout this guards against: the shell caught every failure of `/core/me` the same
+ * way, showed a banner, and left `me` null — and the avatar, the only route to Sign out, was
+ * rendered on `me`. A session the server had stopped accepting could therefore not be
+ * abandoned from the UI at all; clearing the tab's storage by hand was the only way back to
+ * a sign-in screen.
+ *
+ * The two auth failures need opposite responses, which is why the status has to survive.
+ */
+describe('why a request failed', () => {
+  const failWith = (status: number, body?: string) =>
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(body ?? null, { status })),
+    );
+
+  beforeEach(() => vi.unstubAllGlobals());
+
+  it('carries the status, so a caller can tell one failure from another', async () => {
+    failWith(401, JSON.stringify({ message: 'Invalid token' }));
+    const error = await api.get('/core/me').catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiErrorType).status).toBe(401);
+    // Still an Error, so everything that only wants the message keeps working.
+    expect((error as Error).message).toBe('Invalid token');
+  });
+
+  it('reads 401 as a dead session — the token is what was refused', async () => {
+    failWith(401);
+    const error = await api.get('/core/me').catch((e: unknown) => e);
+
+    expect(isExpiredSession(error)).toBe(true);
+    expect(isRefused(error)).toBe(false);
+  });
+
+  it('reads 403 as a refused account, which signing in again cannot fix', async () => {
+    /*
+     * The distinction that matters. `auth.guard.ts` throws 401 when the token itself is bad;
+     * `user.service.ts` throws 403 for an account that is deactivated or was never let in.
+     * Clearing the session on a 403 would bounce that person through Zitadel and back to the
+     * identical 403, for ever — so it must not be treated as an expiry.
+     */
+    failWith(403, JSON.stringify({ message: 'This account has been deactivated' }));
+    const error = await api.get('/core/me').catch((e: unknown) => e);
+
+    expect(isRefused(error)).toBe(true);
+    expect(isExpiredSession(error)).toBe(false);
+    expect((error as Error).message).toBe('This account has been deactivated');
+  });
+
+  it('treats an ordinary server failure as neither', async () => {
+    failWith(500);
+    const error = await api.get('/core/me').catch((e: unknown) => e);
+
+    expect(isExpiredSession(error)).toBe(false);
+    expect(isRefused(error)).toBe(false);
+  });
+
+  it('does not mistake a thrown non-ApiError for an auth failure', async () => {
+    // A network error is a TypeError from fetch, with no status at all.
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch'); }));
+    const error = await api.get('/core/me').catch((e: unknown) => e);
+
+    expect(isExpiredSession(error)).toBe(false);
+    expect(isRefused(error)).toBe(false);
   });
 });

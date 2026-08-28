@@ -1,6 +1,6 @@
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { Actor } from '@platform/contracts';
-import { and, asc, desc, eq, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import { AuditService } from '../../core/audit/audit.service.js';
 import { DB, type Database } from '../../core/db/db.module.js';
 import { EventBus } from '../../core/events/event-bus.service.js';
@@ -400,12 +400,62 @@ export class MeetingsService {
       filter.projectId ? eq(notes.projectId, filter.projectId) : undefined,
     ].filter(Boolean);
 
-    return this.db
+    const rows = await this.db
       .select()
       .from(notes)
       .where(where.length ? and(...where) : undefined)
       .orderBy(desc(notes.meetingDate), desc(notes.createdAt));
+
+    if (rows.length === 0) return [];
+
+    /*
+     * What each meeting produced and who was in it — two grouped queries, merged here.
+     *
+     * Not one query with two joins: grouping a note by both tables multiplies one against
+     * the other, so a meeting with four attendees reports four times its action points, and
+     * does it plausibly enough that nobody checks. Not a request per row from the browser
+     * either, on a page whose whole purpose is showing many meetings at once.
+     *
+     * Two round trips, fixed, however long the list is.
+     */
+    const ids = rows.map((n) => n.id);
+
+    const counted = await this.db
+      .select({
+        noteId: actionItems.noteId,
+        total: sql<number>`count(*)::int`,
+        open: sql<number>`count(*) FILTER (WHERE ${actionItems.status} = 'proposed')::int`,
+      })
+      .from(actionItems)
+      .where(inArray(actionItems.noteId, ids))
+      .groupBy(actionItems.noteId);
+
+    const present = await this.db
+      .select({ noteId: attendees.noteId, name: attendees.name })
+      .from(attendees)
+      .where(inArray(attendees.noteId, ids))
+      // Ordered so the same meeting draws the same avatars in the same order every load.
+      .orderBy(asc(attendees.name), asc(attendees.id));
+
+    const byNote = new Map(counted.map((c) => [c.noteId, c]));
+    const faces = new Map<string, string[]>();
+    for (const p of present) {
+      const list = faces.get(p.noteId);
+      if (list) list.push(p.name);
+      else faces.set(p.noteId, [p.name]);
+    }
+
+    return rows.map((n) => ({
+      ...n,
+      /** Everything the meeting produced, decided or not. */
+      actionsTotal: byNote.get(n.id)?.total ?? 0,
+      /** Still waiting on a decision — the count the hub leads with. */
+      actionsOpen: byNote.get(n.id)?.open ?? 0,
+      // Names, not a count, because the row shows faces and a count cannot be a face.
+      attendeeNames: faces.get(n.id) ?? [],
+    }));
   }
+
 
   /**
    * Every action point still waiting for a decision, across every meeting.
@@ -651,11 +701,18 @@ export class MeetingsService {
       .limit(1);
     if (!item) throw new NotFoundException('Action point not found');
     if (item.status === 'accepted') return this.get(actor, noteId);
-    if (!note.projectId) {
-      throw new BadRequestException(
-        'Link this note to a project before turning action points into tasks',
-      );
-    }
+    /*
+     * A meeting with no project still produces work.
+     *
+     * This used to refuse, on the reasoning that a task belongs to a project — which is true
+     * of the schema and false of the meeting. A stand-up raises "renew the certificate" and
+     * the answer was to go and link a project that does not exist, or lose the commitment.
+     * So a note with no project sends its tasks to the internal project, made on first use.
+     *
+     * It is not a silent reassignment: the note keeps no project, and the card says which
+     * board it landed on.
+     */
+    const projectId = note.projectId ?? (await this.crm.internalProject(actor)).id;
 
     /*
      * Work raised inside a sprint belongs to that sprint.
@@ -681,7 +738,7 @@ export class MeetingsService {
     const fromRetro = note.template === 'retrospective';
 
     const task = await this.scrum.createTask(actor, {
-      projectId: note.projectId,
+      projectId,
       title: item.text,
       description: `From the meeting note "${note.title}" (${note.meetingDate}).`,
       assigneeId: item.assigneeId ?? undefined,

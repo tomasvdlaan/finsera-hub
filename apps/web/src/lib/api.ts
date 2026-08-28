@@ -1,6 +1,36 @@
 import { getUser } from './auth.js';
 
 /**
+ * A failed request, with the status still attached.
+ *
+ * The status used to be flattened into a message string, which meant every caller could
+ * show that a call failed and none could tell *why* — and the two auth failures need
+ * opposite cures. A 401 is a dead token: signing in again fixes it. A 403 is a live token
+ * belonging to an account that has been deactivated or was never let in, and signing in
+ * again returns the identical 403, forever. Telling them apart requires the number.
+ */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
+/** The token is not accepted — the session is over, whoever it belonged to. */
+export const isExpiredSession = (e: unknown) => e instanceof ApiError && e.status === 401;
+
+/**
+ * Authenticated, and refused anyway.
+ *
+ * Kept distinct from the above because the cure is the opposite one: this account must not
+ * be bounced back through Zitadel, it has to be able to read why and sign out.
+ */
+export const isRefused = (e: unknown) => e instanceof ApiError && e.status === 403;
+
+/**
  * `signal` exists for the calls that can take a while — anything that runs a model.
  *
  * `fetch` has no timeout of its own, so a request that never settles leaves its caller
@@ -27,7 +57,7 @@ async function request<T>(
 
   if (!res.ok) {
     const detail = await res.json().catch(() => null);
-    throw new Error(detail?.message ?? `${res.status} ${res.statusText}`);
+    throw new ApiError(detail?.message ?? `${res.status} ${res.statusText}`, res.status);
   }
   /*
    * An empty body is `null`, not a parse error.

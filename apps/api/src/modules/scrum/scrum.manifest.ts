@@ -60,6 +60,7 @@ export const scrumManifest = defineManifest({
     { slot: 'dashboard', component: 'scrum:aging-wip' },
     { slot: 'dashboard', component: 'scrum:came-back' },
     { slot: 'dashboard', component: 'scrum:throughput-heat' },
+    { slot: 'dashboard', component: 'scrum:my-board' },
   ],
 
   chatWidgets: [{ entityType: 'task', component: 'scrum:task-card' }],

@@ -3,6 +3,7 @@ import {
   bigint,
   boolean,
   check,
+  date,
   index,
   integer,
   jsonb,
@@ -27,7 +28,51 @@ export const users = core.table('users', {
   email: text('email').notNull(),
   displayName: text('display_name').notNull(),
   role: text('role').notNull().default('member'), // 'admin' | 'member'
+  /**
+   * Whether this person may still use the platform.
+   *
+   * Read by the assignee picker so a leaver stops appearing in it while staying attached to
+   * the hours and tasks they own — which is why it is a flag and not a delete. It now also
+   * refuses sign-in: a control labelled "deactivate" that leaves somebody able to log in and
+   * read every client's rates promises more than it does, and the gap is the kind nobody
+   * notices until it matters.
+   *
+   * Zitadel remains where access is really granted. This is the second lock, not the only one.
+   */
   isActive: boolean('is_active').notNull().default(true),
+
+  /* ── What the business knows about a person, as opposed to what the identity provider does ──
+   *
+   * Zitadel owns who somebody is: their subject, their email, whether they may sign in at all.
+   * These are the things only this platform has an opinion about, and none of them can be
+   * derived from a token.
+   */
+
+  /** Directory only — nothing computes from it. */
+  jobTitle: text('job_title'),
+  startedOn: date('started_on'),
+
+  /**
+   * What an hour of this person costs the business.
+   *
+   * Cents, like every other money column, for the reason stated at the top of this file. This
+   * is the number that turns revenue into margin: until now the platform could say what a
+   * project earned and never what it cost to deliver, so "profitability" meant "income".
+   *
+   * Sensitive in a way nothing else on this row is — a colleague's salary is inferable from
+   * it — so the read path returns it to admins only. See `people()` in user.service.ts.
+   */
+  costRateCents: integer('cost_rate_cents'),
+
+  /**
+   * Contracted hours in a week.
+   *
+   * The denominator every load and utilisation figure has been refusing to invent. A widget
+   * with no capacity draws no bar on purpose — a fabricated 40 looks authoritative and is
+   * fiction — so this is what lets those bars finally appear, and only for people it is set on.
+   */
+  weeklyHours: integer('weekly_hours'),
+
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 

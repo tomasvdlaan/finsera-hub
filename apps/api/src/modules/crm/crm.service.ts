@@ -511,6 +511,61 @@ export class CrmService {
     return { id: project.id, name: project.name };
   }
 
+  /**
+   * The project our own work goes on, made the first time something needs it.
+   *
+   * A task needs a project and a project needs a client, so work that belongs to no
+   * engagement has nowhere to live. The alternative was making both nullable, which reaches
+   * into the board — one per project, its columns the only statuses a task may hold — the
+   * portal, and every profitability figure. One row that says "this is us" costs a column;
+   * a nullable foreign key costs a decision at every consumer, and a wrong one is a client
+   * seeing our stand-up chores.
+   *
+   * Created rather than seeded, so a database that never records an internal task never
+   * grows a client nobody asked for. Idempotent: the flag is the identity, not the name, so
+   * renaming it in the UI does not produce a second one.
+   */
+  async internalProject(actor: Actor): Promise<{ id: string; name: string }> {
+    const [existing] = await this.db
+      .select({ id: projects.id, name: projects.name })
+      .from(projects)
+      .where(and(eq(projects.isInternal, true), isNull(projects.archivedAt)))
+      .limit(1);
+    if (existing) return existing;
+
+    const [client] = await this.db
+      .select({ id: clients.id })
+      .from(clients)
+      .where(and(eq(clients.isInternal, true), isNull(clients.archivedAt)))
+      .limit(1);
+
+    const clientId =
+      client?.id ??
+      (await this.createClient(actor, { name: 'Finsera', status: 'active' })).id;
+    await this.db
+      .update(clients)
+      .set({ isInternal: true })
+      .where(eq(clients.id, clientId));
+
+    /*
+     * Time and materials with no rate: it is the only model that does not require a number
+     * we would be inventing. A fixed fee needs an amount and a retainer needs an amount and
+     * a period, and neither means anything for work nobody is billed for.
+     */
+    const project = await this.createProject(actor, {
+      clientId,
+      name: 'Internal',
+      status: 'active',
+      billingModel: 'time_and_materials',
+    });
+    await this.db
+      .update(projects)
+      .set({ isInternal: true })
+      .where(eq(projects.id, project.id));
+
+    return { id: project.id, name: project.name };
+  }
+
   // ── internals ──────────────────────────────────────────────
 
   private async require(actor: Actor, capability: string): Promise<void> {
@@ -597,8 +652,18 @@ export class CrmService {
              (SELECT count(*) FROM crm.projects p
                WHERE p.client_id = c.id AND p.archived_at IS NULL) AS project_count
         FROM crm.clients c
-       WHERE c.archived_at IS NULL
+       WHERE c.archived_at IS NULL AND c.is_internal = false
     `);
+    /*
+     * Internal work is not in here, and that is the whole mechanism.
+     *
+     * Reporting, the insights rules and the portal's project check all read this view, and
+     * none of them should count a stand-up chore against a margin, a budget or a client's
+     * screen. Excluding it once, here, means none of them has to be taught what internal
+     * means — and a new consumer of the view inherits the right answer instead of the
+     * question. Scrum reads the tables directly, so the work is still fully visible on its
+     * own board.
+     */
     await this.db.execute(sql`
       CREATE VIEW crm.v_projects AS
       SELECT p.id, p.name, p.status, p.client_id, c.name AS client_name,
@@ -607,7 +672,7 @@ export class CrmService {
              p.starts_on, p.ends_on, p.owner_id, p.created_at
         FROM crm.projects p
         JOIN crm.clients c ON c.id = p.client_id
-       WHERE p.archived_at IS NULL
+       WHERE p.archived_at IS NULL AND p.is_internal = false
     `);
   }
 }

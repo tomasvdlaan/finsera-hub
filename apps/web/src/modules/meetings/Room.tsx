@@ -8,7 +8,10 @@ import { useDocumentTitle } from '../../shell/useDocumentTitle.js';
 import { noteActions } from './actions.js';
 import { RichEditor } from './RichEditor.js';
 import { RoomBar } from './RoomBar.js';
-import { RoomRail, type BoardColumn, type BoardTask } from './RoomRail.js';
+import { RoomDock, type DockTab } from './RoomDock.js';
+import type { BoardColumn, BoardTask } from './RoomPanels.js';
+import { RoomStrip } from './RoomStrip.js';
+import { Suggestions } from './Suggestions.js';
 import type { Sprint } from '../scrum/types.js';
 import { calloutNode, taskNode, type NoteCommand } from './noteCommands.js';
 import type { NoteDetail } from './types.js';
@@ -22,12 +25,15 @@ interface Template {
 /**
  * The room you run a meeting from.
  *
- * One screen, three regions: what this meeting is along the top, the notes taking the whole
- * middle, and everything you need at hand down the right. It exists because the note page —
- * agenda, then live, then notes, then transcripts, then actions, then attendees, then
- * discussion, then timeline, twelve equal bands down a page — makes nothing prominent, and
- * during a meeting you need the notes, the work and what the assistant just heard visible at
- * the same time. That is the only thing a meeting screen is for.
+ * One screen. The note is a sheet on a ground and has the stage to itself, because the note
+ * is the thing the meeting is making. A band under the title carries the three facts you
+ * glance at without looking away from the conversation — where the agenda is, what the board
+ * says, how much is waiting on you — and everything else is in a dock along the bottom that
+ * is a heartbeat when closed and a panel when opened.
+ *
+ * This replaces a rail of five tabs beside the notes, where four fifths of what a meeting
+ * needs was invisible at any moment and the notes had two thirds of a screen to be written
+ * in. The split now is by how often you look at a thing, not by what kind of thing it is.
  *
  * The note page is still where you read and correct a note afterwards. This is for while it
  * is happening, which is why it takes the viewport and drops the rail.
@@ -60,6 +66,7 @@ export function Room() {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [sprint, setSprint] = useState<Sprint | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [dock, setDock] = useState<DockTab | null>(null);
   const [ending, setEnding] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -262,27 +269,20 @@ export function Room() {
   const timebox = templates.find((t) => t.name === note.template)?.timeboxMinutes;
 
   /**
-   * A true sentence about the work.
+   * How much is sitting on somebody's decision.
    *
-   * Where the reference designs say "Sprint 42 · day 4 of 10", this platform has no sprint —
-   * the table exists and nothing has ever written to it. Rather than invent a cadence, say
-   * what the board actually knows.
+   * Both kinds, counted once: proposals the model has made this session, and the action points
+   * already written down waiting to become cards. A live proposal that has already been
+   * persisted as an action point is the same suggestion twice, and counting it twice makes
+   * the one number in the strip a number nobody trusts.
    */
-  const today = new Date().toISOString().slice(0, 10);
-  const doneKeys = new Set(columns.filter((c) => c.isDone).map((c) => c.key));
-  const open = tasks.filter((t) => !doneKeys.has(t.status));
-  const overdue = open.filter((t) => t.dueOn && t.dueOn < today).length;
-  const workLine = note.projectId
-    ? [
-        `${open.length} open`,
-        overdue > 0 ? `${overdue} overdue` : null,
-        open.some((t) => t.status === 'waiting_on_client')
-          ? `${open.filter((t) => t.status === 'waiting_on_client').length} waiting on the client`
-          : null,
-      ]
-        .filter(Boolean)
-        .join(' · ')
-    : undefined;
+  const proposed = note.actionItems.filter((a) => a.status === 'proposed');
+  const waiting =
+    proposed.length +
+    live.proposals.filter(
+      (p) =>
+        p.status === 'open' && (p.kind !== 'action' || !proposed.some((a) => a.text === p.text)),
+    ).length;
 
   return (
     <div className="room">
@@ -291,39 +291,71 @@ export function Room() {
         projectName={projectName}
         sprint={sprint}
         running={running}
-        needsAudio={live.needsAudio}
-        startedAt={live.startedAt}
-        costCents={live.costCents}
-        timeboxMinutes={timebox}
-        workLine={workLine}
         onEnd={() => void end()}
         ending={ending}
       />
 
-      <main className="room-notes">
-        <div className="room-notes-head">
-          <span className="muted">Notes</span>
+      <RoomStrip
+        note={note}
+        columns={columns}
+        tasks={tasks}
+        running={running}
+        startedAt={live.startedAt}
+        timeboxMinutes={timebox}
+        waiting={waiting}
+        onOpen={(t) => setDock(t)}
+      />
+
+      {/*
+        The note, on a ground, at a width you can read.
+
+        Nothing is docked beside it. The thing you are making during the meeting should look
+        like a document rather than one panel among five, and a measure that runs the width of
+        a 27-inch screen is not a document.
+      */}
+      <main className="room-stage">
+        <article className="room-sheet">
+          {error && <p className="error">{error}</p>}
           {running && live.aiNotes && (
-            <span className="tag" title="The assistant is writing into its own section">
+            <span className="tag room-writing" title="The assistant is writing into its own section">
               ✦ assistant writing
             </span>
           )}
-          {error && <span className="error">{error}</span>}
-        </div>
-        {/* The whole middle. Nothing above it but the bar, which is the requirement:
-            the notes are the meeting, everything else is context. */}
-        <RichEditor noteId={id} commands={commands} />
+          <RichEditor noteId={id} commands={commands} />
+        </article>
       </main>
 
-      <RoomRail
+      {/*
+        Suggestions rise in front of the dock, one at a time.
+
+        Above it in the DOM and over it in the layout: a suggestion is about the last thirty
+        seconds, and by the time it has been scrolled to it is about nothing. They are hidden
+        while the dock is open, because the dock is showing the same thing with more around it
+        and two copies of one question is how you answer it twice. See Suggestions.tsx.
+      */}
+      <Suggestions
+        noteId={live.noteId}
+        proposals={live.proposals}
+        context={live.context}
+        running={running}
+        hidden={dock !== null}
+        onOpenAll={() => setDock('agent')}
+      />
+
+      <RoomDock
         note={note}
         live={live}
         running={running}
+        open={dock !== null}
+        tab={dock ?? 'agent'}
         behaviours={behaviours}
         enabled={enabled}
         maySpeak={maySpeak}
         columns={columns}
         tasks={tasks}
+        waiting={waiting}
+        onOpen={(t) => setDock(t)}
+        onClose={() => setDock(null)}
         onConfigure={configure}
         onAccept={(itemId) => void act(itemId, () => noteActions.accept(id, itemId))}
         onDismiss={(itemId) => void act(itemId, () => noteActions.dismiss(id, itemId))}

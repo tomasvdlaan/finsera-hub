@@ -13,7 +13,9 @@ jobs:
     # row commit or roll back together), which only a real database can prove.
     services:
       postgres:
-        image: postgres:16
+        # pgvector, not plain postgres: migration 0005 does CREATE EXTENSION vector,
+        # and it is the image both compose files already run.
+        image: pgvector/pgvector:pg16
         env:
           POSTGRES_USER: platform
           POSTGRES_PASSWORD: platform
@@ -38,9 +40,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # No `version` here on purpose: packageManager in package.json pins the exact
+      # pnpm, and the action refuses to run when both name one.
       - uses: pnpm/action-setup@v4
-        with:
-          version: 11
 
       - uses: actions/setup-node@v4
         with:

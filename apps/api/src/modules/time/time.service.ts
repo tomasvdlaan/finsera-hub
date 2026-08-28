@@ -350,11 +350,23 @@ export class TimeService {
    */
   async getRecent(
     actor: Actor,
-    opts: { from?: string; to?: string; personId?: string } = {},
+    opts: { from?: string; to?: string; personId?: string; everyone?: boolean } = {},
   ) {
     await this.require(actor, 'time.entries.write_own');
     const personId = opts.personId ?? actor.userId;
-    if (personId !== actor.userId) await this.require(actor, 'time.entries.read_all');
+    /*
+     * `everyone` widens this from one person to the whole team.
+     *
+     * It existed only as a single-person view, which quietly made a "load per person" reading
+     * impossible: whatever it was pointed at, it could only ever return the caller's own hours
+     * and would draw one row labelled with one name. A widget that says "per person" and
+     * cannot show a second person is worse than a missing widget.
+     *
+     * Same capability as reading somebody else's — seeing all of them is not a weaker claim
+     * than seeing one of them.
+     */
+    if (opts.everyone) await this.require(actor, 'time.entries.read_all');
+    else if (personId !== actor.userId) await this.require(actor, 'time.entries.read_all');
 
     const to = this.validateDate(opts.to ?? today());
     const from = this.validateDate(
@@ -366,7 +378,7 @@ export class TimeService {
       .from(entries)
       .where(
         and(
-          eq(entries.personId, personId),
+          ...(opts.everyone ? [] : [eq(entries.personId, personId)]),
           gte(entries.workedOn, from),
           lte(entries.workedOn, to),
         ),
@@ -374,7 +386,14 @@ export class TimeService {
       .orderBy(desc(entries.workedOn), desc(entries.startedAt), desc(entries.createdAt));
 
     const label = await this.labelsFor(actor, rows);
-    const decorated = rows.map((r) => ({ ...this.decorate(r), ...label(r) }));
+    // Names only when the window is the whole team; on a personal view every row is yours and
+    // stamping your own name on all of them is noise.
+    const who = opts.everyone ? await this.people(rows.map((r) => r.personId)) : null;
+    const decorated = rows.map((r) => ({
+      ...this.decorate(r),
+      ...label(r),
+      ...(who ? { personName: who.get(r.personId) ?? 'Someone' } : {}),
+    }));
 
     // Grouped here rather than in the browser: the day totals are the point of the grouping,
     // and a total computed twice is a total that eventually disagrees with itself.

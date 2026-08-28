@@ -208,8 +208,9 @@ Volumes survive rebuilds, restarts and reboots. The one command that destroys th
   team of 2–4; revisit if it stops being.
 - **Disk pressure from backups.** Each nightly run writes a *full* tarball of the
   documents directory and keeps 30 of them, on the same disk. 256 GB buys a lot of
-  headroom, but the growth is linear in document volume — size it again at Phase 3. Retention pruning only runs
-  after a fully successful cycle, so failures cannot eat the good copies.
+  headroom, but the growth is linear in document volume — size it again at Phase 3.
+  Retention pruning only runs after a fully successful cycle, so failures cannot eat
+  the good copies.
 - **The client portal is not deployed.** It is absent from the production compose and
   will want its own hostname (`portal.finsera.nl`) and its own Zitadel application at
   Phase 7.

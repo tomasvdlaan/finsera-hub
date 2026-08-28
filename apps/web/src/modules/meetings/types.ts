@@ -37,12 +37,28 @@ export interface Note {
   /** The sprint this ceremony was about, when it was about one. */
   sprintId: string | null;
   meetingDate: string;
+  /**
+   * When the room was actually open.
+   *
+   * Both null for a note written up afterwards rather than held in a room, which is a real
+   * and ordinary case — so anything reading a length from these has to survive their absence
+   * rather than render a confident zero.
+   */
+  startedAt: string | null;
+  endedAt: string | null;
   body: string;
   template: string | null;
   status: 'draft' | 'final';
   transcribedAt: string | null;
   transcriptCostCents: number | null;
   finalisedAt: string | null;
+}
+
+/** A note as the hub lists it — the record, plus what it produced and who was there. */
+export interface NoteRow extends Note {
+  actionsOpen: number;
+  actionsTotal: number;
+  attendeeNames: string[];
 }
 
 export interface NoteDetail extends Note {

@@ -24,15 +24,39 @@ export function widgets(): ReadonlyMap<string, WidgetDef> {
   return cached;
 }
 
-/** What the picker offers, for one slot, to somebody holding these permissions. */
+/**
+ * What the picker offers, for one slot, to somebody holding these permissions.
+ *
+ * `volume` is the counts from GET /core/volume. Passing it hides widgets that cannot say
+ * anything true yet; omitting it — as the entity-page slot does — offers everything, because
+ * viability there is a property of the record rather than of the business.
+ */
 export function libraryFor(
   slot: 'dashboard' | 'entity-page',
   can: (permission: string) => boolean,
+  volume?: Record<string, number>,
 ): Array<{ key: string; def: WidgetDef }> {
   return [...widgets().entries()]
     .filter(([, d]) => d.slot === slot && (!d.permission || can(d.permission)))
+    .filter(([, d]) => viable(d, volume))
     .map(([key, def]) => ({ key, def }))
     .sort((a, b) => a.def.title.localeCompare(b.def.title));
+}
+
+/** True when there is enough data for this widget to mean something, or nothing was measured. */
+export function viable(def: WidgetDef, volume?: Record<string, number>): boolean {
+  if (!def.needs || !volume) return true;
+  const [key, floor] = def.needs;
+  return (volume[key] ?? 0) >= floor;
+}
+
+/** How many the picker is holding back, so the drawer can say so rather than silently shrink. */
+export function hiddenCount(
+  slot: 'dashboard' | 'entity-page',
+  volume: Record<string, number> | undefined,
+): number {
+  if (!volume) return 0;
+  return [...widgets().values()].filter((d) => d.slot === slot && !viable(d, volume)).length;
 }
 
 /**
