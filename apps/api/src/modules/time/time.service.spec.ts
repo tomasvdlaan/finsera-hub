@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { Actor } from '@platform/contracts';
 import { eq, sql } from 'drizzle-orm';
 import { AuditService } from '../../core/audit/audit.service.js';
-import { auditLog, events } from '../../core/db/core.schema.js';
+import { auditLog, events, users } from '../../core/db/core.schema.js';
 import { EventBus } from '../../core/events/event-bus.service.js';
 import { LinkService } from '../../core/links/link.service.js';
 import { ManifestRegistry } from '../../core/manifest/manifest.registry.js';
@@ -598,3 +598,117 @@ describe('approving a week', () => {
     expect(log.map((l) => l.action)).toContain('time.week.approved');
   });
 });
+
+/**
+ * Hours, out of the platform.
+ *
+ * The behaviour worth pinning is not the CSV shape — `csv.spec.ts` covers that — it is who may
+ * ask for what, and what happens when a rate was never set. Both are the kind of thing a later
+ * refactor breaks quietly: the first by widening a capability, the second by reaching for a
+ * plausible default.
+ */
+describe('exporting hours', () => {
+  let crm: CrmService;
+  let time: TimeService;
+  let projectId: string;
+  const mate = crypto.randomUUID();
+  const member: Actor = { userId: mate, role: 'member' };
+
+  beforeEach(async () => {
+    await resetDb();
+    await truncate(sql`TRUNCATE time.entries, time.timesheets CASCADE`);
+    await truncate(sql`TRUNCATE crm.projects, crm.contacts, crm.clients CASCADE`);
+    await seedUser(actor.userId, 'admin');
+    await seedUser(mate, 'member');
+    ({ crm, time } = build());
+
+    const client = await crm.createClient(actor, { name: 'DocHorse' });
+    const project = await crm.createProject(actor, {
+      clientId: client.id,
+      name: 'Power BI portal',
+      billingModel: 'time_and_materials',
+      defaultRateCents: 13500,
+    });
+    projectId = project.id;
+
+    await time.createEntry(actor, {
+      projectId,
+      workedOn: MONDAY,
+      minutes: 90,
+      billable: true,
+      description: 'Modelling; the "spend" set',
+    });
+  });
+
+  it('writes one row per entry, with the description quoted so the row survives', async () => {
+    const { csv, filename } = await time.exportHours(actor, { from: MONDAY, to: MONDAY });
+    expect(filename).toMatch(/^uren_entries_mijn_2026-07-27\.csv$/);
+    expect(csv).toContain('"Modelling; the ""spend"" set"');
+    // 90 minutes, in the notation a Dutch spreadsheet adds up.
+    expect(csv).toContain(';1,50;');
+  });
+
+  it('groups by week for the summary, and by the whole period for payroll', async () => {
+    const summary = await time.exportHours(actor, { from: MONDAY, to: '2026-08-02', shape: 'summary' });
+    expect(summary.csv).toContain('Week van');
+    expect(summary.csv).toContain(MONDAY);
+
+    const payroll = await time.exportHours(actor, { from: MONDAY, to: '2026-08-02', shape: 'payroll' });
+    // Payroll is told hours and nothing about who the work was for.
+    expect(payroll.csv).toContain('Persoon;Periode;Uren');
+    expect(payroll.csv).not.toContain('DocHorse');
+    expect(payroll.csv).not.toContain('Power BI portal');
+  });
+
+  it('refuses a shape it does not have', async () => {
+    await expect(
+      time.exportHours(actor, { from: MONDAY, to: MONDAY, shape: 'invoice' }),
+    ).rejects.toThrow(/Unknown export shape/);
+  });
+
+  it('refuses a period that runs backwards', async () => {
+    await expect(
+      time.exportHours(actor, { from: '2026-08-02', to: MONDAY }),
+    ).rejects.toThrow(/comes before its start/);
+  });
+
+  it('lets anybody export their own hours', async () => {
+    const { csv } = await time.exportHours(member, { from: MONDAY, to: MONDAY });
+    // Their own week is empty, which is a file with a header and no rows — not a refusal.
+    expect(csv).toContain('Persoon;Datum');
+  });
+
+  it("refuses a member somebody else's hours, and the whole team's", async () => {
+    await expect(
+      time.exportHours(member, { from: MONDAY, to: MONDAY, personId: actor.userId! }),
+    ).rejects.toThrow(/time.entries.read_all/);
+    await expect(
+      time.exportHours(member, { from: MONDAY, to: MONDAY, personId: 'all' }),
+    ).rejects.toThrow(/time.entries.read_all/);
+  });
+
+  it('refuses cost columns rather than quietly dropping them', async () => {
+    // The whole point: a file that silently arrives without the columns somebody asked for is
+    // worse than one that refuses, because they will read the total as the whole answer.
+    await expect(
+      time.exportHours(member, { from: MONDAY, to: MONDAY, costs: true }),
+    ).rejects.toThrow(/time.costs.read/);
+  });
+
+  it('leaves cost and margin blank when no rate was ever set, rather than calling it zero', async () => {
+    const { csv } = await time.exportHours(actor, { from: MONDAY, to: MONDAY, costs: true });
+    expect(csv).toContain('Kosten;Omzet;Marge');
+    const row = csv.split('\r\n')[1]!;
+    // Revenue is known — the project has a rate. Cost is not, because nobody set one on the
+    // person, so cost and the margin that depends on it are empty.
+    expect(row.endsWith(';;202,50;')).toBe(true);
+  });
+
+  it('computes margin once both rates exist', async () => {
+    await testDb.update(users).set({ costRateCents: 4850 }).where(eq(users.id, actor.userId!));
+    const { csv } = await time.exportHours(actor, { from: MONDAY, to: MONDAY, costs: true });
+    // 1,5h at €48,50 cost and €135,00 revenue: 72,75 and 202,50, so 129,75 of margin.
+    expect(csv).toContain(';72,75;202,50;129,75');
+  });
+});
+

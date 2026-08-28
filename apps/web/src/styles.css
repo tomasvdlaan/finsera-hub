@@ -1347,6 +1347,32 @@ ol {
   border-radius: var(--radius);
   box-shadow: var(--plane-2-shadow);
 }
+/*
+ * The status bar.
+ *
+ * Where a word processor puts one, and reporting the same two things: how long this is in
+ * pages and in words. It sits outside the scrolling area, so it stays legible at any scroll
+ * position — the count is only useful if you can see it while you are writing.
+ */
+.editor-status {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0.3rem var(--space-4);
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--faint);
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+}
+.editor-status-dot {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.6;
+}
 .rich-editor .tiptap {
   flex: 1;
   padding: var(--space-6);
@@ -3284,15 +3310,33 @@ a.badge:hover {
   justify-content: center;
   padding: var(--space-5) var(--space-4) 8rem;
 }
-.room-sheet {
-  width: min(46rem, 100%);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-card);
-  box-shadow: var(--shadow-2);
-  padding: var(--space-6) var(--space-7);
+/*
+ * The stage, when the note has it.
+ *
+ * The stage stops scrolling and hands that job to the editor, which is the whole reason the
+ * toolbar can stay put: a bar can only stay above the writing if the writing is what moves.
+ * While the stage was the scroller the toolbar went with it, and `position: sticky` could
+ * only pin it to the top of a sheet that was itself sliding upwards.
+ */
+.room-stage-doc {
+  display: block;
+  overflow: hidden;
+  padding: 0;
+}
+/*
+ * No longer a card.
+ *
+ * This used to be the paper — a bordered, shadowed sheet with the editor flattened onto it.
+ * The paper is now the editor's own page, and two of them would be a sheet on a sheet, so
+ * this keeps only what it is still for: somewhere for the assistant's tag to anchor, and a
+ * column for the bar and the pages to stack in.
+ */
+.room-doc {
   position: relative;
-  height: fit-content;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 /*
  * The stage, when a canvas has it.
@@ -3380,40 +3424,141 @@ a.badge:hover {
   margin: 0 auto;
 }
 
+/*
+ * The assistant, saying so while it writes.
+ *
+ * Anchored to the bottom rather than the top, which it was when this stage was a padded card
+ * and the top-right corner was empty space. It is a bar up there now, and the toolbar wraps
+ * to two rows in a narrow window — so there is no offset from the top that clears it at every
+ * width. The bottom edge is a single line of status text and does not move.
+ */
 .room-writing {
   position: absolute;
-  top: var(--space-4);
+  top: auto;
+  bottom: 2.4rem;
   right: var(--space-4);
+  z-index: 3;
   color: var(--accent);
   background: var(--accent-bg);
   border-color: var(--accent-line);
 }
 /*
- * The editor is the sheet — its own chrome would be a page inside a page.
- *
- * The rich editor draws a bordered, filled sheet of its own, which is right on the note page
- * where it sits on the canvas and wrong here where it sits on a sheet already. Both its own
- * frame and the toolbar's fill are flattened, leaving one rule between the tools and the
- * writing.
+ * The editor fills the stage, and draws the paper itself.
  */
-.room-sheet .rich-editor,
-.room-sheet .editor-sheet {
+.room-doc .rich-editor {
+  flex: 1;
+  min-height: 0;
   border: 0;
   border-radius: 0;
   background: none;
-  box-shadow: none;
 }
-.room-sheet .editor-toolbar {
-  background: none;
+
+/*
+ * The toolbar: a bar across the top, not a strip that happens to be sticky.
+ *
+ * It is a sibling of the scrolling area rather than the first thing inside it, so there is no
+ * scroll position at which it can be anywhere other than where it is. It keeps a fill and a
+ * rule for the same reason a fixed bar always needs one — beneath it the page is moving, and
+ * without an opaque ground the words slide through the buttons.
+ */
+.room-doc .editor-toolbar {
+  position: static;
+  flex: none;
+  padding: var(--space-2) var(--space-4);
+  background: var(--surface);
   border-bottom: 1px solid var(--border);
-  padding-left: 0;
-  padding-right: 0;
-  margin-bottom: var(--space-4);
+  box-shadow: var(--shadow-1);
+  z-index: 2;
 }
-.room-sheet .rich-editor .tiptap {
+
+/*
+ * The ground the pages sit on.
+ *
+ * Darker than the paper, which is what makes a sheet read as a sheet — the same reason the
+ * canvas behind a card is darker than the card. The deep bottom padding is the old stage's
+ * and is still needed: the dock floats over this, and the last line of a document must be
+ * scrollable out from under it.
+ */
+.room-doc .editor-page {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-5) var(--space-4) 9rem;
+  background: var(--bg);
+}
+
+/*
+ * The paper.
+ *
+ * A4 at 96dpi with 2cm margins, which is not a decorative choice: these notes get printed and
+ * mailed, and a page on screen that is not the page that comes out of the printer is a lie
+ * that is only discovered at the end. The width is the one thing allowed to give — below the
+ * page width the sheet shrinks rather than being cut off, and the margins come down with it.
+ *
+ * `--page-h`, `--page-margin-y` and `--page-gap` are read from here by the pagination plugin,
+ * so they must stay literal lengths: a `calc()` in a custom property is handed back to script
+ * unevaluated. See pagination.ts.
+ */
+.room-doc .editor-sheet {
+  --page-w: 794px;
+  --page-h: 1123px;
+  --page-margin-x: 76px;
+  --page-margin-y: 76px;
+  --page-gap: 26px;
+
+  flex: none;
+  width: min(var(--page-w), 100%);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  /* Barely rounded. Paper has corners; a card has a radius. */
+  border-radius: 3px;
+  box-shadow: var(--shadow-2);
   padding: 0;
-  min-height: 24rem;
+}
+.room-doc .rich-editor .tiptap {
+  padding: var(--page-margin-y) var(--page-margin-x);
+  min-height: var(--page-h);
   background: none;
+}
+
+/*
+ * The break between two sheets.
+ *
+ * One element paints three things, because it stands for three: the rest of the page being
+ * left, the space between the sheets, and the top margin of the page being started. Hence the
+ * gradient — transparent where the paper should still show through, ground-coloured across
+ * the gap, with a hairline at each cut. `--break-fill` is where the first of those ends and
+ * is set per break, since how much of a page is left over depends on what was on it.
+ *
+ * It reaches past the writing to the edges of the sheet: a gap that stopped at the text
+ * margin would read as a rule drawn on one long page rather than the end of one.
+ */
+.page-break {
+  display: block;
+  position: relative;
+  margin-inline: calc(-1 * var(--page-margin-x));
+  user-select: none;
+  background: linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent var(--break-fill),
+    var(--border) var(--break-fill),
+    var(--border) calc(var(--break-fill) + 1px),
+    var(--bg) calc(var(--break-fill) + 1px),
+    var(--bg) calc(var(--break-fill) + var(--page-gap) - 1px),
+    var(--border) calc(var(--break-fill) + var(--page-gap) - 1px),
+    var(--border) calc(var(--break-fill) + var(--page-gap)),
+    transparent calc(var(--break-fill) + var(--page-gap))
+  );
+}
+/* The number of the page being started, in its own margin. */
+.page-break-number {
+  position: absolute;
+  right: var(--page-margin-x);
+  translate: 0 calc(var(--page-gap) + 0.35rem);
+  font-size: 0.7rem;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
 }
 
 /*
@@ -3883,8 +4028,16 @@ a.badge:hover {
   .room-stage {
     padding: var(--space-3) var(--space-2) 7rem;
   }
-  .room-sheet {
-    padding: var(--space-5) var(--space-4);
+  /* The margins are the first thing a narrow window can have back. */
+  .room-doc .editor-page {
+    padding: var(--space-3) var(--space-2) 8rem;
+  }
+  .room-doc .editor-sheet {
+    --page-margin-x: 28px;
+    --page-margin-y: 40px;
+  }
+  .room-doc .editor-toolbar {
+    padding: var(--space-2);
   }
   .room-dock-split {
     flex-direction: column;
@@ -8014,4 +8167,472 @@ main table:not(.grid) [data-align='action'] {
     overflow-x: auto;
     grid-template-columns: 3rem repeat(var(--agenda-days, 7), minmax(6.5rem, 1fr));
   }
+}
+
+/* ── One colleague ─────────────────────────────────────────────────────────
+ *
+ * A record of facts about a person, so it is set like a record: figures with their labels
+ * above them, and a log that reads as sentences rather than as rows of event names.
+ */
+.person-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+.person-name {
+  font-size: var(--text-md);
+  font-weight: var(--weight-strong);
+  letter-spacing: var(--track-tight);
+}
+
+.person-figures {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: var(--space-4);
+}
+
+/*
+ * The log, as a list of things somebody did.
+ *
+ * Deliberately not a DataTable: a date and a sentence is not a table, and giving it column
+ * rules would make sixty rows of ordinary work look like a ledger under audit.
+ */
+.person-activity {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+}
+.person-activity li {
+  display: grid;
+  grid-template-columns: 4.5rem 1fr;
+  gap: var(--space-3);
+  align-items: baseline;
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--surface-sunken);
+  font-size: var(--text-sm);
+  line-height: var(--leading-norm);
+}
+.person-activity li:last-child { border-bottom: none; }
+.person-activity-when {
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* ── Who is on a project ───────────────────────────────────────────────────
+ *
+ * A list of people, not a table: at this size a project has one to three of them, and column
+ * rules around three names is scaffolding around nothing.
+ */
+.team-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+}
+.team-list li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--surface-sunken);
+}
+.team-list li:last-child { border-bottom: none; }
+.team-who { display: flex; align-items: baseline; gap: var(--space-2); min-width: 0; }
+/* The one member whose name answers "who do I ask". Said in words, not by a colour. */
+.team-lead {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.team-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: none;
+}
+.team-add { margin-top: var(--space-3); }
+.team-add .row { margin-top: var(--space-1); margin-bottom: 0; }
+
+/* A project row carries its team on the right, so the name still starts the line. */
+.project-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+/* ── Handing a week in, and deciding on one ────────────────────────────────
+ *
+ * The state line is the whole point of the first block: what somebody needs to know before they
+ * press anything is what has already happened to this week.
+ */
+.handin-state {
+  margin: 0 0 var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius);
+  border: 1px solid var(--state-line, var(--border));
+  background: var(--state-fill, var(--surface-sunken));
+  color: var(--state-ink, var(--text));
+  font-size: var(--text-sm);
+  line-height: var(--leading-norm);
+}
+.handin-state[data-tone='ok']     { --state-fill: var(--ok-bg);      --state-line: var(--ok-line);      --state-ink: var(--ok); }
+.handin-state[data-tone='info']   { --state-fill: var(--info-bg);    --state-line: var(--info-line);    --state-ink: var(--info); }
+.handin-state[data-tone='danger'] { --state-fill: var(--danger-bg);  --state-line: var(--danger-line);  --state-ink: var(--danger); }
+.handin-copy { margin: 0 0 var(--space-3); max-width: 46ch; }
+
+.approval-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+}
+.approval-list li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--surface-sunken);
+}
+.approval-list li:last-child { border-bottom: none; }
+.approval-who { display: grid; gap: 2px; min-width: 0; }
+/* Hours with no card behind them are the ones that turn into an argument at invoice time. */
+.approval-warn { color: var(--warning); }
+.approval-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex: none;
+}
+
+/* ── Hours, out of the platform ────────────────────────────────────────────
+ *
+ * The shape is chosen before the button, because which file you want is the actual decision;
+ * pressing download is not.
+ */
+.export-shapes { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+.export-what {
+  margin: var(--space-2) 0 var(--space-4);
+  font-size: var(--text-sm);
+  line-height: var(--leading-norm);
+  color: var(--muted);
+  max-width: 60ch;
+}
+.export-costs {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+  font-size: var(--text-sm);
+  line-height: var(--leading-norm);
+  cursor: pointer;
+}
+.export-costs input { margin-top: 0.2rem; flex: none; }
+.export-note { margin: var(--space-2) 0 0; font-size: var(--text-xs); }
+.person-export { margin-top: var(--space-5); padding-top: var(--space-4); border-top: 1px solid var(--surface-sunken); }
+
+/* ── Platform costs ────────────────────────────────────────────────────────────────────
+ *
+ * A breakdown is a list of proportions, so each row carries a bar. The bar is the point:
+ * a column of euro amounts makes the reader compare the numbers themselves, and the useful
+ * fact — "meetings is most of it" — should be legible before any figure is read.
+ */
+.cost-range {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-end;
+}
+
+.cost-range label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--text-2xs);
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.cost-split {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.cost-split-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.cost-split-key {
+  font-weight: 500;
+  /* Model ids are long and arbitrary; truncating beats wrapping a table into three lines. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cost-split-value {
+  font-variant-numeric: tabular-nums;
+  /* Tabular figures so the decimal points line up down the column and the eye can scan them. */
+  white-space: nowrap;
+}
+
+.cost-split-bar {
+  margin-top: var(--space-1);
+  height: 6px;
+  border-radius: 3px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.cost-split-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--accent);
+  /* A hairline minimum so a row that cost almost nothing still shows it cost something —
+   * a zero-width bar reads as "no data" rather than "a very small amount". */
+  min-width: 2px;
+}
+
+.cost-split-hint {
+  margin-top: var(--space-1);
+  font-size: var(--text-2xs);
+  color: var(--muted);
+}
+
+/* Model selection, on the costs page because it is the largest lever on the figure above it. */
+.model-picks {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--space-4);
+}
+
+/* While a save is in flight the controls stay readable and stop accepting input, rather than
+   disappearing into a spinner — the value that is about to be wrong is the useful thing to see. */
+.model-picks[data-saving] {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.model-pick label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.model-pick-label {
+  font-size: var(--text-2xs);
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.model-pick select {
+  width: 100%;
+}
+
+.model-pick-note {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+
+/* ── The meeting page ─────────────────────────────────────────────────────────────────── */
+
+/*
+ * A column and a rail, each stacking on its own.
+ *
+ * The page grid packs its children into rows, so two panels of different heights sitting side
+ * by side make the taller one decide where the next row begins — a short agenda leaves a band
+ * of empty page under it. Stacking inside two grid children instead lets each column run to
+ * its own length. The gap matches the grid's so the seam between them is invisible.
+ *
+ * They inherit the grid's breakpoint for free: below it `.page > *` is forced to all twelve
+ * columns, these land underneath one another, and the reading order is the DOM order —
+ * whatever the phase decided was the work, then whatever it decided was the reference.
+ */
+.page-main,
+.page-rail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  min-width: 0;
+  align-content: start;
+}
+
+/* A link that is a button is still a button. `.btn` is deliberately element-agnostic so the
+   way into the room can be a real link — cmd-clickable, and a destination rather than a verb. */
+a.btn { text-decoration: none; }
+
+/*
+ * A panel you can fold.
+ *
+ * `<details>` styled as a panel rather than a bespoke disclosure: it is keyboard-reachable,
+ * findable by the browser's own in-page search, and expanded automatically when the page is
+ * printed. All three are things a div and a state hook get wrong quietly.
+ */
+.fold > summary {
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+.fold > summary::-webkit-details-marker { display: none; }
+.fold-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+/* The affordance, drawn rather than relied upon: the native triangle is inconsistent across
+   browsers and sits outside the header's flexbox. */
+.fold-head::after {
+  content: '';
+  width: 0.45rem;
+  height: 0.45rem;
+  margin-left: auto;
+  border-right: 2px solid var(--muted);
+  border-bottom: 2px solid var(--muted);
+  rotate: -45deg;
+  transition: rotate var(--transition-fast);
+}
+.fold[open] > .fold-head::after { rotate: 45deg; }
+.fold[open] > .fold-head { margin-bottom: var(--space-3); }
+
+/*
+ * The three answers the follow-through panel gives, in descending order of how much they are
+ * about you: what you owe, what is still owed from last time, and what is left to decide.
+ */
+.owed {
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+.owed h3 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.owed ul { margin: 0; padding-left: 0; list-style: none; }
+.owed li + li { margin-top: var(--space-2); }
+
+/* Yours. The one part of this page that is about the reader rather than the meeting, so it is
+   the one part that gets the accent. */
+.owed-mine {
+  background: var(--accent-bg);
+  border: 1px solid var(--accent-line);
+}
+.owed-mine h3 { color: var(--accent); }
+
+/* Everybody's, from before. Quieter — it is context, not an instruction. */
+.owed-carry {
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+}
+.owed-carry h3 { color: var(--muted); }
+
+.decide .owed-text { margin-bottom: var(--space-2); }
+.settled > summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  margin: var(--space-3) 0 var(--space-2);
+}
+
+/* A select that reads as a fact rather than a form: it is in the meta strip with the date and
+   the client, because that is what it is. */
+.meta-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--muted);
+}
+.meta-pick select {
+  font: inherit;
+  padding: 0.1rem 0.25rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text);
+}
+.meta-pick select:hover { border-color: var(--border); background: var(--surface); }
+
+/* Over the timebox. Not an error — a ceremony running long is information, not a fault. */
+.over { color: var(--warning); }
+
+/* A meeting that is running now. The only state on this page where the right thing to do is
+   leave it. */
+.room-open {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--accent-line);
+  background: var(--accent-bg);
+  border-radius: var(--radius);
+  color: var(--accent);
+}
+.room-open-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: currentColor;
+  animation: room-open-pulse 2s ease-in-out infinite;
+}
+@keyframes room-open-pulse { 50% { opacity: 0.25; } }
+@media (prefers-reduced-motion: reduce) {
+  .room-open-dot { animation: none; }
+}
+
+/*
+ * Printing the minutes.
+ *
+ * A meeting note is the one document in this app that leaves it — mailed round after a client
+ * meeting, filed against an engagement. What prints is the record: the title, the facts, the
+ * agenda and the note. What does not is everything that only makes sense on a screen you can
+ * click. Folded sections open, because a fold is a screen affordance and paper has no folds.
+ */
+@media print {
+  nav,
+  .page-actions,
+  .page-back,
+  .room-open,
+  form,
+  button,
+  .btn {
+    display: none !important;
+  }
+  /* Folds are opened by the Print button before the dialog appears — a closed <details>
+     hides its children through the UA rather than through anything reachable from here. */
+  .fold-head::after { display: none; }
+  .panel,
+  .fold {
+    border: 0;
+    box-shadow: none;
+    padding-inline: 0;
+    break-inside: avoid;
+  }
+  .owed { border: 1px solid #ccc; }
+  a { text-decoration: none; color: inherit; }
+}
+
+/* Said where the choice is made: a gateway model routes client material via a third party. */
+.model-pick-warn {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-xs);
+  color: var(--warning);
 }

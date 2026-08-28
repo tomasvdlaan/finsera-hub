@@ -83,6 +83,7 @@ export class NoteTakerBehaviour implements MeetingBehaviour {
     const existing = (ctx.session.aiNotes ?? '').trim();
 
     const result = await ctx.llm.generateStructured<Notes>({
+      context: { module: 'meetings', feature: 'note-taker' },
       schema: NOTES,
       role: 'fast',
       system: [

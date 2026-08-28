@@ -69,6 +69,7 @@ export class LiveService {
     mimeType: string,
   ): Promise<string> {
     const result = await this.llm.generateFromFile({
+      context: { module: 'meetings', feature: 'transcribe' },
       prompt:
         'Transcribe this meeting audio verbatim. Output only the words spoken, with ' +
         'speaker labels if you can distinguish speakers. Do not summarise, do not ' +
@@ -98,6 +99,7 @@ export class LiveService {
     const open = agenda.filter((a) => !a.covered);
 
     const result = await this.llm.generateStructured<Extraction>({
+      context: { module: 'meetings', feature: 'live-extraction' },
       schema: EXTRACTION,
       role: 'fast',
       system: [

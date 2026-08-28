@@ -450,3 +450,98 @@ export const dashboards = core.table('dashboards', {
   layout: jsonb('layout').notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * What the platform spent at an external provider, one row per billable call.
+ *
+ * Lives in `core` rather than in a module because every module spends: the assistant, meeting
+ * extraction, document understanding and search embeddings all reach the same three vendors.
+ * A per-module table would answer "what did meetings cost" and never "what did we spend".
+ *
+ * **Cost is stored in millionths of a euro, not cents.** One embedding call is roughly two
+ * thousandths of a cent; in an integer-cents column every one of them rounds to zero, and a
+ * table of zeroes is what you get exactly when the question is "which of these small things
+ * adds up". Micro-euros keep four significant digits on the cheapest call the platform makes.
+ *
+ * **Priced at write time, never recomputed.** The rate card is configuration and will change;
+ * a page that recalculated history against today's prices would answer "what would last month
+ * have cost at today's rates", which is a question nobody asked and looks identical to the one
+ * they did ask. What was spent is a fact and is frozen here with the tokens that produced it.
+ */
+export const usageEvents = core.table(
+  'usage_events',
+  {
+    id: uuid('id').primaryKey(),
+    at: timestamp('at', { withTimezone: true }).notNull().defaultNow(),
+
+    /** 'anthropic' | 'google' | 'recall' — who invoiced, not which library was used. */
+    provider: text('provider').notNull(),
+    /** 'generate' | 'embed' | 'speak' | 'transcribe' — the kind of work bought. */
+    kind: text('kind').notNull(),
+    /** The exact model or product string, so a price change can be traced to what moved. */
+    model: text('model').notNull(),
+
+    /*
+     * Attribution: which part of the platform spent this, and on whose behalf.
+     *
+     * `module` is always known — the call site passes it. `actorId` is null for genuine
+     * background work (a scheduled re-embed), and a null here means "nobody asked for it",
+     * which is a different and more interesting answer than attributing it to whoever
+     * happened to trigger the job.
+     */
+    module: text('module').notNull(),
+    feature: text('feature'),
+    actorId: uuid('actor_id'),
+
+    /*
+     * Tokens, split the way the vendors bill them. Cached input costs a fraction of fresh
+     * input and cache writes cost a premium, so collapsing these into one number would put
+     * the cost of a long conversation out by more than the amount being measured.
+     */
+    inputTokens: integer('input_tokens').notNull().default(0),
+    outputTokens: integer('output_tokens').notNull().default(0),
+    cacheReadTokens: integer('cache_read_tokens').notNull().default(0),
+    cacheWriteTokens: integer('cache_write_tokens').notNull().default(0),
+
+    /**
+     * For everything not billed by token: Recall bot minutes, TTS characters.
+     *
+     * A generic pair rather than a column per vendor unit, because the alternative is a
+     * migration every time a provider invents a way to charge.
+     */
+    units: integer('units').notNull().default(0),
+    unitKind: text('unit_kind'),
+
+    /** Millionths of a euro. See the note above on why this is not cents. */
+    costMicros: bigint('cost_micros', { mode: 'number' }).notNull().default(0),
+  },
+  (t) => [
+    // The page always asks for a period and then groups; both of its queries start here.
+    index('usage_events_at_idx').on(t.at),
+    index('usage_events_module_idx').on(t.module, t.at),
+  ],
+);
+
+/**
+ * Platform configuration an administrator can change without a deploy.
+ *
+ * Separate from `org_settings` on purpose. That table is the organisation's legal identity —
+ * the name, the KvK number, the IBAN that print on an invoice — and it says so. Which model
+ * answers a question is an operational choice about this software, not a fact about the
+ * company, and merging the two would make one screen responsible for both.
+ *
+ * A single row, like `org_settings`, keyed on a literal 1.
+ *
+ * Both columns are nullable, and null is meaningful: it means "whatever the environment says".
+ * That keeps the environment variables authoritative on a fresh install and on any deployment
+ * where nobody has expressed a preference, so this table can be empty and the platform still
+ * knows what to do.
+ */
+export const platformSettings = core.table('platform_settings', {
+  id: integer('id').primaryKey().default(1),
+  /** 'provider:model' for the reasoning model, or null to follow MODEL_STRONG. */
+  modelStrong: text('model_strong'),
+  /** 'provider:model' for the cheap model, or null to follow MODEL_FAST. */
+  modelFast: text('model_fast'),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});

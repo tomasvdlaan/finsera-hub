@@ -129,3 +129,34 @@ describe('deactivating somebody', () => {
     expect(actor.userId).toBe(mateId);
   });
 });
+
+/**
+ * One person, for the page that is about them.
+ *
+ * The rule worth pinning is that `person()` cannot drift from `people()` — the cost-rate
+ * stripping is the kind of thing that gets implemented twice and then only fixed once.
+ */
+describe('one person', () => {
+  it('returns the same shape the directory does', async () => {
+    await service.updatePerson(boss, mateId, { jobTitle: 'Data engineer', weeklyHours: 32 });
+
+    const fromList = (await service.people(boss)).find((r) => r.id === mateId);
+    const alone = await service.person(boss, mateId);
+    expect(alone).toEqual(fromList);
+  });
+
+  it('hides the cost rate from a member here too, not only in the list', async () => {
+    await service.updatePerson(boss, mateId, { costRateCents: 4500 });
+
+    expect((await service.person(boss, mateId))?.costRateCents).toBe(4500);
+    const asMember = await service.person({ userId: mateId, role: 'member' }, mateId);
+    expect(asMember && 'costRateCents' in asMember).toBe(false);
+  });
+
+  it('answers null for somebody who does not exist, rather than throwing', async () => {
+    // The controller turns this into a 404. A thrown error here would make "no such person"
+    // indistinguishable from "the query broke".
+    expect(await service.person(boss, crypto.randomUUID())).toBeNull();
+  });
+});
+

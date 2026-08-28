@@ -47,7 +47,7 @@ export const timeWidgets: Record<string, WidgetDef> = {
     slot: 'dashboard',
     defaultSpan: 3,
     minSpan: 3,
-    permission: 'time.read',
+    permission: 'time.entries.write_own',
     Component: () => {
       const today = new Date().toISOString().slice(0, 10);
       const { data, loading, error } = useShared<{ entries: Array<{ effectiveMinutes: number }> }>(
@@ -80,7 +80,7 @@ export const timeWidgets: Record<string, WidgetDef> = {
     slot: 'dashboard',
     defaultSpan: 6,
     minSpan: 4,
-    permission: 'time.read',
+    permission: 'time.entries.write_own',
     settings: [DAYS],
     Component: ({ settings }) => {
       const count = Math.max(7, Math.min(90, Number(settings.days) || 14));
@@ -108,7 +108,7 @@ export const timeWidgets: Record<string, WidgetDef> = {
     slot: 'entity-page',
     entityTypes: ['project'],
     defaultSpan: 6,
-    permission: 'time.read',
+    permission: 'time.entries.write_own',
     Component: ({ entityId }) => {
       const { data, loading, error } = useShared<{ spentMinutes: number; budgetMinutes: number | null }>(
         entityId ? `/time/projects/${entityId}/burn` : null,
@@ -157,7 +157,7 @@ export const timeWidgets: Record<string, WidgetDef> = {
     slot: 'dashboard',
     defaultSpan: 4,
     minSpan: 3,
-    permission: 'time.read',
+    permission: 'time.entries.write_own',
     Component: () => {
       const { data, loading, error } = useShared<{ days: Array<{ date: string; entries?: Array<{ projectName?: string; effectiveMinutes: number }> }> }>(
         '/time/recent',
@@ -200,7 +200,7 @@ export const timeWidgets: Record<string, WidgetDef> = {
     slot: 'dashboard',
     defaultSpan: 4,
     minSpan: 3,
-    permission: 'time.read',
+    permission: 'time.entries.write_own',
     Component: () => {
       const { data, loading, error } = useShared<{ days: Day[] }>('/time/recent');
       /*
@@ -244,7 +244,7 @@ export const timeWidgets: Record<string, WidgetDef> = {
     slot: 'dashboard',
     defaultSpan: 3,
     minSpan: 3,
-    permission: 'time.read',
+    permission: 'time.entries.write_own',
     Component: () => {
       const { data, loading, error } = useShared<{ days: Array<{ entries?: Array<{ taskId: string | null; effectiveMinutes: number; billable: boolean }> }> }>(
         '/time/recent',
@@ -280,7 +280,7 @@ export const timeWidgets: Record<string, WidgetDef> = {
     slot: 'dashboard',
     defaultSpan: 6,
     minSpan: 4,
-    permission: 'time.read',
+    permission: 'time.entries.read_all',
     Component: () => {
       // `everyone`, or this only ever returns the viewer's own hours and draws one row.
       const { data, loading, error } = useShared<{
@@ -347,7 +347,7 @@ export const timeWidgets: Record<string, WidgetDef> = {
     slot: 'dashboard',
     defaultSpan: 4,
     minSpan: 3,
-    permission: 'time.write',
+    permission: 'time.entries.write_own',
     Component: () => {
       const { running, busy, stop, start } = useRunningTimer();
       const projects = useShared<Array<{ id: string; name: string }>>('/crm/projects');
@@ -437,7 +437,7 @@ export const timeWidgets: Record<string, WidgetDef> = {
     slot: 'dashboard',
     defaultSpan: 6,
     minSpan: 4,
-    permission: 'time.write',
+    permission: 'time.entries.write_own',
     Component: () => {
       const { data, loading, error } = useShared<{
         days: Array<{ date: string; totalMinutes: number; entries?: Array<{ id: string; taskId: string | null; description: string | null; effectiveMinutes: number; billable: boolean; projectId: string }> }>;

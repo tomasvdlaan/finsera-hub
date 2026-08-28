@@ -1,4 +1,5 @@
 import { libraryFor } from '../widgets.js';
+import { useCan } from '../useCan.js';
 import type { EntityKind } from '../../modules/types.js';
 
 /**
@@ -20,7 +21,8 @@ export function EntityWidgets({ entityId, entityType }: { entityId: string; enti
   // Permission is not re-checked here: this renders on a page the viewer has already been let
   // into, and each widget's own request is authorised on the server anyway. The check in the
   // dashboard's picker exists to avoid *offering* something that would fail — a different job.
-  const blocks = libraryFor('entity-page', () => true).filter(({ def }) =>
+  const { can } = useCan();
+  const blocks = libraryFor('entity-page', can).filter(({ def }) =>
     def.entityTypes?.includes(entityType),
   );
 

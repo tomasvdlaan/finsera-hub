@@ -13,6 +13,7 @@ import {
   type Project,
 } from './types.js';
 import { Empty } from '../../shell/ui/primitives.js';
+import { TeamGlance } from './ProjectTeam.js';
 
 /** Euro input → integer cents. Money never becomes a float on the way to the API. */
 const toCents = (euros: string): number | null => {
@@ -57,6 +58,8 @@ export function ProjectList() {
   const load = () => {
     const params = new URLSearchParams();
     if (statusFilter) params.set('status', statusFilter);
+    // One query for every project's team, rather than one request per row.
+    params.set('withMembers', 'true');
     return api
       .get<Project[]>(`/crm/projects?${params}`)
       .then(setProjects)
@@ -222,17 +225,22 @@ export function ProjectList() {
       ) : (
         <ul className="cards">
           {projects.map((p) => (
-            <li key={p.id}>
-              <Link to={`/projects/${p.id}`}>{p.name}</Link>{' '}
-              <span className="badge">{humanise(p.billingModel)}</span>{' '}
-              <span className="muted">
-                {clientName[p.clientId] ?? '—'} · {humanise(p.status)}
-                {p.billingModel === 'retainer'
-                  ? ` · ${formatMoney(p.retainerAmountCents, p.currency)}/${p.retainerPeriod}`
-                  : p.budgetAmountCents != null
-                    ? ` · ${formatMoney(p.budgetAmountCents, p.currency)}`
-                    : ''}
-              </span>
+            <li key={p.id} className="project-row">
+              <div>
+                <Link to={`/projects/${p.id}`}>{p.name}</Link>{' '}
+                <span className="badge">{humanise(p.billingModel)}</span>{' '}
+                <span className="muted">
+                  {clientName[p.clientId] ?? '—'} · {humanise(p.status)}
+                  {p.billingModel === 'retainer'
+                    ? ` · ${formatMoney(p.retainerAmountCents, p.currency)}/${p.retainerPeriod}`
+                    : p.budgetAmountCents != null
+                      ? ` · ${formatMoney(p.budgetAmountCents, p.currency)}`
+                      : ''}
+                </span>
+              </div>
+              {/* Who is on it, at a glance. Faces answer "is anybody on this" faster than a
+                  count does, and the row has no room for the fuller answer. */}
+              <TeamGlance members={p.members} />
             </li>
           ))}
         </ul>
