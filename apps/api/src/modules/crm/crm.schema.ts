@@ -49,6 +49,14 @@ export const clients = crm.table(
   {
     id: uuid('id').primaryKey(), // same value as core.entities.id
     name: text('name').notNull(),
+    /*
+     * Us, not a customer.
+     *
+     * A project needs a client, so work that is nobody's client work still needs one to hang
+     * off. Marking it here rather than matching on the name is what keeps it out of the
+     * reporting views: a name is a thing somebody renames on a Tuesday.
+     */
+    isInternal: boolean('is_internal').notNull().default(false),
     status: text('status').notNull().default('lead'),
     ownerId: uuid('owner_id'), // core.users id; no cross-schema FK by design
     website: text('website'),
@@ -122,6 +130,8 @@ export const projects = crm.table(
       .notNull()
       .references(() => clients.id),
     name: text('name').notNull(),
+    /** Our own work. Excluded from the reporting views — see ensureReportingViews. */
+    isInternal: boolean('is_internal').notNull().default(false),
     status: text('status').notNull().default('prospective'),
     ownerId: uuid('owner_id'),
     currency: text('currency').notNull().default('EUR'),

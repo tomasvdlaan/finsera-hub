@@ -373,8 +373,19 @@ function Agent({
             Action point{item.source === 'ai' ? ' · heard' : ''}
           </span>
           <p className="room-entry-text">{item.text}</p>
+          {/*
+            Where it will land, when that is not obvious.
+
+            This used to be the reason the button was dead: no project, no board, no card.
+            A meeting with no project still produces work, so it goes to the internal
+            project instead — and the one thing that must not happen is a card appearing
+            somewhere the person who pressed the button did not expect.
+          */}
           {!note.projectId && (
-            <p className="faint">Link a project on the note before this can become a card.</p>
+            <p className="faint">
+              This note has no project, so it goes on{' '}
+              <Link to={`/meetings/${note.id}`}>Internal</Link>.
+            </p>
           )}
           <div className="room-entry-buttons">
             <button
@@ -389,7 +400,12 @@ function Agent({
               type="button"
               className="act"
               data-variant="primary"
-              disabled={busyId === item.id || !note.projectId}
+              disabled={busyId === item.id}
+              title={
+                note.projectId
+                  ? 'Put this on the board as a task'
+                  : 'Put this on the internal board — this meeting has no project'
+              }
               onClick={() => onAccept(item.id)}
             >
               Make it a card

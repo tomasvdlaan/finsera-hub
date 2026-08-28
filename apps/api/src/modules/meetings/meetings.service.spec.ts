@@ -276,12 +276,52 @@ describe('MeetingsService', () => {
     expect(withBoth.actionItems[0]!.source).toBe('ai');
   });
 
-  it('refuses to create a task when the note has no project', async () => {
+  /*
+   * This used to refuse. A stand-up that raises "renew the certificate" was told to go and
+   * link a project that does not exist, or lose the commitment — which is not a choice a
+   * meeting screen gets to put to somebody.
+   */
+  it('sends a task from a note with no project to the internal project', async () => {
     const created = await note({ projectId: null });
-    const withAction = await meetings.addActionItem(actor, created.id, { text: 'Something' });
-    await expect(
-      meetings.acceptActionItem(actor, created.id, withAction.actionItems[0]!.id),
-    ).rejects.toThrow(/link this note to a project/i);
+    const withAction = await meetings.addActionItem(actor, created.id, {
+      text: 'Renew the certificate',
+    });
+    const after = await meetings.acceptActionItem(
+      actor,
+      created.id,
+      withAction.actionItems[0]!.id,
+    );
+
+    const internal = await crm.internalProject(actor);
+    const tasks = await scrum.listTasks(actor, { projectId: internal.id });
+    expect(tasks.map((t) => t.title)).toContain('Renew the certificate');
+
+    // The note is not quietly reassigned along with it.
+    expect(after.projectId).toBeNull();
+  });
+
+  it('makes one internal project however many times it is asked', async () => {
+    const first = await crm.internalProject(actor);
+    const again = await crm.internalProject(actor);
+    expect(again.id).toBe(first.id);
+  });
+
+  /*
+   * The whole mechanism. Reporting, the insights rules and the portal's project check read
+   * this view, and a stand-up chore must not reach a margin or a client's screen.
+   */
+  it('keeps internal work out of the reporting view every consumer reads', async () => {
+    const internal = await crm.internalProject(actor);
+    await crm.ensureReportingViews();
+
+    const rows = await testDb.execute(
+      sql`SELECT id FROM crm.v_projects WHERE id = ${internal.id}`,
+    );
+    expect(rows.rows).toHaveLength(0);
+
+    // And it is a real project on its own board, not a hidden one.
+    const board = await scrum.getBoard(actor, internal.id);
+    expect(board.columns.length).toBeGreaterThan(0);
   });
 
   it('carries the owner and due date it was given onto the task', async () => {
