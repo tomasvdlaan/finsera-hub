@@ -12,6 +12,7 @@ import type { CurrentUser } from '@platform/contracts';
 import { api, isExpiredSession, isRefused } from '../lib/api.js';
 import { webModules } from '../modules/index.js';
 import type { NavItem } from '../modules/types.js';
+import { Agenda } from './agenda/Agenda.js';
 import { AssistantPage } from './AssistantPage.js';
 import { StarredAnswers } from './StarredAnswers.js';
 import { CommandBar } from './CommandBar.js';
@@ -279,6 +280,9 @@ function Shell() {
               }
             />
           ))}
+          {/* The agenda spans five modules and belongs to none of them, so it is a shell page
+              for the same reason Today and Money are. See shell/agenda/agendaItems.ts. */}
+          <Route path="/agenda" element={<Page width="wide"><Agenda /></Page>} />
           <Route path="/assistant" element={<Page><AssistantPage /></Page>} />
           {/* Before the :id route, or "starred" is read as a conversation id. */}
           <Route path="/assistant/starred" element={<Page><StarredAnswers /></Page>} />

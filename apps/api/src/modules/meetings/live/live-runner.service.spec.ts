@@ -473,6 +473,73 @@ describe('LiveRunner', () => {
     edit.mockRestore();
   });
 
+  /*
+   * A note is an observation, and there is nothing to decide about one. Before this it
+   * arrived as a card whose only sensible answer was yes, next to a document that did not
+   * contain the thing the meeting was about.
+   */
+  it('writes what it noticed into the note rather than asking about it', async () => {
+    const note = await noteWithConsent();
+    const session = new LiveSession(note.id, actor.userId);
+    sessions.start(note.id, session);
+
+    const added = session.mergeProposals(
+      [{ kind: 'note', text: 'Marieke wants the supplier drill-down before the audit' }],
+      () => crypto.randomUUID(),
+    );
+
+    const suggestions = await runner.recordNotes(actor, note.id, session, added);
+
+    // Nothing left to answer, and it is on the page.
+    expect(suggestions).toHaveLength(0);
+    const body = await docs.markdown(note.id);
+    expect(body).toContain('Noted during the meeting');
+    expect(body).toContain('supplier drill-down');
+  });
+
+  it('still asks about an action, which becomes somebody’s task', async () => {
+    const note = await noteWithConsent();
+    const session = new LiveSession(note.id, actor.userId);
+    sessions.start(note.id, session);
+
+    const added = session.mergeProposals(
+      [
+        { kind: 'note', text: 'The export runs at 03:00' },
+        { kind: 'action', text: 'Joost moves the refresh window' },
+        { kind: 'decision', text: 'Phase two starts after the close' },
+      ],
+      () => crypto.randomUUID(),
+    );
+
+    const suggestions = await runner.recordNotes(actor, note.id, session, added);
+
+    expect(suggestions.map((p) => p.kind)).toEqual(['action', 'decision']);
+    expect(await docs.markdown(note.id)).toContain('The export runs at 03:00');
+  });
+
+  /*
+   * The end-of-session write covers the same section. It has to replace it rather than
+   * append a second copy under a heading of its own, which is what the panel-era code did
+   * with everything it had been showing all meeting.
+   */
+  it('does not write a note a second time when the meeting stops', async () => {
+    const note = await noteWithConsent();
+    const session = new LiveSession(note.id, actor.userId);
+    sessions.start(note.id, session);
+
+    const added = session.mergeProposals(
+      [{ kind: 'note', text: 'Marieke wants the supplier drill-down' }],
+      () => crypto.randomUUID(),
+    );
+    await runner.recordNotes(actor, note.id, session, added);
+    await runner.stop(actor, note.id);
+
+    const body = await docs.markdown(note.id);
+    expect(body.split('supplier drill-down').length - 1).toBe(1);
+    // And not under the heading for things still awaiting an answer.
+    expect(body).not.toContain('Suggested by the assistant');
+  });
+
   it('keeps recording when the notes cannot be written', async () => {
     // Liveness is the thing at risk here, never the meeting. The end-of-session write
     // covers the same section from the same source.

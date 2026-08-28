@@ -5,13 +5,14 @@ import { useToast } from '../../shell/ui/Toast.js';
 import type { FoundContext, Proposal } from '../../shell/liveMeetingReducer.js';
 
 /**
- * How many suggestions can be on screen at once.
+ * How many suggestions stand in front of the dock at once.
  *
- * Three, because the point of a popup is that you deal with it now — and a stack tall
- * enough to need scrolling is a list, which is what the rail already is and what nobody
- * looked at. The rest wait their turn rather than being lost.
+ * One. This used to be three, stacked, which is a list — and a list in front of the notes is
+ * a thing you postpone rather than answer. One question, two buttons, the rest counted
+ * underneath: the queue is visible without being in the way, and the dock holds all of it for
+ * anyone who wants to work through them.
  */
-const AT_ONCE = 3;
+const AT_ONCE = 1;
 
 /** What accepting each kind of suggestion actually does, said in the button. */
 const WORDING: Record<Proposal['kind'], { label: string; accept: string; dismiss: string }> = {
@@ -43,12 +44,17 @@ export function Suggestions({
   proposals,
   context,
   running,
+  hidden,
+  onOpenAll,
 }: {
   noteId: string | null;
   proposals: Proposal[];
   /** What the assistant went and looked up about a suggestion, keyed by its id. */
   context: Record<string, FoundContext[]>;
   running: boolean;
+  /** The dock is open and showing these already. Two copies of one question is one too many. */
+  hidden?: boolean;
+  onOpenAll: () => void;
 }) {
   const toast = useToast();
   /*
@@ -60,7 +66,7 @@ export function Suggestions({
    */
   const [pending, setPending] = useState<Record<string, true>>({});
 
-  if (!running || !noteId) return null;
+  if (!running || !noteId || hidden) return null;
 
   const waiting = proposals.filter((p) => p.status === 'open' && !pending[p.id]);
   if (waiting.length === 0) return null;
@@ -85,11 +91,6 @@ export function Suggestions({
 
   return (
     <div className="suggestions" aria-live="polite" aria-label="Suggestions from the assistant">
-      {waiting.length > shown.length && (
-        <p className="suggestions-more">
-          {waiting.length - shown.length} more waiting
-        </p>
-      )}
       {shown.map((p) => {
         const words = WORDING[p.kind];
         const found = context[p.id] ?? [];
@@ -125,6 +126,12 @@ export function Suggestions({
           </div>
         );
       })}
+
+      {waiting.length > shown.length && (
+        <button type="button" className="suggestions-more" onClick={onOpenAll}>
+          {waiting.length - shown.length} more waiting
+        </button>
+      )}
     </div>
   );
 }
