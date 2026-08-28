@@ -1347,6 +1347,32 @@ ol {
   border-radius: var(--radius);
   box-shadow: var(--plane-2-shadow);
 }
+/*
+ * The status bar.
+ *
+ * Where a word processor puts one, and reporting the same two things: how long this is in
+ * pages and in words. It sits outside the scrolling area, so it stays legible at any scroll
+ * position — the count is only useful if you can see it while you are writing.
+ */
+.editor-status {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0.3rem var(--space-4);
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--faint);
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+}
+.editor-status-dot {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.6;
+}
 .rich-editor .tiptap {
   flex: 1;
   padding: var(--space-6);
@@ -3284,15 +3310,33 @@ a.badge:hover {
   justify-content: center;
   padding: var(--space-5) var(--space-4) 8rem;
 }
-.room-sheet {
-  width: min(46rem, 100%);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-card);
-  box-shadow: var(--shadow-2);
-  padding: var(--space-6) var(--space-7);
+/*
+ * The stage, when the note has it.
+ *
+ * The stage stops scrolling and hands that job to the editor, which is the whole reason the
+ * toolbar can stay put: a bar can only stay above the writing if the writing is what moves.
+ * While the stage was the scroller the toolbar went with it, and `position: sticky` could
+ * only pin it to the top of a sheet that was itself sliding upwards.
+ */
+.room-stage-doc {
+  display: block;
+  overflow: hidden;
+  padding: 0;
+}
+/*
+ * No longer a card.
+ *
+ * This used to be the paper — a bordered, shadowed sheet with the editor flattened onto it.
+ * The paper is now the editor's own page, and two of them would be a sheet on a sheet, so
+ * this keeps only what it is still for: somewhere for the assistant's tag to anchor, and a
+ * column for the bar and the pages to stack in.
+ */
+.room-doc {
   position: relative;
-  height: fit-content;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 /*
  * The stage, when a canvas has it.
@@ -3380,40 +3424,141 @@ a.badge:hover {
   margin: 0 auto;
 }
 
+/*
+ * The assistant, saying so while it writes.
+ *
+ * Anchored to the bottom rather than the top, which it was when this stage was a padded card
+ * and the top-right corner was empty space. It is a bar up there now, and the toolbar wraps
+ * to two rows in a narrow window — so there is no offset from the top that clears it at every
+ * width. The bottom edge is a single line of status text and does not move.
+ */
 .room-writing {
   position: absolute;
-  top: var(--space-4);
+  top: auto;
+  bottom: 2.4rem;
   right: var(--space-4);
+  z-index: 3;
   color: var(--accent);
   background: var(--accent-bg);
   border-color: var(--accent-line);
 }
 /*
- * The editor is the sheet — its own chrome would be a page inside a page.
- *
- * The rich editor draws a bordered, filled sheet of its own, which is right on the note page
- * where it sits on the canvas and wrong here where it sits on a sheet already. Both its own
- * frame and the toolbar's fill are flattened, leaving one rule between the tools and the
- * writing.
+ * The editor fills the stage, and draws the paper itself.
  */
-.room-sheet .rich-editor,
-.room-sheet .editor-sheet {
+.room-doc .rich-editor {
+  flex: 1;
+  min-height: 0;
   border: 0;
   border-radius: 0;
   background: none;
-  box-shadow: none;
 }
-.room-sheet .editor-toolbar {
-  background: none;
+
+/*
+ * The toolbar: a bar across the top, not a strip that happens to be sticky.
+ *
+ * It is a sibling of the scrolling area rather than the first thing inside it, so there is no
+ * scroll position at which it can be anywhere other than where it is. It keeps a fill and a
+ * rule for the same reason a fixed bar always needs one — beneath it the page is moving, and
+ * without an opaque ground the words slide through the buttons.
+ */
+.room-doc .editor-toolbar {
+  position: static;
+  flex: none;
+  padding: var(--space-2) var(--space-4);
+  background: var(--surface);
   border-bottom: 1px solid var(--border);
-  padding-left: 0;
-  padding-right: 0;
-  margin-bottom: var(--space-4);
+  box-shadow: var(--shadow-1);
+  z-index: 2;
 }
-.room-sheet .rich-editor .tiptap {
+
+/*
+ * The ground the pages sit on.
+ *
+ * Darker than the paper, which is what makes a sheet read as a sheet — the same reason the
+ * canvas behind a card is darker than the card. The deep bottom padding is the old stage's
+ * and is still needed: the dock floats over this, and the last line of a document must be
+ * scrollable out from under it.
+ */
+.room-doc .editor-page {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-5) var(--space-4) 9rem;
+  background: var(--bg);
+}
+
+/*
+ * The paper.
+ *
+ * A4 at 96dpi with 2cm margins, which is not a decorative choice: these notes get printed and
+ * mailed, and a page on screen that is not the page that comes out of the printer is a lie
+ * that is only discovered at the end. The width is the one thing allowed to give — below the
+ * page width the sheet shrinks rather than being cut off, and the margins come down with it.
+ *
+ * `--page-h`, `--page-margin-y` and `--page-gap` are read from here by the pagination plugin,
+ * so they must stay literal lengths: a `calc()` in a custom property is handed back to script
+ * unevaluated. See pagination.ts.
+ */
+.room-doc .editor-sheet {
+  --page-w: 794px;
+  --page-h: 1123px;
+  --page-margin-x: 76px;
+  --page-margin-y: 76px;
+  --page-gap: 26px;
+
+  flex: none;
+  width: min(var(--page-w), 100%);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  /* Barely rounded. Paper has corners; a card has a radius. */
+  border-radius: 3px;
+  box-shadow: var(--shadow-2);
   padding: 0;
-  min-height: 24rem;
+}
+.room-doc .rich-editor .tiptap {
+  padding: var(--page-margin-y) var(--page-margin-x);
+  min-height: var(--page-h);
   background: none;
+}
+
+/*
+ * The break between two sheets.
+ *
+ * One element paints three things, because it stands for three: the rest of the page being
+ * left, the space between the sheets, and the top margin of the page being started. Hence the
+ * gradient — transparent where the paper should still show through, ground-coloured across
+ * the gap, with a hairline at each cut. `--break-fill` is where the first of those ends and
+ * is set per break, since how much of a page is left over depends on what was on it.
+ *
+ * It reaches past the writing to the edges of the sheet: a gap that stopped at the text
+ * margin would read as a rule drawn on one long page rather than the end of one.
+ */
+.page-break {
+  display: block;
+  position: relative;
+  margin-inline: calc(-1 * var(--page-margin-x));
+  user-select: none;
+  background: linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent var(--break-fill),
+    var(--border) var(--break-fill),
+    var(--border) calc(var(--break-fill) + 1px),
+    var(--bg) calc(var(--break-fill) + 1px),
+    var(--bg) calc(var(--break-fill) + var(--page-gap) - 1px),
+    var(--border) calc(var(--break-fill) + var(--page-gap) - 1px),
+    var(--border) calc(var(--break-fill) + var(--page-gap)),
+    transparent calc(var(--break-fill) + var(--page-gap))
+  );
+}
+/* The number of the page being started, in its own margin. */
+.page-break-number {
+  position: absolute;
+  right: var(--page-margin-x);
+  translate: 0 calc(var(--page-gap) + 0.35rem);
+  font-size: 0.7rem;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
 }
 
 /*
@@ -3883,8 +4028,16 @@ a.badge:hover {
   .room-stage {
     padding: var(--space-3) var(--space-2) 7rem;
   }
-  .room-sheet {
-    padding: var(--space-5) var(--space-4);
+  /* The margins are the first thing a narrow window can have back. */
+  .room-doc .editor-page {
+    padding: var(--space-3) var(--space-2) 8rem;
+  }
+  .room-doc .editor-sheet {
+    --page-margin-x: 28px;
+    --page-margin-y: 40px;
+  }
+  .room-doc .editor-toolbar {
+    padding: var(--space-2);
   }
   .room-dock-split {
     flex-direction: column;
