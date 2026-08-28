@@ -1,4 +1,4 @@
-import { rateFor } from './rates.js';
+import { rateFor, perAnswerMicros } from './rates.js';
 
 /**
  * The models an administrator may choose between.
@@ -35,11 +35,20 @@ export interface ModelChoice {
   /** 'provider:model', exactly as `specFor` returns it. */
   id: string;
   label: string;
-  provider: 'anthropic' | 'google';
+  provider: 'anthropic' | 'google' | 'openrouter';
+  /** The company whose model it is, for grouping a long list. Set for OpenRouter entries. */
+  group?: string;
   /** Which slots this model is offered for. */
   roles: Array<'strong' | 'fast'>;
   /** One line on what it is for — shown beside the option. */
   note: string;
+  /**
+   * What one typical answer costs, in micro-euros, or null where it cannot be priced.
+   *
+   * Carried on the option itself so the dropdown can rank by it. A list of forty models with
+   * no prices is a list somebody picks the familiar name from.
+   */
+  perAnswerMicros?: number | null;
 }
 
 const CATALOGUE: ModelChoice[] = [
@@ -113,7 +122,10 @@ export function providerConfigured(provider: ModelChoice['provider']): boolean {
 export function availableModels(role: 'strong' | 'fast'): ModelChoice[] {
   return CATALOGUE.filter(
     (m) => m.roles.includes(role) && providerConfigured(m.provider) && rateFor(m.id) !== null,
-  );
+  ).map((m) => {
+    const r = rateFor(m.id);
+    return { ...m, perAnswerMicros: r ? perAnswerMicros(r) : null };
+  });
 }
 
 /** Whether a string names a model this deployment is willing to be set to. */

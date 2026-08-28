@@ -8454,6 +8454,27 @@ main table:not(.grid) [data-align='action'] {
 
 /* ── The meeting page ─────────────────────────────────────────────────────────────────── */
 
+/*
+ * A column and a rail, each stacking on its own.
+ *
+ * The page grid packs its children into rows, so two panels of different heights sitting side
+ * by side make the taller one decide where the next row begins — a short agenda leaves a band
+ * of empty page under it. Stacking inside two grid children instead lets each column run to
+ * its own length. The gap matches the grid's so the seam between them is invisible.
+ *
+ * They inherit the grid's breakpoint for free: below it `.page > *` is forced to all twelve
+ * columns, these land underneath one another, and the reading order is the DOM order —
+ * whatever the phase decided was the work, then whatever it decided was the reference.
+ */
+.page-main,
+.page-rail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  min-width: 0;
+  align-content: start;
+}
+
 /* A link that is a button is still a button. `.btn` is deliberately element-agnostic so the
    way into the room can be a real link — cmd-clickable, and a destination rather than a verb. */
 a.btn { text-decoration: none; }
@@ -8607,4 +8628,11 @@ a.btn { text-decoration: none; }
   }
   .owed { border: 1px solid #ccc; }
   a { text-decoration: none; color: inherit; }
+}
+
+/* Said where the choice is made: a gateway model routes client material via a third party. */
+.model-pick-warn {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-xs);
+  color: var(--warning);
 }

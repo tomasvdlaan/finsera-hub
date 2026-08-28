@@ -1,9 +1,17 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
+import {
+  createOpenAICompatible,
+  type MetadataExtractor,
+} from '@ai-sdk/openai-compatible';
 import { z } from 'zod';
 import { UsageService, type UsageContext } from '../usage/usage.service.js';
 import { ModelConfigService } from '../usage/model-config.service.js';
+import {
+  openRouterMetadataExtractor,
+  openRouterMetadataOf,
+} from '../usage/openrouter.metadata.js';
 import {
   generateObject,
   generateText,
@@ -159,10 +167,30 @@ export class LlmService {
     kind: string,
     usage: TokenUsage,
     ctx?: UsageContext,
+    providerMetadata?: unknown,
   ): Promise<void> {
     if (!this.usage || !ctx) return;
     const spec = await this.specFor(role ?? 'strong');
-    await this.usage.recordTokens(spec.split(':')[0] ?? 'unknown', kind, spec, usage, ctx);
+
+    /*
+     * A gateway call knows what it cost; nothing else does.
+     *
+     * OpenRouter also reports its cache figures in a place the OpenAI-compatible reader does
+     * not look, so they are taken from here too — otherwise a cached conversation reports zero
+     * cache reads and the page says the prompt cache is doing nothing.
+     */
+    const exact = openRouterMetadataOf(providerMetadata);
+    const counts: TokenUsage = exact
+      ? {
+          ...usage,
+          cacheReadTokens: exact.cacheReadTokens ?? usage.cacheReadTokens,
+          cacheWriteTokens: exact.cacheWriteTokens ?? usage.cacheWriteTokens,
+        }
+      : usage;
+
+    await this.usage.recordTokens(spec.split(':')[0] ?? 'unknown', kind, spec, counts, ctx, {
+      costMicros: exact?.costMicros,
+    });
   }
 
   /** Resolve a 'provider:model' string. Only anthropic today; the switch is the seam. */
@@ -186,6 +214,40 @@ export class LlmService {
           throw new Error('GOOGLE_GENERATIVE_AI_API_KEY is not set — cannot resolve an LLM.');
         }
         return createGoogleGenerativeAI({ apiKey })(modelId);
+      }
+      /*
+       * Everything else, through one gateway.
+       *
+       * OpenRouter speaks the OpenAI wire format, so the generic compatible provider is the
+       * whole integration — no second SDK, and the model id passes through untouched
+       * ('openrouter:anthropic/claude-opus-5' → 'anthropic/claude-opus-5').
+       *
+       * The headers are OpenRouter's attribution convention. They are optional, and worth
+       * sending: without them the traffic is anonymous in their dashboard, which is the one
+       * place a runaway spend would otherwise be visible before the invoice.
+       */
+      case 'openrouter': {
+        const apiKey = process.env.OPENROUTER_API_KEY;
+        if (!apiKey) throw new Error('OPENROUTER_API_KEY is not set — cannot resolve an LLM.');
+        return createOpenAICompatible({
+          name: 'openrouter',
+          baseURL: 'https://openrouter.ai/api/v1',
+          apiKey,
+          headers: {
+            'HTTP-Referer': process.env.PUBLIC_URL ?? 'https://finsera.nl',
+            'X-Title': 'Finsera Platform',
+          },
+          /*
+           * Ask for the bill along with the answer.
+           *
+           * Costs a field in the request body and turns every gateway call from an estimate
+           * into the figure OpenRouter actually charged. The extractor lifts it back out.
+           */
+          transformRequestBody: (args) => ({ ...args, usage: { include: true } }),
+          // Cast at the seam: the extractor is written against a plain record, and the SDK's
+          // own metadata type carries a JSON-value constraint that adds nothing here.
+          metadataExtractor: openRouterMetadataExtractor as MetadataExtractor,
+        })(modelId);
       }
       default:
         throw new Error(`Unsupported LLM provider '${provider}' in '${spec}'.`);
@@ -229,7 +291,11 @@ export class LlmService {
       system?: string;
       messages: GenerateOptions['messages'];
       maxRetries: number;
-    }) => Promise<{ object: unknown; usage?: { inputTokens?: number; outputTokens?: number } }>;
+    }) => Promise<{
+      object: unknown;
+      usage?: { inputTokens?: number; outputTokens?: number };
+      providerMetadata?: unknown;
+    }>;
 
     const result = await call({
       model,
@@ -240,7 +306,7 @@ export class LlmService {
     });
 
     const usage = readUsage(result.usage);
-    await this.meter(opts.role ?? 'fast', 'generate', usage, opts.context);
+    await this.meter(opts.role ?? 'fast', 'generate', usage, opts.context, result.providerMetadata);
 
     // Validated rather than trusted: the SDK asked for this shape, this asserts it got it.
     return {
@@ -278,7 +344,7 @@ export class LlmService {
     const usage = readUsage(result.usage);
     // 'transcribe' rather than 'generate': this is the audio path, and it is the one most
     // worth being able to isolate on the page.
-    await this.meter(opts.role ?? 'fast', 'transcribe', usage, opts.context);
+    await this.meter(opts.role ?? 'fast', 'transcribe', usage, opts.context, result.providerMetadata);
 
     return {
       text: result.text,
@@ -334,7 +400,7 @@ export class LlmService {
         (usage.cacheReadTokens ? ` (${usage.cacheReadTokens} cached)` : ''),
     );
 
-    await this.meter(opts.role, 'generate', usage, opts.context);
+    await this.meter(opts.role, 'generate', usage, opts.context, await result.providerMetadata);
 
     yield {
       type: 'done',
@@ -373,7 +439,7 @@ export class LlmService {
           : ''),
     );
 
-    await this.meter(opts.role, 'generate', usage, opts.context);
+    await this.meter(opts.role, 'generate', usage, opts.context, result.providerMetadata);
 
     return {
       text: result.text,

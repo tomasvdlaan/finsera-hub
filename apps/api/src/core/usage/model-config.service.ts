@@ -2,6 +2,7 @@ import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common'
 import { DB, type Database } from '../db/db.module.js';
 import { platformSettings } from '../db/core.schema.js';
 import { availableModels, isSelectable, type ModelChoice } from './models.js';
+import { OpenRouterService } from './openrouter.service.js';
 
 export interface ModelSelection {
   strong: string;
@@ -38,7 +39,10 @@ export class ModelConfigService {
   private cached: { at: number; row: { modelStrong: string | null; modelFast: string | null } } | null =
     null;
 
-  constructor(@Inject(DB) private readonly db: Database) {}
+  constructor(
+    @Inject(DB) private readonly db: Database,
+    private readonly openrouter: OpenRouterService,
+  ) {}
 
   /**
    * The stored row, or nulls.
@@ -72,17 +76,30 @@ export class ModelConfigService {
      * environment keeps the platform answering; obeying the row would break every AI feature
      * until somebody opened this screen, and nothing would say why.
      */
-    if (chosen && isSelectable(chosen, role)) return chosen;
+    if (chosen && this.usable(chosen, role)) return chosen;
     if (chosen) {
       this.logger.warn(`Stored ${role} model '${chosen}' is not selectable here; using the environment`);
     }
     return role === 'strong' ? envStrong() : envFast();
   }
 
+  /**
+   * Whether a stored id is one this deployment can still reach.
+   *
+   * OpenRouter ids are judged on the key alone rather than against its catalogue, deliberately:
+   * this runs on the hot path of every LLM call, and it must not depend on a network fetch
+   * having succeeded. A gateway id that OpenRouter no longer serves fails at the call with the
+   * gateway's own message, which is a clearer answer than this one silently swapping the model.
+   */
+  private usable(id: string, role: 'strong' | 'fast'): boolean {
+    if (id.startsWith('openrouter:')) return OpenRouterService.configured();
+    return isSelectable(id, role);
+  }
+
   /** Both slots plus where each answer came from — what the settings screen renders. */
   async current(): Promise<ModelSelection> {
     const row = await this.row();
-    const usable = (v: string | null, role: 'strong' | 'fast') => Boolean(v && isSelectable(v, role));
+    const usable = (v: string | null, role: 'strong' | 'fast') => Boolean(v && this.usable(v, role));
     return {
       strong: await this.specFor('strong'),
       fast: await this.specFor('fast'),
@@ -91,9 +108,18 @@ export class ModelConfigService {
     };
   }
 
-  /** The catalogue this deployment can offer, for the screen to render as options. */
-  options(): { strong: ModelChoice[]; fast: ModelChoice[] } {
-    return { strong: availableModels('strong'), fast: availableModels('fast') };
+  /**
+   * The catalogue this deployment can offer.
+   *
+   * Direct models first and the gateway's after, because the direct route is the one that does
+   * not hand a prompt to a third party — the ordering is the recommendation.
+   */
+  async options(): Promise<{ strong: ModelChoice[]; fast: ModelChoice[] }> {
+    const viaGateway = OpenRouterService.configured() ? await this.openrouter.choices() : [];
+    return {
+      strong: [...availableModels('strong'), ...viaGateway],
+      fast: [...availableModels('fast'), ...viaGateway],
+    };
   }
 
   /**
@@ -104,7 +130,14 @@ export class ModelConfigService {
    * whose provider has no key, breaking every AI feature with a successful-looking save.
    */
   async set(role: 'strong' | 'fast', id: string | null): Promise<ModelSelection> {
-    if (id !== null && !isSelectable(id, role)) {
+    const allowed =
+      id === null ||
+      (id.startsWith('openrouter:')
+        ? // Checked against the live catalogue here, unlike on the hot path: a save is rare,
+          // and refusing a model that does not exist is the whole job of this validation.
+          await this.openrouter.isSelectable(id)
+        : isSelectable(id, role));
+    if (!allowed) {
       throw new BadRequestException(`'${id}' is not a model this platform can use for ${role} work`);
     }
 

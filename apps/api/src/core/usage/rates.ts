@@ -149,6 +149,35 @@ export interface TokenCounts {
 }
 
 /**
+ * What one assistant answer costs, near enough to compare models by.
+ *
+ * Per-million-token prices are the unit vendors quote and the wrong unit for a decision: nobody
+ * holds "€4,60 in, €23,00 out" in their head well enough to rank forty options by it. A typical
+ * answer is a number somebody can reason about — and it is measured rather than invented, from
+ * real tool-calling answers on this platform: 9,442/174, 9,281/202 and 4,542/1 input/output
+ * tokens. The input is dominated by the forty tool schemas, which is why it barely moves.
+ *
+ * Deliberately ignores the prompt cache, which on a real conversation serves more than half the
+ * input and would make this an under-estimate rather than a comparison. Every model is priced
+ * on the same uncached basis, so the ranking holds even where the absolute figure is high.
+ */
+export const TYPICAL_ANSWER: TokenCounts = {
+  inputTokens: 9_000,
+  outputTokens: 250,
+  cacheReadTokens: 0,
+  cacheWriteTokens: 0,
+};
+
+/** One typical answer at a given rate, in micro-euros. */
+export function perAnswerMicros(r: TokenRate): number {
+  return Math.round(
+    (TYPICAL_ANSWER.inputTokens / 1_000_000) * r.input * MICROS_PER_EURO +
+      (TYPICAL_ANSWER.outputTokens / 1_000_000) * r.output * MICROS_PER_EURO,
+  );
+}
+
+
+/**
  * Tokens to micro-euros.
  *
  * Returns null for a model the card cannot price, and the caller records the event with a zero

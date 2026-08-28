@@ -20,6 +20,7 @@ import { SettingsService } from './settings/settings.service.js';
 import { TtsService } from './llm/tts.service.js';
 import { UsageService } from './usage/usage.service.js';
 import { ModelConfigService } from './usage/model-config.service.js';
+import { OpenRouterService } from './usage/openrouter.service.js';
 import { StorageService } from './storage/storage.service.js';
 
 /**
@@ -49,6 +50,7 @@ const services = [
   TtsService,
   UsageService,
   ModelConfigService,
+  OpenRouterService,
 ];
 
 @Global()

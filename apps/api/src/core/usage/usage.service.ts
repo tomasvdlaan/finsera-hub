@@ -4,6 +4,7 @@ import { v7 as uuidv7 } from 'uuid';
 import { DB, type Database } from '../db/db.module.js';
 import { usageEvents } from '../db/core.schema.js';
 import { costMicrosFor, recallCostMicros, ttsCostMicros, type TokenCounts } from './rates.js';
+import { OpenRouterService } from './openrouter.service.js';
 
 /** Who spent this, and on whose behalf. Passed by the call site; nothing here can infer it. */
 export interface UsageContext {
@@ -35,15 +36,26 @@ export interface UsageContext {
 export class UsageService {
   private readonly logger = new Logger(UsageService.name);
 
-  constructor(@Inject(DB) private readonly db: Database) {}
+  constructor(
+    @Inject(DB) private readonly db: Database,
+    private readonly openrouter?: OpenRouterService,
+  ) {}
 
-  /** A token-billed call: generation, structured output, embedding. */
+  /**
+   * A token-billed call: generation, structured output, embedding.
+   *
+   * `reported.costMicros` is what the provider says it charged, and it wins over anything this
+   * platform would work out for itself. Only OpenRouter supplies it today — the direct vendors
+   * bill by invoice and say nothing per call — so this is the one path on the page where the
+   * number is the real one rather than a good estimate.
+   */
   async recordTokens(
     provider: string,
     kind: string,
     model: string,
     counts: Partial<TokenCounts>,
     ctx: UsageContext,
+    reported?: { costMicros?: number },
   ): Promise<void> {
     const full: TokenCounts = {
       inputTokens: counts.inputTokens ?? 0,
@@ -51,12 +63,39 @@ export class UsageService {
       cacheReadTokens: counts.cacheReadTokens ?? 0,
       cacheWriteTokens: counts.cacheWriteTokens ?? 0,
     };
-    // A model the rate card cannot price is still recorded, at zero, so the tokens are visible.
-    const micros = costMicrosFor(model, full);
+    /*
+     * Priced from the gateway's own list for an OpenRouter model, and from the static card for
+     * a direct one. The gateway route is the more accurate of the two — the prices come from
+     * the same response that lists the model, rather than from a card kept by hand — which is
+     * one real advantage of routing through it.
+     */
+    const micros =
+      // `typeof` rather than truthiness: a free model reports 0, which is an answer.
+      typeof reported?.costMicros === 'number'
+        ? reported.costMicros
+        : model.startsWith('openrouter:')
+          ? await this.openRouterMicros(model, full)
+          : costMicrosFor(model, full);
     if (micros === null) {
       this.logger.warn(`No rate for model '${model}' — recording ${full.inputTokens} tokens at zero`);
     }
     await this.write({ provider, kind, model, ...full, costMicros: micros ?? 0 }, ctx);
+  }
+
+  /** OpenRouter's own price for a model, or null when the catalogue has not been read yet. */
+  private async openRouterMicros(model: string, counts: TokenCounts): Promise<number | null> {
+    if (!this.openrouter) return null;
+    // Warmed rather than assumed: the first call after a restart would otherwise be unpriced.
+    await this.openrouter.warm();
+    const r = this.openrouter.rateFor(model);
+    if (!r) return null;
+    const per = (tokens: number, euros: number) => (tokens / 1_000_000) * euros * 1_000_000;
+    return Math.round(
+      per(counts.inputTokens, r.input) +
+        per(counts.outputTokens, r.output) +
+        per(counts.cacheReadTokens, r.cacheRead) +
+        per(counts.cacheWriteTokens, r.cacheWrite),
+    );
   }
 
   /** A Recall bot, billed for as long as it sat in the room. */

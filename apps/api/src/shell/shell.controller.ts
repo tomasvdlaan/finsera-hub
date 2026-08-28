@@ -22,6 +22,7 @@ import { Public } from '../core/auth/public.decorator.js';
 import { UserService } from '../core/auth/user.service.js';
 import { UsageService } from '../core/usage/usage.service.js';
 import { ModelConfigService } from '../core/usage/model-config.service.js';
+import { OpenRouterService } from '../core/usage/openrouter.service.js';
 import { PermissionService } from '../core/permissions/permission.service.js';
 import { DashboardService } from '../core/registry/dashboard.service.js';
 import { INTERNAL_ROLE, PORTAL_ROLE, roleClaims, rolesFrom } from '../core/auth/roles.js';
@@ -47,6 +48,7 @@ export class ShellController {
     private readonly permissions: PermissionService,
     private readonly usage: UsageService,
     private readonly models: ModelConfigService,
+    private readonly openrouter: OpenRouterService,
   ) {}
 
   /** The organisation's own legal details — printed on every invoice and quote. */
@@ -215,7 +217,14 @@ export class ShellController {
       throw new BadRequestException('from and to must be YYYY-MM-DD dates');
     }
 
-    return { from: start.toISOString(), to: end.toISOString(), ...(await this.usage.summary(start, end)) };
+    return {
+      from: start.toISOString(),
+      to: end.toISOString(),
+      // Not period-scoped, and deliberately alongside rather than inside the totals: it is an
+      // account balance, not a figure about this month.
+      openrouter: await this.openrouter.credits(),
+      ...(await this.usage.summary(start, end)),
+    };
   }
 
   /**
@@ -228,7 +237,7 @@ export class ShellController {
   @Get('models')
   async modelSettings(@CurrentActor() actor: Actor) {
     await this.permissions.require(actor, 'core.models.manage');
-    return { current: await this.models.current(), options: this.models.options() };
+    return { current: await this.models.current(), options: await this.models.options() };
   }
 
   /** Choose a model for one slot, or send null to hand it back to the environment. */
