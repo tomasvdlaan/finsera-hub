@@ -373,8 +373,20 @@ function Agent({
             Action point{item.source === 'ai' ? ' · heard' : ''}
           </span>
           <p className="room-entry-text">{item.text}</p>
+          {/*
+            Why the button below is dead, said next to the button below.
+
+            A card becomes a task on a project's board, so a note with no project has
+            nowhere to put one. That was already true and already explained — in a muted
+            line at the top of the panel, nowhere near the control it was about, with no
+            way to act on it. A disabled control has to carry its own reason, and the
+            reason has to be a way out.
+          */}
           {!note.projectId && (
-            <p className="faint">Link a project on the note before this can become a card.</p>
+            <p className="faint">
+              <Link to={`/meetings/${note.id}`}>Link a project on the note</Link> and this
+              can become a card.
+            </p>
           )}
           <div className="room-entry-buttons">
             <button
@@ -390,6 +402,11 @@ function Agent({
               className="act"
               data-variant="primary"
               disabled={busyId === item.id || !note.projectId}
+              title={
+                note.projectId
+                  ? 'Put this on the board as a task'
+                  : 'This meeting is not linked to a project, so there is no board to put a card on'
+              }
               onClick={() => onAccept(item.id)}
             >
               Make it a card
