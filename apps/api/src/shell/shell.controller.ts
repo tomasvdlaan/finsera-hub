@@ -17,6 +17,7 @@ import { decodeJwt } from 'jose';
 import { NAV_SECTIONS } from '@platform/contracts';
 import type { Actor, CreateLinkInput } from '@platform/contracts';
 import { CommentService } from '../core/comments/comment.service.js';
+import { MentionService } from '../core/comments/mention.service.js';
 import { CurrentActor } from '../core/auth/current-actor.decorator.js';
 import { Public } from '../core/auth/public.decorator.js';
 import { UserService } from '../core/auth/user.service.js';
@@ -41,6 +42,7 @@ export class ShellController {
     private readonly users: UserService,
     private readonly links: LinkService,
     private readonly comments_: CommentService,
+    private readonly mentions_: MentionService,
     private readonly timeline: TimelineService,
     private readonly dispatcher: EventDispatcher,
     private readonly settings: SettingsService,
@@ -371,6 +373,37 @@ export class ShellController {
    * over any registry entity, belonging to no module. Permission is the subject's own — if
    * you can see the record you can discuss it — which is why no capability is named here.
    */
+  /**
+   * Who has named me and I have not read yet.
+   *
+   * `mentions` before `comments/:entityId` would be shadowed by nothing — they are different
+   * paths — but it sits here because it is the same subject, and because the two routes below
+   * are the only way a mention is ever cleared.
+   */
+  @Get('mentions')
+  mentions(@CurrentActor() actor: Actor) {
+    return this.mentions_.listFor(actor);
+  }
+
+  /** Mark some read, or — with no ids — everything waiting. */
+  @Post('mentions/read')
+  readMentions(@CurrentActor() actor: Actor, @Body() body: { ids?: string[] }) {
+    return this.mentions_.markRead(actor, body?.ids);
+  }
+
+  /**
+   * Who can be named, for the picker.
+   *
+   * Active people, minus you. Naming yourself records nothing — the table forbids it — so
+   * offering your own name would be offering a choice that does nothing, and on a team of
+   * one that is the only choice there is.
+   */
+  @Get('mentionable')
+  async mentionable(@CurrentActor() actor: Actor) {
+    const people = await this.mentions_.mentionable();
+    return people.filter((p) => p.id !== actor.userId);
+  }
+
   @Get('comments/:entityId')
   comments(@CurrentActor() actor: Actor, @Param('entityId') entityId: string) {
     return this.comments_.listFor(actor, entityId);

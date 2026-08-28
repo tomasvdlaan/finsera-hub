@@ -8945,3 +8945,72 @@ a.btn { text-decoration: none; }
 .md-hl { background: var(--warning-bg); color: var(--warning); padding: 0 3px; border-radius: 2px; }
 .md-code { font-family: var(--font-mono); font-size: 10px; }
 .md-toolbar-end { margin-left: auto; display: flex; align-items: center; gap: var(--space-2); }
+
+/* ==========================================================================================
+   Mentions
+   ========================================================================================== */
+
+/* A name in a body. Tinted rather than linked: it names a person, it is not a way to reach one. */
+.mention {
+  color: var(--accent);
+  background: var(--accent-bg);
+  border-radius: var(--radius-sm);
+  padding: 0 4px;
+  font-weight: 500;
+}
+
+.comment-compose { position: relative; }
+
+/*
+ * The picker, above the caret rather than below it.
+ *
+ * The composer sits at the bottom of a thread, so a menu opening downwards would land off the
+ * end of the page — and on a modal, outside it entirely.
+ */
+.mention-menu {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 4px);
+  z-index: 20;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  min-width: 12rem;
+  background: var(--plane-3-bg);
+  border: 1px solid var(--plane-3-border);
+  border-radius: var(--radius);
+  box-shadow: var(--plane-3-shadow);
+}
+.mention-option {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  padding: 5px 9px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+.mention-option:hover,
+.mention-option.on { background: var(--accent-bg); color: var(--accent); }
+
+.mention-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3); }
+.mention-list > li {
+  display: grid;
+  gap: 3px;
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--border);
+}
+.mention-list > li:last-child { border-bottom: 0; padding-bottom: 0; }
+.mention-who { font-size: var(--text-sm); }
+/* Two lines at most: this is a reminder to go and read it, not the reading. */
+.mention-excerpt {
+  margin: 0;
+  font-size: var(--text-sm);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}

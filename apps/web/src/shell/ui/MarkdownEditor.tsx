@@ -270,8 +270,26 @@ export function firstImage(markdown: string | null | undefined): string | null {
  * Nothing here trusts the input: the Markdown parser is configured `html: false` and the only
  * inline HTML it accepts is a colour span, so a comment cannot smuggle markup into the page.
  */
-export function Markdown({ value, className }: { value: string; className?: string }) {
+export function Markdown({
+  value,
+  className,
+  names = [],
+}: {
+  value: string;
+  className?: string;
+  /**
+   * Display names to draw as mentions.
+   *
+   * Given rather than guessed, and highlighted after serialising rather than before: a
+   * mention is stored as ordinary text — see `namesIn` on the server for why an id smuggled
+   * into the Markdown is the option that quietly breaks — so the only place it can become
+   * visible is the rendered output.
+   */
+  names?: string[];
+}) {
   const host = useRef<HTMLDivElement>(null);
+  // Joined, so the effect does not re-run on every render for an array literal.
+  const key = names.join('\u0000');
 
   useEffect(() => {
     const node = host.current;
@@ -279,7 +297,54 @@ export function Markdown({ value, className }: { value: string; className?: stri
     node.replaceChildren(
       DOMSerializer.fromSchema(noteSchema).serializeFragment(markdownToDoc(value ?? '').content),
     );
-  }, [value]);
+    if (key) markMentions(node, key.split('\u0000'));
+  }, [value, key]);
 
   return <div ref={host} className={className ? `markdown-body ${className}` : 'markdown-body'} />;
+}
+
+/**
+ * Wrap `@Name` in the rendered output.
+ *
+ * Text nodes only, and never inside a link or a code block — a name in a code sample is
+ * sample text, and rewriting inside an anchor would nest one clickable thing in another.
+ * Longest first, matching the server, so "@Marijn Jansen" is one mention rather than a
+ * mention of Marijn followed by a stray surname.
+ */
+function markMentions(root: HTMLElement, names: string[]) {
+  const ordered = [...names].filter(Boolean).sort((a, b) => b.length - a.length);
+  if (ordered.length === 0) return;
+  const escaped = ordered.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const pattern = new RegExp(`(^|[^\\w@])(@(?:${escaped.join('|')}))(?![\\w])`, 'gi');
+
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode: (node) =>
+      node.parentElement?.closest('a, code, pre')
+        ? NodeFilter.FILTER_REJECT
+        : NodeFilter.FILTER_ACCEPT,
+  });
+  const texts: Text[] = [];
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) texts.push(n as Text);
+
+  for (const text of texts) {
+    const source = text.nodeValue ?? '';
+    if (!source.includes('@')) continue;
+    pattern.lastIndex = 0;
+    if (!pattern.test(source)) continue;
+    pattern.lastIndex = 0;
+
+    const fragment = document.createDocumentFragment();
+    let last = 0;
+    for (let m = pattern.exec(source); m; m = pattern.exec(source)) {
+      const start = m.index + m[1]!.length;
+      fragment.append(source.slice(last, start));
+      const span = document.createElement('span');
+      span.className = 'mention';
+      span.textContent = m[2]!;
+      fragment.append(span);
+      last = start + m[2]!.length;
+    }
+    fragment.append(source.slice(last));
+    text.replaceWith(fragment);
+  }
 }

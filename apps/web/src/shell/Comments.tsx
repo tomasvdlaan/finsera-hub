@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { api } from '../lib/api.js';
 import { useDialog } from './ui/Dialog.js';
 import { Markdown, MarkdownEditor } from './ui/MarkdownEditor.js';
@@ -43,6 +43,12 @@ export function Comments({ entityId }: { entityId: string }) {
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+  /** Who can be named. Fetched once, and empty until it arrives — the picker just stays shut. */
+  const [people, setPeople] = useState<Array<{ id: string; displayName: string }>>([]);
+  /** The `@…` being typed at the caret, or null when there is not one. */
+  const [query, setQuery] = useState<string | null>(null);
+  const [pick, setPick] = useState(0);
+  const composer = useRef<HTMLTextAreaElement>(null);
 
   const load = useCallback(() => {
     api
@@ -52,6 +58,59 @@ export function Comments({ entityId }: { entityId: string }) {
   }, [entityId]);
 
   useEffect(load, [load]);
+
+  useEffect(() => {
+    api
+      .get<Array<{ id: string; displayName: string }>>('/core/mentionable')
+      // Silently: naming somebody is a convenience, and a failed lookup should cost the
+      // picker rather than the ability to comment.
+      .then(setPeople)
+      .catch(() => setPeople([]));
+  }, []);
+
+  /*
+   * What the caret is in the middle of typing, if it is a name.
+   *
+   * Read from the text before the caret rather than tracked as you type, so pasting, undo and
+   * clicking somewhere else all give the same answer as typing does. The `@` has to start a
+   * word, matching what the server will accept — offering a completion that would not be
+   * recognised is worse than offering none.
+   */
+  const suggesting = useCallback((text: string, caret: number) => {
+    const before = text.slice(0, caret);
+    const at = before.lastIndexOf('@');
+    if (at < 0) return null;
+    if (at > 0 && /[\w@]/.test(before[at - 1] ?? '')) return null;
+    const typed = before.slice(at + 1);
+    // A name, not a paragraph: two words is enough for "First Last" and stops the menu
+    // reappearing halfway down a sentence that happened to contain an address.
+    if (/\n/.test(typed) || typed.split(/\s+/).length > 2) return null;
+    return typed;
+  }, []);
+
+  const matches =
+    query === null
+      ? []
+      : people
+          .filter((p) => p.displayName.toLowerCase().startsWith(query.toLowerCase()))
+          .slice(0, 6);
+
+  const insert = (name: string) => {
+    const el = composer.current;
+    const caret = el?.selectionStart ?? body.length;
+    const before = body.slice(0, caret);
+    const at = before.lastIndexOf('@');
+    if (at < 0) return;
+    const next = `${body.slice(0, at)}@${name} ${body.slice(caret)}`;
+    setBody(next);
+    setQuery(null);
+    // The caret goes after the name, not to the end: people carry on mid-sentence.
+    const to = at + name.length + 2;
+    requestAnimationFrame(() => {
+      el?.focus();
+      el?.setSelectionRange(to, to);
+    });
+  };
 
   const post = (e: FormEvent) => {
     e.preventDefault();
@@ -135,7 +194,11 @@ export function Comments({ entityId }: { entityId: string }) {
         <>
           {/* The same Markdown a note is written in, so a screenshot pasted into a remark
               about a card behaves exactly as one pasted into the card itself. */}
-          <Markdown value={c.body} className="comment-body" />
+          <Markdown
+            value={c.body}
+            className="comment-body"
+            names={people.map((p) => p.displayName)}
+          />
           <div className="comment-actions">
             {!isReply && (
               <button className="link-button" onClick={() => setReplyTo(c.id)}>
@@ -192,14 +255,65 @@ export function Comments({ entityId }: { entityId: string }) {
             </button>
           </p>
         )}
-        <textarea
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-          placeholder={replyTo ? 'Your reply…' : 'Add a note — a decision, a blocker, why this changed…'}
-          rows={3}
-          maxLength={10_000}
-          style={{ width: '100%' }}
-        />
+        <div className="comment-compose">
+          <textarea
+            ref={composer}
+            value={body}
+            onChange={(e) => {
+              setBody(e.target.value);
+              setQuery(suggesting(e.target.value, e.target.selectionStart));
+              setPick(0);
+            }}
+            /* Clicking elsewhere in the text is a way of abandoning the name, too. */
+            onClick={(e) => setQuery(suggesting(body, e.currentTarget.selectionStart))}
+            onBlur={() => setQuery(null)}
+            onKeyDown={(e) => {
+              if (matches.length === 0) return;
+              if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                setPick((i) => (i + 1) % matches.length);
+              } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                setPick((i) => (i - 1 + matches.length) % matches.length);
+              } else if (e.key === 'Enter' || e.key === 'Tab') {
+                // Enter picks the name rather than submitting, but only while the menu is
+                // open — otherwise it would stop being the key that posts a comment.
+                e.preventDefault();
+                insert(matches[pick]!.displayName);
+              } else if (e.key === 'Escape') {
+                e.preventDefault();
+                setQuery(null);
+              }
+            }}
+            placeholder={
+              replyTo ? 'Your reply…' : 'Add a note — @ to name someone, or say why this changed…'
+            }
+            rows={3}
+            maxLength={10_000}
+            style={{ width: '100%' }}
+          />
+          {matches.length > 0 && (
+            <ul className="mention-menu" role="listbox" aria-label="People">
+              {matches.map((p, i) => (
+                <li key={p.id}>
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={i === pick}
+                    className={i === pick ? 'mention-option on' : 'mention-option'}
+                    /* Before blur, or the textarea loses focus and the menu closes first. */
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      insert(p.displayName);
+                    }}
+                  >
+                    {p.displayName}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
         <button type="submit" disabled={busy || !body.trim()}>
           {busy ? 'Saving…' : replyTo ? 'Reply' : 'Comment'}
         </button>

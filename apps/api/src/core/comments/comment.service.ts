@@ -14,6 +14,7 @@ import { DB, type Database } from '../db/db.module.js';
 import { comments, users } from '../db/core.schema.js';
 import { PermissionService } from '../permissions/permission.service.js';
 import { RegistryService } from '../registry/registry.service.js';
+import { MentionService, namesIn } from './mention.service.js';
 
 const MAX_BODY = 10_000;
 
@@ -53,6 +54,7 @@ export class CommentService {
     private readonly registry: RegistryService,
     private readonly permissions: PermissionService,
     private readonly audit: AuditService,
+    private readonly mentions: MentionService,
   ) {}
 
   /** The thread on one entity, oldest first, with deleted comments kept as tombstones. */
@@ -126,6 +128,10 @@ export class CommentService {
     }
 
     const id = uuidv7();
+    // Read before the transaction opens: it is a plain lookup, and holding a transaction
+    // open across it buys nothing.
+    const people = await this.mentions.mentionable();
+
     await this.db.transaction(async (tx) => {
       await tx.insert(comments).values({
         id,
@@ -134,6 +140,19 @@ export class CommentService {
         parentId: input.parentId ?? null,
         body,
         authorId: actor.userId,
+      });
+      /*
+       * In the same transaction as the comment.
+       *
+       * A mention that outlived a rolled-back comment would point at a row that never
+       * existed, and the person would open an empty page wondering what they missed.
+       */
+      await this.mentions.record(tx, {
+        commentId: id,
+        subjectId: input.subjectId,
+        subjectType: subject.entityType,
+        authorId: actor.userId,
+        userIds: namesIn(body, people),
       });
       await this.audit.record(tx, {
         actorId: actor.userId,
@@ -154,11 +173,27 @@ export class CommentService {
     if (!trimmed) throw new BadRequestException('A comment needs something in it');
 
     const existing = await this.own(actor, id);
+    const people = await this.mentions.mentionable();
+
     await this.db.transaction(async (tx) => {
       await tx
         .update(comments)
         .set({ body: trimmed, editedAt: new Date() })
         .where(eq(comments.id, id));
+      /*
+       * An edit can add a name; it cannot take one back.
+       *
+       * `mentions_once` swallows the ones already recorded, so fixing a typo notifies
+       * nobody twice. Removing a name leaves the mention standing, which is the honest
+       * outcome — it was delivered, and an edit is not a recall.
+       */
+      await this.mentions.record(tx, {
+        commentId: id,
+        subjectId: existing.subjectId,
+        subjectType: existing.subjectType,
+        authorId: actor.userId,
+        userIds: namesIn(trimmed, people),
+      });
       await this.audit.record(tx, {
         actorId: actor.userId,
         action: 'comment.edit',

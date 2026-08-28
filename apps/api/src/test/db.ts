@@ -65,12 +65,14 @@ export async function closeDb(): Promise<void> {
 export async function seedUser(
   userId: string,
   role: 'admin' | 'member' = 'member',
+  /** Named, for the tests where two people have to be told apart — mentions, mostly. */
+  displayName = 'Test User',
 ): Promise<void> {
   await testDb.insert(coreSchema.users).values({
     id: userId,
     oidcSubject: `test|${userId}`,
     email: `${userId}@test.local`,
-    displayName: 'Test User',
+    displayName,
     role,
   });
 }

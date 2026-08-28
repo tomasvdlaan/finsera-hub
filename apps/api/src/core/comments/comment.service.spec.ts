@@ -6,6 +6,7 @@ import { ManifestRegistry } from '../manifest/manifest.registry.js';
 import { PermissionService } from '../permissions/permission.service.js';
 import { RegistryService } from '../registry/registry.service.js';
 import { resetDb, seedUser, testDb } from '../../test/db.js';
+import { MentionService } from './mention.service.js';
 import { CommentService } from './comment.service.js';
 
 const me: Actor = { userId: crypto.randomUUID(), role: 'admin' };
@@ -51,7 +52,7 @@ describe('CommentService', () => {
     const m = manifests();
     registry = new RegistryService(testDb, m);
     hidden = new Set<string>();
-    comments = new CommentService(testDb, registry, new Hiding(hidden, m), new AuditService());
+    comments = new CommentService(testDb, registry, new Hiding(hidden, m), new AuditService(), new MentionService(testDb));
   };
 
   const seed = async (name: string) => {
