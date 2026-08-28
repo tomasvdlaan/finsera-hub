@@ -59,6 +59,8 @@ export function Room() {
     startCapture,
     resumeAudio,
     stop,
+    pause,
+    unpause,
     configure,
   } = useLiveMeeting();
 
@@ -420,6 +422,8 @@ export function Room() {
         onStartBot={(meetingUrl) => void startBot(id, meetingUrl)}
         onStartCapture={(source, deviceId) => void startCapture(id, source, deviceId)}
         onStop={() => void stop()}
+        onPause={() => void pause()}
+        onUnpause={() => void unpause()}
         onResumeAudio={() =>
           void resumeAudio(id, live.source === 'tab' ? 'tab' : 'microphone')
         }

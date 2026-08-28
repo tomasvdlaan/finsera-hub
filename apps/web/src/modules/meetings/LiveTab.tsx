@@ -30,6 +30,8 @@ export function LiveTab({
   onStartBot,
   onStartCapture,
   onStop,
+  onPause,
+  onUnpause,
   onResumeAudio,
 }: {
   noteId: string;
@@ -40,6 +42,8 @@ export function LiveTab({
   onStartBot: (meetingUrl: string) => void;
   onStartCapture: (source: 'microphone' | 'tab', deviceId?: string) => void;
   onStop: () => void;
+  onPause: () => void;
+  onUnpause: () => void;
   onResumeAudio: () => void;
 }) {
   const [picked, setPicked] = useState<Source>('bot');
@@ -244,6 +248,22 @@ export function LiveTab({
 
         <div className="row">
           {live.needsAudio && <button onClick={onResumeAudio}>Share audio again</button>}
+          {/*
+            Pause, which is not a lesser Stop.
+
+            Stopping writes the note, turns proposals into action points and cannot be undone.
+            This leaves all of that where it is and can be reversed a minute later — which is
+            what "give us two minutes" actually needs. Before Stop in the row because it is the
+            one you reach for far more often, and because the destructive verb should not be
+            the first thing under your cursor.
+          */}
+          {!live.paused ? (
+            <button onClick={onPause}>Pause listening</button>
+          ) : (
+            <button onClick={onUnpause} className="room-resume">
+              Resume listening
+            </button>
+          )}
           {/*
             Stop, without leaving.
 

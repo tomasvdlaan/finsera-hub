@@ -83,6 +83,8 @@ export function RoomDock({
   onStartBot,
   onStartCapture,
   onStop,
+  onPause,
+  onUnpause,
   onResumeAudio,
   busyId,
 }: {
@@ -110,6 +112,8 @@ export function RoomDock({
   onStartBot: (meetingUrl: string) => void;
   onStartCapture: (source: 'microphone' | 'tab', deviceId?: string) => void;
   onStop: () => void;
+  onPause: () => void;
+  onUnpause: () => void;
   onResumeAudio: () => void;
   busyId: string | null;
 }) {
@@ -214,6 +218,8 @@ export function RoomDock({
                   onStartBot={onStartBot}
                   onStartCapture={onStartCapture}
                   onStop={onStop}
+                  onPause={onPause}
+                  onUnpause={onUnpause}
                   onResumeAudio={onResumeAudio}
                 />
               </div>
@@ -317,28 +323,49 @@ function Recording({
 }) {
   const unasked = note.attendees.filter((p) => p.consent !== 'granted').length;
 
+  /*
+   * Paused outranks everything except not running at all.
+   *
+   * Whatever else is true — which source, whether the bot got in — the one fact somebody
+   * glancing at this needs is whether they are being heard right now. It is checked before
+   * needsAudio too: both mean no audio is arriving, but only one of them is on purpose, and
+   * showing a deliberate pause as a fault would send people looking for a problem.
+   */
   const what = !running
     ? live.connecting
       ? 'Sending the bot…'
       : 'Not recording'
-    : live.needsAudio
-      ? 'No audio reaching the meeting'
-      : live.source === 'bot'
-        ? live.joinedAt
-          ? 'Recording — the bot is in the call'
-          : 'The bot has been sent, and is not in yet'
-        : live.source === 'tab'
-          ? 'Recording — a shared tab'
-          : 'Recording — this microphone';
+    : live.paused
+      ? 'Paused — nothing is being heard'
+      : live.needsAudio
+        ? 'No audio reaching the meeting'
+        : live.source === 'bot'
+          ? live.joinedAt
+            ? 'Recording — the bot is in the call'
+            : 'The bot has been sent, and is not in yet'
+          : live.source === 'tab'
+            ? 'Recording — a shared tab'
+            : 'Recording — this microphone';
 
-  const state = !running ? 'off' : live.needsAudio ? 'warn' : live.joinedAt || live.source !== 'bot' ? 'on' : 'wait';
+  const state = !running
+    ? 'off'
+    : live.paused
+      ? 'paused'
+      : live.needsAudio
+        ? 'warn'
+        : live.joinedAt || live.source !== 'bot'
+          ? 'on'
+          : 'wait';
 
   return (
     <div className={compact ? 'room-recording room-recording-compact' : 'room-recording'}>
       <span className={`room-pulse room-pulse-${state}`} aria-hidden="true" />
       <span className="room-wave" aria-hidden="true">
         {[0, 1, 2, 3, 4, 5].map((i) => (
-          <span key={i} className={running && !live.needsAudio ? 'room-wave-on' : undefined} />
+          <span
+            key={i}
+            className={running && !live.needsAudio && !live.paused ? 'room-wave-on' : undefined}
+          />
         ))}
       </span>
       <span className="room-recording-what">
@@ -644,13 +671,22 @@ function TranscriptPanel({ live, running }: { live: LiveState; running: boolean 
 
   return (
     <div className="room-dock-panel room-transcript">
-      {live.lines.map((line) => (
-        <p key={line.id} className="room-transcript-line">
-          <span className="room-entry-at">{clock(line.at)}</span>
-          {line.speaker && <strong>{line.speaker}</strong>}
-          <span>{line.text}</span>
-        </p>
-      ))}
+      {live.lines.map((line) =>
+        // A pause is not an utterance. Set apart so it reads as a break in the record rather
+        // than as something somebody said in the third person.
+        line.kind === 'paused' ? (
+          <p key={line.id} className="room-transcript-line room-transcript-break">
+            <span className="room-entry-at">{clock(line.at)}</span>
+            <span>{line.text}</span>
+          </p>
+        ) : (
+          <p key={line.id} className="room-transcript-line">
+            <span className="room-entry-at">{clock(line.at)}</span>
+            {line.speaker && <strong>{line.speaker}</strong>}
+            <span>{line.text}</span>
+          </p>
+        ),
+      )}
       <div ref={end} />
     </div>
   );
