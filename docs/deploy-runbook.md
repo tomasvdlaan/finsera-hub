@@ -1,9 +1,5 @@
 # Deployment runbook — hub.finsera.nl
 
-<<<<<<< HEAD
-Closes G0 criterion 9 (decision log): the stack verified on Hetzner rather than only
-locally. Target is decision D4 — one CX23 in Nuremberg or Helsinki, ~€6/month.
-=======
 Closes G0 criterion 9 (decision log): the stack verified on a real server rather than
 only locally. Target is one **Netcup VPS 1000 G12** in **Amsterdam** — 4 vCores, 8 GB
 DDR5, 256 GB NVMe, €10.37/month including 19% German VAT (reverse-charged to ~€8.71
@@ -19,20 +15,12 @@ cost twice as much for half the memory. Netcup's G12 generation bills hourly wit
 minimum term, which removes the contract inflexibility that ruled it out originally.
 Nothing in the stack is provider-specific — it is Docker Compose and Caddy on Ubuntu
 — so moving back to Hetzner later is an afternoon, not a migration.
->>>>>>> deploy/hetzner-hub
 
 The stack is deliberately identical to the local one. `deploy/.env` and DNS are the
 only things that differ.
 
 ## 0. Before you start
 
-<<<<<<< HEAD
-- A Hetzner account. No credit card needed — SEPA direct debit, bank transfer and
-  PayPal all work, which is what unblocks this.
-- Access to DNS for finsera.nl at **ZXCS** (`ns.zxcs.eu/.be/.nl`).
-- An SSH keypair. Upload the public key during server creation; never enable password
-  login.
-=======
 - A Netcup account. No credit card needed — SEPA direct debit and PayPal both work.
   Netcup runs identity checks on some new customers, occasionally by phone, so order
   before the day you intend to deploy.
@@ -44,7 +32,6 @@ only things that differ.
 - An SSH keypair, generated for this server rather than reused from anything else.
   On Netcup the key is stored in the SCP *first*, then selected while installing the
   image — there is no key field at order time, which is the step people miss.
->>>>>>> deploy/hetzner-hub
 
 Note what already lives on this domain and must not be disturbed: the apex and `www`
 point at Vercel (the marketing site), and MX points at Microsoft 365. Adding `hub` as
@@ -52,11 +39,6 @@ a new record touches neither.
 
 ## 1. Create the server
 
-<<<<<<< HEAD
-Nuremberg or Helsinki, **CX23** (2 vCPU, 4 GB, 40 GB NVMe, 20 TB traffic), Ubuntu
-24.04 LTS, your SSH key attached. Enable the cloud firewall with **only** 22, 80 and
-443 inbound. Note the IPv4 address.
-=======
 Order **VPS 1000 G12** in **Amsterdam**, with hourly billing unless you are certain —
 the 12-month term is cheaper per month but a wrong choice is then yours for a year.
 
@@ -74,7 +56,6 @@ Note the IPv4 address; it is in the SCP and in the setup email.
 
 Netcup has no managed cloud firewall, so the host firewall is the firewall — step 3
 sets it up. That is the one real ergonomic difference from Hetzner.
->>>>>>> deploy/hetzner-hub
 
 Do not skip the firewall on the theory that nothing is listening yet — Postgres
 publishes no port in the production compose, but that is one typo away from changing.
@@ -95,13 +76,6 @@ Wait for it: `dig +short hub.finsera.nl` must return your IP before step 5.
 
 ```bash
 apt update && apt upgrade -y
-<<<<<<< HEAD
-apt install -y docker.io docker-compose-v2 git rsync curl gnupg
-```
-
-**Add swap before the first build.** `pnpm install` across the workspace plus a Vite
-build of the Tiptap-heavy web app will exhaust 4 GB and the build will be OOM-killed:
-=======
 apt install -y docker.io docker-compose-v2 git rsync curl gnupg ufw unattended-upgrades
 ```
 
@@ -127,26 +101,16 @@ dpkg-reconfigure -plow unattended-upgrades
 
 **Swap** is optional at 8 GB — the workspace install plus the Vite build fits. Add it
 anyway if you would rather the first build be slow than fail:
->>>>>>> deploy/hetzner-hub
 
 ```bash
 fallocate -l 4G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
 echo '/swapfile none swap sw 0 0' >> /etc/fstab
 ```
 
-<<<<<<< HEAD
-It makes builds slow, not fragile. Speed is not the constraint here.
-
-## 4. Get the code and configure
-
-```bash
-git clone https://github.com/tomasvdlaan/finger-hub.git /opt/finsera
-=======
 ## 4. Get the code and configure
 
 ```bash
 git clone https://github.com/tomasvdlaan/finsera-hub.git /opt/finsera
->>>>>>> deploy/hetzner-hub
 cp /opt/finsera/deploy/.env.example /opt/finsera/deploy/.env
 ```
 
@@ -214,14 +178,9 @@ heartbeat only fires on a genuine success. Once it passes by hand, add it to cro
 Then register the matching check on healthchecks.io (free) so a ping that stops
 arriving reaches you by email.
 
-<<<<<<< HEAD
-Also enable a weekly Hetzner snapshot in the console (~€0.15/month) — it covers the
-whole disk, including the documents in the `storage` volume.
-=======
 There is no one-click whole-machine backup product here, so this step *is* your data
 protection rather than a supplement to it. Do not defer it past the first real record
 entered.
->>>>>>> deploy/hetzner-hub
 
 ## 8. Verify, then trust
 
@@ -248,14 +207,10 @@ Volumes survive rebuilds, restarts and reboots. The one command that destroys th
 - **Up to 24 hours of data loss** — nightly dumps, no WAL archiving. Acceptable for a
   team of 2–4; revisit if it stops being.
 - **Disk pressure from backups.** Each nightly run writes a *full* tarball of the
-<<<<<<< HEAD
-  documents directory and keeps 30 of them, on the same 40 GB disk. Fine while
-  `storage` is small; size it again when Phase 3 lands. Retention pruning only runs
-=======
   documents directory and keeps 30 of them, on the same disk. 256 GB buys a lot of
-  headroom, but the growth is linear in document volume — size it again at Phase 3. Retention pruning only runs
->>>>>>> deploy/hetzner-hub
-  after a fully successful cycle, so failures cannot eat the good copies.
+  headroom, but the growth is linear in document volume — size it again at Phase 3.
+  Retention pruning only runs after a fully successful cycle, so failures cannot eat
+  the good copies.
 - **The client portal is not deployed.** It is absent from the production compose and
   will want its own hostname (`portal.finsera.nl`) and its own Zitadel application at
   Phase 7.
