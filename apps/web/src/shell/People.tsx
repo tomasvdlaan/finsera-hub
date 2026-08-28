@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { PageHeader } from './ui/layout.js';
 import { Card } from './ui/card.js';
 import { Act } from './ui/act.js';
@@ -93,7 +94,12 @@ export function People() {
               {people.map((p) => (
                 <tr key={p.id} data-inactive={!p.isActive || undefined}>
                   <td>
-                    <strong>{p.displayName}</strong>
+                    {/* The name is the way in. Everything the owner wants to know about
+                        somebody — their projects, their plate, their hours, what they did —
+                        is one page, and this is the only door to it. */}
+                    <Link to={`/settings/people/${p.id}`}>
+                      <strong>{p.displayName}</strong>
+                    </Link>
                     <div className="card-meta">{p.email}</div>
                   </td>
                   <td>

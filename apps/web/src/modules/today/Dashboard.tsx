@@ -21,6 +21,7 @@ import { useToast } from '../../shell/ui/Toast.js';
 import { api } from '../../lib/api.js';
 import { useDocumentTitle } from '../../shell/useDocumentTitle.js';
 import { hiddenCount, libraryFor, resolve, settingsFor, type Placement } from '../../shell/widgets.js';
+import { useCan } from '../../shell/useCan.js';
 import type { Span, WidgetDef } from '../types.js';
 import { WidgetSettings } from './WidgetSettings.js';
 import { DayStrip } from './DayStrip.js';
@@ -125,6 +126,16 @@ export function Dashboard() {
   const [error, setError] = useState<string>();
   /** Counts, so the picker can hide what cannot say anything yet. See widgets.ts. */
   const [volume, setVolume] = useState<Record<string, number>>();
+  /*
+   * What this person may actually place.
+   *
+   * Kept separate from `volume` on purpose, and `hiddenCount` deliberately still counts only
+   * the volume floor. "Three widgets are hidden until you have more data" is a useful thing to
+   * tell somebody; "three widgets are hidden because you are not allowed" is an invitation to
+   * ask why, about widgets that are not theirs to think about. A capability they lack simply is
+   * not part of their library.
+   */
+  const { can } = useCan();
 
   useEffect(() => {
     api
@@ -170,7 +181,7 @@ export function Dashboard() {
   if (!layout) return <p className="muted">Loading…</p>;
 
   const placed = resolve(layout);
-  const library = libraryFor('dashboard', () => true, volume);
+  const library = libraryFor('dashboard', can, volume);
   const hidden = hiddenCount('dashboard', volume);
   const configuringPair = placed.find((p) => p.placement.id === configuring);
 

@@ -1,6 +1,6 @@
 import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import type { Actor } from '@platform/contracts';
-import { and, asc, desc, eq, ilike, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, ilike, inArray, isNull, sql } from 'drizzle-orm';
 import { AuditService } from '../../core/audit/audit.service.js';
 import { users } from '../../core/db/core.schema.js';
 import { DB, type Database, type Tx } from '../../core/db/db.module.js';
@@ -15,6 +15,7 @@ import {
   VAT_TREATMENTS,
   clients,
   contacts,
+  projectMembers,
   projects,
 } from './crm.schema.js';
 
@@ -406,19 +407,50 @@ export class CrmService {
 
   async listProjects(
     actor: Actor,
-    filter: { clientId?: string; status?: string; limit?: number } = {},
+    filter: { clientId?: string; status?: string; limit?: number; withMembers?: boolean } = {},
   ) {
     await this.require(actor, 'crm.projects.read');
     const where = [isNull(projects.archivedAt)];
     if (filter.clientId) where.push(eq(projects.clientId, filter.clientId));
     if (filter.status) where.push(eq(projects.status, filter.status));
 
-    return this.db
+    const rows = await this.db
       .select()
       .from(projects)
       .where(and(...where))
       .orderBy(asc(projects.name))
       .limit(filter.limit ?? 100);
+
+    if (!filter.withMembers || rows.length === 0) return rows;
+
+    /*
+     * Everybody's memberships in one query, then stitched.
+     *
+     * A list that shows who is on each project is otherwise one request per row from the
+     * browser — fine at three projects and the wrong shape to leave lying around. Asked for
+     * explicitly rather than always, so the many callers that only want the projects keep
+     * paying for only the projects.
+     */
+    const ids = rows.map((r) => r.id);
+    const members = await this.db
+      .select({
+        projectId: projectMembers.projectId,
+        userId: projectMembers.userId,
+        role: projectMembers.role,
+        displayName: users.displayName,
+      })
+      .from(projectMembers)
+      .innerJoin(users, eq(users.id, projectMembers.userId))
+      .where(inArray(projectMembers.projectId, ids))
+      .orderBy(asc(sql`CASE WHEN ${projectMembers.role} = 'lead' THEN 0 ELSE 1 END`), asc(users.displayName));
+
+    const byProject = new Map<string, typeof members>();
+    for (const m of members) {
+      const at = byProject.get(m.projectId) ?? [];
+      at.push(m);
+      byProject.set(m.projectId, at);
+    }
+    return rows.map((r) => ({ ...r, members: byProject.get(r.id) ?? [] }));
   }
 
   async getProject(actor: Actor, id: string) {
@@ -593,6 +625,136 @@ export class CrmService {
     const trimmed = (name ?? '').trim();
     if (!trimmed) throw new BadRequestException('Name is required');
     return trimmed;
+  }
+
+  /* ── Who is on a project ──────────────────────────────────────────────────
+   *
+   * Reading membership needs only `crm.projects.read`, because who is on a project is not a
+   * secret from the people doing the work — it is how you know who to ask. Changing it needs
+   * `crm.projects.assign`, which is admin-only: deciding who works on what is the owner's job,
+   * and a member quietly adding themselves to an engagement is not a thing that should be
+   * possible without anyone noticing.
+   */
+
+  async listMembers(actor: Actor, projectId: string) {
+    await this.getProject(actor, projectId); // 404s before anything else, and checks read.
+    return this.db
+      .select({
+        userId: projectMembers.userId,
+        role: projectMembers.role,
+        addedAt: projectMembers.addedAt,
+        displayName: users.displayName,
+        email: users.email,
+        isActive: users.isActive,
+      })
+      .from(projectMembers)
+      .innerJoin(users, eq(users.id, projectMembers.userId))
+      .where(eq(projectMembers.projectId, projectId))
+      // Lead first, then alphabetically — the one name that answers "who do I ask" goes top.
+      .orderBy(asc(sql`CASE WHEN ${projectMembers.role} = 'lead' THEN 0 ELSE 1 END`), asc(users.displayName));
+  }
+
+  /**
+   * Put somebody on a project, or change what they are on it.
+   *
+   * Idempotent by upsert on the composite key: adding a person twice is somebody clicking
+   * twice, not an error worth a message. Promoting to lead demotes the incumbent in the same
+   * transaction, because the partial unique index would otherwise refuse the write — and
+   * "there is already a lead" is a worse answer than doing what was asked.
+   */
+  async addMember(
+    actor: Actor,
+    projectId: string,
+    input: { userId: string; role?: 'lead' | 'contributor' },
+  ) {
+    await this.require(actor, 'crm.projects.assign');
+    const project = await this.getProject(actor, projectId);
+    const role = input.role ?? 'contributor';
+    if (role !== 'lead' && role !== 'contributor') {
+      throw new BadRequestException(`Unknown project role '${role}'`);
+    }
+
+    const [person] = await this.db.select().from(users).where(eq(users.id, input.userId)).limit(1);
+    if (!person) throw new BadRequestException('That person does not exist');
+    // A leaver keeps the hours and cards they already own; they do not get new work.
+    if (!person.isActive) throw new BadRequestException('That person is no longer active');
+
+    await this.db.transaction(async (tx) => {
+      if (role === 'lead') {
+        await tx
+          .update(projectMembers)
+          .set({ role: 'contributor' })
+          .where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.role, 'lead')));
+      }
+      await tx
+        .insert(projectMembers)
+        .values({ projectId, userId: input.userId, role, addedBy: actor.userId })
+        .onConflictDoUpdate({
+          target: [projectMembers.projectId, projectMembers.userId],
+          set: { role },
+        });
+
+      await this.audit.record(tx, {
+        actorId: actor.userId,
+        action: 'project.member_added',
+        entityType: 'project',
+        entityId: projectId,
+        detail: { userId: input.userId, role, projectName: project.name },
+      });
+    });
+
+    return this.listMembers(actor, projectId);
+  }
+
+  /**
+   * Take somebody off a project.
+   *
+   * Their logged hours and assigned cards are untouched, deliberately. Membership says who is
+   * on it now; it is not a claim about who did what, and rewriting history because somebody
+   * moved on is how a timesheet stops matching an invoice.
+   */
+  async removeMember(actor: Actor, projectId: string, userId: string) {
+    await this.require(actor, 'crm.projects.assign');
+    const project = await this.getProject(actor, projectId);
+
+    await this.db.transaction(async (tx) => {
+      const gone = await tx
+        .delete(projectMembers)
+        .where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, userId)))
+        .returning({ userId: projectMembers.userId });
+      // Removing somebody who was never on it is not an error — the end state is what was asked
+      // for — but it is not worth an audit line either.
+      if (gone.length === 0) return;
+
+      await this.audit.record(tx, {
+        actorId: actor.userId,
+        action: 'project.member_removed',
+        entityType: 'project',
+        entityId: projectId,
+        detail: { userId, projectName: project.name },
+      });
+    });
+
+    return this.listMembers(actor, projectId);
+  }
+
+  /** Every project one person is on. The other half of the index this table carries. */
+  async projectsFor(actor: Actor, userId: string) {
+    await this.require(actor, 'crm.projects.read');
+    return this.db
+      .select({
+        projectId: projects.id,
+        name: projects.name,
+        status: projects.status,
+        clientId: projects.clientId,
+        clientName: clients.name,
+        role: projectMembers.role,
+      })
+      .from(projectMembers)
+      .innerJoin(projects, eq(projects.id, projectMembers.projectId))
+      .innerJoin(clients, eq(clients.id, projects.clientId))
+      .where(and(eq(projectMembers.userId, userId), isNull(projects.archivedAt)))
+      .orderBy(asc(projects.name));
   }
 
   /**

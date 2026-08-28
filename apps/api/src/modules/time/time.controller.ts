@@ -1,5 +1,6 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Res } from '@nestjs/common';
 import type { Actor } from '@platform/contracts';
+import type { Response } from 'express';
 import { CurrentActor } from '../../core/auth/current-actor.decorator.js';
 import { TimeService, type CreateEntryInput } from './time.service.js';
 
@@ -35,8 +36,50 @@ export class TimeController {
     @Query('from') from?: string,
     @Query('to') to?: string,
     @Query('everyone') everyone?: string,
+    /*
+     * One named person, for the page that is about them.
+     *
+     * `getRecent` has accepted `personId` since it was written and no route ever passed it, so
+     * the only reachable answers were "mine" and "everybody's". It already requires
+     * `time.entries.read_all` whenever the id is not the caller's own, which is now admin-only
+     * — so this widens the API's surface without widening what anybody can see.
+     */
+    @Query('personId') personId?: string,
   ) {
-    return this.time.getRecent(actor, { from, to, everyone: everyone === 'true' });
+    return this.time.getRecent(actor, { from, to, personId, everyone: everyone === 'true' });
+  }
+
+  /**
+   * Hours, as a file.
+   *
+   * Streams rather than returns JSON, the same way the invoice UBL export does — the caller is
+   * a person clicking a button who wants a file in their downloads, not a client parsing a
+   * body. `Content-Disposition: attachment` is what makes the browser save it instead of
+   * rendering a wall of semicolons.
+   *
+   * `personId=all` is the whole team; omitting it means your own hours. Both are governed in
+   * the service, on the capability that actually decides it.
+   */
+  @Get('export')
+  async export(
+    @CurrentActor() actor: Actor,
+    @Res() res: Response,
+    @Query('from') from: string,
+    @Query('to') to: string,
+    @Query('personId') personId?: string,
+    @Query('shape') shape?: string,
+    @Query('costs') costs?: string,
+  ) {
+    const { filename, csv } = await this.time.exportHours(actor, {
+      from,
+      to,
+      personId,
+      shape,
+      costs: costs === 'true',
+    });
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename.replace(/"/g, '')}"`);
+    res.send(csv);
   }
 
   /* ── Timesheet approval ────────────────────────────────────────────────── */

@@ -676,4 +676,96 @@ describe('LiveRunner', () => {
       /No live capture/,
     );
   });
+
+  describe('pausing', () => {
+    it('refuses audio while paused, and takes it again after', async () => {
+      const note = await meetings.create(actor, { title: 'Sensitive bit' });
+      const session = new LiveSession(note.id, actor.userId);
+      sessions.start(note.id, session);
+      const events = runner.eventsFor(actor, note.id, session);
+
+      await events.onSegment(segment('Marieke', '7', 5));
+      expect(session.lines).toHaveLength(1);
+
+      await runner.pause(actor, note.id);
+      live.transcribeSegment.mockClear();
+      await events.onSegment(segment('Marieke', '7', 20));
+
+      /*
+       * Refused before transcription, which is where the cost and the record both begin. The
+       * bot may still be sending — this is the layer that makes that harmless.
+       */
+      expect(live.transcribeSegment).not.toHaveBeenCalled();
+      expect(session.lines.filter((l) => l.kind !== 'paused')).toHaveLength(1);
+
+      await runner.resume(actor, note.id);
+      await events.onSegment(segment('Marieke', '7', 40));
+      expect(live.transcribeSegment).toHaveBeenCalled();
+    });
+
+    it('leaves the meeting running, with everything it had', async () => {
+      const note = await meetings.create(actor, { title: 'Still going' });
+      const session = new LiveSession(note.id, actor.userId);
+      sessions.start(note.id, session);
+      const events = runner.eventsFor(actor, note.id, session);
+      await events.onSegment(segment('Marieke', '7', 5));
+
+      await runner.pause(actor, note.id);
+
+      // The distinction the whole feature rests on: pausing is not stopping. The session is
+      // still registered, so nothing has been written, filed or finalised.
+      expect(sessions.get(note.id)).toBeDefined();
+      expect(session.lines.some((l) => l.speaker === 'Marieke')).toBe(true);
+    });
+
+    it('marks the gap in the transcript', async () => {
+      const note = await meetings.create(actor, { title: 'Gap' });
+      const session = new LiveSession(note.id, actor.userId);
+      sessions.start(note.id, session);
+
+      await runner.pause(actor, note.id);
+      await runner.resume(actor, note.id);
+
+      expect(session.lines.some((l) => l.kind === 'paused')).toBe(true);
+    });
+
+    it('is idempotent, so a double click is not two events', async () => {
+      const note = await meetings.create(actor, { title: 'Twice' });
+      const session = new LiveSession(note.id, actor.userId);
+      sessions.start(note.id, session);
+
+      await runner.pause(actor, note.id);
+      await runner.pause(actor, note.id);
+
+      expect(session.lines.filter((l) => l.kind === 'paused')).toHaveLength(1);
+    });
+
+    it('refuses to pause a meeting that is not running', async () => {
+      const note = await meetings.create(actor, { title: 'Not running' });
+      await expect(runner.pause(actor, note.id)).rejects.toThrow(/not running/);
+    });
+
+    it('tells the capture provider to stop listening, where it can', async () => {
+      const note = await meetings.create(actor, { title: 'Deafen' });
+      const session = new LiveSession(note.id, actor.userId);
+      const setListening = vi.fn().mockResolvedValue(undefined);
+      sessions.start(note.id, session);
+      sessions.attachCapture(note.id, {
+        id: 'cap-1',
+        providerName: 'recall',
+        speak: vi.fn(),
+        isSpeaking: () => false,
+        setListening,
+        leave: vi.fn(),
+      } as unknown as CaptureSession);
+
+      await runner.pause(actor, note.id);
+      await settle();
+      expect(setListening).toHaveBeenCalledWith(false);
+
+      await runner.resume(actor, note.id);
+      await settle();
+      expect(setListening).toHaveBeenCalledWith(true);
+    });
+  });
 });

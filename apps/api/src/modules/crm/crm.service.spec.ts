@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { Actor } from '@platform/contracts';
 import { eq, sql } from 'drizzle-orm';
 import { AuditService } from '../../core/audit/audit.service.js';
-import { auditLog, entities, events } from '../../core/db/core.schema.js';
+import { auditLog, entities, events, users } from '../../core/db/core.schema.js';
 import { EventBus } from '../../core/events/event-bus.service.js';
 import { ManifestRegistry } from '../../core/manifest/manifest.registry.js';
 import { PermissionService } from '../../core/permissions/permission.service.js';
@@ -10,7 +10,7 @@ import { LinkService } from '../../core/links/link.service.js';
 import { RegistryService } from '../../core/registry/registry.service.js';
 import { resetDb, seedUser, testDb, truncate } from '../../test/db.js';
 import { crmManifest } from './crm.manifest.js';
-import { contacts, projects } from './crm.schema.js';
+import { contacts, projectMembers, projects } from './crm.schema.js';
 import { CrmService } from './crm.service.js';
 
 const actor: Actor = { userId: crypto.randomUUID(), role: 'admin' };
@@ -42,7 +42,7 @@ describe('CrmService', () => {
   beforeEach(async () => {
     await resetDb();
     // CRM tables live outside the core schema, so resetDb does not cover them.
-    await truncate(sql`TRUNCATE crm.projects, crm.contacts, crm.clients CASCADE`);
+    await truncate(sql`TRUNCATE crm.project_members, crm.projects, crm.contacts, crm.clients CASCADE`);
     await seedUser(actor.userId, 'admin');
     crm = build();
   });
@@ -329,5 +329,137 @@ describe('CrmService', () => {
     );
 
     await expect(restricted.createClient(actor, { name: 'Nope' })).rejects.toThrow(/capability/);
+  });
+});
+
+/**
+ * Who is on a project.
+ *
+ * The rules worth pinning down are the ones a future edit could quietly break: that adding
+ * somebody twice is not an error, that promoting a lead demotes the incumbent rather than
+ * hitting the unique index, and — most of all — that taking somebody off a project does not
+ * touch the work they already did. Membership is a statement about now; the hours and the
+ * cards are the record, and rewriting that because somebody moved on is how a timesheet stops
+ * matching an invoice.
+ */
+describe('CrmService — project membership', () => {
+  let crm: CrmService;
+  const member: Actor = { userId: crypto.randomUUID(), role: 'member' };
+  const galang = crypto.randomUUID();
+  const jeroen = crypto.randomUUID();
+  let projectId: string;
+
+  beforeEach(async () => {
+    await resetDb();
+    await truncate(sql`TRUNCATE crm.project_members, crm.projects, crm.contacts, crm.clients CASCADE`);
+    await seedUser(actor.userId, 'admin');
+    await seedUser(member.userId, 'member');
+    await seedUser(galang, 'member');
+    await seedUser(jeroen, 'member');
+    crm = build();
+
+    const client = await crm.createClient(actor, { name: 'DocHorse' });
+    const project = await crm.createProject(actor, {
+      clientId: client.id,
+      name: 'Power BI portal',
+      billingModel: 'time_and_materials',
+    });
+    projectId = project.id;
+  });
+
+  it('puts somebody on a project and reads them back', async () => {
+    const after = await crm.addMember(actor, projectId, { userId: galang });
+    expect(after).toHaveLength(1);
+    expect(after[0]).toMatchObject({ userId: galang, role: 'contributor' });
+  });
+
+  it('is idempotent — adding twice is somebody clicking twice', async () => {
+    await crm.addMember(actor, projectId, { userId: galang });
+    const after = await crm.addMember(actor, projectId, { userId: galang });
+    expect(after).toHaveLength(1);
+  });
+
+  it('promotes a lead by demoting the incumbent, rather than refusing', async () => {
+    await crm.addMember(actor, projectId, { userId: galang, role: 'lead' });
+    const after = await crm.addMember(actor, projectId, { userId: jeroen, role: 'lead' });
+
+    const leads = after.filter((m) => m.role === 'lead');
+    expect(leads).toHaveLength(1);
+    expect(leads[0]!.userId).toBe(jeroen);
+    expect(after.find((m) => m.userId === galang)!.role).toBe('contributor');
+  });
+
+  it('lists the lead first, so the name that answers “who do I ask” is at the top', async () => {
+    await crm.addMember(actor, projectId, { userId: galang });
+    await crm.addMember(actor, projectId, { userId: jeroen, role: 'lead' });
+    const after = await crm.listMembers(actor, projectId);
+    expect(after[0]).toMatchObject({ userId: jeroen, role: 'lead' });
+  });
+
+  it('removing somebody who was never on it is not an error', async () => {
+    const after = await crm.removeMember(actor, projectId, galang);
+    expect(after).toHaveLength(0);
+  });
+
+  it('answers the other direction: every project one person is on', async () => {
+    await crm.addMember(actor, projectId, { userId: galang, role: 'lead' });
+    const mine = await crm.projectsFor(actor, galang);
+    expect(mine).toHaveLength(1);
+    expect(mine[0]).toMatchObject({ projectId, name: 'Power BI portal', clientName: 'DocHorse', role: 'lead' });
+  });
+
+  it('refuses to put somebody on a project who is no longer active', async () => {
+    await testDb.update(users).set({ isActive: false }).where(eq(users.id, galang));
+    await expect(crm.addMember(actor, projectId, { userId: galang })).rejects.toThrow(
+      /no longer active/,
+    );
+  });
+
+  it('refuses an id that is not a person at all', async () => {
+    await expect(
+      crm.addMember(actor, projectId, { userId: crypto.randomUUID() }),
+    ).rejects.toThrow(/does not exist/);
+  });
+
+  it('lets a member read who is on a project, and refuses to let them change it', async () => {
+    await crm.addMember(actor, projectId, { userId: galang });
+    // Reading is how you know who to ask; deciding is the owner's job.
+    await expect(crm.listMembers(member, projectId)).resolves.toHaveLength(1);
+    await expect(crm.addMember(member, projectId, { userId: jeroen })).rejects.toThrow(
+      /crm.projects.assign/,
+    );
+    await expect(crm.removeMember(member, projectId, galang)).rejects.toThrow(
+      /crm.projects.assign/,
+    );
+  });
+
+  it('carries the team on the list, but only when asked', async () => {
+    await crm.addMember(actor, projectId, { userId: galang, role: 'lead' });
+
+    // Absent, not empty: "nobody is on this" and "we did not ask" must stay different facts,
+    // or a row renders "nobody yet" for a list that simply did not request it.
+    const plain = await crm.listProjects(actor, {});
+    expect(plain.every((r) => !('members' in r))).toBe(true);
+
+    const withTeam = await crm.listProjects(actor, { withMembers: true });
+    // `listProjects` returns a union — with members or without — so the narrowing is explicit.
+    const mine = withTeam.find((r) => r.id === projectId) as unknown as {
+      members: Array<{ userId: string; role: string }>;
+    };
+    expect(mine.members).toHaveLength(1);
+    expect(mine.members[0]).toMatchObject({ userId: galang, role: 'lead' });
+  });
+
+  it('gives an empty team to a project nobody is on, rather than omitting the key', async () => {
+    const withTeam = await crm.listProjects(actor, { withMembers: true });
+    const mine = withTeam.find((r) => r.id === projectId) as unknown as { members: unknown[] };
+    expect(mine.members).toEqual([]);
+  });
+
+  it('cascades when the project goes, and only then', async () => {
+    await crm.addMember(actor, projectId, { userId: galang });
+    await testDb.delete(projects).where(eq(projects.id, projectId));
+    const left = await testDb.select().from(projectMembers).where(eq(projectMembers.projectId, projectId));
+    expect(left).toHaveLength(0);
   });
 });

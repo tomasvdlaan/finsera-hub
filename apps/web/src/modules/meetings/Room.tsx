@@ -59,6 +59,8 @@ export function Room() {
     startCapture,
     resumeAudio,
     stop,
+    pause,
+    unpause,
     configure,
   } = useLiveMeeting();
 
@@ -358,8 +360,8 @@ export function Room() {
         `display: none` would latch it into its narrow-window layout for the rest of the session.
       */}
       {stage === 'note' ? (
-        <main className="room-stage">
-          <article className="room-sheet">
+        <main className="room-stage room-stage-doc">
+          <article className="room-doc">
             {error && <p className="error">{error}</p>}
             {running && live.aiNotes && (
               <span className="tag room-writing" title="The assistant is writing into its own section">
@@ -420,6 +422,8 @@ export function Room() {
         onStartBot={(meetingUrl) => void startBot(id, meetingUrl)}
         onStartCapture={(source, deviceId) => void startCapture(id, source, deviceId)}
         onStop={() => void stop()}
+        onPause={() => void pause()}
+        onUnpause={() => void unpause()}
         onResumeAudio={() =>
           void resumeAudio(id, live.source === 'tab' ? 'tab' : 'microphone')
         }

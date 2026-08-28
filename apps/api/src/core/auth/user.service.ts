@@ -22,9 +22,30 @@ interface OidcClaims {
   roles?: string[];
 }
 
+/**
+ * How stale a stored name or email may get before the issuer is asked again.
+ *
+ * Not "on sign-in", although that is how it is described: this service never sees a sign-in.
+ * `resolveFromClaims` runs on *every* request, and there is no session to hang a once-per-login
+ * hook on — so the honest implementation is a refresh that happens at most this often per person.
+ */
+const PROFILE_TTL_MS = 6 * 60 * 60 * 1000;
+
 @Injectable()
 export class UserService {
   private readonly logger = new Logger(UserService.name);
+
+  /**
+   * When each subject's profile was last compared against the issuer.
+   *
+   * In memory rather than a column, because losing it is harmless: a restart costs one userinfo
+   * call per person on their next request, and that is also the repair mechanism if a refresh
+   * ever fails. A column would need a migration to store something nobody queries.
+   *
+   * Single-instance assumption, matching every other in-process cache here. Two API instances
+   * would each keep their own clock and refresh independently — twice the calls, same result.
+   */
+  private readonly profileCheckedAt = new Map<string, number>();
 
   constructor(@Inject(DB) private readonly db: Database) {}
 
@@ -68,6 +89,11 @@ export class UserService {
         this.logger.warn(`Refused deactivated user ${existing.email}`);
         throw new ForbiddenException('This account has been deactivated');
       }
+
+      // Deliberately after the isActive gate: a refused account is refused without a call to
+      // the issuer on its way out.
+      await this.refreshProfile(existing, accessToken);
+
       return { userId: existing.id, role: existing.role as Actor['role'] };
     }
 
@@ -125,6 +151,57 @@ export class UserService {
       where: eq(users.oidcSubject, claims.sub),
     });
     return { userId: winner!.id, role: winner!.role as Actor['role'] };
+  }
+
+  /**
+   * Bring a stored name and email back in line with the identity provider.
+   *
+   * Zitadel owns who somebody is; this platform owns their role, rate and employment. Until
+   * now that split was only true at the moment of provisioning — a colleague who married and
+   * changed their name in Zitadel kept the old one here forever, on every task, timesheet and
+   * person page, with no way to correct it short of SQL. `updatePerson` accepts no name.
+   *
+   * Only the two fields the issuer is authoritative for. Nothing here touches `role` or
+   * `isActive`: those are decisions made in this application, and a profile refresh that
+   * quietly reset a role would be a privilege change disguised as a name change.
+   *
+   * Awaited rather than detached. It costs one userinfo round trip to one request per person
+   * per TTL window, which is cheaper than the alternative is subtle: a floating promise writing
+   * to the database after its request has gone is unobservable when it fails and writes into a
+   * closed pool when a test ends.
+   */
+  private async refreshProfile(
+    existing: { id: string; oidcSubject: string; email: string; displayName: string },
+    accessToken: string,
+  ): Promise<void> {
+    const now = Date.now();
+    const checked = this.profileCheckedAt.get(existing.oidcSubject);
+    if (checked !== undefined && now - checked < PROFILE_TTL_MS) return;
+
+    /*
+     * Stamped BEFORE the call, not after.
+     *
+     * The shell opens several requests in parallel, so stamping afterwards lets all of them
+     * pass the staleness check together and fire one userinfo call each. Stamping first means
+     * the first request through claims the work. A failed call then waits a full TTL to retry,
+     * which is the right trade: the issuer being down is not a reason to call it on every
+     * request.
+     */
+    this.profileCheckedAt.set(existing.oidcSubject, now);
+
+    const profile = await this.fetchUserInfo(accessToken);
+    if (!profile) return;
+
+    // `??` not `||`: an issuer that reports an empty name must not overwrite a good one.
+    const displayName = profile.name ?? profile.email ?? existing.displayName;
+    const email = profile.email ?? existing.email;
+    if (displayName === existing.displayName && email === existing.email) return;
+
+    await this.db.update(users).set({ displayName, email }).where(eq(users.id, existing.id));
+    this.logger.log(
+      `Profile changed upstream for ${existing.email}: ` +
+        `${existing.displayName} <${existing.email}> → ${displayName} <${email}>`,
+    );
   }
 
   /** Public for the diagnostics route, which needs to show what the issuer reports. */
@@ -199,6 +276,19 @@ export class UserService {
       if (seesMoney) person.costRateCents = r.costRateCents;
       return person;
     });
+  }
+
+  /**
+   * One person, in the same shape and with the same field stripped.
+   *
+   * Routed through `people()` rather than repeating the projection. The list is two rows at
+   * this size, so filtering in memory costs nothing measurable — and the cost rate being
+   * omitted for a non-admin is a rule that must not have two implementations, because the
+   * second one is where it eventually gets forgotten.
+   */
+  async person(actor: Actor, id: string): Promise<Record<string, unknown> | null> {
+    const all = await this.people(actor);
+    return all.find((p) => p.id === id) ?? null;
   }
 
   /**

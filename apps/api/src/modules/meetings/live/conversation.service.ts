@@ -73,6 +73,7 @@ export class ConversationService {
     if (recent.length === 0) return null;
 
     const result = await this.llm.generateStructured<Reply>({
+      context: { module: 'meetings', feature: 'conversation' },
       schema: REPLY,
       role: 'fast',
       system: [

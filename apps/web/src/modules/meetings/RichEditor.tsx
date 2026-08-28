@@ -17,6 +17,7 @@ import { api } from '../../lib/api.js';
 import { useDialog } from '../../shell/ui/Dialog.js';
 import type { NodeJson, NoteCommand } from './noteCommands.js';
 import { CollabExtension } from './collabExtension.js';
+import { Pagination } from './pagination.js';
 import { useNoteDoc } from './useNoteDoc.js';
 
 /** Syntax highlighting for fenced code. `common` is ~35 languages rather than all 190. */
@@ -133,6 +134,10 @@ function EditorSurface({
       }),
       Selection,
       CharacterCount,
+
+      // Draws the page boundaries. Adds no node and no mark — every break is a decoration, so
+      // none of this reaches the document, the steps, or the Markdown. See pagination.ts.
+      Pagination,
 
       // What turns local typing into steps the server can accept.
       CollabExtension.configure({ version: start.version, clientId }),
@@ -333,6 +338,16 @@ function EditorSurface({
         <EditorContent editor={editor} className="editor-sheet" />
       </div>
 
+      {/*
+        The status bar, where a word processor puts one.
+
+        Below the writing rather than in the toolbar: it reports on the document instead of
+        acting on it, and the two do not belong in the same strip. The page count is whatever
+        the pagination decorations last worked out, so on a surface that is not paginated it
+        stays at one and only the word count is worth reading.
+      */}
+      <Stats editor={editor} />
+
       {uploadError && <p className="error">{uploadError}</p>}
     </div>
   );
@@ -364,6 +379,41 @@ async function uploadImage(file: File): Promise<string> {
     contentBase64: btoa(binary),
   });
   return url;
+}
+
+/**
+ * How long the document is, in the two units that mean something.
+ *
+ * Both are read through useEditorState for the same reason the toolbar's buttons are: v3 does
+ * not re-render on every transaction, so a component that reads `editor.storage` in its body
+ * shows whatever was true when it mounted.
+ */
+function Stats({ editor }: { editor: Editor }) {
+  const stats = useEditorState({
+    editor,
+    selector: ({ editor: e }) => ({
+      paginated: e.storage.notePagination.paginated,
+      pages: e.storage.notePagination.pages,
+      words: e.storage.characterCount.words(),
+    }),
+  });
+
+  return (
+    <div className="editor-status">
+      {/* Only where there are pages. On the note page and in the dock the writing runs on. */}
+      {stats.paginated && (
+        <>
+          <span>
+            {stats.pages} {stats.pages === 1 ? 'page' : 'pages'}
+          </span>
+          <span className="editor-status-dot" aria-hidden="true" />
+        </>
+      )}
+      <span>
+        {stats.words} {stats.words === 1 ? 'word' : 'words'}
+      </span>
+    </div>
+  );
 }
 
 /**

@@ -20,6 +20,13 @@ export interface Line {
   /** Present when the capture provider knows who spoke — a real name, not "Speaker 1". */
   speaker?: string;
   text: string;
+  /**
+   * What this line is. Absent on every line recorded before pausing existed, hence optional.
+   *
+   * `paused` marks where listening was suspended, so a gap in the transcript can be told apart
+   * from a stretch where nobody happened to speak.
+   */
+  kind?: 'speech' | 'paused';
 }
 
 export interface Proposal {
@@ -84,6 +91,14 @@ export interface LiveState {
   /** A bot is on its way to the call and has not arrived. */
   connecting: boolean;
   /**
+   * Listening is suspended: the meeting is still running, but nothing is being heard.
+   *
+   * Distinct from `needsAudio`, which is the accident — a tab that lost its stream and wants it
+   * back. This is the deliberate version, and the two must not be shown the same way: one is a
+   * problem to fix, the other is a state somebody chose and will undo when they are ready.
+   */
+  paused: boolean;
+  /**
    * What it found, keyed by the proposal that prompted the search.
    *
    * Not persisted anywhere — it is context for the conversation happening now, and the note
@@ -122,6 +137,7 @@ export const EMPTY: LiveState = {
   present: [],
   endedReason: null,
   connecting: false,
+  paused: false,
   context: {},
   error: null,
   needsAudio: false,
@@ -134,6 +150,8 @@ export interface LiveStatus {
   provider?: string;
   /** Nobody is feeding it audio: the window in which a reloaded tab can take it back over. */
   awaitingAudio?: boolean;
+  /** Listening was deliberately suspended, so a tab that reloads mid-pause comes back paused. */
+  paused?: boolean;
   source?: Source;
   startedAt?: string;
   joinedAt?: string | null;
@@ -194,6 +212,8 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
         proposals: action.status.proposals ?? [],
         extraction: action.status.state ?? null,
         costCents: action.status.costCents ?? 0,
+        // Restored like the rest: a reload during a pause must not come back listening.
+        paused: action.status.paused ?? false,
       };
 
     case 'failed':
@@ -217,6 +237,16 @@ export function liveReducer(state: LiveState, action: LiveAction): LiveState {
 
 function applyMessage(state: LiveState, message: Record<string, unknown>): LiveState {
   switch (message.type) {
+    /*
+     * Carries the state, not the change.
+     *
+     * So a tab opened halfway through a pause is told the same thing as the tab that paused
+     * it, and a message delivered twice cannot leave two tabs disagreeing about whether the
+     * agent is listening.
+     */
+    case 'listening':
+      return { ...state, paused: message.paused === true };
+
     /*
      * Deliberately does not clear needsAudio.
      *

@@ -17,6 +17,7 @@ import { RegistryService } from '../../core/registry/registry.service.js';
 import { CrmService } from '../crm/crm.service.js';
 import { users } from '../../core/db/core.schema.js';
 import { entries, timesheets } from './time.schema.js';
+import { csvHours, csvMoney, csvYesNo, toCsv } from './csv.js';
 
 export type BillingStatus = 'not_billable' | 'unbilled' | 'on_draft' | 'invoiced';
 
@@ -1067,6 +1068,194 @@ export class TimeService {
   }
 
   /** Display names for a set of people, so a widget can say "Ilse" rather than a uuid. */
+  /* ── Hours, out of the platform ───────────────────────────────────────────
+   *
+   * Four shapes because four different people ask for hours and want different files: the
+   * bookkeeper wants every line, the owner wants a period per person, payroll wants neither a
+   * client nor a project, and the owner working out whether an engagement paid wants cost
+   * against revenue.
+   *
+   * One method rather than four endpoints, because the permission reasoning is identical for
+   * all of them and splitting it four ways is four places for one of them to drift.
+   */
+  async exportHours(
+    actor: Actor,
+    opts: { from: string; to: string; personId?: string; shape?: string; costs?: boolean },
+  ): Promise<{ filename: string; csv: string }> {
+    await this.require(actor, 'time.entries.write_own');
+
+    const from = this.validateDate(opts.from);
+    const to = this.validateDate(opts.to);
+    if (to < from) throw new BadRequestException('The end of the period comes before its start');
+
+    /*
+     * Whose hours, and the one place this widens.
+     *
+     * No `personId` means "mine". Naming somebody else — or asking for everybody — is reading
+     * across people, so it takes the capability that governs exactly that and is admin-only.
+     */
+    const everyone = opts.personId === 'all';
+    const personId = everyone ? undefined : (opts.personId ?? actor.userId);
+    if (everyone || personId !== actor.userId) await this.require(actor, 'time.entries.read_all');
+
+    const shape = opts.shape ?? 'entries';
+    if (!['entries', 'summary', 'payroll'].includes(shape)) {
+      throw new BadRequestException(`Unknown export shape '${shape}'`);
+    }
+
+    /*
+     * Cost and margin are refused, never quietly dropped.
+     *
+     * A file that silently arrives without the columns somebody asked for is worse than one
+     * that refuses: they will not notice, and they will read the total as the whole answer.
+     * Gated on this module's own admin-only capability, which mirrors the one governing whether
+     * a cost rate is visible at all — see the manifest for why it is not simply that one.
+     */
+    if (opts.costs) await this.require(actor, 'time.costs.read');
+
+    const rows = await this.db
+      .select()
+      .from(entries)
+      .where(
+        and(
+          ...(personId ? [eq(entries.personId, personId)] : []),
+          gte(entries.workedOn, from),
+          lte(entries.workedOn, to),
+        ),
+      )
+      .orderBy(asc(entries.workedOn), asc(entries.startedAt));
+
+    const label = await this.labelsFor(actor, rows);
+    const who = await this.people(rows.map((r) => r.personId));
+    const rates = opts.costs ? await this.costRates(rows.map((r) => r.personId)) : new Map();
+    const projectRates = opts.costs ? await this.projectRates(actor, rows) : new Map();
+
+    const period = from === to ? from : `${from}_${to}`;
+    const scope = everyone ? 'iedereen' : personId === actor.userId ? 'mijn' : 'persoon';
+    const filename = `uren_${shape}_${scope}_${period}.csv`;
+
+    if (shape === 'entries') {
+      const header = ['Persoon', 'Datum', 'Klant', 'Project', 'Omschrijving', 'Uren', 'Declarabel', 'Gefactureerd'];
+      if (opts.costs) header.push('Kosten', 'Omzet', 'Marge');
+
+      const body = rows.map((r) => {
+        const minutes = this.effectiveMinutes(r);
+        const l = label(r);
+        const line: Array<string | null> = [
+          who.get(r.personId) ?? 'Onbekend',
+          r.workedOn,
+          l.clientName,
+          l.projectName,
+          r.description,
+          csvHours(minutes),
+          csvYesNo(r.billable),
+          csvYesNo(r.invoicedAt !== null),
+        ];
+        if (opts.costs) {
+          const costRate = rates.get(r.personId) ?? null;
+          const sellRate = r.billable ? (projectRates.get(r.projectId ?? '') ?? null) : 0;
+          const cost = costRate === null ? null : Math.round((minutes / 60) * costRate);
+          const revenue = sellRate === null ? null : Math.round((minutes / 60) * sellRate);
+          // Blank, not zero, when a rate was never set. A margin computed from a missing rate
+          // is a number that looks like a finding and is an absence.
+          line.push(
+            csvMoney(cost),
+            csvMoney(revenue),
+            cost === null || revenue === null ? '' : csvMoney(revenue - cost),
+          );
+        }
+        return line;
+      });
+      return { filename, csv: toCsv(header, body) };
+    }
+
+    // Both remaining shapes group; they differ in what they are allowed to say about the work.
+    const grouped = new Map<string, { personId: string; key: string; total: number; billable: number; invoiced: number }>();
+    for (const r of rows) {
+      // `date_trunc('week')` in v_weekly_totals and `weekStart` here have to agree, so the
+      // helper is reused rather than the arithmetic repeated.
+      const key = shape === 'summary' ? weekStart(r.workedOn) : period;
+      const id = `${r.personId}|${key}`;
+      const at = grouped.get(id) ?? { personId: r.personId, key, total: 0, billable: 0, invoiced: 0 };
+      const minutes = this.effectiveMinutes(r);
+      at.total += minutes;
+      if (r.billable) at.billable += minutes;
+      if (r.invoicedAt) at.invoiced += minutes;
+      grouped.set(id, at);
+    }
+
+    const sorted = [...grouped.values()].sort(
+      (a, b) => a.key.localeCompare(b.key) || (who.get(a.personId) ?? '').localeCompare(who.get(b.personId) ?? ''),
+    );
+
+    if (shape === 'payroll') {
+      // Deliberately nothing about clients or projects: payroll needs hours per person per
+      // period, and handing over who they were spent on is more than was asked for.
+      const header = ['Persoon', 'Periode', 'Uren'];
+      return {
+        filename,
+        csv: toCsv(
+          header,
+          sorted.map((g) => [who.get(g.personId) ?? 'Onbekend', `${from} t/m ${to}`, csvHours(g.total)]),
+        ),
+      };
+    }
+
+    const header = ['Persoon', 'Week van', 'Uren', 'Declarabel', 'Gefactureerd'];
+    if (opts.costs) header.push('Kosten');
+    return {
+      filename,
+      csv: toCsv(
+        header,
+        sorted.map((g) => {
+          const line: Array<string | null> = [
+            who.get(g.personId) ?? 'Onbekend',
+            g.key,
+            csvHours(g.total),
+            csvHours(g.billable),
+            csvHours(g.invoiced),
+          ];
+          if (opts.costs) {
+            const rate = rates.get(g.personId) ?? null;
+            line.push(csvMoney(rate === null ? null : Math.round((g.total / 60) * rate)));
+          }
+          return line;
+        }),
+      ),
+    };
+  }
+
+  /** Cost per hour, in cents, for the people in a set of rows. Absent when nobody set one. */
+  private async costRates(ids: string[]): Promise<Map<string, number>> {
+    const unique = [...new Set(ids)];
+    if (unique.length === 0) return new Map();
+    const rows = await this.db
+      .select({ id: users.id, costRateCents: users.costRateCents })
+      .from(users)
+      .where(inArray(users.id, unique));
+    return new Map(
+      rows
+        .filter((r): r is { id: string; costRateCents: number } => r.costRateCents !== null)
+        .map((r) => [r.id, r.costRateCents]),
+    );
+  }
+
+  /** What an hour on a project sells for. Missing is missing — it never falls back to zero. */
+  private async projectRates(
+    actor: Actor,
+    rows: Array<{ projectId: string | null }>,
+  ): Promise<Map<string, number>> {
+    const ids = [...new Set(rows.map((r) => r.projectId).filter((id): id is string => id !== null))];
+    const map = new Map<string, number>();
+    await Promise.all(
+      ids.map(async (id) => {
+        const p = await this.crm.getProject(actor, id).catch(() => null);
+        if (p?.defaultRateCents != null) map.set(id, p.defaultRateCents);
+      }),
+    );
+    return map;
+  }
+
   private async people(ids: string[]): Promise<Map<string, string>> {
     const unique = [...new Set(ids)];
     if (unique.length === 0) return new Map();
