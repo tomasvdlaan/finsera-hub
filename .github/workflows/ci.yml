@@ -55,6 +55,12 @@ jobs:
       - name: Migrate database
         run: pnpm --filter @platform/api db:migrate
 
+      # Before the long steps, because it is quick and because everything after it runs
+      # against a database these migrations built — if they build the wrong thing, the
+      # suite agrees with them and passes.
+      - name: Migrations match schema
+        run: pnpm migrations
+
       - name: Lint
         run: pnpm lint
 
