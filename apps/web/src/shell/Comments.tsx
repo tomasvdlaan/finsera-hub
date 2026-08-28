@@ -62,8 +62,10 @@ export function Comments({ entityId }: { entityId: string }) {
   useEffect(() => {
     api
       .get<Array<{ id: string; displayName: string }>>('/core/mentionable')
-      // Silently: naming somebody is a convenience, and a failed lookup should cost the
-      // picker rather than the ability to comment.
+      // A failed lookup costs the picker, never the ability to comment — but it stops the
+      // placeholder promising something that will not happen. Typing `@` and getting
+      // nothing, with the box still inviting it, is indistinguishable from a broken feature
+      // and was exactly how a stale API server presented itself.
       .then(setPeople)
       .catch(() => setPeople([]));
   }, []);
@@ -292,7 +294,11 @@ export function Comments({ entityId }: { entityId: string }) {
               }
             }}
             placeholder={
-              replyTo ? 'Your reply…' : 'Add a note — @ to name someone, or say why this changed…'
+              replyTo
+                ? 'Your reply…'
+                : people.length > 0
+                  ? 'Add a note — @ to name someone, or say why this changed…'
+                  : 'Add a note — a decision, a blocker, why this changed…'
             }
             rows={3}
             maxLength={10_000}
