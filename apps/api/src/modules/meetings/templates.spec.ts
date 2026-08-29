@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
+import { docToMarkdown, markdownToDoc } from '@platform/note-doc';
 import {
   TEMPLATES,
   TEMPLATE_LIST,
   bodyFor,
+  carriedBody,
   standupBody,
   type BoardDigest,
+  type Commitment,
 } from './templates.js';
 
 /**
@@ -115,4 +118,139 @@ describe('standupBody', () => {
       [standup.body.trimEnd(), '', standup.perAttendee!.replace(/\{name\}/g, 'Tomas')].join('\n'),
     );
   });
+});
+
+/**
+ * The block that opens a meeting on what the last ones left owed.
+ *
+ * Pure text assembly, so where it lands and how it reads are checked without a database, a
+ * board or a previous meeting.
+ */
+describe('carriedBody', () => {
+  const owed = (over: Partial<Commitment> = {}): Commitment => ({
+    id: 'a1',
+    text: 'Send them the DPA',
+    assigneeId: null,
+    dueOn: null,
+    noteId: 'n1',
+    noteTitle: 'Client check-in',
+    meetingDate: '2026-08-15',
+    state: 'undecided',
+    taskId: null,
+    ...over,
+  });
+
+  it('leaves a first meeting exactly as it was', () => {
+    // Nothing owed is the ordinary case for a kick-off, and it should not gain an empty heading.
+    expect(carriedBody(TEMPLATES.client_check_in.body, [])).toBe(TEMPLATES.client_check_in.body);
+  });
+
+  it('lands below the letterhead, not above it', () => {
+    /*
+     * The note is the one document here that leaves the building. A block prepended ahead of
+     * the mark would bury the letterhead three lines down in something that gets printed.
+     */
+    const body = carriedBody(TEMPLATES.kick_off.body, [owed()]);
+    expect(body.indexOf('![Finsera]')).toBeLessThan(body.indexOf('## Since last time'));
+    expect(body.indexOf('---')).toBeLessThan(body.indexOf('## Since last time'));
+  });
+
+  it('opens the ceremony, above its own first heading', () => {
+    // What is still owed is the first two minutes of the meeting or it is nothing.
+    const body = carriedBody(TEMPLATES.kick_off.body, [owed()]);
+    expect(body.indexOf('## Since last time')).toBeLessThan(body.indexOf('## Why this project exists'));
+  });
+
+  it('fills the heading a ceremony already has rather than adding a second', () => {
+    /*
+     * A check-in opens on "Since last time" and a table of what was promised — the hand-written
+     * version of this. Two headings of the same name would not just look wrong: a section is
+     * addressed by its heading text, so a duplicate makes the agent's writes ambiguous.
+     */
+    const body = carriedBody(TEMPLATES.client_check_in.body, [owed()]);
+    expect(body.split('\n').filter((l) => l.trim() === '## Since last time')).toHaveLength(1);
+    expect(body).toContain('- [ ] Send them the DPA');
+    // The template's own table survives underneath it.
+    expect(body).toContain('| What we promised | Where it stands |');
+  });
+
+  it('says which problem each one is, because they need different answers', () => {
+    const body = carriedBody(TEMPLATES.kick_off.body, [
+      owed(),
+      owed({ id: 'a2', text: 'Migrate staging', state: 'undone', taskId: 't1' }),
+    ]);
+    // Undecided needs a decision here; undone is already work and needs none.
+    expect(body).toContain('never accepted or dismissed');
+    expect(body).toContain('on the board, not finished');
+  });
+
+  it('names where and when it was promised, and when it is due', () => {
+    const body = carriedBody(TEMPLATES.kick_off.body, [owed({ dueOn: '2026-08-20' })]);
+    expect(body).toContain('"Client check-in", 2026-08-15');
+    expect(body).toContain('due 2026-08-20');
+  });
+
+  it('writes unticked boxes, so the question can be answered in the room', () => {
+    const body = carriedBody(TEMPLATES.kick_off.body, [owed()]);
+    expect(body).toContain('- [ ] Send them the DPA');
+    expect(body).not.toContain('- [x]');
+  });
+});
+
+/**
+ * One place a commitment is recorded.
+ *
+ * Three templates asked for follow-up in a checkbox list as well as in a table and in the action
+ * points panel — three places to write one thing, two of them invisible to every query in the
+ * platform. Which of them was the record depended on where you happened to type.
+ */
+describe('where a commitment goes', () => {
+  it('no template asks for a follow-up checklist in its body', () => {
+    for (const t of Object.values(TEMPLATES)) {
+      expect(t.body).not.toContain('## Follow-up');
+      expect(t.body).not.toContain('## Next step');
+    }
+  });
+
+  it('keeps the tables a client actually reads', () => {
+    // Prose about what was agreed, in a document that gets mailed out — not a tracker.
+    expect(TEMPLATES.client_check_in.body).toContain('## What is next');
+    expect(TEMPLATES.retrospective.body).toContain('| What we change | Owner | By when |');
+  });
+});
+
+/**
+ * A seeded body has to survive the editor that opens it.
+ *
+ * The body is written as Markdown and hydrated into a ProseMirror document the first time
+ * somebody opens the note; anything the parser does not recognise comes back as visible
+ * characters or disappears. A ledger that renders as literal `- [ ]` text — or loses the line
+ * that says which meeting made the promise — would be wrong in the one place it is read.
+ */
+describe('the seeded ledger through the document', () => {
+  const owed: Commitment = {
+    id: 'a1',
+    text: 'Send them the DPA',
+    assigneeId: null,
+    dueOn: '2026-08-20',
+    noteId: 'n1',
+    noteTitle: 'Client check-in',
+    meetingDate: '2026-08-15',
+    state: 'undecided',
+    taskId: null,
+  };
+
+  // Both shapes: the ceremony that already owns the heading, and one that gains it.
+  for (const name of ['client_check_in', 'kick_off'] as const) {
+    it(`round-trips for ${name}`, () => {
+      const round = docToMarkdown(markdownToDoc(carriedBody(TEMPLATES[name].body, [owed])));
+      expect(round).toContain('Send them the DPA');
+      // A real task item, not the characters "- [ ]".
+      expect(round).toContain('- [ ] Send them the DPA');
+      expect(round).toContain('"Client check-in", 2026-08-15');
+      expect(round.split('\n').filter((l) => l.trim() === '## Since last time')).toHaveLength(1);
+      // The letterhead still opens the document that gets printed.
+      expect(round.indexOf('![Finsera]')).toBeLessThan(round.indexOf('## Since last time'));
+    });
+  }
 });

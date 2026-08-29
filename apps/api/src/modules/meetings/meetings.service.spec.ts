@@ -19,6 +19,7 @@ import { meetingsManifest } from './meetings.manifest.js';
 import { UserService } from '../../core/auth/user.service.js';
 import { NoteDocService } from './doc/note-doc.service.js';
 import { MeetingsService } from './meetings.service.js';
+import { TEMPLATES } from './templates.js';
 
 const actor: Actor = { userId: crypto.randomUUID(), role: 'admin' };
 
@@ -460,6 +461,213 @@ describe('MeetingsService', () => {
     );
     expect(dismissed.actionItems[0]!.status).toBe('dismissed');
     expect(await scrum.listTasks(actor, { projectId })).toHaveLength(0);
+  });
+
+  // ── what earlier meetings left owed ──
+
+  /**
+   * The loop a recurring meeting is for.
+   *
+   * A commitment made in one meeting and not finished should be asked about in the next one on
+   * the same work. Nothing did that: the note page approximated it in the browser from the
+   * undecided points alone, so a promise accepted onto the board and then left there never came
+   * back into the conversation that would have noticed.
+   */
+  describe('what is still owed on this work', () => {
+    /** An earlier meeting on the same project with one commitment on it. */
+    const owing = async (text = 'Send the DPA') => {
+      const earlier = await note({ title: 'Last check-in', meetingDate: '2026-08-01' });
+      const withItem = await meetings.addActionItem(actor, earlier.id, { text });
+      return { earlier, itemId: withItem.actionItems[0]!.id };
+    };
+
+    it('hands an undecided commitment to the next meeting', async () => {
+      const { earlier, itemId } = await owing();
+      const today = await note({ title: 'This check-in', meetingDate: '2026-08-15' });
+
+      expect(today.openBefore).toHaveLength(1);
+      expect(today.openBefore[0]).toMatchObject({
+        id: itemId,
+        text: 'Send the DPA',
+        state: 'undecided',
+        noteId: earlier.id,
+      });
+    });
+
+    it('hands over one that was accepted and never finished', async () => {
+      // The half that was missing entirely. It is on the board, so nothing on the note counted
+      // it, and being on the board is exactly why nobody looked at it again.
+      const { earlier, itemId } = await owing('Migrate staging');
+      await meetings.acceptActionItem(actor, earlier.id, itemId);
+
+      const today = await note({ title: 'This check-in', meetingDate: '2026-08-15' });
+      expect(today.openBefore).toHaveLength(1);
+      expect(today.openBefore[0]!.state).toBe('undone');
+      expect(today.openBefore[0]!.taskId).not.toBeNull();
+    });
+
+    it('stops asking once the work is actually done', async () => {
+      const { earlier, itemId } = await owing('Migrate staging');
+      const accepted = await meetings.acceptActionItem(actor, earlier.id, itemId);
+      const taskId = accepted.actionItems[0]!.taskId!;
+
+      const board = await scrum.getBoard(actor, projectId);
+      const done = board.columns.find((c) => c.isDone)!;
+      await scrum.updateTask(actor, taskId, { status: done.key });
+
+      const today = await note({ title: 'This check-in', meetingDate: '2026-08-15' });
+      expect(today.openBefore).toHaveLength(0);
+    });
+
+    it('never carries a dismissed commitment', async () => {
+      // Dismissing is a decision. Asking again would make it one nobody can ever finish making.
+      const { earlier, itemId } = await owing();
+      await meetings.dismissActionItem(actor, earlier.id, itemId);
+      const today = await note({ title: 'This check-in', meetingDate: '2026-08-15' });
+      expect(today.openBefore).toHaveLength(0);
+    });
+
+    it('does not offer a meeting its own leftovers, or a later meeting as a leftover', async () => {
+      const { earlier } = await owing();
+      // The earlier note asked about itself would list its own point; a note dated before it
+      // would list it as something already owed, which is a plan, not a debt.
+      expect((await meetings.get(actor, earlier.id)).openBefore).toHaveLength(0);
+      const before = await note({ title: 'Older still', meetingDate: '2026-07-01' });
+      expect(before.openBefore).toHaveLength(0);
+    });
+
+    it('falls back to the client when a meeting has no project', async () => {
+      const earlier = await meetings.create(actor, {
+        title: 'Client call',
+        clientId,
+        meetingDate: '2026-08-01',
+      });
+      await meetings.addActionItem(actor, earlier.id, { text: 'Send the proposal' });
+
+      const today = await meetings.create(actor, {
+        title: 'Follow-up call',
+        clientId,
+        meetingDate: '2026-08-15',
+      });
+      expect(today.openBefore.map((c) => c.text)).toContain('Send the proposal');
+    });
+
+    it('opens the note and the agenda on it', async () => {
+      await owing();
+      const today = await note({
+        title: 'This check-in',
+        meetingDate: '2026-08-15',
+        template: 'client_check_in',
+      });
+
+      expect(today.body).toContain('- [ ] Send the DPA');
+      // The check-in already opens on this heading; the ledger fills it rather than adding
+      // a second one, which would make the section ambiguous to address by name.
+      expect(today.body.split('\n').filter((l) => l.trim() === '## Since last time')).toHaveLength(1);
+      // Below the mark: this is the document that gets printed and mailed out.
+      expect(today.body.indexOf('![Finsera]')).toBeLessThan(today.body.indexOf('## Since last time'));
+      // First on the agenda, because the top two minutes are the only ones it gets discussed in.
+      expect(today.agenda[0]!.title).toBe('What we said we would do');
+      expect(today.agenda[0]!.position).toBe(1);
+    });
+
+    it('leaves a first meeting with the agenda its template asked for', async () => {
+      const first = await note({ template: 'client_check_in' });
+      expect(first.body).toBe(TEMPLATES.client_check_in.body);
+      expect(first.agenda[0]!.title).toBe(TEMPLATES.client_check_in.agenda[0]);
+    });
+
+    it('gives a retrospective one "last time" block, not two', async () => {
+      // retroBody already opens it with the last retro's promises. Two would read as a bug.
+      await owing();
+      const retro = await note({ template: 'retrospective', meetingDate: '2026-08-15' });
+      expect(retro.body).not.toContain('## Since last time');
+    });
+  });
+
+  describe('carrying a commitment forward', () => {
+    const owing = async (text = 'Send the DPA') => {
+      const earlier = await note({ title: 'Last check-in', meetingDate: '2026-08-01' });
+      const withItem = await meetings.addActionItem(actor, earlier.id, { text });
+      return { earlier, itemId: withItem.actionItems[0]!.id };
+    };
+
+    it('makes it a real action point here, tied to where it came from', async () => {
+      const { itemId } = await owing();
+      const today = await note({ title: 'This check-in', meetingDate: '2026-08-15' });
+
+      const after = await meetings.carryActionItem(actor, today.id, itemId);
+      expect(after.actionItems).toHaveLength(1);
+      expect(after.actionItems[0]).toMatchObject({
+        text: 'Send the DPA',
+        status: 'proposed',
+        carriedFrom: itemId,
+      });
+    });
+
+    it('stops the same commitment being counted twice', async () => {
+      const { itemId } = await owing();
+      const today = await note({ title: 'This check-in', meetingDate: '2026-08-15' });
+      await meetings.carryActionItem(actor, today.id, itemId);
+
+      // The ancestor is still 'proposed' — carrying does not invent a fourth status — so every
+      // read of what is open has to skip it, or one promise is reported as two.
+      const refreshed = await meetings.get(actor, today.id);
+      expect(refreshed.openBefore).toHaveLength(0);
+      expect((await meetings.openActions(actor)).map((a) => a.id)).not.toContain(itemId);
+    });
+
+    it('is idempotent, so two clicks make one commitment', async () => {
+      const { itemId } = await owing();
+      const today = await note({ title: 'This check-in', meetingDate: '2026-08-15' });
+      await meetings.carryActionItem(actor, today.id, itemId);
+      const after = await meetings.carryActionItem(actor, today.id, itemId);
+      expect(after.actionItems).toHaveLength(1);
+    });
+
+    it('refuses one that is already a task', async () => {
+      // It is on the board. A second action point could be accepted into a second card, which
+      // is the same work twice.
+      const { earlier, itemId } = await owing('Migrate staging');
+      await meetings.acceptActionItem(actor, earlier.id, itemId);
+      const today = await note({ title: 'This check-in', meetingDate: '2026-08-15' });
+      await expect(meetings.carryActionItem(actor, today.id, itemId)).rejects.toThrow(/board/i);
+    });
+
+    it('keeps a suggestion visibly a suggestion', async () => {
+      const earlier = await note({ title: 'Last check-in', meetingDate: '2026-08-01' });
+      const withItem = await meetings.addActionItem(actor, earlier.id, {
+        text: 'Chase the credentials',
+        source: 'ai',
+      });
+      const today = await note({ title: 'This check-in', meetingDate: '2026-08-15' });
+      const after = await meetings.carryActionItem(actor, today.id, withItem.actionItems[0]!.id);
+      expect(after.actionItems[0]!.source).toBe('ai');
+    });
+  });
+
+  describe('finalising with points still undecided', () => {
+    it('refuses, and says how many', async () => {
+      const created = await note();
+      await meetings.addActionItem(actor, created.id, { text: 'Send the dataset' });
+      await expect(meetings.finalise(actor, created.id)).rejects.toThrow(/1 action point is still undecided/);
+    });
+
+    it('goes ahead when told to', async () => {
+      // A question, not a gate: a meeting genuinely can end without deciding, and refusing
+      // outright would only teach people to leave notes in draft forever.
+      const created = await note();
+      await meetings.addActionItem(actor, created.id, { text: 'Send the dataset' });
+      const done = await meetings.finalise(actor, created.id, { force: true });
+      expect(done.status).toBe('final');
+    });
+
+    it('does not ask when everything is settled', async () => {
+      const created = await note();
+      const withItem = await meetings.addActionItem(actor, created.id, { text: 'Not doing this' });
+      await meetings.dismissActionItem(actor, created.id, withItem.actionItems[0]!.id);
+      expect((await meetings.finalise(actor, created.id)).status).toBe('final');
+    });
   });
 
   // ── search ──

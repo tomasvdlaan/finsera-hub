@@ -288,14 +288,53 @@ export class MeetingsController {
     return this.meetings.update(actor, id, body);
   }
 
+  /** Refuses while action points are undecided, unless `force` says to go ahead anyway. */
   @Post(':id/finalise')
-  finalise(@CurrentActor() actor: Actor, @Param('id') id: string) {
-    return this.meetings.finalise(actor, id);
+  finalise(
+    @CurrentActor() actor: Actor,
+    @Param('id') id: string,
+    @Body() body: { force?: boolean } = {},
+  ) {
+    return this.meetings.finalise(actor, id, { force: body?.force === true });
   }
 
   @Delete(':id')
   remove(@CurrentActor() actor: Actor, @Param('id') id: string) {
     return this.meetings.remove(actor, id);
+  }
+
+  // ── who may see this ──
+
+  @Post(':id/restricted')
+  setRestricted(
+    @CurrentActor() actor: Actor,
+    @Param('id') id: string,
+    @Body() body: { restricted: boolean },
+  ) {
+    return this.meetings.setRestricted(actor, id, body.restricted);
+  }
+
+  @Get(':id/viewers')
+  listViewers(@CurrentActor() actor: Actor, @Param('id') id: string) {
+    return this.meetings.listViewers(actor, id);
+  }
+
+  @Post(':id/viewers')
+  addViewer(
+    @CurrentActor() actor: Actor,
+    @Param('id') id: string,
+    @Body() body: { userId: string },
+  ) {
+    return this.meetings.addViewer(actor, id, body.userId);
+  }
+
+  @Delete(':id/viewers/:userId')
+  removeViewer(
+    @CurrentActor() actor: Actor,
+    @Param('id') id: string,
+    @Param('userId') userId: string,
+  ) {
+    return this.meetings.removeViewer(actor, id, userId);
   }
 
   // ── agenda ──
@@ -384,6 +423,21 @@ export class MeetingsController {
     @Param('itemId') itemId: string,
   ) {
     return this.meetings.acceptActionItem(actor, id, itemId);
+  }
+
+  /**
+   * Ask about an earlier meeting's commitment again, here.
+   *
+   * `:itemId` is the action point on the OTHER note — the one being carried — which is why this
+   * takes an id the note in the path does not own, unlike accept and dismiss beside it.
+   */
+  @Post(':id/actions/:itemId/carry')
+  carryAction(
+    @CurrentActor() actor: Actor,
+    @Param('id') id: string,
+    @Param('itemId') itemId: string,
+  ) {
+    return this.meetings.carryActionItem(actor, id, itemId);
   }
 
   @Post(':id/actions/:itemId/dismiss')

@@ -143,6 +143,31 @@ export const scrumManifest = defineManifest({
       handler: 'createTaskTool',
     },
     {
+      name: 'scrum_update_task',
+      description:
+        'Change fields on an existing task: title, description, estimate, priority, due date, ' +
+        'type, assignee, sprint or column. Only the fields given are changed. Estimates are ' +
+        'in minutes (90 = one and a half hours). Use for "set an estimate on X" or ' +
+        '"give the login bug to Ana".',
+      inputSchema: z.object({
+        taskId: z.string().uuid(),
+        title: z.string().min(1).optional(),
+        description: z.string().nullable().optional(),
+        status: z.string().optional(),
+        estimateMinutes: z.number().int().min(1).max(100_000).nullable().optional(),
+        priority: z.enum(PRIORITIES).optional(),
+        dueOn: z.string().nullable().optional(),
+        type: z.enum(['story', 'bug', 'chore', 'spike']).optional(),
+        assigneeId: z.string().uuid().nullable().optional(),
+        sprintId: z.string().uuid().nullable().optional(),
+        parentId: z.string().uuid().nullable().optional(),
+      }),
+      outputSchema: z.object({ id: z.string(), title: z.string() }),
+      permission: 'scrum.tasks.write',
+      riskClass: 'write:draft',
+      handler: 'updateTaskTool',
+    },
+    {
       name: 'scrum_move_task',
       description: 'Move a task to another column, e.g. "move the dataset task to review".',
       inputSchema: z.object({ taskId: z.string().uuid(), status: z.string() }),

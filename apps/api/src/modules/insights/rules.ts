@@ -521,6 +521,11 @@ export const RULES: Rule[] = [
         LEFT JOIN crm.v_clients cl ON cl.id = n.client_id
        WHERE a.status = 'proposed'
          AND CURRENT_DATE - n.meeting_date >= 3
+         -- Not one that a later meeting already picked up. Carrying it forward IS the decision
+         -- being made; nagging about the ancestor as well would report one commitment as two.
+         AND NOT EXISTS (
+               SELECT 1 FROM meetings.action_items later WHERE later.carried_from = a.id
+             )
        GROUP BY n.id, n.title, n.meeting_date, cl.name
     `,
     toCandidate: (r) => {

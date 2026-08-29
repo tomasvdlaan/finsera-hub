@@ -66,19 +66,6 @@ function humanMinutes(total: number): string {
 
 const euros = new Intl.NumberFormat('nl-NL', { style: 'currency', currency: 'EUR' });
 
-/** An action point still waiting on somebody, anywhere. What `/meetings/open-actions` returns. */
-interface OpenAction {
-  id: string;
-  text: string;
-  assigneeId: string | null;
-  dueOn: string | null;
-  noteId: string;
-  noteTitle: string;
-  meetingDate: string;
-  clientId: string | null;
-  projectId: string | null;
-}
-
 interface Me {
   id: string;
   displayName: string;
@@ -211,7 +198,6 @@ export function NoteDetail() {
   const [people, setPeople] = useState<Array<{ id: string; displayName: string }>>([]);
   const [me, setMe] = useState<Me | null>(null);
   const [templates, setTemplates] = useState<Template[]>([]);
-  const [openActions, setOpenActions] = useState<OpenAction[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -251,9 +237,6 @@ export function NoteDetail() {
     // For the timebox. A ceremony that is meant to take fifteen minutes and took fifty is the
     // most useful thing the page can say about how it went, and the number was already here.
     api.get<Template[]>('/meetings/templates').then(setTemplates).catch(() => setTemplates([]));
-    // Everything still undecided anywhere, which is how the last meeting in this series gets
-    // to hand this one its leftovers. One request rather than walking the series.
-    api.get<OpenAction[]>('/meetings/open-actions').then(setOpenActions).catch(() => setOpenActions([]));
   }, [load]);
 
   const act = async (fn: () => Promise<unknown>) => {
@@ -262,8 +245,9 @@ export function NoteDetail() {
       // No flush first any more: reloading the note no longer touches the editor, so there
       // is nothing racing the refetch.
       await fn();
+      // One reload does it: the ledger of what earlier meetings left owed comes back on the
+      // note itself, so carrying a commitment forward refreshes the list it came out of.
       await load();
-      api.get<OpenAction[]>('/meetings/open-actions').then(setOpenActions).catch(() => {});
     } catch (e) {
       setError((e as Error).message);
     }
@@ -275,23 +259,15 @@ export function NoteDetail() {
   );
 
   /*
-   * What is still open elsewhere in this series.
+   * What earlier meetings about this work left owed.
    *
-   * Matched on the project when there is one and the client otherwise, which is as close to
-   * "the same recurring meeting" as the record gets — there is no series id, and inventing
-   * one to show a hint would be a schema change to save a join. Only earlier meetings: a note
-   * dated after this one is not a leftover, it is a plan.
+   * Worked out by the server now — `openBefore` in meetings.service. It was assembled here from
+   * `/meetings/open-actions`, which only ever knew about action points nobody had decided on,
+   * and the half that was missing is the half that matters: a commitment accepted onto the board
+   * a month ago and never finished. Nothing brought that back into the conversation that would
+   * have noticed, which is most of what a recurring meeting is for.
    */
-  const carryOver = useMemo(() => {
-    if (!note) return [];
-    const key = note.projectId ?? note.clientId;
-    if (!key) return [];
-    return openActions
-      .filter((a) => a.noteId !== note.id)
-      .filter((a) => (note.projectId ? a.projectId === note.projectId : a.clientId === note.clientId))
-      .filter((a) => a.meetingDate <= note.meetingDate)
-      .slice(0, 6);
-  }, [note, openActions]);
+  const owed = note?.openBefore ?? [];
 
   if (!note) return error ? <p className="error">{error}</p> : <p className="muted">Loading…</p>;
 
@@ -315,6 +291,11 @@ export function NoteDetail() {
         <span>{item.text}</span>{' '}
         {item.source === 'ai' && (
           <Badge tone="brand" title="Suggested by the assistant">suggested</Badge>
+        )}{' '}
+        {/* A commitment being asked about for the second time reads differently from a new
+            one, and the difference is the point of carrying it rather than retyping it. */}
+        {item.carriedFrom && (
+          <Badge tone="warning" title="Carried over from an earlier meeting">carried over</Badge>
         )}
       </div>
       {/* Owner and due date, set here rather than after acceptance. Both columns and both
@@ -396,19 +377,42 @@ export function NoteDetail() {
           </div>
         )}
 
-        {/* Still open from the last time this meeting ran. For a stand-up this is most of the
+        {/* Still owed from earlier meetings about this work. For a stand-up this is most of the
             reason to look at the page at all: the thing that was blocked yesterday. */}
-        {carryOver.length > 0 && (
+        {owed.length > 0 && (
           <div className="owed owed-carry">
             <h3>Still open from before</h3>
             <ul>
-              {carryOver.map((a) => (
-                <li key={a.id}>
-                  <span>{a.text}</span>
+              {owed.map((c) => (
+                <li key={c.id}>
+                  <span>{c.text}</span>
                   <span className="muted">
-                    {' '}· <Link to={`/meetings/${a.noteId}`}>{a.noteTitle}</Link>, {a.meetingDate}
-                    {a.assigneeId && peopleById.has(a.assigneeId) ? ` · ${peopleById.get(a.assigneeId)}` : ''}
-                  </span>
+                    {' '}· <Link to={`/meetings/${c.noteId}`}>{c.noteTitle}</Link>, {c.meetingDate}
+                    {c.assigneeId && peopleById.has(c.assigneeId) ? ` · ${peopleById.get(c.assigneeId)}` : ''}
+                    {c.dueOn ? ` · due ${c.dueOn}` : ''}
+                  </span>{' '}
+                  {/*
+                   * The two states get different answers, which is the whole reason they are
+                   * told apart. An undecided one can be picked up here and settled. An undone
+                   * one is already a card — offering to carry it would put the same work on the
+                   * board twice, so it gets the card instead.
+                   */}
+                  {c.state === 'undone' ? (
+                    <>
+                      <Badge>on the board</Badge>{' '}
+                      {c.taskId && <Link to={`/tasks/${c.taskId}`}>open the task</Link>}
+                    </>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() =>
+                        void act(() => api.post(`/meetings/${id}/actions/${c.id}/carry`, {}))
+                      }
+                    >
+                      Carry over
+                    </Button>
+                  )}
                 </li>
               ))}
             </ul>
@@ -693,7 +697,10 @@ export function NoteDetail() {
       });
       if (!go) return;
     }
-    await act(() => api.post(`/meetings/${id}/finalise`, {}));
+    // `force` carries the answer to the question above. The server asks it too — the room, the
+    // assistant and anything else that finalises should not be able to skip it just because
+    // this page is where the dialog happens to live.
+    await act(() => api.post(`/meetings/${id}/finalise`, { force: proposed.length > 0 }));
   };
 
   return (
