@@ -154,6 +154,18 @@ export class LiveSession {
   }
 
   /**
+   * What has been said since the last extraction actually read the transcript.
+   *
+   * Distinct from `window()`, which is the last few minutes whether or not they are new. The
+   * triage gate needs this one: asking whether a passage is worth a model call, and then
+   * handing it text it has already been asked about, would answer the wrong question and
+   * would answer it the same way every time.
+   */
+  get freshText(): string {
+    return this.transcript.slice(this.lastExtractedAt);
+  }
+
+  /**
    * Merge newly proposed items, skipping ones already present.
    *
    * The model re-reads an overlapping window each tick, so it will re-suggest things. A

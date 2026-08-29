@@ -78,6 +78,21 @@ export const notes = meetings.table(
     /** Which template this started from, kept for reporting on how meetings are run. */
     template: text('template'),
 
+    /**
+     * How the meeting agent should behave here — which behaviours are on, whether it may
+     * speak, and how forward it is on each of the three dials.
+     *
+     * On the note rather than in memory, which is a correction rather than an addition. The
+     * settings lived in a `Map` in LiveRunner that was cleared when the recording stopped, so
+     * a recurring meeting forgot every week that you had turned the nudges down — and the
+     * lesson of turning them down is precisely the kind of thing that only shows up weekly.
+     *
+     * jsonb because it is one opaque preference blob read and written whole by one module,
+     * and nothing will ever query across it. The shape is narrowed on the way in — see
+     * `readEagerness` — so a row written by an older version is read rather than trusted.
+     */
+    agentSettings: jsonb('agent_settings'),
+
     status: text('status').notNull().default('draft'),
 
     /**

@@ -30,6 +30,8 @@ import { LiveRegistry } from './live-registry.service.js';
 import { NoteDocService } from '../doc/note-doc.service.js';
 import { appendMarkdown } from '../doc/note-edit.js';
 import { LiveRunner } from './live-runner.service.js';
+import { NoteTakerBehaviour, AI_NOTES_SECTION } from './behaviours/note-taker.behaviour.js';
+import type { BehaviourContext } from './behaviours/behaviour.js';
 import { LiveSession } from './live-session.js';
 import type { LiveService } from './live.service.js';
 
@@ -395,82 +397,163 @@ describe('LiveRunner', () => {
    * seconds — but they were held in memory and pushed to the panel, and the document was
    * only written on stop. Notes you cannot see in the note are not notes yet.
    */
-  it('writes the assistant’s notes into the note while the meeting is still running', async () => {
-    const note = await noteWithConsent();
-    const session = new LiveSession(note.id, actor.userId);
-    sessions.start(note.id, session);
-    const events = runner.eventsFor(actor, note.id, session);
+  /*
+   * The note-taker, driven against the real document authority.
+   *
+   * These used to drive LiveRunner instead, because the runner held the write: a behaviour
+   * set `session.aiNotes` and the runner copied it into one section afterwards. The write
+   * belongs to the behaviour now — it emits section-scoped edits and applies them in one
+   * transaction — so the properties are asserted where they are enforced. They are the same
+   * properties, and the first of them is the one that makes live note-taking survivable.
+   */
+  describe('the note-taker', () => {
+    const contextFor = (
+      noteId: string,
+      session: LiveSession,
+      object: unknown,
+    ): BehaviourContext =>
+      ({
+        actor,
+        session,
+        note: { id: noteId, title: 'Voortgang', agenda: [] },
+        tools: {},
+        llm: {
+          generateStructured: vi.fn().mockResolvedValue({
+            object,
+            usage: { inputTokens: 10, outputTokens: 5 },
+          }),
+        } as unknown as LlmService,
+        newId: () => crypto.randomUUID(),
+        eagerness: { notes: 'balanced', actions: 'balanced', speech: 'balanced' },
+      }) as BehaviourContext;
 
-    testBehaviour.shouldRun.mockReturnValue(true);
-    testBehaviour.run.mockImplementation(async (ctx: { session: LiveSession }) => {
-      ctx.session.aiNotes = '- DocHorse asked for a supplier drill-down';
-      return { reason: 'Notes updated' };
+    /** Dense enough to clear the triage gate, so these test the writer and not the gate. */
+    const consequential =
+      'Marieke: we doen 40 uur, uiterlijk vrijdag klaar. Ik stuur de dataset morgen door. ';
+
+    const sessionSaying = (noteId: string) => {
+      const session = new LiveSession(noteId, actor.userId);
+      session.addLine(consequential.repeat(12), { id: '7', name: 'Marieke' });
+      return session;
+    };
+
+    it('writes its notes into the document while the meeting is still running', async () => {
+      const note = await noteWithConsent();
+      const session = sessionSaying(note.id);
+
+      const ctx = contextFor(note.id, session, {
+        worthEditing: true,
+        ops: [
+          {
+            op: 'replace',
+            heading: AI_NOTES_SECTION,
+            markdown: '- DocHorse asked for a supplier drill-down',
+            confidence: 0.9,
+          },
+        ],
+      });
+      await new NoteTakerBehaviour(docs).run(ctx);
+
+      const body = await docs.markdown(note.id);
+      expect(body).toContain('supplier drill-down');
+      expect(body).toContain(AI_NOTES_SECTION);
     });
 
-    await events.onSegment(segment('Marieke', '7'));
+    it('leaves what somebody else wrote alone, and adds below it instead', async () => {
+      /*
+       * The invariant the old single-section rule bought, kept under a rule that lets the
+       * agent write everywhere: it may add to a section a person wrote, never replace it.
+       */
+      const note = await noteWithConsent();
+      await docs.edit(note.id, actor, (tr) => appendMarkdown(tr, '## Mine\n\nDo not touch this.'));
+      const session = sessionSaying(note.id);
 
-    // Nothing has been stopped. The recording is still open.
-    expect(sessions.get(note.id)).toBeDefined();
-    await waitFor(
-      async () => (await docs.markdown(note.id)).includes('supplier drill-down'),
-      { label: 'the notes to reach the document' },
-    );
+      const ctx = contextFor(note.id, session, {
+        worthEditing: true,
+        ops: [
+          {
+            op: 'replace',
+            heading: 'Mine',
+            markdown: '- A point the agent heard',
+            confidence: 0.9,
+          },
+        ],
+      });
+      await new NoteTakerBehaviour(docs).run(ctx);
 
-    const body = await docs.markdown(note.id);
-    expect(body).toContain('Notes from the meeting');
-  });
-
-  it('leaves everything outside its own heading alone', async () => {
-    // Somebody typing their own summary during the meeting must keep it. This is why the
-    // write replaces one section by heading rather than setting the body.
-    const note = await noteWithConsent();
-    await docs.edit(note.id, actor, (tr) => appendMarkdown(tr, '## Mine\n\nDo not touch this.'));
-
-    const session = new LiveSession(note.id, actor.userId);
-    sessions.start(note.id, session);
-    const events = runner.eventsFor(actor, note.id, session);
-
-    testBehaviour.shouldRun.mockReturnValue(true);
-    testBehaviour.run.mockImplementation(async (ctx: { session: LiveSession }) => {
-      ctx.session.aiNotes = '- A point the agent heard';
-      return { reason: 'Notes updated' };
-    });
-    await events.onSegment(segment('Marieke', '7'));
-
-    await waitFor(
-      async () => (await docs.markdown(note.id)).includes('A point the agent heard'),
-      { label: 'the notes to reach the document' },
-    );
-    expect(await docs.markdown(note.id)).toContain('Do not touch this.');
-  });
-
-  it('does not rewrite a section that has not changed', async () => {
-    /*
-     * A quiet meeting leaves `aiNotes` untouched, and rewriting it anyway would commit a
-     * no-op revision every ninety seconds for as long as nobody said anything.
-     */
-    const note = await noteWithConsent();
-    const session = new LiveSession(note.id, actor.userId);
-    sessions.start(note.id, session);
-    const events = runner.eventsFor(actor, note.id, session);
-
-    testBehaviour.shouldRun.mockReturnValue(true);
-    testBehaviour.run.mockImplementation(async (ctx: { session: LiveSession }) => {
-      ctx.session.aiNotes = 'Same notes, unrevised';
-      return { reason: 'Notes updated' };
+      const body = await docs.markdown(note.id);
+      expect(body).toContain('A point the agent heard');
+      expect(body).toContain('Do not touch this.');
     });
 
-    await events.onSegment(segment('Marieke', '7'));
-    await waitFor(
-      async () => (await docs.markdown(note.id)).includes('Same notes, unrevised'),
-      { label: 'the first write' },
-    );
+    it('fills in an empty heading the template left', async () => {
+      // The thing it could not do before at all: the note had a `## Risks` waiting and the
+      // agent could only ever write under its own heading.
+      const note = await noteWithConsent();
+      await docs.edit(note.id, actor, (tr) => appendMarkdown(tr, '## Risks'));
+      const session = sessionSaying(note.id);
 
-    const edit = vi.spyOn(docs, 'edit');
-    await events.onSegment(segment('Marieke', '7'));
-    await events.onSegment(segment('Marieke', '7'));
-    expect(edit).not.toHaveBeenCalled();
-    edit.mockRestore();
+      const ctx = contextFor(note.id, session, {
+        worthEditing: true,
+        ops: [
+          { op: 'replace', heading: 'Risks', markdown: '- Supplier data is late', confidence: 0.9 },
+        ],
+      });
+      await new NoteTakerBehaviour(docs).run(ctx);
+
+      expect(await docs.markdown(note.id)).toContain('Supplier data is late');
+    });
+
+    it('writes nothing when it decides the passage was not worth an edit', async () => {
+      const note = await noteWithConsent();
+      const session = sessionSaying(note.id);
+      const before = await docs.markdown(note.id);
+
+      const ctx = contextFor(note.id, session, { worthEditing: false, ops: [] });
+      const result = await new NoteTakerBehaviour(docs).run(ctx);
+
+      expect(result?.reason).toBe('Nothing new worth recording');
+      expect(await docs.markdown(note.id)).toBe(before);
+    });
+
+    it('discards an edit that does not clear the confidence floor', async () => {
+      // The half of the dial that does not depend on the model taking the wording seriously.
+      const note = await noteWithConsent();
+      const session = sessionSaying(note.id);
+      const before = await docs.markdown(note.id);
+
+      const ctx = contextFor(note.id, session, {
+        worthEditing: true,
+        ops: [
+          {
+            op: 'replace',
+            heading: AI_NOTES_SECTION,
+            markdown: '- A guess',
+            confidence: 0.2,
+          },
+        ],
+      });
+      const result = await new NoteTakerBehaviour(docs).run(ctx);
+
+      expect(result?.reason).toContain('confidence floor');
+      expect(await docs.markdown(note.id)).toBe(before);
+    });
+
+    it('does not call the model at all for small talk', async () => {
+      /*
+       * The gate, and the property that makes it safe: the watermark does not advance, so
+       * the passage is reconsidered next pass along with whatever follows it.
+       */
+      const note = await noteWithConsent();
+      const session = new LiveSession(note.id, actor.userId);
+      session.addLine('Hoe was je weekend? Prima hoor. '.repeat(40), { id: '7', name: 'Marieke' });
+
+      const ctx = contextFor(note.id, session, { worthEditing: true, ops: [] });
+      const result = await new NoteTakerBehaviour(docs).run(ctx);
+
+      expect(ctx.llm.generateStructured).not.toHaveBeenCalled();
+      expect(result?.reason).toContain('Nothing worth reading');
+    });
   });
 
   /*

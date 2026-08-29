@@ -1,6 +1,7 @@
 import type { Actor } from '@platform/contracts';
 import type { ToolSet } from 'ai';
 import type { LlmService } from '../../../../core/llm/llm.service.js';
+import type { Eagerness, EagernessDial } from '../eagerness.js';
 import type { LiveSession, Proposal } from '../live-session.js';
 
 /**
@@ -24,6 +25,15 @@ export interface BehaviourContext {
   tools: ToolSet;
   llm: LlmService;
   newId: () => string;
+  /**
+   * How forward to be, per kind of consequence.
+   *
+   * Passed to every behaviour rather than read by the ones that care, because the dial a
+   * behaviour answers to is a property of the behaviour and belongs next to its prompt —
+   * and because a behaviour added later should have to decide which consequence it has
+   * rather than inherit whichever one the runner happened to hand it.
+   */
+  eagerness: Eagerness;
 }
 
 /**
@@ -64,6 +74,16 @@ export interface BehaviourResult {
 export interface MeetingBehaviour {
   readonly name: string;
   readonly description: string;
+
+  /**
+   * Which consequence this behaviour has, and therefore which dial governs it.
+   *
+   * Declared by the behaviour rather than decided by the runner, because it is a fact about
+   * what the behaviour does to the world — a new one that creates work for somebody answers
+   * to `actions` no matter where it is registered, and getting that wrong is how a dial
+   * turned down for good reason stops covering the thing it was turned down for.
+   */
+  readonly dial: EagernessDial;
 
   /**
    * `utterance` runs after each transcribed line; `interval` runs on a timer.

@@ -151,15 +151,39 @@ export class MeetingsController {
     return this.live.listBehaviours();
   }
 
-  /** Turn behaviours on or off, and decide whether any of them may speak. */
+  /**
+   * What the agent is set to in this meeting.
+   *
+   * Its own route because the panel needs it before anything is running: the settings are the
+   * note's now rather than the session's, so there is something to show — and to change —
+   * before anybody presses record.
+   */
+  @Get(':id/live/behaviours')
+  async behaviourSettings(@CurrentActor() actor: Actor, @Param('id') id: string) {
+    const settings = await this.live.behaviourSettings(actor, id);
+    return {
+      enabled: [...settings.enabled],
+      maySpeak: settings.maySpeak,
+      eagerness: settings.eagerness,
+    };
+  }
+
+  /**
+   * Turn behaviours on or off, decide whether any of them may speak, and set how forward
+   * each of the three dials is.
+   */
   @Post(':id/live/behaviours')
-  configureBehaviours(
+  async configureBehaviours(
     @CurrentActor() actor: Actor,
     @Param('id') id: string,
-    @Body() body: { enabled?: string[]; maySpeak?: boolean },
+    @Body() body: { enabled?: string[]; maySpeak?: boolean; eagerness?: unknown },
   ) {
-    const settings = this.live.configure(id, body);
-    return { enabled: [...settings.enabled], maySpeak: settings.maySpeak };
+    const settings = await this.live.configure(actor, id, body);
+    return {
+      enabled: [...settings.enabled],
+      maySpeak: settings.maySpeak,
+      eagerness: settings.eagerness,
+    };
   }
 
   /** Let the bot talk back. Off by default; this is the testing switch. */

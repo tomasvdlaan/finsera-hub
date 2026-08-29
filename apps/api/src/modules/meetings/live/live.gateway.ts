@@ -305,10 +305,14 @@ export class LiveGateway implements OnGatewayConnection, OnGatewayDisconnect, On
     session.extracting = true;
     try {
       const note = await this.meetings.get(actor, session.noteId);
+      // The same settings the behaviours run under, so the browser path and the bot path
+      // are as forward as each other — they were one pipeline the moment they shared a note.
+      const settings = await this.runner.behaviourSettings(actor, session.noteId);
       const { added, state } = await this.live.extract(
         session,
         note.agenda.map((a) => ({ id: a.id, title: a.title, covered: a.covered })),
         () => this.registry.newId(),
+        settings.eagerness,
       );
       // Notes go into the document instead of onto the pile — the same call the runner
       // makes, so the browser microphone and the bot produce the same note.

@@ -894,6 +894,35 @@ export class MeetingsService {
   }
 
   /**
+   * How the agent should behave in this meeting, and remembering it.
+   *
+   * Read without `meetings.write`, because looking at a note tells you this whether you may
+   * change it or not, and a panel that cannot render its own controls for a reader is worse
+   * than one that renders them disabled.
+   */
+  async agentSettings(actor: Actor, noteId: string): Promise<unknown> {
+    await this.require(actor, 'meetings.read');
+    const note = await this.raw(noteId);
+    return note.agentSettings ?? null;
+  }
+
+  /**
+   * Store it, whole.
+   *
+   * Replaced rather than merged: the caller holds the complete settings object — it read them
+   * at the start of the session — and a partial write here would need a merge policy that the
+   * runner already has and would then have twice.
+   */
+  async saveAgentSettings(actor: Actor, noteId: string, settings: unknown): Promise<void> {
+    await this.require(actor, 'meetings.write');
+    await this.raw(noteId);
+    await this.db
+      .update(notes)
+      .set({ agentSettings: settings, updatedAt: new Date() })
+      .where(eq(notes.id, noteId));
+  }
+
+  /**
    * Write something into a note, on request.
    *
    * The assistant could read notes and propose action points and could not add a sentence to
