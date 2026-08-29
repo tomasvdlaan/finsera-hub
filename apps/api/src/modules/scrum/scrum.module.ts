@@ -6,7 +6,11 @@ import { CrmModule } from '../crm/crm.module.js';
 import { TimeModule } from '../time/time.module.js';
 import { ScrumController } from './scrum.controller.js';
 import { scrumManifest } from './scrum.manifest.js';
-import { ScrumService, type CreateTaskInput } from './scrum.service.js';
+import {
+  ScrumService,
+  type CreateTaskInput,
+  type UpdateTaskToolInput,
+} from './scrum.service.js';
 
 /**
  * Task and progress tracking.
@@ -40,6 +44,9 @@ export class ScrumModule implements OnModuleInit {
     );
     this.aiTools.bind('scrum_create_task', (actor: Actor, input) =>
       this.scrum.createTaskTool(actor, input as CreateTaskInput),
+    );
+    this.aiTools.bind('scrum_update_task', (actor: Actor, input) =>
+      this.scrum.updateTaskTool(actor, input as UpdateTaskToolInput),
     );
     this.aiTools.bind('scrum_move_task', (actor: Actor, input) =>
       this.scrum.moveTaskTool(actor, input as { taskId: string; status: string }),

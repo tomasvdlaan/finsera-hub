@@ -1270,3 +1270,70 @@ describe('ScrumService sprint load', () => {
     ).rejects.toThrow(/sign in once/i);
   });
 });
+
+/**
+ * The tool the assistant edits cards with.
+ *
+ * It could only create and move, so asked to put an estimate on fifteen open cards it
+ * answered that it was unable to — true, and the wrong answer for a board the edit form
+ * changes all day. The test that matters is the partial patch: an unmentioned field must
+ * survive, or one estimate would wipe a description.
+ */
+describe('ScrumService assistant task edits', () => {
+  let scrum: ScrumService;
+  let projectId: string;
+
+  beforeEach(async () => {
+    await resetDb();
+    await truncate(sql`TRUNCATE scrum.tasks, crm.projects, crm.contacts, crm.clients CASCADE`);
+    await seedUser(actor.userId, 'admin');
+
+    const manifests = new ManifestRegistry();
+    for (const m of [crmManifest, timeManifest, scrumManifest]) manifests.register(m);
+    manifests.seal();
+
+    const registry = new RegistryService(testDb, manifests);
+    const permissions = new PermissionService(testDb, manifests);
+    const audit = new AuditService();
+    const links = new LinkService(testDb, registry, permissions, audit, manifests);
+    const bus = new EventBus(manifests);
+    const crm = new CrmService(testDb, registry, permissions, audit, bus, links);
+    const time = new TimeService(testDb, registry, permissions, audit, bus, links, crm);
+    scrum = new ScrumService(testDb, registry, permissions, audit, bus, links, crm, time);
+
+    const client = await crm.createClient(actor, { name: 'DocHorse', status: 'active' });
+    const project = await crm.createProject(actor, {
+      clientId: client.id,
+      name: 'Power BI',
+      billingModel: 'time_and_materials',
+    });
+    projectId = project.id;
+  });
+
+  it('sets a field the assistant was asked to change and leaves the rest alone', async () => {
+    const created = await scrum.createTask(actor, {
+      projectId,
+      title: 'Fix login issue',
+      description: 'SSO redirect loops on Safari',
+      priority: 'high',
+    });
+
+    const patched = await scrum.updateTaskTool(actor, {
+      taskId: created.id,
+      estimateMinutes: 90,
+    });
+    expect(patched.title).toBe('Fix login issue');
+
+    const after = await scrum.getTask(actor, created.id);
+    expect(after.estimateMinutes).toBe(90);
+    expect(after.description).toBe('SSO redirect loops on Safari');
+    expect(after.priority).toBe('high');
+  });
+
+  it('refuses a column that is not on the board rather than inventing one', async () => {
+    const created = await scrum.createTask(actor, { projectId, title: 'Improve the task page' });
+    await expect(
+      scrum.updateTaskTool(actor, { taskId: created.id, status: 'nearly_done' }),
+    ).rejects.toThrow(/not a column/);
+  });
+});

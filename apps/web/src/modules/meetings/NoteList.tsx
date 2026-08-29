@@ -4,6 +4,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { useDocumentTitle } from '../../shell/useDocumentTitle.js';
 import type { Client, Project } from '../crm/types.js';
+import { saidSomething } from './noteSummary.js';
 import type { Note, NoteRow, Template } from './types.js';
 import { Empty } from '../../shell/ui/primitives.js';
 import { Card, Figure } from '../../shell/ui/card.js';
@@ -69,55 +70,6 @@ function lengthOf(n: Note): number | null {
 }
 
 const hhmm = (mins: number) => (mins < 60 ? `${mins}m` : `${Math.floor(mins / 60)}h ${mins % 60}m`);
-
-/**
- * The first thing the note actually says.
- *
- * Headings do not count. Every ceremony body starts life as the template's skeleton — `##
- * Round the table`, `## Blockers` — so a summary taken from line one would report the
- * skeleton back as content, and every unwritten stand-up in the database would look written.
- * That distinction is the single most useful thing this list can draw: of the ceremony notes
- * held so far, the bodies are still the headings they were seeded with.
- */
-function saidSomething(body: string): string | null {
-  for (const raw of body.split('\n')) {
-    const line = raw.trim();
-    if (!line) continue;
-    if (line.startsWith('#')) continue;
-    // A bullet or checkbox with nothing after it is still an empty template.
-    const stripped = line.replace(/^([-*+]|\d+\.)\s*/, '').replace(/^\[[ x]\]\s*/i, '').trim();
-    if (!stripped) continue;
-    /*
-     * A label with nothing after it is not content either.
-     *
-     * The seeded stand-up puts `Yesterday:` / `Today:` / `Blockers:` under each person, and
-     * reading line one meant every untouched stand-up in the database summarised itself as
-     * "Yesterday:" — which is exactly the flattery this function exists to refuse. Skipping
-     * the label reveals the truth underneath: nobody typed anything.
-     */
-    const inline = plainText(stripped);
-    if (!inline || /^[^:]{0,24}:$/.test(inline)) continue;
-    return inline;
-  }
-  return null;
-}
-
-/**
- * Markdown as a reader would hear it.
- *
- * The body is Markdown and this is one line of prose, so the marks have to go — a summary
- * reading `Needs ==urgent review==.` shows the syntax instead of the emphasis it stands for.
- * Deliberately not a parser: this only ever has to survive one line and lose no words.
- */
-function plainText(s: string) {
-  return s
-    .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
-    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
-    .replace(/<[^>]+>/g, '')
-    .replace(/(\*\*|__|==|~~|`)/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
 
 /** What kind of meeting this was, for the thirty-day breakdown. */
 function kindOf(n: Note): 'standup' | 'sprint' | 'client' | 'other' {

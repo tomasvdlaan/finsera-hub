@@ -1392,10 +1392,27 @@ ol {
   color: var(--muted);
   margin: 0.5rem 0;
 }
+/*
+ * The rule under the letterhead, which had no styling at all.
+ *
+ * A `<hr>` with no rules of its own renders as the browser's default inset groove — which
+ * inside a document reads as a dropped pixel rather than as a division. It is the one piece
+ * of the templates' opening that is pure typography, so it is set like typography: a hairline
+ * the width of the writing, with the space around it doing the work.
+ */
+.rich-editor .tiptap hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: var(--space-4) 0 var(--space-5);
+}
+.rich-editor .tiptap hr.ProseMirror-selectednode { border-top-color: var(--accent); }
 .rich-editor .tiptap table { border-collapse: collapse; width: 100%; margin: 0.5rem 0; }
 .rich-editor .tiptap th,
 .rich-editor .tiptap td { border: 1px solid var(--border); padding: 0.3rem 0.5rem; }
-.rich-editor .tiptap th { background: var(--border); }
+/* Left, like the cells beneath them. A centred header over left-aligned content puts the
+   column's label and its data on two different axes, which is why it reads as a spreadsheet
+   pasted in rather than as a table set in a document. */
+.rich-editor .tiptap th { background: var(--border); text-align: left; font-weight: 600; }
 .rich-editor .tiptap code {
   background: var(--border);
   padding: 0.05rem 0.25rem;
@@ -1419,6 +1436,22 @@ ol {
 }
 .rich-editor .tiptap img.ProseMirror-selectednode {
   outline: 2px solid var(--accent);
+}
+/*
+ * The mark the templates open with.
+ *
+ * Sized here rather than in the Markdown, because Markdown has no way to say how big an image
+ * is — `![alt](src)` carries a source and nothing else, and the file is 192px square, which
+ * as a letterhead is a logo the size of a paragraph. Selecting on the source is exact: it is
+ * one known static asset of this app, not a guess about what an image might be.
+ *
+ * It stays an ordinary image in the document, so it can be selected and deleted like any
+ * other. A note whose author does not want it is a note without it.
+ */
+.rich-editor .tiptap img[src$="/finsera-logo.png"] {
+  width: 44px;
+  height: 44px;
+  margin: 0 0 var(--space-1);
 }
 
 /* Live transcript: scrolls on its own so the page does not grow for two hours. */
