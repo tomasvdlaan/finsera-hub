@@ -25,13 +25,35 @@ export interface Behaviour {
   description: string;
   trigger: string;
   canSpeak: boolean;
+  /** Which of the three dials governs this behaviour, so the panel can group them. */
+  dial: EagernessDial;
 }
+
+export const EAGERNESS_DIALS = ['notes', 'actions', 'speech'] as const;
+export type EagernessDial = (typeof EAGERNESS_DIALS)[number];
+export const EAGERNESS_LEVELS = ['reserved', 'balanced', 'eager'] as const;
+export type EagernessLevel = (typeof EAGERNESS_LEVELS)[number];
+export type Eagerness = Record<EagernessDial, EagernessLevel>;
+
+/**
+ * What the panel shows before the server has answered.
+ *
+ * Matches the server's own default, and is replaced by the note's stored settings as soon as
+ * they arrive — a note may have been set to something else months ago, and the three dials
+ * are the one control here whose position is a claim about what is happening right now.
+ */
+const DEFAULT_EAGERNESS: Eagerness = {
+  notes: 'balanced',
+  actions: 'reserved',
+  speech: 'reserved',
+};
 
 interface LiveMeeting {
   live: LiveState;
   behaviours: Behaviour[];
   enabled: string[];
   maySpeak: boolean;
+  eagerness: Eagerness;
   chatty: boolean;
   /**
    * Pick a running session back up, and start feeding it again if nothing else is.
@@ -67,7 +89,14 @@ interface LiveMeeting {
    * pretending it can reacquire silently and quietly recording nothing.
    */
   unpause: () => Promise<void>;
-  configure: (next: { enabled?: string[]; maySpeak?: boolean }) => void;
+  configure: (next: { enabled?: string[]; maySpeak?: boolean; eagerness?: Eagerness }) => void;
+  /**
+   * Read this note's stored settings.
+   *
+   * Separate from `resume`, because the settings belong to the note rather than to a session:
+   * there is something to show, and to change, before anybody presses record.
+   */
+  loadSettings: (noteId: string) => Promise<void>;
   setChatty: (on: boolean) => void;
 }
 
@@ -98,6 +127,7 @@ export function LiveMeetingProvider({ children }: { children: ReactNode }) {
   const [behaviours, setBehaviours] = useState<Behaviour[]>([]);
   const [enabled, setEnabled] = useState<string[]>([]);
   const [maySpeak, setMaySpeak] = useState(false);
+  const [eagerness, setEagerness] = useState<Eagerness>(DEFAULT_EAGERNESS);
   const [chatty, setChattyState] = useState(false);
 
   const socket = useRef<WebSocket | null>(null);
@@ -116,7 +146,8 @@ export function LiveMeetingProvider({ children }: { children: ReactNode }) {
       .get<Behaviour[]>('/meetings/behaviours')
       .then((all) => {
         setBehaviours(all);
-        setEnabled(all.map((b) => b.name)); // matches the server's default
+        // A placeholder until loadSettings answers for the note actually being opened.
+        setEnabled(all.map((b) => b.name));
       })
       .catch(() => setBehaviours([]));
   }, []);
@@ -468,12 +499,42 @@ export function LiveMeetingProvider({ children }: { children: ReactNode }) {
   const noteIdRef = useRef<string | null>(null);
   noteIdRef.current = live.noteId;
 
-  const configure = useCallback((next: { enabled?: string[]; maySpeak?: boolean }) => {
-    if (next.enabled) setEnabled(next.enabled);
-    if (next.maySpeak !== undefined) setMaySpeak(next.maySpeak);
-    const noteId = noteIdRef.current;
-    if (noteId) void api.post(`/meetings/${noteId}/live/behaviours`, next).catch(() => undefined);
+  /**
+   * The note whose settings are on screen.
+   *
+   * Not `live.noteId`, which is null until a recording starts — the dials are adjustable
+   * before then, and posting them to `null` would silently drop the change. Set by
+   * `loadSettings`, which the panel calls on mount for the note it is showing.
+   */
+  const settingsNoteId = useRef<string | null>(null);
+
+  const loadSettings = useCallback(async (noteId: string) => {
+    settingsNoteId.current = noteId;
+    try {
+      const stored = await api.get<{
+        enabled: string[];
+        maySpeak: boolean;
+        eagerness: Eagerness;
+      }>(`/meetings/${noteId}/live/behaviours`);
+      setEnabled(stored.enabled);
+      setMaySpeak(stored.maySpeak);
+      setEagerness(stored.eagerness);
+    } catch {
+      // The defaults above are a complete answer. A panel that refused to render because a
+      // preferences read failed would be worse than one showing the wrong dial position.
+    }
   }, []);
+
+  const configure = useCallback(
+    (next: { enabled?: string[]; maySpeak?: boolean; eagerness?: Eagerness }) => {
+      if (next.enabled) setEnabled(next.enabled);
+      if (next.maySpeak !== undefined) setMaySpeak(next.maySpeak);
+      if (next.eagerness) setEagerness(next.eagerness);
+      const noteId = settingsNoteId.current ?? noteIdRef.current;
+      if (noteId) void api.post(`/meetings/${noteId}/live/behaviours`, next).catch(() => undefined);
+    },
+    [],
+  );
 
   const setChatty = useCallback((on: boolean) => {
     setChattyState(on);
@@ -488,6 +549,7 @@ export function LiveMeetingProvider({ children }: { children: ReactNode }) {
         behaviours,
         enabled,
         maySpeak,
+        eagerness,
         chatty,
         resume,
         resumeAudio,
@@ -497,6 +559,7 @@ export function LiveMeetingProvider({ children }: { children: ReactNode }) {
         startCapture,
         stop,
         configure,
+        loadSettings,
         setChatty,
       }}
     >

@@ -5,12 +5,18 @@ import { Avatar } from '../../shell/ui/primitives.js';
 import { firstImage } from '../../shell/ui/MarkdownEditor.js';
 import { ageTone, daysBlocked, hours, isOverdue, type Task } from './types.js';
 
-/** A letter and a colour, so type is readable at a glance without spending a word on it. */
-const TYPE_MARK: Record<string, { mark: string; label: string }> = {
-  story: { mark: 'S', label: 'Story' },
-  bug: { mark: 'B', label: 'Bug' },
-  chore: { mark: 'C', label: 'Chore' },
-  spike: { mark: '?', label: 'Spike' },
+/**
+ * The word, not a letter.
+ *
+ * A spike was marked `?` and an unassigned card carries a `?` avatar — the same glyph twice
+ * on one card meaning two unrelated things. "Spike" costs four characters and cannot be
+ * confused with anything.
+ */
+const TYPE_LABEL: Record<string, string> = {
+  story: 'Story',
+  bug: 'Bug',
+  chore: 'Chore',
+  spike: 'Spike',
 };
 
 /**
@@ -100,7 +106,6 @@ const CardBody = forwardRef<
 
   const estimate = hours(task.estimateMinutes);
   const overdue = isOverdue(task);
-  const type = TYPE_MARK[task.type] ?? TYPE_MARK.story!;
   const stale = task.completedAt ? null : ageTone(task.daysInColumn);
 
   /*
@@ -128,45 +133,46 @@ const CardBody = forwardRef<
   return (
     <div ref={ref} className={classes} style={style} {...drag}>
       <div className="task-card-body">
-        <div className="task-card-title">
-          <span className={`task-type task-type-${task.type}`} title={type.label} aria-hidden="true">
-            {type.mark}
-          </span>
-          <button
-            type="button"
-            className="task-open"
-            onClick={onOpen}
-            aria-haspopup="dialog"
-            aria-label={`Open ${task.title}`}
-          >
-            {task.title}
-          </button>
-          {/*
-            Whose card this is, top right, where every board puts it.
+        {/*
+          The badges, above the title.
 
-            It used to sit on a row of its own next to the column select. With the select gone
-            that row held one small circle and a lot of nothing, so the face moved up to the
-            only line that always exists.
-          */}
-          {task.assignee ? (
-            <Avatar id={task.assignee.id} name={task.assignee.displayName} size="sm" />
-          ) : (
-            <span className="avatar avatar-sm avatar-empty" title="Unassigned">
-              ?
-            </span>
+          They answer "is this mine to worry about" before the title answers "what is it",
+          which is the order a board is actually read in — you scan a column for the one that
+          matters and only then read words.
+        */}
+        <div className="task-badges">
+          <span className={`badge type-${task.type}`}>{TYPE_LABEL[task.type] ?? 'Story'}</span>
+          {task.blockedReason && <span className="badge badge-blocked">Blocked</span>}
+          {/* Normal is the default and saying so on every card would make the word meaningless. */}
+          {task.priority !== 'normal' && (
+            <span className={`badge priority-${task.priority}`}>{task.priority}</span>
           )}
+          {task.labels.map((l) => (
+            <span key={l} className="badge">
+              {l}
+            </span>
+          ))}
         </div>
 
-        {/*
-          Above the metadata, not among it.
+        <button
+          type="button"
+          className="task-open"
+          onClick={onOpen}
+          aria-haspopup="dialog"
+          aria-label={`Open ${task.title}`}
+        >
+          {task.title}
+        </button>
 
-          A blocker is the reason this card is not moving, which makes it the most important
-          thing about it — more than its estimate, its labels or when it is due. Buried in the
-          meta row it would read as one more attribute.
+        {/*
+          The reason, under the badge that announced it.
+
+          A blocker is why the card is not moving, so it outranks the estimate and the labels
+          and does not belong among them.
         */}
         {task.blockedReason && (
           <div className="task-blocked" title={`Blocked for ${daysBlocked(task.blockedSince)} days`}>
-            <span className="tag overdue">blocked</span> {task.blockedReason}
+            {task.blockedReason}
           </div>
         )}
 
@@ -205,19 +211,31 @@ const CardBody = forwardRef<
           </div>
         )}
 
-        {/* Controls sit below the title rather than beside it: a card is narrow, and a
-            title squeezed to four lines is harder to scan than an extra row. */}
+        {/*
+          The footer: who has it on the left, what it costs on the right.
+
+          Split rather than run together, because the two are asked about separately — "whose
+          is this" and "how much is left in it" — and a single row of chips answers neither
+          without being read end to end.
+        */}
         <div className="task-card-meta">
-          {task.priority !== 'normal' && (
-            <span className={`badge priority-${task.priority}`}>{task.priority}</span>
-          )}
-          {estimate != null && <span className="muted">{estimate}h</span>}
-          {task.dueOn && (
-            <span className={overdue ? 'error' : 'muted'}>
-              {overdue ? 'overdue ' : 'due '}
-              {task.dueOn}
+          {task.assignee ? (
+            <Avatar id={task.assignee.id} name={task.assignee.displayName} size="sm" />
+          ) : (
+            /*
+              Quiet on purpose.
+
+              Every card on a one-person board is unassigned, and the old bright ringed "?"
+              made the least informative fact on the card its loudest mark.
+            */
+            <span className="avatar avatar-sm avatar-empty" title="Unassigned" aria-label="Unassigned">
+              <svg width="9" height="9" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                <circle cx="6" cy="3.6" r="2.2" stroke="currentColor" strokeWidth="1.2" />
+                <path d="M1.9 10.6c0-2.2 1.8-3.4 4.1-3.4s4.1 1.2 4.1 3.4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+              </svg>
             </span>
           )}
+
           {/*
             How long it has sat here — the standup question the board could never answer.
 
@@ -232,16 +250,31 @@ const CardBody = forwardRef<
               {task.daysInColumn}d
             </span>
           )}
-          {task.commentCount > 0 && (
-            <span className="muted" title={`${task.commentCount} comments`}>
-              💬 {task.commentCount}
+          {task.dueOn && (
+            <span className={overdue ? 'error' : 'muted'}>
+              {overdue ? 'overdue ' : 'due '}
+              {task.dueOn}
             </span>
           )}
-          {task.labels.map((l) => (
-            <span key={l} className="badge">
-              {l}
+
+          <span className="task-card-gap" />
+
+          {estimate != null && <span className="muted">{estimate}h</span>}
+          {task.commentCount > 0 && (
+            /* An icon, not an emoji. This was the only emoji rendered anywhere in the
+               product, and it picked up the platform's own font rather than the app's. */
+            <span className="task-comments muted" title={`${task.commentCount} comments`}>
+              <svg width="11" height="11" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                <path
+                  d="M10.5 7.2c0 .8-.7 1.5-1.5 1.5H4.2L1.5 10.8V3.3c0-.8.7-1.5 1.5-1.5h6c.8 0 1.5.7 1.5 1.5z"
+                  stroke="currentColor"
+                  strokeWidth="1.1"
+                  strokeLinejoin="round"
+                />
+              </svg>
+              {task.commentCount}
             </span>
-          ))}
+          )}
           {/*
             Sprint planning, one card at a time.
 

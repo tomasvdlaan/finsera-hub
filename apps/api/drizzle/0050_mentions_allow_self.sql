@@ -1,0 +1,1 @@
+ALTER TABLE "core"."mentions" DROP CONSTRAINT "mentions_not_self";

@@ -9,6 +9,7 @@ import { Transform, docToMarkdown, markdownToDoc } from '@platform/note-doc';
 import { replaceSectionMarkdown } from '../../doc/note-edit.js';
 import { AI_NOTES_HEADING, AI_NOTES_SECTION } from './note-taker.behaviour.js';
 import type { BehaviourContext, MeetingBehaviour } from './behaviour.js';
+import { DEFAULT_EAGERNESS } from '../eagerness.js';
 
 const actor: Actor = { userId: crypto.randomUUID(), role: 'admin' };
 
@@ -28,6 +29,7 @@ const contextFor = (session: LiveSession, latest?: { speaker?: string; text: str
     tools: {},
     llm: {} as LlmService,
     newId: () => crypto.randomUUID(),
+    eagerness: DEFAULT_EAGERNESS,
   }) as BehaviourContext;
 
 /** A behaviour whose every decision the test controls. */
@@ -37,6 +39,7 @@ const stub = (over: Partial<MeetingBehaviour> = {}): MeetingBehaviour =>
     description: 'a stub',
     trigger: 'utterance',
     canSpeak: true,
+    dial: 'notes',
     shouldRun: () => true,
     run: async () => ({ speak: 'hello' }),
     ...over,
@@ -63,6 +66,7 @@ describe('BehaviourRegistry', () => {
     const results = await registry.run('utterance', contextFor(session), {
       enabled: new Set(['stub', 'other']),
       maySpeak: true,
+      eagerness: DEFAULT_EAGERNESS,
     });
     expect(results).toHaveLength(1);
     expect(results[0]!.speak).toBe('hello');
@@ -73,6 +77,7 @@ describe('BehaviourRegistry', () => {
     const results = await registry.run('utterance', contextFor(session), {
       enabled: new Set(['other']),
       maySpeak: true,
+      eagerness: DEFAULT_EAGERNESS,
     });
     expect(results).toHaveLength(0);
   });
@@ -87,6 +92,7 @@ describe('BehaviourRegistry', () => {
     const results = await registry.run('utterance', contextFor(session), {
       enabled: new Set(['stub', 'other']),
       maySpeak: false,
+      eagerness: DEFAULT_EAGERNESS,
     });
     expect(results[0]!.speak).toBeUndefined();
     expect(results[0]!.proposals).toHaveLength(1);
@@ -100,6 +106,7 @@ describe('BehaviourRegistry', () => {
     const results = await registry.run('utterance', contextFor(session), {
       enabled: new Set(['stub', 'other']),
       maySpeak: true,
+      eagerness: DEFAULT_EAGERNESS,
     });
     expect(results[0]!.speak).toBeUndefined();
   });
@@ -113,6 +120,7 @@ describe('BehaviourRegistry', () => {
     const results = await registry.run('utterance', contextFor(session), {
       enabled: new Set(['broken', 'fine']),
       maySpeak: true,
+      eagerness: DEFAULT_EAGERNESS,
     });
     expect(results).toHaveLength(1);
     expect(results[0]!.speak).toBe('hello');
@@ -126,6 +134,7 @@ describe('BehaviourRegistry', () => {
     const results = await registry.run('utterance', contextFor(session), {
       enabled: new Set(['broken', 'fine']),
       maySpeak: true,
+      eagerness: DEFAULT_EAGERNESS,
     });
     expect(results).toHaveLength(1);
   });
@@ -136,7 +145,7 @@ describe('BehaviourRegistry', () => {
       stub({ name: 'timed', trigger: 'interval', intervalMs: 60_000, run }),
       stub({ name: 'other' }),
     );
-    const settings = { enabled: new Set(['timed', 'other']), maySpeak: true };
+    const settings = { enabled: new Set(['timed', 'other']), maySpeak: true, eagerness: DEFAULT_EAGERNESS };
 
     await registry.run('interval', contextFor(session), settings);
     await registry.run('interval', contextFor(session), settings);

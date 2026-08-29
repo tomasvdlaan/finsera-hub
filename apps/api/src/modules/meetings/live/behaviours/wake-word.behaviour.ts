@@ -32,6 +32,19 @@ export class WakeWordBehaviour implements MeetingBehaviour {
     'Answers when someone addresses the assistant by name, using the same tools the chat assistant has.';
   readonly trigger = 'utterance' as const;
   readonly canSpeak = true;
+  /**
+   * Speech — but exempt from the dial, and deliberately.
+   *
+   * Every other behaviour decides for itself whether to say something, which is exactly what
+   * the dial is for. This one was asked a direct question by a person in the room. Declining
+   * to answer because a setting says be reserved would not read as restraint, it would read
+   * as broken, and the operator would reach for the mute switch instead — which is the
+   * control that actually means "not in this meeting".
+   *
+   * The dial is still declared, because `maySpeak` governs it and because the pace stretch
+   * is harmless on an utterance trigger: it has no interval to stretch.
+   */
+  readonly dial = 'speech' as const;
 
   private readonly logger = new Logger(WakeWordBehaviour.name);
 

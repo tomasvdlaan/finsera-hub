@@ -5,8 +5,16 @@ import type { BehaviourContext, BehaviourResult, MeetingBehaviour } from './beha
 /** How often it looks, at most. Searching is cheap; searching every utterance is not useful. */
 const CHECK_EVERY_MS = 45_000;
 
-/** Below this it is noise — a keyword match on a common word tells nobody anything. */
+/**
+ * Below this it is noise — a keyword match on a common word tells nobody anything.
+ *
+ * Scaled by the actions dial rather than fixed: a reserved agent wants a stronger match
+ * before it puts a document on screen, and an eager one is happy to show a maybe. Search
+ * relevance is not model confidence, so it gets its own multiplier rather than going through
+ * the shared floor, which would be a category error dressed up as reuse.
+ */
 const MIN_SCORE = 0.05;
+const SCORE_FACTOR = { reserved: 2, balanced: 1, eager: 0.5 } as const;
 
 /** Two is a pointer. Five is a reading list nobody opens mid-meeting. */
 const MAX_HITS = 2;
@@ -42,6 +50,14 @@ export class ContextFinderBehaviour implements MeetingBehaviour {
   readonly trigger = 'interval' as const;
   readonly intervalMs = CHECK_EVERY_MS;
   readonly canSpeak = false;
+  /**
+   * Actions, because what it looks up is what somebody proposed doing.
+   *
+   * It neither speaks nor writes, so it could plausibly answer to no dial at all — but it
+   * only ever fires on an action or a decision, and an operator who has turned those down
+   * has said something about how much unsolicited output they want on the subject.
+   */
+  readonly dial = 'actions' as const;
 
   private readonly logger = new Logger(ContextFinderBehaviour.name);
   /** Proposals already looked up, per note, so nothing is searched twice. */
@@ -62,8 +78,9 @@ export class ContextFinderBehaviour implements MeetingBehaviour {
     this.remember(ctx.note.id, proposal.id);
 
     try {
+      const floor = MIN_SCORE * SCORE_FACTOR[ctx.eagerness.actions];
       const hits = await this.docs.search(ctx.actor, proposal.text, MAX_HITS + 2);
-      const useful = hits.filter((h) => h.score >= MIN_SCORE).slice(0, MAX_HITS);
+      const useful = hits.filter((h) => h.score >= floor).slice(0, MAX_HITS);
       if (useful.length === 0) return { reason: `Nothing on file about "${proposal.text}"` };
 
       return {

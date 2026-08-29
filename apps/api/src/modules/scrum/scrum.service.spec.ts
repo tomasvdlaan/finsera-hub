@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { Actor } from '@platform/contracts';
 import { sql } from 'drizzle-orm';
 import { AuditService } from '../../core/audit/audit.service.js';
+import { MentionService } from '../../core/comments/mention.service.js';
 import { CommentService } from '../../core/comments/comment.service.js';
 import { EventBus } from '../../core/events/event-bus.service.js';
 import { LinkService } from '../../core/links/link.service.js';
@@ -485,7 +486,7 @@ describe('ScrumService card age, type and comment counts', () => {
     const crm = new CrmService(testDb, registry, permissions, audit, bus, links);
     const time = new TimeService(testDb, registry, permissions, audit, bus, links, crm);
     scrum = new ScrumService(testDb, registry, permissions, audit, bus, links, crm, time);
-    comments = new CommentService(testDb, registry, permissions, audit);
+    comments = new CommentService(testDb, registry, permissions, audit, new MentionService(testDb));
 
     const client = await crm.createClient(actor, { name: 'DocHorse', status: 'active' });
     const project = await crm.createProject(actor, {

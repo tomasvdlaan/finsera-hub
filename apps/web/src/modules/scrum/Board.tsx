@@ -27,7 +27,7 @@ import { Avatar } from '../../shell/ui/primitives.js';
 import { parseQuickAdd } from './quickAdd.js';
 import { SprintBar } from './SprintBar.js';
 import { TaskCard, TaskCardGhost } from './TaskCard.js';
-import { TaskPreview } from './TaskPreview.js';
+import { TaskModal } from './TaskModal.js';
 import {
   PRIORITIES,
   TASK_TYPES,
@@ -266,6 +266,14 @@ export function Board() {
   const [scope, setScope] = useState<Scope>('all');
   const [tasks, setTasks] = useState<Task[]>([]);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * Which popover the toolbar has open.
+   *
+   * Filters and quick-add used to be two permanent rows. They are still both here — the same
+   * controls, the same parser — but a control you use twice a day should not cost a row of
+   * the page every day, and the board is what the page is for.
+   */
+  const [panel, setPanel] = useState<'filters' | 'add' | null>(null);
   const [title, setTitle] = useState('');
   const [type, setType] = useState<TaskType>('story');
   const [busy, setBusy] = useState(false);
@@ -416,6 +424,22 @@ export function Board() {
     Boolean(filters.assignee || filters.type || filters.priority || filters.label || filters.flag) ||
     filters.subtasks;
 
+  /**
+   * How many filters are on, for the badge on the closed button.
+   *
+   * The count rather than a dot, because "some are set" and "four are set" are different
+   * amounts of not-seeing-your-board, and the first is the number people talk themselves
+   * past when a column looks emptier than they expected.
+   */
+  const activeFilters = [
+    filters.assignee,
+    filters.type,
+    filters.priority,
+    filters.label,
+    filters.flag,
+    filters.subtasks || null,
+  ].filter(Boolean).length;
+
   /*
    * Swimlanes: the same columns, split into rows.
    *
@@ -457,6 +481,23 @@ export function Board() {
       }))
       .filter((l) => l.tasks.length > 0);
   }, [shown, lane]);
+
+  /**
+   * The cards either side of an open one, for the modal's arrows.
+   *
+   * Its own column, in the order the board is drawing it — which is the order the eye was
+   * going in, and which already has the filters, the scope and the sort applied. Reading it
+   * off `shown` rather than off the server means the arrows can never offer a card the board
+   * is currently hiding.
+   */
+  const siblingsOf = useCallback(
+    (id: string) => {
+      const here = shown.find((t) => t.id === id);
+      if (!here) return [id];
+      return shown.filter((t) => t.status === here.status).map((t) => t.id);
+    },
+    [shown],
+  );
 
   const columnsOf = useCallback(
     (list: Task[]) => {
@@ -603,20 +644,30 @@ export function Board() {
 
       if (e.key === 'n') {
         e.preventDefault();
-        document.querySelector<HTMLInputElement>('.quick-add input')?.focus();
+        setPanel('add');
+        // After the panel exists. Focusing before it renders finds nothing and silently
+        // leaves the key looking broken.
+        requestAnimationFrame(() =>
+          document.querySelector<HTMLInputElement>('.quick-add input')?.focus(),
+        );
       }
       if (e.key === 'f') {
         e.preventDefault();
-        document.querySelector<HTMLSelectElement>('.filter-bar select')?.focus();
+        setPanel('filters');
+        requestAnimationFrame(() =>
+          document.querySelector<HTMLSelectElement>('.filter-bar select')?.focus(),
+        );
       }
       if (e.key === 'Escape') {
+        // In order of what is most likely to be in the way.
+        if (panel) return setPanel(null);
         setOpenId(null);
         setFilters(NO_FILTERS);
       }
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, []);
+  }, [panel]);
 
   if (projects.length === 0) {
     return (
@@ -628,26 +679,101 @@ export function Board() {
 
   return (
     <>
-      <PageHeader
-        title="Board"
-        subtitle={`${shown.filter((t) => !t.completedAt).length} open of ${shown.length}`}
-        tabs={<BoardTabs projectId={projectId} />}
-        actions={
-          <select
-            value={projectId}
-            onChange={(e) => setProjectId(e.target.value)}
-            aria-label="Project"
-          >
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-        }
-      />
+      {/*
+        One line, where there were six.
 
-      <SprintBar projectId={projectId} active={sprint} planned={planned} onChange={load} />
+        The page header, the tabs, the sprint prompt, the quick-add and the filters each had a
+        row of their own, and together they pushed the first card past the halfway mark of the
+        screen — 476px of chrome above 300px of board. None of them is gone: the ones you
+        reach for many times a day stayed on the line, and the two you open, use and close
+        became popovers hung off it.
+
+        The title went entirely. "Board" was the word directly under the nav item reading
+        Board, and the project's name is the thing that actually identifies what you are
+        looking at.
+      */}
+      <div className="board-toolbar" data-span={12}>
+        <select
+          className="board-project"
+          value={projectId}
+          onChange={(e) => setProjectId(e.target.value)}
+          aria-label="Project"
+        >
+          {projects.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+        </select>
+        <span className="faint board-count">
+          {shown.filter((t) => !t.completedAt).length} open of {shown.length}
+        </span>
+
+        <span className="board-toolbar-sep" aria-hidden="true" />
+        <BoardTabs projectId={projectId} />
+
+        <span className="board-toolbar-gap" />
+
+        <button
+          type="button"
+          className={panel === 'filters' ? 'chip chip-on' : 'chip'}
+          aria-expanded={panel === 'filters'}
+          onClick={() => setPanel((p) => (p === 'filters' ? null : 'filters'))}
+        >
+          Filters
+          {/*
+            How many are on, always, next to the word.
+
+            A filtered board is a board that is lying to you about what exists, and the one
+            unforgivable version of this design is hiding the filters without saying that
+            some are set.
+          */}
+          {activeFilters > 0 && <span className="chip-count">{activeFilters}</span>}
+        </button>
+
+        <span className="filter-lanes">
+          <label htmlFor="lane-select" className="faint">
+            Group
+          </label>
+          <select id="lane-select" value={lane} onChange={(e) => setLane(e.target.value as Lane)}>
+            <option value="none">No lanes</option>
+            <option value="assignee">By person</option>
+            <option value="priority">By priority</option>
+            <option value="type">By type</option>
+          </select>
+        </span>
+
+        <SprintBar projectId={projectId} active={sprint} planned={planned} onChange={load} compact />
+
+        <button
+          type="button"
+          className={panel === 'add' ? 'chip chip-on' : 'chip'}
+          aria-expanded={panel === 'add'}
+          onClick={() => setPanel((p) => (p === 'add' ? null : 'add'))}
+        >
+          + Task
+        </button>
+
+        {/*
+          The two lines of keyboard instructions that used to sit under the board, moved
+          behind the mark people press when they want them. They are a first-week aid and
+          they were costing a permanent row.
+        */}
+        <details className="board-help">
+          <summary aria-label="Keyboard shortcuts">?</summary>
+          <div className="board-help-body">
+            Drag a card anywhere on it to move it, or click its title to open it. From the
+            keyboard: <kbd>space</kbd> to pick a card up, <kbd>←</kbd> <kbd>→</kbd> to change
+            column, <kbd>↑</kbd> <kbd>↓</kbd> to reorder, <kbd>space</kbd> to drop.{' '}
+            <kbd>n</kbd> new · <kbd>f</kbd> filter · <kbd>Esc</kbd> clear
+          </div>
+        </details>
+      </div>
+
+      {/* A running sprint has a goal, dates and a meter, and earns the row the prompt did not. */}
+      {(sprint || planned) && (
+        <SprintBar projectId={projectId} active={sprint} planned={planned} onChange={load} />
+      )}
 
       {/* Only once there is a sprint to be inside or outside of. Three tabs on a flow board
           would be three ways to see the same list. */}
@@ -675,6 +801,8 @@ export function Board() {
         </div>
       )}
 
+      {panel === 'add' && (
+      <div className="board-panel" data-span={12}>
       <form onSubmit={(e) => void addTask(e)} className="row quick-add">
         <input
           value={title}
@@ -717,6 +845,8 @@ export function Board() {
           ))}
         </p>
       )}
+      </div>
+      )}
 
       {/*
         Filters and lanes, in one row.
@@ -725,6 +855,8 @@ export function Board() {
         and both are view state rather than stored state: nothing here is saved, because a
         filter you forgot you set is a board that lies to you tomorrow morning.
       */}
+      {panel === 'filters' && (
+      <div className="board-panel" data-span={12}>
       <div className="row filter-bar" role="group" aria-label="Filter and group">
         <select
           value={filters.assignee ?? ''}
@@ -801,22 +933,6 @@ export function Board() {
           </button>
         ))}
 
-        <span className="filter-lanes">
-          <label htmlFor="lane-select" className="muted">
-            Group
-          </label>
-          <select
-            id="lane-select"
-            value={lane}
-            onChange={(e) => setLane(e.target.value as Lane)}
-          >
-            <option value="none">No lanes</option>
-            <option value="assignee">By person</option>
-            <option value="priority">By priority</option>
-            <option value="type">By type</option>
-          </select>
-        </span>
-
         <button
           type="button"
           className={filters.subtasks ? 'chip chip-on' : 'chip'}
@@ -833,6 +949,8 @@ export function Board() {
           </button>
         )}
       </div>
+      </div>
+      )}
 
       {error && <p className="error">{error}</p>}
 
@@ -906,26 +1024,29 @@ export function Board() {
             </DragOverlay>
           </DndContext>
 
-          {openId && (
-            <TaskPreview
-              key={openId}
-              taskId={openId}
-              columns={board.columns}
-              people={people}
-              sprints={sprintList}
-              onClose={() => setOpenId(null)}
-              onChanged={load}
-            />
-          )}
         </div>
       )}
 
-      <p className="muted board-hint">
-        Drag a card anywhere on it to move it, or click its title to preview it. From the
-        keyboard: <kbd>space</kbd> to pick a card up, <kbd>←</kbd> <kbd>→</kbd> to change
-        column, <kbd>↑</kbd> <kbd>↓</kbd> to reorder, <kbd>space</kbd> to drop.
-        <kbd>n</kbd> new · <kbd>f</kbd> filter · <kbd>Esc</kbd> clear
-      </p>
+      {/*
+        Outside the board, because it is over it rather than beside it.
+
+        `siblings` is the column the card is in, in the order the board is drawing it — so the
+        arrows in the modal walk the same list your eye was walking, filters and lanes and all.
+      */}
+      {openId && board && (
+        <TaskModal
+          key={openId}
+          taskId={openId}
+          columns={board.columns}
+          people={people}
+          sprints={sprintList}
+          projectName={projects.find((p) => p.id === projectId)?.name}
+          siblings={siblingsOf(openId)}
+          onNavigate={setOpenId}
+          onClose={() => setOpenId(null)}
+          onChanged={load}
+        />
+      )}
     </>
   );
 }
