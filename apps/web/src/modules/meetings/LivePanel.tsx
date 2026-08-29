@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { useLiveMeeting } from '../../shell/LiveMeeting.js';
+import {
+  EAGERNESS_LEVELS,
+  useLiveMeeting,
+  type Eagerness,
+  type EagernessDial,
+  type EagernessLevel,
+} from '../../shell/LiveMeeting.js';
 import type { Source } from '../../shell/liveMeetingReducer.js';
 
 const money = (cents: number) =>
@@ -7,6 +13,93 @@ const money = (cents: number) =>
 
 const clock = (seconds: number) =>
   `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+
+/**
+ * What each dial governs, in the operator's terms.
+ *
+ * Three controls rather than one slider, because the three things the agent does cost
+ * different amounts when it is wrong — writing in a note you can delete, putting work on
+ * somebody's list, and interrupting a room with a client in it are not one preference.
+ */
+const DIALS: Array<{ dial: EagernessDial; label: string; hint: string }> = [
+  {
+    dial: 'notes',
+    label: 'Writing in the note',
+    hint: 'How much it records, and how readily it edits what is already there.',
+  },
+  {
+    dial: 'actions',
+    label: 'Suggesting work',
+    hint: 'How sure it must be before proposing an action point or a decision.',
+  },
+  {
+    dial: 'speech',
+    label: 'Speaking up',
+    hint: 'How readily it interrupts. Only applies when it may speak at all.',
+  },
+];
+
+/** What a level means, said plainly. The words on the dial are not self-explanatory. */
+const LEVEL_HINTS: Record<EagernessDial, Record<EagernessLevel, string>> = {
+  notes: {
+    reserved: 'Only decisions, figures and commitments.',
+    balanced: 'What a reader would need next week.',
+    eager: 'Generously — easier to delete than to remember.',
+  },
+  actions: {
+    reserved: 'Only what somebody said in as many words.',
+    balanced: 'What the room clearly agreed.',
+    eager: 'Anything that sounds like work taken on.',
+  },
+  speech: {
+    reserved: 'Almost never.',
+    balanced: 'When the room needs it now.',
+    eager: 'Whenever it can usefully add.',
+  },
+};
+
+/**
+ * One dial.
+ *
+ * Radio buttons rather than a range input: three named positions with meanings are not a
+ * continuum, and a slider would imply a precision the setting does not have.
+ */
+function Dial({
+  dial,
+  label,
+  hint,
+  level,
+  disabled,
+  onChange,
+}: {
+  dial: EagernessDial;
+  label: string;
+  hint: string;
+  level: EagernessLevel;
+  disabled?: boolean;
+  onChange: (next: EagernessLevel) => void;
+}) {
+  return (
+    <li>
+      <strong>{label}</strong> <span className="muted">{hint}</span>
+      <div className="row">
+        {EAGERNESS_LEVELS.map((option) => (
+          <label key={option} className={option === level ? undefined : 'muted'}>
+            <input
+              type="radio"
+              name={`eagerness-${dial}`}
+              checked={option === level}
+              disabled={disabled}
+              onChange={() => onChange(option)}
+            />{' '}
+            {option}
+          </label>
+        ))}
+      </div>
+      <p className="muted">{LEVEL_HINTS[dial][level]}</p>
+    </li>
+  );
+}
 
 /**
  * The live meeting panel.
@@ -32,8 +125,10 @@ export function LivePanel({
     behaviours,
     enabled,
     maySpeak,
+    eagerness,
     chatty,
     resume,
+    loadSettings,
     resumeAudio,
     startBot,
     startCapture,
@@ -54,6 +149,12 @@ export function LivePanel({
     void resume(noteId);
     // Only on mount for this note: resuming on every render would reopen the socket.
   }, [noteId, resume]);
+
+  useEffect(() => {
+    // The note's own settings, not the platform defaults the provider starts with. Separate
+    // from `resume` because these exist whether or not anything is recording.
+    void loadSettings(noteId);
+  }, [noteId, loadSettings]);
 
   useEffect(() => {
     // Labels are hidden until permission is granted, so this list is only useful after a
@@ -232,6 +333,7 @@ export function LivePanel({
             </section>
           )}
 
+
           {chatty && (
             <p className="muted">
               The bot will speak in the meeting. It waits at least 8 seconds between
@@ -308,6 +410,34 @@ export function LivePanel({
       )}
 
       {live.error && <p className="error">{live.error}</p>}
+      <section>
+        <h3>How forward it is</h3>
+        <ul className="agenda">
+          {DIALS.map(({ dial, label, hint }) => (
+            <Dial
+              key={dial}
+              dial={dial}
+              label={label}
+              hint={hint}
+              level={eagerness[dial]}
+              /*
+               * The speech dial is inert while the agent is muted, and says so by being
+               * disabled rather than by disappearing — a control that vanishes reads as a
+               * missing feature, and this one is a keystroke away from mattering.
+               */
+              disabled={dial === 'speech' && !maySpeak}
+              onChange={(next: EagernessLevel) =>
+                configure({ eagerness: { ...eagerness, [dial]: next } as Eagerness })
+              }
+            />
+          ))}
+        </ul>
+        <p className="muted">
+          Kept with this note, so a meeting you record every week starts where you left
+          it. New notes start from their template.
+        </p>
+      </section>
+
     </div>
   );
 }

@@ -427,6 +427,66 @@ export const comments = core.table(
 );
 
 /**
+ * Somebody was named in a comment and has not read it yet.
+ *
+ * A store of its own rather than an insight. The Inbox is the insights engine — rules that
+ * sweep published views on a schedule and auto-resolve when the condition clears — and a
+ * mention is neither: it is an event that happened once, at a moment, and it stops mattering
+ * when the person has read it, not when the world changes. Modelling it as a rule would mean
+ * inventing a condition for "has not looked yet" and a view for it to sweep.
+ *
+ * The comment keeps the text; this keeps only the fact that it was addressed to someone. The
+ * subject is denormalised alongside its id for the same reason `comments.subjectType` is: the
+ * list has to name and link the thing being discussed without a join per row.
+ */
+export const mentions = core.table(
+  'mentions',
+  {
+    id: uuid('id').primaryKey(),
+    /** Who was named. */
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    /** Who named them, so the list can say who is asking. */
+    authorId: uuid('author_id')
+      .notNull()
+      .references(() => users.id),
+    commentId: uuid('comment_id')
+      .notNull()
+      .references(() => comments.id, { onDelete: 'cascade' }),
+    subjectId: uuid('subject_id')
+      .notNull()
+      .references(() => entities.id),
+    subjectType: text('subject_type').notNull(),
+    /** Null until they have seen it. The whole point of the table. */
+    readAt: timestamp('read_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    /* The only query this table exists to answer: what is waiting for me. */
+    index('mentions_unread_idx').on(t.userId, t.readAt),
+    /*
+     * One row per person per comment, always.
+     *
+     * Editing a comment re-reads it for names, and without this a correction that left the
+     * mention untouched would notify the same person again every time — which is how a
+     * notification becomes something people turn off.
+     */
+    uniqueIndex('mentions_once').on(t.commentId, t.userId),
+    /*
+     * Naming yourself is allowed.
+     *
+     * It was forbidden here at first, on the reasoning that a message to yourself is not a
+     * message. That is true of an automatic notification and false of a deliberate one: `@me
+     * chase this Friday` is a reminder somebody typed on purpose, and on a team this size the
+     * inbox is also a personal queue. Forbidding it also meant the whole feature was
+     * unusable until a second person signed in, which is a poor property for a thing you
+     * cannot otherwise test.
+     */
+  ],
+);
+
+/**
  * One person's dashboard.
  *
  * A single jsonb column rather than a row per placement, because the layout is only ever read

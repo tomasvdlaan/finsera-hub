@@ -1,0 +1,1 @@
+ALTER TABLE "meetings"."notes" ADD COLUMN "agent_settings" jsonb;

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight';
 import { Placeholder } from '@tiptap/extensions';
 import { EditorContent, useEditor } from '@tiptap/react';
@@ -31,14 +31,33 @@ export function MarkdownEditor({
   placeholder = 'Add a description…',
   editable = true,
   label,
+  toolbar = false,
+  footer,
 }: {
   value: string;
   onSave: (markdown: string) => void;
   placeholder?: string;
   editable?: boolean;
+  /**
+   * Show the formatting controls.
+   *
+   * Off by default, and that default is why this is being added rather than assumed: the
+   * editor has been rich since it was written — the shared schema, headings, lists, code
+   * with highlighting, images on paste — and none of it was reachable except by knowing
+   * the Markdown shortcuts. Rich text you cannot see is rich text nobody uses.
+   *
+   * Opt-in rather than always-on because a one-line field in a form does not want a strip
+   * of buttons above it, and half this component's callers are exactly that.
+   */
+  toolbar?: boolean;
+  /** Anything that belongs on the toolbar's right — a send button, a hint. */
+  footer?: ReactNode;
   /** Named for screen readers, since there is no <label> that can point at a contenteditable. */
   label?: string;
 }) {
+  /** The hidden file input the toolbar's image button opens. */
+  const file = useRef<HTMLInputElement>(null);
+
   const editor = useEditor({
     editable,
     extensions: [...extensions, Placeholder.configure({ placeholder })],
@@ -104,13 +123,107 @@ export function MarkdownEditor({
   }, [value, editor]);
 
   if (!editor) return <p className="muted">Loading…</p>;
+
+  /*
+   * `isActive` is read on every render rather than subscribed to.
+   *
+   * TipTap re-renders this component on every selection change already, so the marks under
+   * the caret are current — and a subscription would be a second source of the same truth.
+   */
+  const mark = (name: string, attrs?: Record<string, unknown>) =>
+    editor.isActive(name, attrs) ? 'md-tool md-tool-on' : 'md-tool';
+
   return (
-    <div className="markdown-editor">
+    <div className="markdown-editor" data-framed={toolbar || undefined}>
+      {toolbar && (
+        /*
+         * `onMouseDown` with preventDefault, never `onClick`.
+         *
+         * A click on a button moves focus out of the contenteditable first, which collapses
+         * the selection — so a click on Bold with three words selected would embolden
+         * nothing. Preventing the default keeps the selection where it was.
+         */
+        <div className="md-toolbar" role="toolbar" aria-label="Formatting">
+          <button type="button" className={mark('bold')} title="Bold" aria-label="Bold"
+            onMouseDown={(e) => { e.preventDefault(); editor.chain().focus().toggleBold().run(); }}>
+            <b>B</b>
+          </button>
+          <button type="button" className={mark('italic')} title="Italic" aria-label="Italic"
+            onMouseDown={(e) => { e.preventDefault(); editor.chain().focus().toggleItalic().run(); }}>
+            <i>I</i>
+          </button>
+          <button type="button" className={mark('highlight')} title="Highlight" aria-label="Highlight"
+            onMouseDown={(e) => { e.preventDefault(); editor.chain().focus().toggleHighlight().run(); }}>
+            <span className="md-hl">A</span>
+          </button>
+          <span className="md-sep" aria-hidden="true" />
+          <button type="button" className={mark('heading', { level: 2 })} title="Heading" aria-label="Heading"
+            onMouseDown={(e) => { e.preventDefault(); editor.chain().focus().toggleHeading({ level: 2 }).run(); }}>
+            H
+          </button>
+          <button type="button" className={mark('bulletList')} title="Bullets" aria-label="Bulleted list"
+            onMouseDown={(e) => { e.preventDefault(); editor.chain().focus().toggleBulletList().run(); }}>
+            <BulletIcon />
+          </button>
+          <button type="button" className={mark('orderedList')} title="Numbered" aria-label="Numbered list"
+            onMouseDown={(e) => { e.preventDefault(); editor.chain().focus().toggleOrderedList().run(); }}>
+            1.
+          </button>
+          <span className="md-sep" aria-hidden="true" />
+          <button type="button" className={mark('codeBlock')} title="Code" aria-label="Code block"
+            onMouseDown={(e) => { e.preventDefault(); editor.chain().focus().toggleCodeBlock().run(); }}>
+            <span className="md-code">&lt;/&gt;</span>
+          </button>
+          <button type="button" className={mark('blockquote')} title="Quote" aria-label="Quote"
+            onMouseDown={(e) => { e.preventDefault(); editor.chain().focus().toggleBlockquote().run(); }}>
+            &rdquo;
+          </button>
+          {/* The one control that is not a formatting toggle: images already arrive by paste
+              and by drop, and neither is discoverable from a keyboard or a trackpad. */}
+          <button type="button" className="md-tool" title="Image" aria-label="Insert an image"
+            onMouseDown={(e) => { e.preventDefault(); file.current?.click(); }}>
+            <ImageIcon />
+          </button>
+          {footer && <span className="md-toolbar-end">{footer}</span>}
+        </div>
+      )}
+      <input
+        ref={file}
+        type="file"
+        accept="image/*"
+        hidden
+        onChange={(e) => {
+          const chosen = [...(e.target.files ?? [])];
+          e.target.value = '';
+          if (chosen.length > 0) void uploadAll(chosen);
+        }}
+      />
       {/* Deliberately not `.rich-editor .editor-sheet` — those carry the note page's sheet:
           its own border, its own shadow and a hard-coded placeholder. A field in a form wants
           none of that, and inheriting it would put a card inside a card. */}
       <EditorContent editor={editor} />
     </div>
+  );
+}
+
+function BulletIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+      <path d="M5 3.5h7M5 7h7M5 10.5h7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+      <circle cx="2.4" cy="3.5" r="1" fill="currentColor" />
+      <circle cx="2.4" cy="7" r="1" fill="currentColor" />
+      <circle cx="2.4" cy="10.5" r="1" fill="currentColor" />
+    </svg>
+  );
+}
+
+function ImageIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+      <rect x="1.6" y="2.6" width="10.8" height="8.8" rx="1.4" stroke="currentColor" strokeWidth="1.2" />
+      <path d="m2.6 9.4 2.6-2.6 2.6 2.6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="9.2" cy="5.6" r="1" fill="currentColor" />
+    </svg>
   );
 }
 
@@ -157,8 +270,26 @@ export function firstImage(markdown: string | null | undefined): string | null {
  * Nothing here trusts the input: the Markdown parser is configured `html: false` and the only
  * inline HTML it accepts is a colour span, so a comment cannot smuggle markup into the page.
  */
-export function Markdown({ value, className }: { value: string; className?: string }) {
+export function Markdown({
+  value,
+  className,
+  names = [],
+}: {
+  value: string;
+  className?: string;
+  /**
+   * Display names to draw as mentions.
+   *
+   * Given rather than guessed, and highlighted after serialising rather than before: a
+   * mention is stored as ordinary text — see `namesIn` on the server for why an id smuggled
+   * into the Markdown is the option that quietly breaks — so the only place it can become
+   * visible is the rendered output.
+   */
+  names?: string[];
+}) {
   const host = useRef<HTMLDivElement>(null);
+  // Joined, so the effect does not re-run on every render for an array literal.
+  const key = names.join('\u0000');
 
   useEffect(() => {
     const node = host.current;
@@ -166,7 +297,54 @@ export function Markdown({ value, className }: { value: string; className?: stri
     node.replaceChildren(
       DOMSerializer.fromSchema(noteSchema).serializeFragment(markdownToDoc(value ?? '').content),
     );
-  }, [value]);
+    if (key) markMentions(node, key.split('\u0000'));
+  }, [value, key]);
 
   return <div ref={host} className={className ? `markdown-body ${className}` : 'markdown-body'} />;
+}
+
+/**
+ * Wrap `@Name` in the rendered output.
+ *
+ * Text nodes only, and never inside a link or a code block — a name in a code sample is
+ * sample text, and rewriting inside an anchor would nest one clickable thing in another.
+ * Longest first, matching the server, so "@Marijn Jansen" is one mention rather than a
+ * mention of Marijn followed by a stray surname.
+ */
+function markMentions(root: HTMLElement, names: string[]) {
+  const ordered = [...names].filter(Boolean).sort((a, b) => b.length - a.length);
+  if (ordered.length === 0) return;
+  const escaped = ordered.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const pattern = new RegExp(`(^|[^\\w@])(@(?:${escaped.join('|')}))(?![\\w])`, 'gi');
+
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode: (node) =>
+      node.parentElement?.closest('a, code, pre')
+        ? NodeFilter.FILTER_REJECT
+        : NodeFilter.FILTER_ACCEPT,
+  });
+  const texts: Text[] = [];
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) texts.push(n as Text);
+
+  for (const text of texts) {
+    const source = text.nodeValue ?? '';
+    if (!source.includes('@')) continue;
+    pattern.lastIndex = 0;
+    if (!pattern.test(source)) continue;
+    pattern.lastIndex = 0;
+
+    const fragment = document.createDocumentFragment();
+    let last = 0;
+    for (let m = pattern.exec(source); m; m = pattern.exec(source)) {
+      const start = m.index + m[1]!.length;
+      fragment.append(source.slice(last, start));
+      const span = document.createElement('span');
+      span.className = 'mention';
+      span.textContent = m[2]!;
+      fragment.append(span);
+      last = start + m[2]!.length;
+    }
+    fragment.append(source.slice(last));
+    text.replaceWith(fragment);
+  }
 }

@@ -32,6 +32,7 @@ import type { ConversationService } from './conversation.service.js';
 import type { RecallProvider } from './capture/recall.provider.js';
 import { LiveGateway } from './live.gateway.js';
 import type { LiveService } from './live.service.js';
+import { DEFAULT_EAGERNESS } from './eagerness.js';
 
 const actor: Actor = { userId: crypto.randomUUID(), role: 'admin' };
 
@@ -162,7 +163,7 @@ describe('LiveGateway', () => {
       { name: 'd', description: '', trigger: 'interval', canSpeak: false,
         shouldRun: () => false, run: async () => null } as unknown as never,
     );
-    noBehaviours.defaults = () => ({ enabled: new Set<string>(), maySpeak: false });
+    noBehaviours.defaults = () => ({ enabled: new Set<string>(), maySpeak: false, eagerness: DEFAULT_EAGERNESS });
     behaviourRuns = noBehaviours;
 
     runner = new LiveRunner(
@@ -581,7 +582,7 @@ describe('LiveGateway', () => {
   // ── behaviours, which never ran here before ──
 
   it('runs behaviours on what was said', async () => {
-    behaviourRuns.defaults = () => ({ enabled: new Set(['a', 'b', 'c']), maySpeak: false });
+    behaviourRuns.defaults = () => ({ enabled: new Set(['a', 'b', 'c']), maySpeak: false, eagerness: DEFAULT_EAGERNESS });
     const note = await noteWithConsent();
     const socket = new FakeSocket();
     await gateway.handleConnection(socket as never, request(`token=t&noteId=${note.id}`));

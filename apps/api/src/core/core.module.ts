@@ -2,6 +2,7 @@ import { Global, Module } from '@nestjs/common';
 import { AuditService } from './audit/audit.service.js';
 import { AuthModule } from './auth/auth.module.js';
 import { CommentService } from './comments/comment.service.js';
+import { MentionService } from './comments/mention.service.js';
 import { DbModule } from './db/db.module.js';
 import { EventBus } from './events/event-bus.service.js';
 import { EventDispatcher } from './events/event-dispatcher.service.js';
@@ -31,6 +32,7 @@ import { StorageService } from './storage/storage.service.js';
  */
 const services = [
   CommentService,
+  MentionService,
   ManifestRegistry,
   RegistryService,
   AuditService,

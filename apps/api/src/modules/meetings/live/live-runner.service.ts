@@ -15,7 +15,8 @@ import { BehaviourRegistry, type BehaviourSettings } from './behaviours/behaviou
 import { NOTED_SECTION, applySession, notedMarkdown, sessionSummary } from './session-body.js';
 import { NoteDocService } from '../doc/note-doc.service.js';
 import { replaceSectionMarkdown } from '../doc/note-edit.js';
-import { AI_NOTES_SECTION } from './behaviours/note-taker.behaviour.js';
+import { DEFAULT_EAGERNESS, readEagerness, type Eagerness } from './eagerness.js';
+import { TEMPLATES, type Template, type TemplateName } from '../templates.js';
 
 /**
  * Runs one live meeting, whatever is supplying the audio.
@@ -30,8 +31,6 @@ import { AI_NOTES_SECTION } from './behaviours/note-taker.behaviour.js';
 @Injectable()
 export class LiveRunner {
   private readonly logger = new Logger(LiveRunner.name);
-  /** The last notes written into each document, so an unrevised section is not rewritten. */
-  private readonly writtenNotes = new Map<string, string>();
 
   constructor(
     private readonly registry: RegistryService,
@@ -47,23 +46,104 @@ export class LiveRunner {
     private readonly docs: NoteDocService,
   ) {}
 
-  /** What each running meeting has switched on. */
+  /**
+   * What each running meeting has switched on.
+   *
+   * Still a map, but no longer the truth — a read-through cache in front of the note's own
+   * `agentSettings`. It exists because these are read on every utterance and a database round
+   * trip in that path would cost more than the behaviours it is gating.
+   */
   private readonly settings = new Map<string, BehaviourSettings>();
 
-  behaviourSettings(noteId: string): BehaviourSettings {
-    let current = this.settings.get(noteId);
-    if (!current) {
-      current = this.behaviours.defaults();
-      this.settings.set(noteId, current);
+  /**
+   * The settings for a meeting: what is cached, else what the note remembers, else what the
+   * template thinks, else the platform default.
+   *
+   * That chain is the whole point of persisting them. A recurring client check-in is the same
+   * meeting every month, and the operator who turned the nudges down in January is the person
+   * who has to turn them down again in February — which is how a setting teaches people that
+   * settings do not work.
+   */
+  async behaviourSettings(actor: Actor, noteId: string): Promise<BehaviourSettings> {
+    const cached = this.settings.get(noteId);
+    if (cached) return cached;
+
+    const settings = this.behaviours.defaults(await this.eagernessFor(actor, noteId));
+    try {
+      const stored = (await this.meetings.agentSettings(actor, noteId)) as {
+        enabled?: unknown;
+        maySpeak?: unknown;
+        eagerness?: unknown;
+      } | null;
+      if (stored) {
+        // Each field independently, so a row written before a field existed still gives up
+        // the fields it does have rather than being discarded whole.
+        if (Array.isArray(stored.enabled)) settings.enabled = new Set(stored.enabled as string[]);
+        if (typeof stored.maySpeak === 'boolean') settings.maySpeak = stored.maySpeak;
+        settings.eagerness = readEagerness(stored.eagerness, settings.eagerness);
+      }
+    } catch (error) {
+      // Unreadable settings are not a reason to refuse to record. The defaults are a complete
+      // answer, and a meeting that would not start because of a preferences row would be a
+      // much worse trade than a meeting that starts with the wrong preferences.
+      this.logger.warn(`Could not read agent settings for ${noteId}: ${(error as Error).message}`);
     }
-    return current;
+
+    this.settings.set(noteId, settings);
+    return settings;
   }
 
-  configure(noteId: string, patch: { enabled?: string[]; maySpeak?: boolean }): BehaviourSettings {
-    const current = this.behaviourSettings(noteId);
+  /** What the template thinks, over the platform default. */
+  private async eagernessFor(actor: Actor, noteId: string): Promise<Eagerness> {
+    try {
+      const note = await this.meetings.get(actor, noteId);
+      /*
+       * Typed as the interface rather than as the literal.
+       *
+       * `TEMPLATES` is `satisfies Record<string, Template>`, so indexing it gives the union of
+       * the literal shapes — and a template that states no opinion about eagerness has no such
+       * property in its literal type, which makes reading one an error rather than undefined.
+       */
+      const template: Template | undefined = note.template
+        ? TEMPLATES[note.template as TemplateName]
+        : undefined;
+      return { ...DEFAULT_EAGERNESS, ...(template?.eagerness ?? {}) };
+    } catch {
+      return DEFAULT_EAGERNESS;
+    }
+  }
+
+  async configure(
+    actor: Actor,
+    noteId: string,
+    patch: { enabled?: string[]; maySpeak?: boolean; eagerness?: unknown },
+  ): Promise<BehaviourSettings> {
+    const current = await this.behaviourSettings(actor, noteId);
     if (patch.enabled) current.enabled = new Set(patch.enabled);
     if (patch.maySpeak !== undefined) current.maySpeak = patch.maySpeak;
+    if (patch.eagerness !== undefined) {
+      // Narrowed against what is already set rather than against the platform default, so
+      // sending one dial changes one dial.
+      current.eagerness = readEagerness(patch.eagerness, current.eagerness);
+    }
     this.settings.set(noteId, current);
+
+    /*
+     * Written through, and a failure to store is not a failure to apply.
+     *
+     * The operator changed a setting because of the meeting happening right now; that has to
+     * take effect whether or not it survives until the next one.
+     */
+    await this.meetings
+      .saveAgentSettings(actor, noteId, {
+        enabled: [...current.enabled],
+        maySpeak: current.maySpeak,
+        eagerness: current.eagerness,
+      })
+      .catch((error: Error) =>
+        this.logger.warn(`Could not store agent settings for ${noteId}: ${error.message}`),
+      );
+
     return current;
   }
 
@@ -289,7 +369,7 @@ export class LiveRunner {
     live: LiveSession,
     latest?: { speaker?: string; text: string; at: number },
   ): Promise<void> {
-    const settings = this.behaviourSettings(noteId);
+    const settings = await this.behaviourSettings(actor, noteId);
     if (settings.enabled.size === 0) return;
 
     try {
@@ -308,6 +388,7 @@ export class LiveRunner {
         tools,
         llm: this.llm,
         newId: () => this.registry.newId(),
+        eagerness: settings.eagerness,
       }, settings);
 
       for (const result of results) {
@@ -325,8 +406,12 @@ export class LiveRunner {
         }
       }
 
-      // Into the document as they are revised, and onto the screens watching.
-      await this.writeNotes(actor, noteId, live);
+      /*
+       * Onto the screens watching. Not into the document — the note-taker writes its own
+       * edits now, in one transaction, and this used to write the same section a second time
+       * immediately afterwards from a copy held in memory. Two writers for one section is how
+       * the section ends up saying whichever of them ran last.
+       */
       if (live.aiNotes) this.sessions.broadcast(noteId, { type: 'notes', markdown: live.aiNotes });
     } catch (error) {
       this.logger.warn(`Behaviours failed on ${noteId}: ${(error as Error).message}`);
@@ -390,48 +475,6 @@ export class LiveRunner {
   }
 
   /**
-   * Put the assistant's notes into the note while the meeting is still running.
-   *
-   * They were only ever written when the recording stopped, so a meeting produced nothing
-   * visible in the document for its whole length and then everything at once at the end.
-   * The notes existed the entire time — the note-taker revises them every ninety seconds —
-   * they were just held in memory and broadcast to the panel, which is a different thing
-   * from being in the note you have open.
-   *
-   * The original reason for waiting was that a revision every ninety seconds would fill the
-   * note's history with drafts. It does not: `steps` is a bounded in-memory buffer for
-   * collaborative sync, and there is no persisted history of a note body to fill. What a
-   * write actually costs is one debounced UPDATE and a re-index — which is strictly less
-   * than a person typing the same notes by hand, since their every pause flushes too.
-   *
-   * Safe against whatever else is happening in the document because it replaces one section
-   * by heading rather than writing the body: everything outside `## Notes from the meeting`
-   * is untouched, so somebody typing their own summary during the meeting keeps it.
-   */
-  private async writeNotes(actor: Actor, noteId: string, live: LiveSession): Promise<void> {
-    const markdown = live.aiNotes?.trim();
-    if (!markdown) return;
-    // The note-taker leaves `aiNotes` alone when nothing new was said, so an unchanged
-    // section means there is nothing to write — and writing it anyway would produce a
-    // no-op revision every ninety seconds for the length of a quiet meeting.
-    if (this.writtenNotes.get(noteId) === markdown) return;
-
-    try {
-      await this.docs.edit(noteId, actor, (tr) =>
-        replaceSectionMarkdown(tr, AI_NOTES_SECTION, markdown),
-      );
-      this.writtenNotes.set(noteId, markdown);
-    } catch (error) {
-      /*
-       * Never fatal. The end-of-session write covers the same section from the same source,
-       * so a failure here costs liveness and not the notes — and a meeting that stopped
-       * recording because the document was briefly unavailable would be a much worse trade.
-       */
-      this.logger.warn(`Could not write live notes on ${noteId}: ${(error as Error).message}`);
-    }
-  }
-
-  /**
    * Put what it noticed into the document, and keep it out of the waiting pile.
    *
    * A note is an observation — "Tomas mentioned the scheduling logic could be inverted" —
@@ -468,7 +511,7 @@ export class LiveRunner {
         );
       } catch (error) {
         /*
-         * Never fatal, for the same reason as writeNotes: applySession replaces this exact
+         * Never fatal: applySession replaces this exact
          * section from the same source when the recording stops, so a failure here costs
          * liveness rather than the notes.
          */
@@ -537,10 +580,12 @@ export class LiveRunner {
     live.extracting = true;
     try {
       const note = await this.meetings.get(actor, noteId);
+      const settings = await this.behaviourSettings(actor, noteId);
       const { added, state } = await this.live.extract(
         live,
         note.agenda.map((a) => ({ id: a.id, title: a.title, covered: a.covered })),
         () => this.registry.newId(),
+        settings.eagerness,
       );
       const suggestions = await this.recordNotes(actor, noteId, live, added);
       if (suggestions.length > 0) {
@@ -613,12 +658,11 @@ export class LiveRunner {
     this.chatty.delete(noteId);
     this.conversation.forget(noteId);
     this.behaviours.forget(noteId);
-    this.settings.delete(noteId);
     /*
-     * Forgotten, or a second recording onto the same note would compare its first notes
-     * against the last ones from the previous recording and decline to write them.
+     * The cache, not the setting. What the note remembers survives — that is the point of
+     * having stored it — and the next recording reads it back on its first behaviour pass.
      */
-    this.writtenNotes.delete(noteId);
+    this.settings.delete(noteId);
     const timer = this.timers.get(noteId);
     if (timer) {
       clearInterval(timer);

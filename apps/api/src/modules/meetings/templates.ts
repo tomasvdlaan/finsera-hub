@@ -8,6 +8,8 @@
  * Deliberately few. A template nobody uses is worse than no template — it becomes a menu
  * to read past every time.
  */
+import type { Eagerness } from './live/eagerness.js';
+
 export interface Template {
   label: string;
   description: string;
@@ -36,6 +38,19 @@ export interface Template {
    * from the attendees it is created with, and after that it is text like any other.
    */
   perAttendee?: string;
+  /**
+   * How forward the meeting agent should be here, before anybody adjusts it.
+   *
+   * A property of the ceremony, like the timebox, and for the same reason: a stand-up and a
+   * client kick-off want genuinely different agents. Fifteen minutes of "yesterday I, today
+   * I" does not want a note-taker writing prose about it, and a kick-off is the one meeting
+   * where missing a commitment costs most.
+   *
+   * Partial — a template says only what it has an opinion about, and the rest comes from
+   * DEFAULT_EAGERNESS. Stating all three everywhere would make the defaults impossible to
+   * change in one place, which is most of what a default is for.
+   */
+  eagerness?: Partial<Eagerness>;
 }
 
 export const TEMPLATES = {
@@ -43,6 +58,8 @@ export const TEMPLATES = {
     label: 'Client check-in',
     description: 'A recurring conversation about how the work is going.',
     timeboxMinutes: 30,
+    // A client is in the room: the agent writes freely and stays out of the conversation.
+    eagerness: { notes: 'eager', speech: 'reserved' },
     agenda: ['How is the current work landing?', 'Blockers on their side', 'What is next', 'Anything commercial'],
     body: [
       '## Context',
@@ -59,6 +76,13 @@ export const TEMPLATES = {
     label: 'Project kick-off',
     description: 'Starting a piece of work: scope, people, and how it will run.',
     timeboxMinutes: 60,
+    /*
+     * The one meeting where a missed commitment is expensive.
+     *
+     * Everything agreed here is what the project is later held to, and nobody has the shared
+     * memory yet to notice something was dropped. Worth the false positives.
+     */
+    eagerness: { notes: 'eager', actions: 'eager' },
     agenda: [
       'What are we actually delivering',
       'Who does what',
@@ -83,6 +107,8 @@ export const TEMPLATES = {
     label: 'Discovery / intake',
     description: 'A first conversation with a prospect or about a new problem.',
     timeboxMinutes: 60,
+    // The whole point is to hear things nobody thought to ask about; record generously.
+    eagerness: { notes: 'eager' },
     agenda: [
       'What problem are they trying to solve',
       'What they have tried',
@@ -115,6 +141,12 @@ export const TEMPLATES = {
     label: 'Daily stand-up',
     description: 'Fifteen minutes, round the table, blockers first.',
     timeboxMinutes: 15,
+    /*
+     * Fifteen minutes of round-the-table, and the note is a grid with a block per person.
+     * A note-taker writing prose alongside that is producing a second, worse copy of it —
+     * and the blockers, which are the only part worth catching, are usually said as actions.
+     */
+    eagerness: { notes: 'reserved', actions: 'balanced' },
     agenda: ['Round the table', 'Blockers', 'Anything that changes the sprint goal'],
     body: ['## Sprint goal', '', '## Round the table', '', '## Blockers', '', '## Decisions', ''].join('\n'),
     perAttendee: ['### {name}', '', '- Yesterday: ', '- Today: ', '- Blockers: ', ''].join('\n'),

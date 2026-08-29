@@ -9,7 +9,16 @@ export const meetingsWebModule: WebModule = {
   name: 'meetings',
   routes: [
     { path: '/meetings', Component: NoteList, width: 'wide' },
-    { path: '/meetings/:id', Component: NoteDetail, width: 'read' },
+    /*
+     * The whole width, and a grid to spend it on.
+     *
+     * It was capped at a reading measure, which is the right call for a page that is one
+     * column of prose and the wrong one here: this page is a document *and* everything around
+     * it — what you owe, who was there, what it cost — and at 46rem all of that was a single
+     * stack a thousand pixels narrower than the screen it was on. The note keeps its reading
+     * width regardless; prose is capped on the text, not on the page.
+     */
+    { path: '/meetings/:id', Component: NoteDetail, width: 'full' },
     /*
      * The room takes the viewport.
      *

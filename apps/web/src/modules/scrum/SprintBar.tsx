@@ -44,6 +44,7 @@ export function SprintBar({
   active,
   planned,
   onChange,
+  compact = false,
 }: {
   projectId: string;
   /** The running sprint, fetched by the board. */
@@ -52,11 +53,29 @@ export function SprintBar({
   planned: Sprint | null;
   /** Re-read everything: completing a sprint moves cards, starting one changes the scope. */
   onChange: () => Promise<void> | void;
+  /**
+   * Render only the invitation to plan one, for the board toolbar.
+   *
+   * A project with no sprint should not spend a row of the board saying so — that was one of
+   * the six rows standing between the page and its first card. A project that HAS one still
+   * earns its row, because then this shows progress against dates, and the board renders the
+   * full bar below the toolbar instead.
+   */
+  compact?: boolean;
 }) {
   const { ask, confirm } = useDialog();
   const toast = useToast();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  /*
+   * In the toolbar, this is only the invitation to plan one.
+   *
+   * A running sprint has dates, a goal and a progress meter, and none of that belongs on a
+   * line of buttons — so the board renders a second, full bar beneath the toolbar when there
+   * is a sprint, and this instance stands down.
+   */
+  if (compact && (active || planned)) return null;
 
   const run = async (work: () => Promise<string | null>) => {
     setBusy(true);
@@ -250,6 +269,14 @@ export function SprintBar({
           it the board.
         </p>
       </section>
+    );
+  }
+
+  if (compact) {
+    return (
+      <Button size="sm" variant="ghost" disabled={busy} onClick={() => void plan()}>
+        Plan a sprint
+      </Button>
     );
   }
 

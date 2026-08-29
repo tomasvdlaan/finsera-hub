@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { z } from 'zod';
+import { clearing, guidance } from '../eagerness.js';
 import type { BehaviourContext, BehaviourResult, MeetingBehaviour } from './behaviour.js';
 
 /** Long enough that a normal digression is not treated as drift. */
@@ -8,21 +9,24 @@ const CHECK_EVERY_MS = 4 * 60 * 1000;
 const MIN_CHARS = 1_500;
 
 interface DriftCheck {
-  covered: string[];
   drifting: boolean;
+  /** How sure it is that the meeting has genuinely wandered, filtered against the dial. */
+  confidence: number;
   nudge: string;
+  covered: string[];
 }
 
 const DRIFT: z.ZodType<DriftCheck> = z.object({
-  covered: z
-    .array(z.string())
-    .describe('Ids of agenda items now clearly discussed. Empty if unsure.'),
   drifting: z
     .boolean()
     .describe('True only if the conversation has genuinely left the agenda for a while.'),
+  confidence: z.number().min(0).max(1).describe('Your odds that saying this aloud would help.'),
   nudge: z
     .string()
     .describe('One short sentence naming what has not been covered. Empty unless drifting.'),
+  covered: z
+    .array(z.string())
+    .describe('Ids of agenda items now clearly discussed. Empty if unsure.'),
 });
 
 /**
@@ -46,6 +50,14 @@ export class AgendaDriftBehaviour implements MeetingBehaviour {
   readonly trigger = 'interval' as const;
   readonly intervalMs = CHECK_EVERY_MS;
   readonly canSpeak = true;
+  /**
+   * Speech, not actions.
+   *
+   * Its coverage proposals only ever tick a box the meeting already has, which is nearly
+   * free to be wrong about — a person unticks it. What is expensive is the nudge, which
+   * interrupts the room. So it answers to the dial that governs interrupting.
+   */
+  readonly dial = 'speech' as const;
 
   private readonly logger = new Logger(AgendaDriftBehaviour.name);
 
@@ -72,6 +84,8 @@ export class AgendaDriftBehaviour implements MeetingBehaviour {
         'Mark an item covered only if it was actually discussed, not merely mentioned.',
         'If unsure, leave it uncovered — a person can tick a box, and wrongly ticking one',
         'loses information nobody notices is gone.',
+        '',
+        guidance('speech', ctx.eagerness.speech),
       ].join('\n'),
       messages: [
         {
@@ -95,6 +109,15 @@ export class AgendaDriftBehaviour implements MeetingBehaviour {
     ctx.session.tokensOut += result.usage.outputTokens;
 
     const { covered, drifting, nudge } = result.object;
+    /*
+     * The floor applies to the nudge and not to the coverage.
+     *
+     * They are the same model call but two different consequences: interrupting a room on a
+     * hunch is the thing the dial exists to prevent, while a coverage suggestion sits
+     * silently in a panel until somebody agrees with it. Filtering both would make a reserved
+     * agent stop noticing the agenda, which is not what reserved means.
+     */
+    const speakable = clearing([result.object], ctx.eagerness.speech).length > 0;
     const validIds = new Set(open.map((a) => a.id));
     const proposals = covered
       .filter((id) => validIds.has(id))
@@ -115,7 +138,7 @@ export class AgendaDriftBehaviour implements MeetingBehaviour {
     return {
       proposals,
       // Only speaks when actually drifting. Coverage is a side-panel matter.
-      speak: drifting && nudge.trim() ? nudge.trim() : undefined,
+      speak: drifting && speakable && nudge.trim() ? nudge.trim() : undefined,
     };
   }
 }
