@@ -257,6 +257,16 @@ export class LiveRunner {
     live: LiveSession,
     segment: AudioSegment,
   ): Promise<void> {
+    /*
+     * Refused before transcription, which is where the cost and the record both begin.
+     *
+     * A bot cannot always be made deaf — it is sitting in someone else's call and the provider
+     * decides what it receives — so this is the backstop that makes the promise true: whatever
+     * still arrives while paused is dropped without being transcribed, stored or charged. The
+     * browser stops sending at the source as well, but the source is not the thing to trust.
+     */
+    if (live.paused) return;
+
     try {
       const text = await this.live.transcribeSegment(live, segment.data, segment.mimeType);
       const line = live.addLine(text, segment.speaker, segment.at);
@@ -550,6 +560,15 @@ export class LiveRunner {
   private startBehaviourTimer(actor: Actor, noteId: string, live: LiveSession): void {
     const timer = setInterval(() => {
       if (!this.sessions.get(noteId)) return clearInterval(timer);
+      /*
+       * Nothing to look at while paused.
+       *
+       * The transcript is not growing, so every interval behaviour would re-read the same
+       * window and reach the same conclusion — the note-taker rewriting identical notes and
+       * the drift watcher re-reporting the same drift, each costing a model call. Skipped
+       * rather than cancelled so resuming needs no new timer.
+       */
+      if (live.paused) return;
       void this.runBehaviours('interval', actor, noteId, live);
     }, 60_000);
     this.timers.set(noteId, timer);
@@ -578,6 +597,55 @@ export class LiveRunner {
     } finally {
       live.extracting = false;
     }
+  }
+
+  /**
+   * Stop listening, without ending the meeting.
+   *
+   * The gap this fills: the only way to stop the agent hearing a private aside was to end the
+   * recording — which writes the note, files the proposals and cannot be undone — or to evict
+   * the bot from the call and re-admit it afterwards. Both are far too heavy for "give us two
+   * minutes", so in practice nobody did either and the agent heard things it should not have.
+   *
+   * What actually stops is layered, because no single layer can be trusted alone. The browser
+   * releases the microphone or the shared tab, so the operating system's own recording
+   * indicator goes out and the audio genuinely does not leave the room. The bot is muted where
+   * the provider allows it. And `onSegment` refuses anything that still arrives, so a stale tab
+   * or a bot that keeps streaming cannot quietly keep the transcript growing.
+   *
+   * The session stays open throughout: the transcript so far, the running summary and the
+   * proposals awaiting a decision are all still there, and resuming continues the same meeting
+   * rather than starting a second one against the same note.
+   */
+  async pause(actor: Actor, noteId: string): Promise<{ paused: boolean }> {
+    await this.meetings.assertCanWrite(actor);
+    const entry = this.sessions.get(noteId);
+    if (!entry) throw new BadRequestException('That meeting is not running');
+
+    const line = entry.live.mark('paused');
+    if (line) {
+      this.sessions.broadcast(noteId, { type: 'line', line });
+      this.sessions.broadcast(noteId, { type: 'listening', paused: true });
+      // Best effort, and deliberately not awaited into the result: a provider that cannot mute
+      // must not make pausing fail, because the refusal in onSegment is what carries the promise.
+      void entry.capture?.setListening?.(false).catch(() => undefined);
+    }
+    return { paused: true };
+  }
+
+  /** Start listening again, on the same session. */
+  async resume(actor: Actor, noteId: string): Promise<{ paused: boolean }> {
+    await this.meetings.assertCanWrite(actor);
+    const entry = this.sessions.get(noteId);
+    if (!entry) throw new BadRequestException('That meeting is not running');
+
+    const line = entry.live.mark('resumed');
+    if (line) {
+      this.sessions.broadcast(noteId, { type: 'line', line });
+      this.sessions.broadcast(noteId, { type: 'listening', paused: false });
+      void entry.capture?.setListening?.(true).catch(() => undefined);
+    }
+    return { paused: false };
   }
 
   /**
@@ -674,6 +742,15 @@ export class LiveRunner {
   async speak(noteId: string, audio: Buffer, mimeType: string): Promise<void> {
     const entry = this.sessions.get(noteId);
     if (!entry?.capture) throw new BadRequestException('No live capture for this meeting');
+    /*
+     * A paused agent does not talk.
+     *
+     * It cannot hear the wake word while paused, so in practice little reaches here — but an
+     * interval behaviour or a queued utterance still could, and an assistant that speaks up in
+     * the middle of the private conversation you paused it for would be worse than one that
+     * never paused at all.
+     */
+    if (entry.live.paused) return;
     await entry.capture.speak(audio, mimeType);
   }
 
@@ -717,6 +794,8 @@ export class LiveRunner {
        * own: a microphone it can, a shared tab always needs a fresh gesture.
        */
       awaitingAudio: this.sessions.isOrphaned(noteId),
+      /** Listening is suspended. A tab that reloads mid-pause learns it from here. */
+      paused: entry.live.paused,
       source: entry.live.source,
       startedAt: entry.live.startedAt.toISOString(),
       /** Null until a bot is admitted; absent entirely for browser capture. */

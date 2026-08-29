@@ -146,6 +146,8 @@ export class RecallSession implements CaptureSession {
   private readonly speakers = new Map<string, Speaker>();
   private readonly startedAt = new Date();
   private speaking = false;
+  /** False while the meeting is paused; incoming audio is discarded rather than buffered. */
+  private listening = true;
   private socket: WebSocket | null = null;
   /** Counters so a shape mismatch is logged a few times, not every frame. */
   private unrecognised = 0;
@@ -217,6 +219,10 @@ export class RecallSession implements CaptureSession {
     // The bot's own voice comes back on the mix; transcribing it would feed the agent
     // its own words and let it converse with itself.
     if (this.speaking) return;
+
+    // Paused. Dropped here rather than upstream so it is never even buffered into an
+    // utterance — see setListening.
+    if (!this.listening) return;
 
     const encoded = message.data?.data?.buffer;
     if (!encoded) return;
@@ -290,6 +296,23 @@ export class RecallSession implements CaptureSession {
 
   isSpeaking(): boolean {
     return this.speaking;
+  }
+
+  /**
+   * Stop or start taking audio in.
+   *
+   * The buffers are dropped on the way into a pause, not kept. Half an utterance captured
+   * just before it would otherwise be flushed on the way out — a fragment of the sentence
+   * somebody paused the meeting to say, arriving in the transcript minutes later with nothing
+   * around it to explain it.
+   *
+   * The bot stays in the call. It cannot be made truly deaf from here — the audio is already
+   * being sent to us by the provider — so what this buys is that nothing is buffered,
+   * transcribed, stored or charged. The refusal in LiveRunner.onSegment is the guarantee.
+   */
+  async setListening(listening: boolean): Promise<void> {
+    this.listening = listening;
+    if (!listening) this.buffers.clear();
   }
 
   async leave(): Promise<void> {

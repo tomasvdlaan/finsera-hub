@@ -217,6 +217,24 @@ export class MeetingsController {
     return this.live.decideProposal(actor, id, proposalId, body.decision);
   }
 
+  /**
+   * Stop listening, without ending the meeting.
+   *
+   * Separate from stop because they are not degrees of the same thing: stopping writes the
+   * note, files the proposals and cannot be undone, while this leaves the session exactly
+   * where it is and can be reversed a minute later. Conflating them is how "give us two
+   * minutes" turned into ending the recording, which nobody wanted to do, so nobody paused.
+   */
+  @Post(':id/live/pause')
+  pauseLive(@CurrentActor() actor: Actor, @Param('id') id: string) {
+    return this.live.pause(actor, id);
+  }
+
+  @Post(':id/live/resume')
+  resumeLive(@CurrentActor() actor: Actor, @Param('id') id: string) {
+    return this.live.resume(actor, id);
+  }
+
   @Post(':id/live/stop')
   stopLive(@CurrentActor() actor: Actor, @Param('id') id: string) {
     return this.live.stop(actor, id);

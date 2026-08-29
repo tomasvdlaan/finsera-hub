@@ -117,4 +117,65 @@ describe('similar', () => {
   it('does not match on short filler words alone', () => {
     expect(similar('the and but for', 'the and but for')).toBe(false);
   });
+
+  describe('pausing', () => {
+    it('starts out listening', () => {
+      expect(new LiveSession('note', 'actor').paused).toBe(false);
+    });
+
+    it('marks where listening stopped and started again', () => {
+      const session = new LiveSession('note', 'actor');
+      session.addLine('Before.');
+
+      const paused = session.mark('paused');
+      expect(session.paused).toBe(true);
+      expect(paused?.kind).toBe('paused');
+
+      const resumed = session.mark('resumed');
+      expect(session.paused).toBe(false);
+      // Not a 'paused' line: the marker that ENDS a gap is not itself a gap, and rendering it
+      // as one would grey out everything said afterwards.
+      expect(resumed?.kind).toBe('speech');
+    });
+
+    it('says nothing when nothing changed', () => {
+      const session = new LiveSession('note', 'actor');
+      expect(session.mark('resumed')).toBeNull(); // already listening
+
+      session.mark('paused');
+      // Pausing an already-paused meeting is not an event, and two markers in a row would
+      // read as a gap inside a gap.
+      expect(session.mark('paused')).toBeNull();
+      expect(session.lines.filter((l) => l.kind === 'paused')).toHaveLength(1);
+    });
+
+    it('puts the gap in the transcript the model reads', () => {
+      const session = new LiveSession('note', 'actor');
+      session.addLine('We will ship on Friday.');
+      session.mark('paused');
+      session.mark('resumed');
+      session.addLine('So that is agreed.');
+
+      /*
+       * The point of the marker. Without it those two lines read as one continuous exchange
+       * and an extraction will happily invent the connection between them.
+       */
+      expect(session.transcript).toContain('listening paused');
+      const gap = session.transcript.indexOf('listening paused');
+      expect(gap).toBeGreaterThan(session.transcript.indexOf('ship on Friday'));
+      expect(gap).toBeLessThan(session.transcript.indexOf('So that is agreed'));
+    });
+
+    it('leaves everything gathered so far alone', () => {
+      const session = new LiveSession('note', 'actor');
+      session.addLine('Something worth keeping.');
+      session.mergeProposals([{ kind: 'action', text: 'Send the dataset' }], newId);
+
+      session.mark('paused');
+
+      // Pausing is not stopping: the meeting so far is still the meeting.
+      expect(session.lines.some((l) => l.text === 'Something worth keeping.')).toBe(true);
+      expect(session.openProposals).toHaveLength(1);
+    });
+  });
 });
