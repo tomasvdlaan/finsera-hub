@@ -736,7 +736,7 @@ export function NoteDetail() {
                 ))}
               </select>
             </label>
-            {sprint && <Link to={`/scrum/sprints/${sprint.id}`}>{sprint.name}</Link>}
+            {sprint && <Link to={`/board/sprints/${sprint.id}`}>{sprint.name}</Link>}
           </>
         }
         /* The primary one goes last, where the eye finishes — and which one is primary is the
