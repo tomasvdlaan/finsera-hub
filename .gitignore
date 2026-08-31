@@ -35,8 +35,22 @@ deploy/.env*
 # `storage/` also matches src/core/storage/, which silently excluded the storage
 # service from every clone and broke the first real deploy.
 apps/api/storage/
+# The dev server writes to the repository root rather than into apps/api, so the runtime
+# directory is two places. Anchored with a leading slash, which is what keeps it off
+# src/core/storage/ — the collision the note above is about.
+/storage/
 deploy/backups/
 
 # Excalidraw fonts, copied out of node_modules at build time so the board never fetches
 # them from a CDN. Generated output, not source.
 apps/web/public/excalidraw-assets/
+
+# TypeScript incremental build state.
+#
+# Two of these were committed, so every build dirtied the working tree with a file nobody
+# reads and `git add -A` swept them into unrelated commits. They are derived from the source
+# beside them and are regenerated on the next build.
+*.tsbuildinfo
+
+# Scratch output that is not source: design exports and the local storage driver's uploads.
+.design/
