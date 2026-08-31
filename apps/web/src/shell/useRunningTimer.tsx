@@ -23,6 +23,13 @@ export interface Running {
 /** More than a working day means the clock was almost certainly left running. */
 export const LOOKS_FORGOTTEN_AFTER_HOURS = 10;
 
+/**
+ * Past this, elapsed time cannot be saved at all: an entry may not exceed a day, so the
+ * duration has to be corrected before the clock can stop. Mirrors MAX_ENTRY_MINUTES on the
+ * server, which is the side that enforces it.
+ */
+export const MAX_ENTRY_HOURS = 24;
+
 /** hh:mm:ss, because a clock that has been running for two days should look alarming. */
 export function elapsed(since: string): string {
   const seconds = Math.max(0, Math.floor((Date.now() - new Date(since).getTime()) / 1000));
@@ -119,25 +126,37 @@ function useTimerState() {
   );
 
 
-  const stop = useCallback(async () => {
+  /**
+   * Stop the clock, optionally saying how long the work really was.
+   *
+   * `minutes` exists for the clock nobody stopped on Friday: the server refuses to write more
+   * than a day of elapsed time, so a weekend-long timer can only be stopped by correcting it.
+   * Without the argument this is the ordinary one-click stop.
+   */
+  const stop = useCallback(async (minutes?: number) => {
     setBusy(true);
     setError(null);
     try {
-      await api.post('/time/stop', {});
+      await api.post('/time/stop', minutes == null ? {} : { minutes });
       setRunning(null);
       // So an open timesheet reflects a stop it did not initiate.
       notifyTimeChanged();
     } catch (e) {
       setError((e as Error).message);
+      // Rethrown so a caller that opened a correction form knows to keep it open; the message
+      // is already on state for callers that only render it.
+      throw e;
     } finally {
       setBusy(false);
     }
   }, []);
 
-  const forgotten = running
-    ? (Date.now() - new Date(running.startedAt).getTime()) / 3_600_000 >=
-      LOOKS_FORGOTTEN_AFTER_HOURS
-    : false;
+  const runningHours = running
+    ? (Date.now() - new Date(running.startedAt).getTime()) / 3_600_000
+    : 0;
+  const forgotten = running ? runningHours >= LOOKS_FORGOTTEN_AFTER_HOURS : false;
+  /** Too long to save as elapsed: stopping this one requires a duration. */
+  const needsDuration = running ? runningHours > MAX_ENTRY_HOURS : false;
 
   /**
    * Stop whatever is running and start this instead.
@@ -152,13 +171,16 @@ function useTimerState() {
       target: { projectId?: string | null; clientId?: string | null; taskId?: string | null },
       description?: string,
     ) => {
+      // If the running clock cannot be stopped without a correction, stop() throws and the
+      // switch does not happen — better than starting a second clock beside a stuck one,
+      // which the server would refuse anyway.
       if (running) await stop();
       await start(target, description);
     },
     [running, stop, start],
   );
 
-  return { running, forgotten, busy, error, start, switchTo, stop, reload: load };
+  return { running, forgotten, needsDuration, busy, error, start, switchTo, stop, reload: load };
 }
 
 type TimerState = ReturnType<typeof useTimerState>;

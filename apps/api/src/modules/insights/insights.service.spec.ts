@@ -318,6 +318,18 @@ describe('InsightsService', () => {
     expect(insight!.title).toContain('90% of budget');
   });
 
+  it('notices a clock nobody stopped', async () => {
+    await time.createEntry(actor, {
+      projectId,
+      startedAt: new Date(Date.now() - 52 * 60 * 60_000).toISOString(),
+    });
+
+    await insights.refresh();
+    const [insight] = await insights.list(actor, { rule: 'timer_left_running' });
+    expect(insight!.severity).toBe('urgent');
+    expect(insight!.title).toContain('52h');
+  });
+
   // ── ordering ──
 
   it('puts the most urgent first, then the biggest', async () => {
