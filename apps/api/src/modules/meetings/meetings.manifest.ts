@@ -158,6 +158,37 @@ export const meetingsManifest = defineManifest({
       handler: 'noteOutline',
     },
     {
+      name: 'meetings_transcript',
+      description:
+        'Read what was actually SAID in a meeting, with speaker names and timestamps — the ' +
+        'verbatim record, as opposed to the written-up note. Use this when the question is ' +
+        'about the words people used, whether something was really agreed, or anything the ' +
+        'note does not mention; the note is a summary somebody chose to write, and the ' +
+        'transcript is everything else. Find the meeting with meetings_search or ' +
+        'meetings_list_notes first — this needs a noteId. Pass `query` to pull only the parts ' +
+        'about one subject, which is much cheaper than reading a whole call. Not every meeting ' +
+        'was recorded: an empty result means there is no transcript, not that nothing was said.',
+      inputSchema: z.object({
+        noteId: z.string().uuid(),
+        query: z
+          .string()
+          .optional()
+          .describe(
+            'Only return turns containing this text, plus the two either side for context. ' +
+              'A plain keyword, not a question — it is matched literally, not semantically.',
+          ),
+        limit: z
+          .number()
+          .int()
+          .optional()
+          .describe('Maximum turns to return (default 400, max 1000).'),
+      }),
+      outputSchema: z.object({}),
+      permission: 'meetings.read',
+      riskClass: 'read',
+      handler: 'transcriptFor',
+    },
+    {
       name: 'meetings_propose_action_items',
       description:
         'Propose action points from a meeting note. They are recorded as PROPOSED and become tasks only when the user accepts them. Only propose things actually stated in the note — never invent an owner or a deadline that was not mentioned.',

@@ -1,6 +1,6 @@
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { Actor } from '@platform/contracts';
-import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, lte, ne, sql } from 'drizzle-orm';
 import { AuditService } from '../../core/audit/audit.service.js';
 import { DB, type Database } from '../../core/db/db.module.js';
 import { EventBus } from '../../core/events/event-bus.service.js';
@@ -11,16 +11,20 @@ import { PermissionService } from '../../core/permissions/permission.service.js'
 import { RegistryService } from '../../core/registry/registry.service.js';
 import { chunkText } from '../../core/text/chunk.js';
 import { CrmService } from '../crm/crm.service.js';
+import { visibleNotes } from './visibility.js';
 import { RETRO_LABEL, ScrumService } from '../scrum/scrum.service.js';
 import { headingsOf, markdownToDoc } from '@platform/note-doc';
 import { appendMarkdown, replaceSectionMarkdown } from './doc/note-edit.js';
 import { NoteDocService } from './doc/note-doc.service.js';
+import type { TranscriptLine } from './live/live-session.js';
 import {
   TEMPLATES,
   bodyFor,
+  carriedBody,
   retroBody,
   reviewBody,
   standupBody,
+  type Commitment,
   type Template,
   type TemplateName,
 } from './templates.js';
@@ -29,9 +33,11 @@ import {
   agendaItems,
   attendees,
   noteChunks,
+  noteViewers,
   notes,
   transcripts,
 } from './meetings.schema.js';
+import { users } from '../../core/db/core.schema.js';
 
 /**
  * The only HTML a note body renders — see @platform/note-doc's parser, which is the authority.
@@ -41,6 +47,14 @@ import {
  */
 const COLOUR_TAGS =
   /<span style="color:#[0-9a-f]{3}(?:[0-9a-f]{3})?">|<mark style="background-color:#[0-9a-f]{3}(?:[0-9a-f]{3})?">|<\/span>|<\/mark>/gi;
+
+/**
+ * The agenda item a meeting gets when earlier ones left something owed.
+ *
+ * Named as a question the room can answer rather than as a heading, and first on the list: the
+ * two minutes at the top are the only ones in which last time's promises still get discussed.
+ */
+const CARRIED_AGENDA_ITEM = 'What we said we would do';
 
 export interface CreateNoteInput {
   title: string;
@@ -153,12 +167,45 @@ export class MeetingsService {
 
     const meetingDate = input.meetingDate ?? new Date().toISOString().slice(0, 10);
     // A stand-up gets a block per person, which needs the attendees the note is created with.
-    const body =
+    let body =
       input.body ??
       (template
         ? await this.seedBody(actor, template, input.attendees ?? [], projectId, sprint?.id ?? null)
         : '');
-    const agenda = input.agenda ?? template?.agenda ?? [];
+    let agenda = input.agenda ?? template?.agenda ?? [];
+
+    /*
+     * What the last meetings about this work left owed, on the note and on the agenda.
+     *
+     * Seeded here rather than in `seedBody` because it is not a property of the ceremony: a blank
+     * meeting about a project inherits the same debts a check-in does, and a note with a client
+     * but no project has a ledger too — `seedBody` returns early on those.
+     *
+     * A retrospective is skipped: `retroBody` already opens it with the last retro's promises,
+     * and two "last time" blocks one under the other read as a bug rather than as thoroughness.
+     *
+     * Creation only. Past this point the note-doc authority owns the body and a later write
+     * would fight whatever is being typed into it.
+     */
+    if (input.body === undefined && input.template !== 'retrospective') {
+      try {
+        const owed = await this.openBefore(actor, {
+          id: null,
+          projectId,
+          clientId: input.clientId ?? null,
+          meetingDate,
+        });
+        if (owed.length > 0) {
+          body = carriedBody(body, owed);
+          // First, ahead of the ceremony's own items. A meeting that opens on last time's
+          // promises is the one mechanism that stops them being quietly dropped, and an agenda
+          // item is what lets the room mark it covered and the agent notice when it was not.
+          if (input.agenda === undefined) agenda = [CARRIED_AGENDA_ITEM, ...agenda];
+        }
+      } catch {
+        // Same bargain as the digests above: the note matters more than the ledger.
+      }
+    }
 
     const id = this.registry.newId();
     await this.db.transaction(async (tx) => {
@@ -270,7 +317,7 @@ export class MeetingsService {
    */
   async linkToSprint(actor: Actor, noteId: string, sprintId: string) {
     await this.require(actor, 'meetings.write');
-    const note = await this.raw(noteId);
+    const note = await this.raw(actor, noteId);
     const sprint = await this.scrum.getSprint(actor, sprintId);
 
     await this.db.transaction(async (tx) => {
@@ -310,7 +357,7 @@ export class MeetingsService {
     origin: { fromDocument?: boolean } = {},
   ) {
     await this.require(actor, 'meetings.write');
-    const before = await this.raw(id);
+    const before = await this.raw(actor, id);
 
     await this.db.transaction(async (tx) => {
       await tx
@@ -350,11 +397,35 @@ export class MeetingsService {
    * Deliberately NOT immutable, unlike an invoice or a signed contract. A meeting note is
    * a record of what someone understood, and understanding gets corrected — freezing it
    * would mean the correction lives somewhere worse. Finalising is a signal, not a lock.
+   *
+   * It does ask about undecided action points first. Calling a meeting done while the things it
+   * agreed to sit in `proposed` is how a commitment becomes the most expensive kind of nothing
+   * in this platform: recorded, so it feels handled, and on no board, so nothing counts it.
+   * `action_item_undecided` notices three days later on a different screen; this asks at the one
+   * moment somebody is still looking at the meeting.
+   *
+   * A question, not a gate — `force` goes through. A meeting genuinely can end without deciding,
+   * and refusing outright would be the workflow automation the SCRUM brief rules out; it would
+   * also just teach people to leave notes in draft forever, which is worse than an unsettled
+   * final note because nothing looks at drafts either.
    */
-  async finalise(actor: Actor, id: string) {
+  async finalise(actor: Actor, id: string, { force = false }: { force?: boolean } = {}) {
     await this.require(actor, 'meetings.write');
-    const note = await this.raw(id);
+    const note = await this.raw(actor, id);
     if (note.finalisedAt) return this.get(actor, id);
+
+    if (!force) {
+      const [undecided] = await this.db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(actionItems)
+        .where(and(eq(actionItems.noteId, id), eq(actionItems.status, 'proposed')));
+      const open = undecided?.count ?? 0;
+      if (open > 0) {
+        throw new BadRequestException(
+          `${open} action point${open === 1 ? ' is' : 's are'} still undecided — accept ${open === 1 ? 'it' : 'them'} onto the board, dismiss ${open === 1 ? 'it' : 'them'}, or finalise anyway`,
+        );
+      }
+    }
 
     await this.db.transaction(async (tx) => {
       await tx
@@ -380,7 +451,7 @@ export class MeetingsService {
 
   async remove(actor: Actor, id: string) {
     await this.require(actor, 'meetings.write');
-    await this.raw(id);
+    await this.raw(actor, id);
     await this.db.transaction(async (tx) => {
       await tx.delete(notes).where(eq(notes.id, id));
       await this.registry.softDelete(tx, id);
@@ -396,6 +467,9 @@ export class MeetingsService {
   async list(actor: Actor, filter: { clientId?: string; projectId?: string } = {}) {
     await this.require(actor, 'meetings.read');
     const where = [
+      // First, and not optional. A filter the caller chose narrows the list; this one decides
+      // what the list is allowed to contain, so it is applied whether or not one was passed.
+      visibleNotes(actor, await this.memberships(actor)),
       filter.clientId ? eq(notes.clientId, filter.clientId) : undefined,
       filter.projectId ? eq(notes.projectId, filter.projectId) : undefined,
     ].filter(Boolean);
@@ -485,24 +559,153 @@ export class MeetingsService {
       })
       .from(actionItems)
       .innerJoin(notes, eq(actionItems.noteId, notes.id))
-      .where(eq(actionItems.status, 'proposed'))
+      .where(
+        and(
+          // The ledger reads across every meeting, so it is the read most likely to surface a
+          // note the actor cannot open — an action point quoting a line from a salary review.
+          visibleNotes(actor, await this.memberships(actor)),
+          eq(actionItems.status, 'proposed'),
+          // An item carried into a later meeting is being asked about there. Counting it here
+          // as well would report one commitment as two, and the newer copy is the live one.
+          sql`NOT EXISTS (
+            SELECT 1 FROM ${actionItems} AS later
+             WHERE later.carried_from = ${actionItems.id}
+          )`,
+        ),
+      )
       .orderBy(asc(notes.meetingDate), asc(actionItems.createdAt));
     return rows;
   }
 
+  /**
+   * What is still owed on this work, from the meetings before this one.
+   *
+   * The question a recurring meeting opens with and nothing could answer. The page used to
+   * approximate it in the browser from `/meetings/open-actions`, which could only see action
+   * points nobody had decided on — so a commitment that WAS accepted, became a card and then sat
+   * on the board untouched for a month never came back up in the conversation that would have
+   * noticed. That is the group a follow-up meeting exists for, and it was the invisible one.
+   *
+   * Both kinds are returned, and told apart, because they need different things: an undecided
+   * one needs a decision here, and an undone one is already work and needs nothing from this
+   * note but to be said out loud.
+   *
+   * "The same work" is the project, falling back to the client — which is as close to "the same
+   * recurring meeting" as the record gets. Not the template: a promise made at a kick-off is
+   * still owed at the check-in that follows it, and a ledger that only looked at meetings of the
+   * same ceremony would drop exactly the commitments that cross between them.
+   *
+   * Only earlier meetings. A note dated after this one is not a leftover, it is a plan.
+   */
+  private async openBefore(
+    actor: Actor,
+    note: {
+      /** Null while the note is being created — there is no self to exclude yet. */
+      id: string | null;
+      projectId: string | null;
+      clientId: string | null;
+      meetingDate: string;
+    },
+  ): Promise<Commitment[]> {
+    const scope = note.projectId
+      ? eq(notes.projectId, note.projectId)
+      : note.clientId
+        ? eq(notes.clientId, note.clientId)
+        : null;
+    // A note attached to nothing has no siblings, and every meeting in the database would be a
+    // wrong answer rather than an empty one.
+    if (!scope) return [];
+
+    const rows = await this.db
+      .select({
+        id: actionItems.id,
+        text: actionItems.text,
+        assigneeId: actionItems.assigneeId,
+        dueOn: actionItems.dueOn,
+        status: actionItems.status,
+        taskId: actionItems.taskId,
+        noteId: notes.id,
+        noteTitle: notes.title,
+        meetingDate: notes.meetingDate,
+      })
+      .from(actionItems)
+      .innerJoin(notes, eq(actionItems.noteId, notes.id))
+      .where(
+        and(
+          // Same rule as everywhere else. This ledger quotes the text of commitments made in
+          // other meetings, so an unscoped read here would carry a line out of a note the
+          // reader cannot open — the leak being through the quotation rather than the note.
+          visibleNotes(actor, await this.memberships(actor)),
+          scope,
+          note.id ? ne(notes.id, note.id) : undefined,
+          lte(notes.meetingDate, note.meetingDate),
+          inArray(actionItems.status, ['proposed', 'accepted']),
+          /*
+           * Not already carried somewhere.
+           *
+           * Carrying leaves the ancestor where it is rather than inventing a fourth status, so
+           * its own history stays readable — which means every read of the ledger has to skip
+           * an item that has a descendant, or the same commitment is listed twice: once as
+           * itself and once as the copy.
+           */
+          sql`NOT EXISTS (
+            SELECT 1 FROM ${actionItems} AS later
+             WHERE later.carried_from = ${actionItems.id}
+          )`,
+        ),
+      )
+      .orderBy(asc(notes.meetingDate), asc(actionItems.createdAt));
+
+    if (rows.length === 0) return [];
+
+    /*
+     * Which of the accepted ones are actually finished, asked of the board.
+     *
+     * One call, with every id at once — a request per action point on a page that exists to show
+     * several would be the same mistake `list` documents. An id the board does not know about
+     * is treated as done: the card was deleted, and asking about work that no longer exists is
+     * worse than staying quiet.
+     */
+    const accepted = rows.filter((r) => r.status === 'accepted' && r.taskId);
+    const states = accepted.length
+      ? await this.scrum.taskStates(actor, accepted.map((r) => r.taskId!))
+      : [];
+    const doneById = new Map(states.map((t) => [t.id, t.done]));
+
+    return rows
+      .filter((r) => r.status === 'proposed' || !(doneById.get(r.taskId!) ?? true))
+      .map((r) => ({
+        id: r.id,
+        text: r.text,
+        assigneeId: r.assigneeId,
+        dueOn: r.dueOn,
+        noteId: r.noteId,
+        noteTitle: r.noteTitle,
+        meetingDate: r.meetingDate,
+        state: r.status === 'proposed' ? ('undecided' as const) : ('undone' as const),
+        taskId: r.taskId,
+      }));
+  }
+
   async get(actor: Actor, id: string) {
     await this.require(actor, 'meetings.read');
-    const note = await this.raw(id);
-    const [agenda, people, actions] = await Promise.all([
+    const note = await this.raw(actor, id);
+    const [agenda, people, actions, openBefore] = await Promise.all([
       this.db.select().from(agendaItems).where(eq(agendaItems.noteId, id)).orderBy(asc(agendaItems.position)),
       this.db.select().from(attendees).where(eq(attendees.noteId, id)).orderBy(asc(attendees.name)),
       this.db.select().from(actionItems).where(eq(actionItems.noteId, id)).orderBy(asc(actionItems.createdAt)),
+      // Composed here rather than behind its own endpoint: the page needs it on every load, and
+      // every mutation below already returns this shape, so carrying one forward refreshes the
+      // list it was carried out of without the browser asking twice.
+      this.openBefore(actor, note).catch(() => [] as Commitment[]),
     ]);
     return {
       ...note,
       agenda,
       attendees: people,
       actionItems: actions,
+      /** Still owed from earlier meetings about this work — see `openBefore`. */
+      openBefore,
       /** 6c refuses to record unless this is true — surfaced here so the UI can say why. */
       everyoneConsented: people.length > 0 && people.every((p) => p.consent === 'granted'),
       /**
@@ -519,7 +722,7 @@ export class MeetingsService {
 
   async addAgendaItem(actor: Actor, noteId: string, title: string) {
     await this.require(actor, 'meetings.write');
-    await this.raw(noteId);
+    await this.raw(actor, noteId);
     const [row] = await this.db
       .select({ max: sql<number>`COALESCE(MAX(${agendaItems.position}), 0)` })
       .from(agendaItems)
@@ -559,7 +762,7 @@ export class MeetingsService {
     person: { name: string; email?: string; contactId?: string },
   ) {
     await this.require(actor, 'meetings.write');
-    await this.raw(noteId);
+    await this.raw(actor, noteId);
     await this.db.insert(attendees).values({
       id: this.registry.newId(),
       noteId,
@@ -670,7 +873,7 @@ export class MeetingsService {
     item: { text: string; assigneeId?: string; dueOn?: string; source?: 'typed' | 'ai' },
   ) {
     await this.require(actor, 'meetings.write');
-    await this.raw(noteId);
+    await this.raw(actor, noteId);
     if (!item.text?.trim()) throw new BadRequestException('An action point needs text');
 
     const id = this.registry.newId();
@@ -693,7 +896,7 @@ export class MeetingsService {
    */
   async acceptActionItem(actor: Actor, noteId: string, itemId: string) {
     await this.require(actor, 'meetings.write');
-    const note = await this.raw(noteId);
+    const note = await this.raw(actor, noteId);
     const [item] = await this.db
       .select()
       .from(actionItems)
@@ -788,7 +991,7 @@ export class MeetingsService {
     patch: { assigneeId?: string | null; dueOn?: string | null },
   ) {
     await this.require(actor, 'meetings.write');
-    await this.raw(noteId);
+    await this.raw(actor, noteId);
 
     const [item] = await this.db
       .select()
@@ -822,6 +1025,77 @@ export class MeetingsService {
     return this.get(actor, noteId);
   }
 
+  /**
+   * Carry a commitment from an earlier meeting onto this one.
+   *
+   * The whole point of the ledger: the thing said a fortnight ago and not done is asked about
+   * again, here, where somebody can answer it — as a real action point that can be assigned,
+   * dated, accepted onto the board or dismissed, rather than a line of text to read past.
+   *
+   * A copy rather than a move. The original meeting's record of what it produced does not change
+   * because a later meeting picked the thread up; `carriedFrom` is what ties the two together,
+   * and it is what stops the ancestor being counted a second time everywhere it is still open.
+   *
+   * Only an UNDECIDED one. An accepted commitment is already a card on the board, and carrying
+   * it would create a second action point that could be accepted into a second task — the same
+   * work, twice, on the same board. Those appear on the ledger with a link to the card, which is
+   * the honest thing to do with work that is already tracked.
+   */
+  async carryActionItem(actor: Actor, noteId: string, itemId: string) {
+    await this.require(actor, 'meetings.write');
+    const note = await this.raw(actor, noteId);
+
+    const [origin] = await this.db
+      .select()
+      .from(actionItems)
+      .where(eq(actionItems.id, itemId))
+      .limit(1);
+    if (!origin) throw new NotFoundException('Action point not found');
+    if (origin.noteId === noteId) {
+      throw new BadRequestException('That action point is already on this meeting');
+    }
+    if (origin.status !== 'proposed') {
+      throw new BadRequestException(
+        origin.status === 'accepted'
+          ? 'That one is already a task — it is tracked on the board, not here'
+          : 'That action point was dismissed',
+      );
+    }
+
+    const [already] = await this.db
+      .select({ id: actionItems.id })
+      .from(actionItems)
+      .where(and(eq(actionItems.noteId, noteId), eq(actionItems.carriedFrom, itemId)))
+      .limit(1);
+    // Idempotent: two clicks, or two people in the same room, produce one copy rather than two
+    // identical commitments that then have to be dismissed separately.
+    if (already) return this.get(actor, noteId);
+
+    const id = this.registry.newId();
+    await this.db.transaction(async (tx) => {
+      await tx.insert(actionItems).values({
+        id,
+        noteId,
+        text: origin.text,
+        assigneeId: origin.assigneeId,
+        dueOn: origin.dueOn,
+        // Kept, not reset to 'typed'. Where a commitment originally came from is a fact about
+        // it, and a suggestion laundered into a typed one by being carried would hide that.
+        source: origin.source,
+        carriedFrom: itemId,
+      });
+      await this.audit.record(tx, {
+        actorId: actor.userId,
+        action: 'action_item.carry',
+        entityType: 'meeting_note',
+        entityId: noteId,
+        detail: { itemId: id, carriedFrom: itemId, fromNoteId: origin.noteId, title: note.title },
+      });
+    });
+
+    return this.get(actor, noteId);
+  }
+
   async dismissActionItem(actor: Actor, noteId: string, itemId: string) {
     await this.require(actor, 'meetings.write');
     await this.db
@@ -843,7 +1117,7 @@ export class MeetingsService {
     result: { tokens: number; costCents: number; durationSeconds: number },
   ) {
     await this.require(actor, 'meetings.write');
-    const before = await this.raw(id);
+    const before = await this.raw(actor, id);
     await this.db.transaction(async (tx) => {
       await tx
         .update(notes)
@@ -882,7 +1156,7 @@ export class MeetingsService {
    */
   async stampSession(actor: Actor, noteId: string, at: { startedAt?: Date; endedAt?: Date }) {
     await this.require(actor, 'meetings.write');
-    const before = await this.raw(noteId);
+    const before = await this.raw(actor, noteId);
     await this.db
       .update(notes)
       .set({
@@ -902,7 +1176,7 @@ export class MeetingsService {
    */
   async agentSettings(actor: Actor, noteId: string): Promise<unknown> {
     await this.require(actor, 'meetings.read');
-    const note = await this.raw(noteId);
+    const note = await this.raw(actor, noteId);
     return note.agentSettings ?? null;
   }
 
@@ -915,7 +1189,7 @@ export class MeetingsService {
    */
   async saveAgentSettings(actor: Actor, noteId: string, settings: unknown): Promise<void> {
     await this.require(actor, 'meetings.write');
-    await this.raw(noteId);
+    await this.raw(actor, noteId);
     await this.db
       .update(notes)
       .set({ agentSettings: settings, updatedAt: new Date() })
@@ -943,7 +1217,7 @@ export class MeetingsService {
     await this.require(actor, 'meetings.write');
     // Confirms the note exists before anything is written, and gives a 404 rather than an
     // authority holding a document for a note id nobody has.
-    await this.raw(input.noteId);
+    await this.raw(actor, input.noteId);
 
     const markdown = (input.markdown ?? '').trim();
     if (!markdown) throw new BadRequestException('There is nothing to write');
@@ -1014,7 +1288,7 @@ export class MeetingsService {
    */
   async noteOutline(actor: Actor, noteId: string) {
     await this.require(actor, 'meetings.read');
-    const note = await this.raw(noteId);
+    const note = await this.raw(actor, noteId);
     const body = await this.docs.markdown(noteId);
     return { noteId, title: note.title, headings: headingsOf(markdownToDoc(body)), body };
   }
@@ -1042,7 +1316,7 @@ export class MeetingsService {
     },
   ) {
     await this.require(actor, 'meetings.write');
-    await this.raw(noteId);
+    await this.raw(actor, noteId);
     if (session.lines.length === 0) return null;
 
     const id = this.registry.newId();
@@ -1068,12 +1342,106 @@ export class MeetingsService {
    */
   async listTranscripts(actor: Actor, noteId: string) {
     await this.require(actor, 'meetings.read');
-    await this.raw(noteId);
+    await this.raw(actor, noteId);
     return this.db
       .select()
       .from(transcripts)
       .where(eq(transcripts.noteId, noteId))
       .orderBy(asc(transcripts.startedAt));
+  }
+
+  /**
+   * What was actually said in a meeting, for the assistant to read.
+   *
+   * The transcript was the one thing the assistant could not reach. It could search notes,
+   * outline them and write into them, but a note is what somebody chose to write down —
+   * and the question people actually ask ("did they ever agree to that?", "what were their
+   * exact words about the budget?") is answerable only from the speech.
+   *
+   * Deliberately NOT in the semantic index. `index()` embeds title and body only, and the
+   * schema records why: a transcript is thousands of words of half-sentences, filler and
+   * repetition, and putting it in `note_chunks` meant a search for a decision returned the
+   * ten seconds around the moment somebody nearly said it. So this is a read you ask for by
+   * name, on a note you already found, rather than something that drowns every other result.
+   *
+   * Permission and visibility come from `raw`, which is the same gate the Transcripts panel
+   * goes through — a note the actor may not open has no transcript they may read either.
+   */
+  async transcriptFor(
+    actor: Actor,
+    noteId: string,
+    opts: { query?: string; limit?: number } = {},
+  ) {
+    await this.require(actor, 'meetings.read');
+    const note = await this.raw(actor, noteId);
+
+    const recordings = await this.db
+      .select()
+      .from(transcripts)
+      .where(eq(transcripts.noteId, noteId))
+      .orderBy(asc(transcripts.startedAt));
+
+    /*
+     * Every recording flattened into one sequence of turns.
+     *
+     * A note recorded twice has two rows, and to a reader they are one conversation with a
+     * gap in the middle. Which recording a sentence came from is a fact about the capture,
+     * not about the meeting, so it is not worth a level of nesting here.
+     */
+    const lines = recordings.flatMap((r) =>
+      (r.lines as TranscriptLine[]).map((l) => ({
+        at: l.at,
+        speaker: l.speaker ?? null,
+        text: l.text,
+        kind: l.kind ?? 'speech',
+      })),
+    );
+
+    const spoken = lines.filter((l) => l.kind === 'speech' && l.text.trim().length > 0);
+
+    /*
+     * A keyword filter that keeps the turns either side of a hit.
+     *
+     * A matching line on its own is usually unreadable — "yes, that is fine" answers a
+     * question in the line above it, and returning it alone invites the model to guess what
+     * was being agreed to. Two turns of context either side is the smallest window in which
+     * an exchange still means what it meant.
+     */
+    const q = opts.query?.trim().toLowerCase();
+    let selected = spoken;
+    if (q) {
+      const keep = new Set<number>();
+      spoken.forEach((l, i) => {
+        if (!l.text.toLowerCase().includes(q)) return;
+        for (let j = Math.max(0, i - 2); j <= Math.min(spoken.length - 1, i + 2); j++) keep.add(j);
+      });
+      selected = spoken.filter((_, i) => keep.has(i));
+    }
+
+    /*
+     * Capped, and honest about it.
+     *
+     * An hour of four people talking is thousands of turns, and handing all of it to a model
+     * would spend the whole context on one meeting — or fail outright. The cap keeps the
+     * BEGINNING rather than the end: a meeting states what it is about first, and a truncated
+     * opening reads as a different conversation. `truncated` is returned so the answer can say
+     * it only read part, instead of summarising half a call as if it were the whole one.
+     */
+    const limit = Math.min(Math.max(opts.limit ?? 400, 1), 1000);
+    const shown = selected.slice(0, limit);
+
+    return {
+      noteId,
+      title: note.title,
+      meetingDate: note.meetingDate,
+      recordings: recordings.length,
+      /** Turns in the meeting, before any filtering — so "nothing matched" is distinguishable. */
+      totalLines: spoken.length,
+      matched: selected.length,
+      truncated: selected.length > shown.length,
+      query: opts.query?.trim() || null,
+      lines: shown,
+    };
   }
 
   // ── search ─────────────────────────────────────────────────
@@ -1084,9 +1452,15 @@ export class MeetingsService {
     return this.index(noteId);
   }
 
-  /** Chunk and embed a note's body. Replaces whatever was indexed before. */
+  /**
+   * Chunk and embed a note's body. Replaces whatever was indexed before.
+   *
+   * Unchecked, and has to be: indexing runs for whoever wrote the note, over notes nobody in
+   * particular is asking for. What keeps the index from leaking is `search`, which applies
+   * the visibility predicate to the chunks it matches.
+   */
   async index(noteId: string): Promise<number> {
-    const note = await this.raw(noteId);
+    const note = await this.unchecked(noteId);
     const pieces = chunkText(`${note.title}\n\n${note.body}`);
     await this.db.delete(noteChunks).where(eq(noteChunks.noteId, noteId));
     if (pieces.length === 0) return 0;
@@ -1118,14 +1492,28 @@ export class MeetingsService {
     const q = query.trim();
     if (!q) return [];
 
+    /*
+     * The visibility predicate, in a hand-written query.
+     *
+     * The table is not aliased any more, and that is the reason: `visibleNotes` builds its
+     * condition against the `notes` table object, so it renders fully-qualified column names
+     * that an alias would put out of scope. Spelling the rule out a second time in SQL to fit
+     * an alias would be two definitions of who may read a meeting, and the day they disagree
+     * the search is the one that leaks.
+     */
+    const visible = visibleNotes(actor, await this.memberships(actor));
+
     const keyword = await this.db.execute(sql`
-      SELECT n.id, n.title, n.meeting_date, n.client_id,
-             ts_headline('english', n.body, plainto_tsquery('english', ${q}),
+      SELECT meetings.notes.id, meetings.notes.title, meetings.notes.meeting_date,
+             meetings.notes.client_id,
+             ts_headline('english', meetings.notes.body, plainto_tsquery('english', ${q}),
                          'MaxFragments=1,MaxWords=30,MinWords=10') AS snippet,
-             ts_rank(to_tsvector('english', n.title || ' ' || n.body),
+             ts_rank(to_tsvector('english', meetings.notes.title || ' ' || meetings.notes.body),
                      plainto_tsquery('english', ${q})) AS score
-        FROM meetings.notes n
-       WHERE to_tsvector('english', n.title || ' ' || n.body) @@ plainto_tsquery('english', ${q})
+        FROM meetings.notes
+       WHERE to_tsvector('english', meetings.notes.title || ' ' || meetings.notes.body)
+             @@ plainto_tsquery('english', ${q})
+         AND ${visible}
        ORDER BY score DESC
        LIMIT ${limit}
     `);
@@ -1139,13 +1527,17 @@ export class MeetingsService {
       try {
         const [vector] = await this.embeddings.embedBatch([q], { module: 'meetings', feature: 'search' });
         if (vector) {
+          /* The index is built over every note — see `index` — so this is where the chunks
+             of a note the actor may not read are kept out of the results. */
           const semantic = await this.db.execute(sql`
-            SELECT n.id, n.title, n.meeting_date, n.client_id,
+            SELECT meetings.notes.id, meetings.notes.title, meetings.notes.meeting_date,
+                   meetings.notes.client_id,
                    LEFT(c.content, 200) AS snippet,
                    1 - (c.embedding <=> ${`[${vector.join(',')}]`}::vector) AS score
               FROM meetings.note_chunks c
-              JOIN meetings.notes n ON n.id = c.note_id
+              JOIN meetings.notes ON meetings.notes.id = c.note_id
              WHERE c.embedding IS NOT NULL
+               AND ${visible}
              ORDER BY c.embedding <=> ${`[${vector.join(',')}]`}::vector
              LIMIT ${limit}
           `);
@@ -1161,9 +1553,152 @@ export class MeetingsService {
     return [...hits.values()].slice(0, limit);
   }
 
+  // ── who may see this ───────────────────────────────────────
+
+  /**
+   * Take a note out of project scoping, or put it back.
+   *
+   * Its own method rather than a field on `update`, because `update` is also what the
+   * collaborative document calls when it flushes a body. An access change arriving down the
+   * same path as a keystroke is one merge away from being made by accident, and it is the one
+   * change on this record where an accident is expensive.
+   *
+   * Anyone who can already see the note may restrict it. Deliberately not admin-only: the
+   * person who needs to close a note is the person writing it, at the moment they realise
+   * what it is about, and a policy that makes them ask somebody first is a policy that gets
+   * answered by not writing it down.
+   */
+  async setRestricted(actor: Actor, id: string, restricted: boolean) {
+    await this.require(actor, 'meetings.write');
+    await this.raw(actor, id);
+
+    await this.db.transaction(async (tx) => {
+      await tx.update(notes).set({ restricted, updatedAt: new Date() }).where(eq(notes.id, id));
+      await this.audit.record(tx, {
+        actorId: actor.userId,
+        action: restricted ? 'meeting_note.restrict' : 'meeting_note.unrestrict',
+        entityType: 'meeting_note',
+        entityId: id,
+      });
+    });
+    return this.get(actor, id);
+  }
+
+  /** Who has been granted access, with names. The author is not listed — they always hold it. */
+  async listViewers(actor: Actor, id: string) {
+    await this.require(actor, 'meetings.read');
+    await this.raw(actor, id);
+    return this.db
+      .select({
+        userId: noteViewers.userId,
+        addedAt: noteViewers.addedAt,
+        addedBy: noteViewers.addedBy,
+        displayName: users.displayName,
+        email: users.email,
+      })
+      .from(noteViewers)
+      .innerJoin(users, eq(users.id, noteViewers.userId))
+      .where(eq(noteViewers.noteId, id))
+      .orderBy(asc(users.displayName));
+  }
+
+  /**
+   * Let somebody in.
+   *
+   * Idempotent, so granting twice is somebody clicking twice rather than an error. Recorded
+   * with who granted it: the question asked after the fact is never "who can see this" but
+   * "how did they come to", and only the second one needs a column.
+   */
+  async addViewer(actor: Actor, id: string, userId: string) {
+    await this.require(actor, 'meetings.write');
+    await this.raw(actor, id);
+
+    await this.db.transaction(async (tx) => {
+      await tx
+        .insert(noteViewers)
+        .values({ noteId: id, userId, addedBy: actor.userId })
+        .onConflictDoNothing();
+      await this.audit.record(tx, {
+        actorId: actor.userId,
+        action: 'meeting_note.viewer_added',
+        entityType: 'meeting_note',
+        entityId: id,
+        detail: { userId },
+      });
+    });
+    return this.listViewers(actor, id);
+  }
+
+  /**
+   * Take access away.
+   *
+   * The author cannot be removed, because they are not in this table at all — their access is
+   * the note's own `created_by`. Removing the last viewer therefore leaves a note only its
+   * writer can open, which is a coherent state and not an accident to guard against.
+   */
+  async removeViewer(actor: Actor, id: string, userId: string) {
+    await this.require(actor, 'meetings.write');
+    await this.raw(actor, id);
+
+    await this.db.transaction(async (tx) => {
+      await tx
+        .delete(noteViewers)
+        .where(and(eq(noteViewers.noteId, id), eq(noteViewers.userId, userId)));
+      await this.audit.record(tx, {
+        actorId: actor.userId,
+        action: 'meeting_note.viewer_removed',
+        entityType: 'meeting_note',
+        entityId: id,
+        detail: { userId },
+      });
+    });
+    return this.listViewers(actor, id);
+  }
+
   // ── internals ──────────────────────────────────────────────
 
-  private async raw(id: string) {
+  /**
+   * The projects this actor is on, for the visibility predicate.
+   *
+   * Resolved per call rather than cached: a membership added a moment ago should take effect
+   * on the next request, and a cache here would be a stale authorisation decision, which is
+   * the one kind of staleness never worth the round trip it saves.
+   */
+  private memberships(actor: Actor): Promise<string[]> {
+    return this.crm.projectIdsFor(actor.userId);
+  }
+
+  /**
+   * The note, if this actor may see it.
+   *
+   * Every actor-facing path that loads one note by id goes through here, which is the reason
+   * it is a single method: the alternative is twenty-one call sites each remembering to
+   * check, and the one that forgets is not a visible bug — it is a note being served to
+   * somebody it was hidden from, silently, for as long as nobody looks.
+   *
+   * The filter is in the query. A note this actor may not see is `NotFoundException`, the
+   * same answer as a note that does not exist — see `visibleNotes` for why that is the right
+   * answer rather than a Forbidden.
+   */
+  private async raw(actor: Actor, id: string) {
+    const [row] = await this.db
+      .select()
+      .from(notes)
+      .where(and(eq(notes.id, id), visibleNotes(actor, await this.memberships(actor))))
+      .limit(1);
+    if (!row) throw new NotFoundException('Meeting note not found');
+    return row;
+  }
+
+  /**
+   * The note, with no visibility check at all.
+   *
+   * For the two callers that have no actor to check against: the document authority, which
+   * hydrates a body for a socket that was authorised when it connected, and the search
+   * indexer, which runs over every note by design and whose output is filtered on the way out
+   * instead. Not reachable from a request, and it must stay that way.
+   */
+  private async unchecked(id: string) {
     const [row] = await this.db.select().from(notes).where(eq(notes.id, id)).limit(1);
     if (!row) throw new NotFoundException('Meeting note not found');
     return row;
@@ -1177,7 +1712,7 @@ export class MeetingsService {
    * both reading and writing. Not an endpoint, and not for anything that faces a request.
    */
   async bodyOf(id: string): Promise<string> {
-    return (await this.raw(id)).body;
+    return (await this.unchecked(id)).body;
   }
 
   /**

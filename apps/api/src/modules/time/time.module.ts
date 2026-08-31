@@ -43,6 +43,8 @@ export class TimeModule implements OnModuleInit {
     this.aiTools.bind('time_log_hours', (actor: Actor, input) =>
       this.time.createEntry(actor, input as CreateEntryInput, { aiInitiated: true }),
     );
-    this.aiTools.bind('time_stop_timer', (actor: Actor) => this.time.stopEntry(actor));
+    this.aiTools.bind('time_stop_timer', (actor: Actor, input) =>
+      this.time.stopEntry(actor, undefined, input as { minutes?: number }),
+    );
   }
 }

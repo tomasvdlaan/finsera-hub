@@ -52,6 +52,9 @@ export interface CreateTaskInput {
   sprintId?: string | null;
 }
 
+/** What `scrum_update_task` accepts: the card, and whichever fields are being changed. */
+export type UpdateTaskToolInput = { taskId: string } & Partial<Omit<CreateTaskInput, 'projectId'>>;
+
 /** Something worth saying about a move, said instead of refusing it. */
 export interface TaskWarning {
   code: 'wip_exceeded' | 'done_without_hours';
@@ -941,6 +944,40 @@ export class ScrumService {
       .orderBy(desc(tasks.createdAt))
       .limit(10);
     return rows.map((t) => ({ title: t.title, done: t.completedAt !== null }));
+  }
+
+  /**
+   * Where a handful of cards stand, asked by id.
+   *
+   * For the caller that already knows which tasks it cares about and only needs to know whether
+   * they are finished — a meeting holding its own past commitments to account. Returns a shape
+   * the caller declares, like `standupDigest` and `retroActions` above, so scrum still has never
+   * heard of a meeting.
+   *
+   * An archived card counts as done. It is not on any board and nobody is going to do it, so
+   * reporting it as an open commitment would be asking about work that no longer exists.
+   */
+  async taskStates(actor: Actor, ids: string[]) {
+    await this.require(actor, 'scrum.tasks.read');
+    if (ids.length === 0) return [];
+    const rows = await this.db
+      .select({
+        id: tasks.id,
+        title: tasks.title,
+        assigneeId: tasks.assigneeId,
+        dueOn: tasks.dueOn,
+        completedAt: tasks.completedAt,
+        archivedAt: tasks.archivedAt,
+      })
+      .from(tasks)
+      .where(inArray(tasks.id, ids));
+    return rows.map((t) => ({
+      id: t.id,
+      title: t.title,
+      assigneeId: t.assigneeId,
+      dueOn: t.dueOn,
+      done: t.completedAt !== null || t.archivedAt !== null,
+    }));
   }
 
   /**
@@ -1905,6 +1942,19 @@ export class ScrumService {
 
   async createTaskTool(actor: Actor, input: CreateTaskInput) {
     const task = await this.createTask(actor, input, { aiInitiated: true });
+    return { id: task.id, title: task.title, status: task.status };
+  }
+
+  /**
+   * Edit a card that already exists.
+   *
+   * The assistant could create and move, so anything else — an estimate, a due date, a new
+   * owner — it had to report as impossible even though the edit form does it every day.
+   * Only the keys present are sent on, so an unmentioned field keeps its value.
+   */
+  async updateTaskTool(actor: Actor, input: UpdateTaskToolInput) {
+    const { taskId, ...patch } = input;
+    const task = await this.updateTask(actor, taskId, patch);
     return { id: task.id, title: task.title, status: task.status };
   }
 

@@ -96,6 +96,20 @@ export const notes = meetings.table(
     status: text('status').notNull().default('draft'),
 
     /**
+     * Named people only, whatever the project says.
+     *
+     * The ordinary rule is that a note is visible to the team of the project it belongs to,
+     * which is the right default and cannot express the meeting about a person: a salary
+     * review, a grievance, a conversation about somebody who is on that very team. Those are
+     * not a stricter version of project scoping, they are outside it, so they get a flag
+     * rather than a narrower project.
+     *
+     * Off by default, and deliberately not inferable from anything — a note is private
+     * because somebody said so, never because a heuristic guessed at the subject.
+     */
+    restricted: boolean('restricted').notNull().default(false),
+
+    /**
      * Totals across every recording of this meeting — when it was last transcribed, and
      * what all of it has cost. The per-recording detail lives in `transcripts`; these are
      * the running sums, so recording a second time adds rather than replaces.
@@ -116,6 +130,8 @@ export const notes = meetings.table(
     index('notes_project_idx').on(t.projectId),
     index('notes_sprint_idx').on(t.sprintId),
     index('notes_date_idx').on(t.meetingDate),
+    // Half of the visibility predicate: a note is always visible to whoever wrote it.
+    index('notes_created_by_idx').on(t.createdBy),
     check('notes_status_valid', sql`${t.status} IN ('draft','final')`),
     check(
       'notes_finalised_is_complete',
@@ -197,6 +213,35 @@ export const attendees = meetings.table(
  * SCRUM task only when accepted. Nothing reaches the board without a decision, which is
  * the same position taken everywhere the AI touches a real record.
  */
+/**
+ * Who may see a restricted note, besides the person who wrote it.
+ *
+ * Separate from `attendees` because the two answer different questions and only look alike.
+ * An attendee is a record of who was in the room — free text, often not a platform user at
+ * all, and added automatically by the bot when it sees somebody join. Access is the opposite
+ * on every count: it names an account, it is only ever granted deliberately, and being in the
+ * room is not a reason to hold it afterwards.
+ *
+ * Not a registry entity: a grant is a join row, like a project membership.
+ */
+export const noteViewers = meetings.table(
+  'note_viewers',
+  {
+    noteId: uuid('note_id')
+      .notNull()
+      .references(() => notes.id, { onDelete: 'cascade' }),
+    /** `core.users.id`. */
+    userId: uuid('user_id').notNull(),
+    addedAt: timestamp('added_at', { withTimezone: true }).notNull().defaultNow(),
+    /** Who granted it, so the audit question "how did they get access" has an answer. */
+    addedBy: uuid('added_by').notNull(),
+  },
+  (t) => [
+    uniqueIndex('note_viewers_pk').on(t.noteId, t.userId),
+    index('note_viewers_user_idx').on(t.userId),
+  ],
+);
+
 export const actionItems = meetings.table(
   'action_items',
   {
@@ -212,16 +257,35 @@ export const actionItems = meetings.table(
     taskId: uuid('task_id'),
     /** 'typed' or 'ai' — so it is always visible where a suggestion came from. */
     source: text('source').notNull().default('typed'),
+    /**
+     * The commitment this one repeats, when it was carried from an earlier meeting.
+     *
+     * A promise made a fortnight ago and not kept is the thing a recurring meeting exists to
+     * ask about, and until this column there was nothing tying the second asking to the
+     * first. With it, an item carried forward is visibly the same commitment rather than a
+     * new one that happens to read the same.
+     *
+     * A plain uuid rather than a self-FK, the same shape `scrum.tasks.parent_id` uses: the
+     * ancestor is read through a join that filters on what it finds, so a dangling id costs
+     * nothing that a cascade would have saved.
+     */
+    carriedFrom: uuid('carried_from'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     index('action_items_note_idx').on(t.noteId),
+    // Asked of every open action point: has this one already been carried somewhere newer?
+    index('action_items_carried_from_idx').on(t.carriedFrom),
     check('action_items_status_valid', sql`${t.status} IN ('proposed','accepted','dismissed')`),
     check('action_items_source_valid', sql`${t.source} IN ('typed','ai')`),
     // Accepted means it became a task; the two cannot drift apart.
     check(
       'action_items_accepted_has_task',
       sql`${t.status} <> 'accepted' OR ${t.taskId} IS NOT NULL`,
+    ),
+    check(
+      'action_items_not_own_ancestor',
+      sql`${t.carriedFrom} IS NULL OR ${t.carriedFrom} <> ${t.id}`,
     ),
   ],
 );

@@ -134,13 +134,18 @@ export class TimeController {
 
   /** Stop the running entry (or a specific one). */
   @Post('entries/:id/stop')
-  stop(@CurrentActor() actor: Actor, @Param('id') id: string) {
-    return this.time.stopEntry(actor, id);
+  stop(
+    @CurrentActor() actor: Actor,
+    @Param('id') id: string,
+    @Body() body?: { minutes?: number },
+  ) {
+    return this.time.stopEntry(actor, id, { minutes: body?.minutes });
   }
 
+  /** `minutes` corrects a clock that ran too long to be saved as elapsed — see stopEntry. */
   @Post('stop')
-  stopCurrent(@CurrentActor() actor: Actor) {
-    return this.time.stopEntry(actor);
+  stopCurrent(@CurrentActor() actor: Actor, @Body() body?: { minutes?: number }) {
+    return this.time.stopEntry(actor, undefined, { minutes: body?.minutes });
   }
 
   @Delete('entries/:id')

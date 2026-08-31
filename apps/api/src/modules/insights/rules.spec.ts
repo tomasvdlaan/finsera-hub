@@ -155,6 +155,28 @@ describe('insight severities', () => {
     expect(unreachable.map((r) => r.name)).toEqual([]);
   });
 
+  it('escalates a clock only once it has outgrown a single entry', () => {
+    const row = (hours: number) => ({
+      id: crypto.randomUUID(),
+      person_id: crypto.randomUUID(),
+      person_name: 'Tomas',
+      project_name: 'Finsera Hub',
+      description: null,
+      started_at: new Date().toISOString(),
+      hours_running: hours,
+    });
+
+    // Overnight is forgetfulness: stop it and the elapsed time still saves.
+    expect(rule('timer_left_running').toCandidate(row(14)).severity).toBe('attention');
+
+    // Past a day it can no longer be stopped without saying what the work was worth, which
+    // is the state this rule exists to prevent anybody discovering for themselves.
+    const stuck = rule('timer_left_running').toCandidate(row(52));
+    expect(stuck.severity).toBe('urgent');
+    expect(stuck.subjectType).toBe('time_entry');
+    expect(stuck.detail).toMatch(/how long the work really was/);
+  });
+
   it('ranks an undecided action point by how long it has waited', () => {
     const c = rule('action_item_undecided').toCandidate({
       id: crypto.randomUUID(),

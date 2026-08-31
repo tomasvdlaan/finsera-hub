@@ -18,15 +18,39 @@ coverage/
 .idea/
 .vscode/
 
-# production stack secrets
-deploy/.env
+# production stack secrets.
+#
+# The glob, rather than the one exact name: a `deploy/.env-old` left behind while rotating
+# a key was untracked, unignored, and held the database password and a live API key — one
+# `git add -A` from being published. Backups get made under whatever suffix is to hand, so
+# the rule covers the shape rather than enumerating them.
+#
+# The example is the one that must stay in the repo, and it is already tracked — ignore
+# rules do not apply to tracked files — but the negation keeps it visible to `git status`
+# if it ever is not.
+deploy/.env*
+!deploy/.env.example
 
 # uploaded files (local storage driver). Anchored to the runtime directory: a bare
 # `storage/` also matches src/core/storage/, which silently excluded the storage
 # service from every clone and broke the first real deploy.
 apps/api/storage/
+# The dev server writes to the repository root rather than into apps/api, so the runtime
+# directory is two places. Anchored with a leading slash, which is what keeps it off
+# src/core/storage/ — the collision the note above is about.
+/storage/
 deploy/backups/
 
 # Excalidraw fonts, copied out of node_modules at build time so the board never fetches
 # them from a CDN. Generated output, not source.
 apps/web/public/excalidraw-assets/
+
+# TypeScript incremental build state.
+#
+# Two of these were committed, so every build dirtied the working tree with a file nobody
+# reads and `git add -A` swept them into unrelated commits. They are derived from the source
+# beside them and are regenerated on the next build.
+*.tsbuildinfo
+
+# Scratch output that is not source: design exports and the local storage driver's uploads.
+.design/

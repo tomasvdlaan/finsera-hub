@@ -156,7 +156,17 @@ const dayLabel = (iso: string) => {
  * there within the second.
  */
 export function Tracker() {
-  const { running, forgotten, busy, error: timerError, start, stop } = useRunningTimer();
+  const { running, forgotten, needsDuration, busy, error: timerError, start, stop } =
+    useRunningTimer();
+  /*
+   * How long the forgotten clock was really worked.
+   *
+   * A clock running over a day cannot be saved as elapsed — the entry would exceed the day
+   * the column allows — so stopping it means saying what it was worth. Asking is the only
+   * honest option: capping it at 24h would invent sixteen hours of work, and leaving it
+   * running (which is what the failed stop used to do) keeps growing the number.
+   */
+  const [stopDuration, setStopDuration] = useState('');
   const { confirm } = useDialog();
   const toast = useToast();
   /** Which entry is open for correction, and the draft being corrected. */
@@ -601,6 +611,7 @@ export function Tracker() {
         </div>
 
         {mode === 'clock' ? (
+        <>
         <div className={forgotten ? 'tracker-clock tracker-warn' : 'tracker-clock'}>
           <span className={running ? 'timer-dot' : 'timer-dot timer-dot-idle'} aria-hidden="true" />
           <span className="tracker-elapsed" aria-live="polite">
@@ -613,9 +624,36 @@ export function Tracker() {
                 {running.description ?? <span className="muted">No description</span>}
               </span>
               <span className="tag">{running.projectName}</span>
-              <Button variant="danger" disabled={busy} onClick={() => void stop()}>
-                {busy ? 'Stopping…' : 'Stop'}
-              </Button>
+              {needsDuration ? (
+                <>
+                  <input
+                    className="tracker-what"
+                    value={stopDuration}
+                    placeholder="How long did you work? e.g. 2h30"
+                    aria-label="Hours actually worked"
+                    onChange={(e) => setStopDuration(e.target.value)}
+                  />
+                  <Button
+                    variant="danger"
+                    disabled={busy || parseDuration(stopDuration) === null}
+                    onClick={() => {
+                      const minutes = parseDuration(stopDuration);
+                      if (minutes === null) return;
+                      // The list refreshes itself once nothing is running; the catch is only
+                      // so a refused stop stays on screen as a message rather than a rejection.
+                      void stop(minutes)
+                        .then(() => setStopDuration(''))
+                        .catch(() => {});
+                    }}
+                  >
+                    {busy ? 'Stopping…' : 'Stop and log'}
+                  </Button>
+                </>
+              ) : (
+                <Button variant="danger" disabled={busy} onClick={() => void stop().catch(() => {})}>
+                  {busy ? 'Stopping…' : 'Stop'}
+                </Button>
+              )}
             </>
           ) : (
             <>
@@ -643,7 +681,18 @@ export function Tracker() {
             </>
           )}
         </div>
-
+        {needsDuration && running && (
+          /*
+           * Said in the open, because the field appearing without a reason reads as the form
+           * being broken — which is what the failing stop already felt like.
+           */
+          <p className="tracker-overrun">
+            This clock has been running since {new Date(running.startedAt).toLocaleString()},
+            which is longer than a single entry can be. Say how long you actually worked and it
+            will be logged from that start time.
+          </p>
+        )}
+        </>
         ) : (
         <div className="tracker-manual">
           <input

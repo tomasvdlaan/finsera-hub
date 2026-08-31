@@ -636,6 +636,27 @@ export class CrmService {
    * possible without anyone noticing.
    */
 
+  /**
+   * Which projects this user is on, as ids.
+   *
+   * The inverse of `listMembers`, and the primitive record-level access is built from: a
+   * module asking "may this person see this record" resolves the record to a project and
+   * checks it against this set.
+   *
+   * Takes a user id rather than an Actor, and checks no capability, on purpose. It is called
+   * *while* an authorisation decision is being made, so requiring one would be circular — and
+   * it is not reachable from a request: it returns ids of projects, no names, no client, no
+   * content, and every caller is a permission check in another module.
+   */
+  async projectIdsFor(userId: string): Promise<string[]> {
+    if (!userId) return [];
+    const rows = await this.db
+      .select({ projectId: projectMembers.projectId })
+      .from(projectMembers)
+      .where(eq(projectMembers.userId, userId));
+    return rows.map((r) => r.projectId);
+  }
+
   async listMembers(actor: Actor, projectId: string) {
     await this.getProject(actor, projectId); // 404s before anything else, and checks read.
     return this.db

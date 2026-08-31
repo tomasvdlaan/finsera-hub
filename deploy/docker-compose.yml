@@ -50,6 +50,17 @@ services:
       PORTAL_ROLE_CHECK: ${PORTAL_ROLE_CHECK:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY:-}
+      # The gateway, which was missing here — so a key set in deploy/.env reached the host
+      # and stopped. There is no `env_file` on this service: only what is named in this
+      # block enters the container, which makes an omission look exactly like an unset
+      # value. Every OpenRouter model was absent from the picker in production while
+      # working locally, because `choices()` returns nothing at all without the key.
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      # OpenRouter's attribution headers. Optional, and the one place a runaway spend is
+      # visible before the invoice — anonymous traffic cannot be attributed to this app.
+      PUBLIC_URL: ${PUBLIC_URL:-}
+      # What the gateway's dollar prices are converted at, for the cost figures.
+      RATE_USD_PER_EUR: ${RATE_USD_PER_EUR:-0.92}
       MODEL_STRONG: ${MODEL_STRONG:-anthropic:claude-opus-4-8}
       MODEL_FAST: ${MODEL_FAST:-anthropic:claude-haiku-4-5-20251001}
       MODEL_EMBEDDING: ${MODEL_EMBEDDING:-google:gemini-embedding-001}
