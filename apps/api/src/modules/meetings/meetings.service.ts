@@ -16,6 +16,7 @@ import { RETRO_LABEL, ScrumService } from '../scrum/scrum.service.js';
 import { headingsOf, markdownToDoc } from '@platform/note-doc';
 import { appendMarkdown, replaceSectionMarkdown } from './doc/note-edit.js';
 import { NoteDocService } from './doc/note-doc.service.js';
+import type { TranscriptLine } from './live/live-session.js';
 import {
   TEMPLATES,
   bodyFor,
@@ -1347,6 +1348,100 @@ export class MeetingsService {
       .from(transcripts)
       .where(eq(transcripts.noteId, noteId))
       .orderBy(asc(transcripts.startedAt));
+  }
+
+  /**
+   * What was actually said in a meeting, for the assistant to read.
+   *
+   * The transcript was the one thing the assistant could not reach. It could search notes,
+   * outline them and write into them, but a note is what somebody chose to write down —
+   * and the question people actually ask ("did they ever agree to that?", "what were their
+   * exact words about the budget?") is answerable only from the speech.
+   *
+   * Deliberately NOT in the semantic index. `index()` embeds title and body only, and the
+   * schema records why: a transcript is thousands of words of half-sentences, filler and
+   * repetition, and putting it in `note_chunks` meant a search for a decision returned the
+   * ten seconds around the moment somebody nearly said it. So this is a read you ask for by
+   * name, on a note you already found, rather than something that drowns every other result.
+   *
+   * Permission and visibility come from `raw`, which is the same gate the Transcripts panel
+   * goes through — a note the actor may not open has no transcript they may read either.
+   */
+  async transcriptFor(
+    actor: Actor,
+    noteId: string,
+    opts: { query?: string; limit?: number } = {},
+  ) {
+    await this.require(actor, 'meetings.read');
+    const note = await this.raw(actor, noteId);
+
+    const recordings = await this.db
+      .select()
+      .from(transcripts)
+      .where(eq(transcripts.noteId, noteId))
+      .orderBy(asc(transcripts.startedAt));
+
+    /*
+     * Every recording flattened into one sequence of turns.
+     *
+     * A note recorded twice has two rows, and to a reader they are one conversation with a
+     * gap in the middle. Which recording a sentence came from is a fact about the capture,
+     * not about the meeting, so it is not worth a level of nesting here.
+     */
+    const lines = recordings.flatMap((r) =>
+      (r.lines as TranscriptLine[]).map((l) => ({
+        at: l.at,
+        speaker: l.speaker ?? null,
+        text: l.text,
+        kind: l.kind ?? 'speech',
+      })),
+    );
+
+    const spoken = lines.filter((l) => l.kind === 'speech' && l.text.trim().length > 0);
+
+    /*
+     * A keyword filter that keeps the turns either side of a hit.
+     *
+     * A matching line on its own is usually unreadable — "yes, that is fine" answers a
+     * question in the line above it, and returning it alone invites the model to guess what
+     * was being agreed to. Two turns of context either side is the smallest window in which
+     * an exchange still means what it meant.
+     */
+    const q = opts.query?.trim().toLowerCase();
+    let selected = spoken;
+    if (q) {
+      const keep = new Set<number>();
+      spoken.forEach((l, i) => {
+        if (!l.text.toLowerCase().includes(q)) return;
+        for (let j = Math.max(0, i - 2); j <= Math.min(spoken.length - 1, i + 2); j++) keep.add(j);
+      });
+      selected = spoken.filter((_, i) => keep.has(i));
+    }
+
+    /*
+     * Capped, and honest about it.
+     *
+     * An hour of four people talking is thousands of turns, and handing all of it to a model
+     * would spend the whole context on one meeting — or fail outright. The cap keeps the
+     * BEGINNING rather than the end: a meeting states what it is about first, and a truncated
+     * opening reads as a different conversation. `truncated` is returned so the answer can say
+     * it only read part, instead of summarising half a call as if it were the whole one.
+     */
+    const limit = Math.min(Math.max(opts.limit ?? 400, 1), 1000);
+    const shown = selected.slice(0, limit);
+
+    return {
+      noteId,
+      title: note.title,
+      meetingDate: note.meetingDate,
+      recordings: recordings.length,
+      /** Turns in the meeting, before any filtering — so "nothing matched" is distinguishable. */
+      totalLines: spoken.length,
+      matched: selected.length,
+      truncated: selected.length > shown.length,
+      query: opts.query?.trim() || null,
+      lines: shown,
+    };
   }
 
   // ── search ─────────────────────────────────────────────────
