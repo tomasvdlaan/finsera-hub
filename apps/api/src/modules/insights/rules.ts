@@ -545,4 +545,56 @@ export const RULES: Rule[] = [
       };
     },
   },
+
+  {
+    name: 'timer_left_running',
+    description: 'A clock has been running for longer than a working day.',
+    /*
+     * The clock nobody stopped on Friday.
+     *
+     * A running entry has no duration yet, so it is invisible to every rule that reads
+     * minutes — it appears in no total, on no timesheet, and against no budget, while the
+     * number on screen climbs. Past a day it also exceeds what a single entry may hold
+     * (`entries_minutes_sane`), so it cannot be stopped without saying what the work was
+     * actually worth. Noticing it on the first morning is the difference between correcting
+     * an hour and reconstructing a weekend.
+     */
+    query: sql`
+      SELECT e.id, e.person_id, u.display_name AS person_name, p.name AS project_name,
+             e.description, e.started_at,
+             (EXTRACT(EPOCH FROM (now() - e.started_at)) / 3600)::int AS hours_running
+        FROM time.v_entries e
+        LEFT JOIN crm.v_projects p ON p.id = e.project_id
+        LEFT JOIN core.users u ON u.id = e.person_id
+       WHERE e.running
+         AND now() - e.started_at > interval '12 hours'
+    `,
+    toCandidate: (r) => {
+      const hours = n(r.hours_running);
+      // Past a day the stop needs a correction, which is a different job from remembering
+      // to click stop — so it is a different severity.
+      const stuck = hours >= 24;
+      return {
+        key: `timer_left_running:${String(r.id)}`,
+        rule: 'timer_left_running',
+        subjectId: String(r.id),
+        subjectType: 'time_entry',
+        severity: stuck ? 'urgent' : 'attention',
+        title: `A clock has been running for ${hours}h`,
+        detail: stuck
+          ? `${s(r.project_name) ?? 'Internal'} — longer than one entry can hold. Stop it on ` +
+            'the Time page and say how long the work really was.'
+          : `${s(r.project_name) ?? 'Internal'} — stop it, or correct it, before it outgrows a day.`,
+        facts: {
+          hoursRunning: hours,
+          startedAt: r.started_at,
+          personName: r.person_name,
+          projectName: r.project_name,
+          description: r.description,
+        },
+        // Hours running, so the oldest clock outranks the merely forgotten one.
+        magnitude: hours * 100,
+      };
+    },
+  },
 ];

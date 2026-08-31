@@ -224,6 +224,41 @@ describe('TimeService', () => {
     expect(stopped.endedAt).not.toBeNull();
   });
 
+  /*
+   * The clock somebody left running over a weekend.
+   *
+   * Elapsed minutes went straight into a column capped at a day, so the stop died on the
+   * check constraint as a 500 and the timer kept running — the failure made itself worse
+   * every minute it lasted.
+   */
+  it('refuses a stop it cannot save, and takes the real hours instead', async () => {
+    await time.createEntry(actor, {
+      projectId,
+      startedAt: new Date(Date.now() - 52 * 60 * 60_000).toISOString(),
+    });
+
+    await expect(time.stopEntry(actor)).rejects.toThrow(/longer than a day/);
+
+    const stopped = await time.stopEntry(actor, undefined, { minutes: 180 });
+    expect(stopped.running).toBe(false);
+    expect(stopped.minutes).toBe(180);
+    // The end sits three hours after the start, not at the moment of the stop — so the entry
+    // reads as the session that was worked.
+    expect(new Date(stopped.endedAt!).getTime() - new Date(stopped.startedAt!).getTime()).toBe(
+      180 * 60_000,
+    );
+  });
+
+  it('refuses a correction longer than a day as well', async () => {
+    await time.createEntry(actor, {
+      projectId,
+      startedAt: new Date(Date.now() - 52 * 60 * 60_000).toISOString(),
+    });
+    await expect(time.stopEntry(actor, undefined, { minutes: 2000 })).rejects.toThrow(
+      /1440 minutes/,
+    );
+  });
+
   it('refuses to stop when nothing is running', async () => {
     await expect(time.stopEntry(actor)).rejects.toThrow(/Nothing is running/);
   });

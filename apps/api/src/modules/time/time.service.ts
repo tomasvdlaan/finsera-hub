@@ -82,6 +82,14 @@ export function addDays(date: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+/**
+ * The longest a single entry may be, matching the `entries_minutes_sane` check in the schema.
+ *
+ * The database is the authority; this is the copy the service refuses against, so an
+ * over-long duration comes back as a sentence rather than a constraint violation.
+ */
+export const MAX_ENTRY_MINUTES = 1440;
+
 const today = () => new Date().toISOString().slice(0, 10);
 
 /**
@@ -281,28 +289,56 @@ export class TimeService {
     return this.getEntry(actor, id);
   }
 
-  /** Stop a running entry: set the end to now and freeze the elapsed minutes. */
-  async stopEntry(actor: Actor, id?: string) {
+  /**
+   * Stop a running entry: set the end to now and freeze the elapsed minutes.
+   *
+   * A clock left running over a weekend is the ordinary case, not a strange one, and it used
+   * to be unstoppable: the elapsed minutes went straight into a column the database caps at a
+   * day (`entries_minutes_sane`), so the stop failed with a 500 and the timer stayed running
+   * — accruing more of exactly what was blocking it. Every other path already refuses more
+   * than a day politely, so this one says the same thing and takes the correction with it:
+   * pass the minutes actually worked and the end is placed that far after the start.
+   */
+  async stopEntry(actor: Actor, id?: string, input: { minutes?: number } = {}) {
     await this.require(actor, 'time.entries.write_own');
     const running = id ? await this.rawEntry(id) : await this.runningEntry(actor.userId);
     if (!running) throw new NotFoundException('Nothing is running');
     if (running.endedAt) throw new BadRequestException('That entry has already stopped');
     if (running.personId !== actor.userId) await this.require(actor, 'time.entries.manage');
 
-    const endedAt = new Date();
-    const minutes = Math.max(1, Math.round((endedAt.getTime() - running.startedAt!.getTime()) / 60_000));
+    const startedAt = running.startedAt!;
+    const elapsed = Math.max(1, Math.round((Date.now() - startedAt.getTime()) / 60_000));
+
+    let minutes: number;
+    if (input.minutes != null) {
+      minutes = this.validateMinutes(input.minutes);
+    } else if (elapsed > MAX_ENTRY_MINUTES) {
+      throw new BadRequestException(
+        `This clock has been running for ${Math.floor(elapsed / 60)}h ${elapsed % 60}m, which is ` +
+          'longer than a day and cannot be saved as one entry — stop it with the hours you ' +
+          'actually worked.',
+      );
+    } else {
+      minutes = elapsed;
+    }
+
+    // The end follows the duration rather than the wall clock, so a corrected stop still
+    // satisfies end > start and the entry reads as the session somebody actually worked.
+    const endedAt = new Date(startedAt.getTime() + minutes * 60_000);
 
     await this.db.transaction(async (tx) => {
       await tx
         .update(entries)
-        .set({ endedAt, minutes, updatedAt: endedAt })
+        .set({ endedAt, minutes, updatedAt: new Date() })
         .where(eq(entries.id, running.id));
       await this.audit.record(tx, {
         actorId: actor.userId,
         action: 'time_entry.stop',
         entityType: 'time_entry',
         entityId: running.id,
-        detail: { minutes },
+        // The elapsed figure is kept next to the saved one: a corrected stop is exactly the
+        // kind of edit somebody asks about later.
+        detail: { minutes, elapsed, corrected: input.minutes != null },
       });
     });
 
@@ -894,7 +930,7 @@ export class TimeService {
     if (!Number.isInteger(minutes) || minutes <= 0) {
       throw new BadRequestException('Minutes must be a positive whole number');
     }
-    if (minutes > 1440) throw new BadRequestException('A day has 1440 minutes');
+    if (minutes > MAX_ENTRY_MINUTES) throw new BadRequestException('A day has 1440 minutes');
     return minutes;
   }
 

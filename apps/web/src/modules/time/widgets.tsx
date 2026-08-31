@@ -349,7 +349,7 @@ export const timeWidgets: Record<string, WidgetDef> = {
     minSpan: 3,
     permission: 'time.entries.write_own',
     Component: () => {
-      const { running, busy, stop, start } = useRunningTimer();
+      const { running, needsDuration, busy, stop, start } = useRunningTimer();
       const projects = useShared<Array<{ id: string; name: string }>>('/crm/projects');
       const [picking, setPicking] = useState(false);
 
@@ -402,7 +402,12 @@ export const timeWidgets: Record<string, WidgetDef> = {
             {running.taskId ? ' · against a card' : ' · no card'}
           </div>
           <div className="card-foot">
-            <Act variant="primary" run={stop}>Stop</Act>
+            {/* Over a day, stopping needs a duration — only the tracker asks for one. */}
+            {needsDuration ? (
+              <a className="btn" href="/time">Stop on the Time page</a>
+            ) : (
+              <Act variant="primary" run={stop}>Stop</Act>
+            )}
             <Act run={async () => setPicking(true)} variant="quiet">Switch</Act>
           </div>
           {picking && (
