@@ -635,10 +635,19 @@ export function Tracker() {
                   />
                   <Button
                     variant="danger"
-                    disabled={busy || parseDuration(stopDuration) === null}
+                    /*
+                     * Zero is as invalid as unparseable, and only one of them was checked.
+                     *
+                     * `parseDuration('')` answers 0 rather than null — deliberate, because a
+                     * blank timesheet cell means no hours. Here it meant the button stayed live
+                     * on an empty field, posted `{minutes: 0}`, and came back "Minutes must be a
+                     * positive whole number" — an error about the wrong thing, on the one screen
+                     * whose whole job is unsticking a clock you cannot otherwise stop.
+                     */
+                    disabled={busy || !(parseDuration(stopDuration) ?? 0)}
                     onClick={() => {
                       const minutes = parseDuration(stopDuration);
-                      if (minutes === null) return;
+                      if (!minutes) return;
                       // The list refreshes itself once nothing is running; the catch is only
                       // so a refused stop stays on screen as a message rather than a rejection.
                       void stop(minutes)

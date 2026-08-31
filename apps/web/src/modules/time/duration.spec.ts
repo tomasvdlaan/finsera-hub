@@ -22,6 +22,24 @@ describe('parseDuration', () => {
     expect(parseDuration('12:05')).toBe(725);
   });
 
+  /*
+   * The answer that is easy to mistake for a refusal.
+   *
+   * Blank is 0, not null, because a blank timesheet cell means no hours. Anything asking
+   * "is this a usable duration?" therefore has to test the value, not just its nullness —
+   * the overrun stop checked only for null, stayed enabled on an empty field, and posted a
+   * zero the server then rejected with a message about whole numbers.
+   */
+  it('reads blank as zero, which is not the same as unparseable', () => {
+    expect(parseDuration('')).toBe(0);
+    expect(parseDuration('   ')).toBe(0);
+    expect(parseDuration('nonsense')).toBeNull();
+    // The distinction a caller has to make: both are unusable as a duration to log.
+    expect(Boolean(parseDuration('') ?? 0)).toBe(false);
+    expect(Boolean(parseDuration('nonsense') ?? 0)).toBe(false);
+    expect(Boolean(parseDuration('2h30') ?? 0)).toBe(true);
+  });
+
   it('reads explicit units', () => {
     expect(parseDuration('90m')).toBe(90);
     expect(parseDuration('2h')).toBe(120);
