@@ -29,6 +29,26 @@ import { WhiteboardModule } from './modules/whiteboard/whiteboard.module.js';
     LoggerModule.forRoot({
       pinoHttp: {
         transport: process.env.NODE_ENV !== 'production' ? { target: 'pino-pretty' } : undefined,
+        /*
+         * Credentials do not go in the log.
+         *
+         * pino logs the whole request header block, so every single request was writing its
+         * `Authorization: Bearer <jwt>` into the container log — a live access token, good for
+         * about twelve hours, in a file that is read by whoever can read files and by any log
+         * shipper added later. Nothing had to be breached for that to be a credential leak; it
+         * was one already, sitting on disk.
+         *
+         * Redacted rather than the header block dropped: knowing a request arrived
+         * authenticated, and with what kind of token, is the useful half. The secret is not.
+         */
+        redact: {
+          paths: [
+            'req.headers.authorization',
+            'req.headers.cookie',
+            'res.headers["set-cookie"]',
+          ],
+          censor: '[redacted]',
+        },
       },
     }),
     CoreModule,
