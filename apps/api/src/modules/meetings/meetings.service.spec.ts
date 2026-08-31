@@ -419,6 +419,131 @@ describe('MeetingsService', () => {
     expect(JSON.stringify(all[0]!.lines)).toContain('the first meeting');
   });
 
+  /**
+   * The assistant reading what was said, rather than what was written down.
+   *
+   * The transcript was the one thing no AI tool could reach: a note is a summary somebody
+   * chose to write, and the questions people actually ask are about the words used.
+   */
+  describe('what the assistant can read of what was said', () => {
+    const recorded = async (
+      lines: Array<{ id: string; at: number; text: string; speaker?: string; kind?: 'speech' | 'paused' }>,
+    ) => {
+      const created = await note();
+      await meetings.saveTranscript(actor, created.id, {
+        startedAt: new Date('2026-07-29T14:35:00Z'),
+        durationSeconds: 600,
+        provider: 'recall',
+        lines,
+        tokens: 100,
+        costCents: 3,
+      });
+      return created;
+    };
+
+    it('returns the turns with who said them', async () => {
+      const created = await recorded([
+        { id: 'l1', at: 5, text: 'Kunnen we de DPA deze week tekenen?', speaker: 'Anna' },
+        { id: 'l2', at: 9, text: 'Ja, ik stuur hem vanmiddag.', speaker: 'Tomas' },
+      ]);
+
+      const t = await meetings.transcriptFor(actor, created.id);
+      expect(t.totalLines).toBe(2);
+      expect(t.lines[0]).toMatchObject({ speaker: 'Anna', at: 5 });
+      expect(t.lines[1]!.text).toContain('vanmiddag');
+      // Real names, not "Speaker 1" — the whole reason the capture provider was chosen.
+      expect(t.lines.map((l) => l.speaker)).toEqual(['Anna', 'Tomas']);
+    });
+
+    it('reads several recordings of one meeting as one conversation', async () => {
+      const created = await recorded([{ id: 'l1', at: 1, text: 'before the break' }]);
+      await meetings.saveTranscript(actor, created.id, {
+        startedAt: new Date('2026-07-29T16:10:00Z'),
+        durationSeconds: 60,
+        lines: [{ id: 'l2', at: 1, text: 'after the break' }],
+        tokens: 10,
+        costCents: 1,
+      });
+
+      const t = await meetings.transcriptFor(actor, created.id);
+      expect(t.recordings).toBe(2);
+      expect(t.lines.map((l) => l.text)).toEqual(['before the break', 'after the break']);
+    });
+
+    it('keeps the turns either side of a match, so an answer still has its question', async () => {
+      // "Ja, dat is goed" on its own is unreadable, and invites the model to guess what was
+      // being agreed to.
+      const created = await recorded([
+        { id: 'l1', at: 1, text: 'Hoe staat het met de planning?', speaker: 'Anna' },
+        { id: 'l2', at: 4, text: 'Kunnen we het budget verhogen?', speaker: 'Anna' },
+        { id: 'l3', at: 8, text: 'Ja, dat is goed.', speaker: 'Tomas' },
+        { id: 'l4', at: 30, text: 'Iets heel anders nu.', speaker: 'Anna' },
+        { id: 'l5', at: 60, text: 'Nog iets anders.', speaker: 'Tomas' },
+        { id: 'l6', at: 90, text: 'En tot slot.', speaker: 'Anna' },
+      ]);
+
+      const t = await meetings.transcriptFor(actor, created.id, { query: 'budget' });
+      expect(t.matched).toBe(4); // the hit, two before it is possible, and two after
+      expect(t.lines.map((l) => l.text)).toContain('Ja, dat is goed.');
+      expect(t.lines.map((l) => l.text)).not.toContain('En tot slot.');
+      expect(t.query).toBe('budget');
+    });
+
+    it('says plainly when nothing matched, rather than returning the whole call', async () => {
+      const created = await recorded([{ id: 'l1', at: 1, text: 'Over de planning' }]);
+      const t = await meetings.transcriptFor(actor, created.id, { query: 'kerstborrel' });
+      expect(t.matched).toBe(0);
+      expect(t.lines).toHaveLength(0);
+      // Still says how much was there, so "no transcript" and "no match" stay distinguishable.
+      expect(t.totalLines).toBe(1);
+    });
+
+    it('caps a long call and admits that it did', async () => {
+      const many = Array.from({ length: 30 }, (_, i) => ({
+        id: `l${i}`,
+        at: i,
+        text: `turn ${i}`,
+      }));
+      const created = await recorded(many);
+
+      const t = await meetings.transcriptFor(actor, created.id, { limit: 5 });
+      expect(t.lines).toHaveLength(5);
+      expect(t.truncated).toBe(true);
+      // The opening, not the end: a meeting says what it is about first, and a truncated
+      // opening reads as a different conversation.
+      expect(t.lines[0]!.text).toBe('turn 0');
+    });
+
+    it('drops the stretches where listening was paused', async () => {
+      // A pause marker is not something anybody said, and reading it as speech would put
+      // words in the room that were never there.
+      const created = await recorded([
+        { id: 'l1', at: 1, text: 'Iets gezegd', speaker: 'Anna' },
+        { id: 'l2', at: 5, text: '(paused)', kind: 'paused' },
+      ]);
+      const t = await meetings.transcriptFor(actor, created.id);
+      expect(t.totalLines).toBe(1);
+      expect(t.lines.map((l) => l.text)).not.toContain('(paused)');
+    });
+
+    it('is empty, not an error, for a meeting nobody recorded', async () => {
+      const created = await note();
+      const t = await meetings.transcriptFor(actor, created.id);
+      expect(t.recordings).toBe(0);
+      expect(t.totalLines).toBe(0);
+      expect(t.lines).toHaveLength(0);
+    });
+
+    it('still says which meeting it read', async () => {
+      // The model is given several notes at once; an answer that cannot name its source is
+      // the one that gets attributed to the wrong client.
+      const created = await recorded([{ id: 'l1', at: 1, text: 'Iets' }]);
+      const t = await meetings.transcriptFor(actor, created.id);
+      expect(t.title).toBe('Voortgang Power BI');
+      expect(t.meetingDate).toBe(new Date().toISOString().slice(0, 10));
+    });
+  });
+
   it('does not store an empty transcript', async () => {
     const created = await note();
     const result = await meetings.saveTranscript(actor, created.id, {

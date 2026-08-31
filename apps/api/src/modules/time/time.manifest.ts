@@ -150,8 +150,11 @@ export const timeManifest = defineManifest({
     },
     {
       name: 'time_stop_timer',
-      description: 'Stop the currently running timer and record the elapsed time.',
-      inputSchema: z.object({}),
+      description:
+        'Stop the currently running timer and record the elapsed time. A clock left running ' +
+        'for more than a day cannot be saved as elapsed; pass the minutes actually worked, ' +
+        'asking first rather than guessing.',
+      inputSchema: z.object({ minutes: z.number().int().min(1).max(1440).optional() }),
       outputSchema: z.object({}),
       permission: 'time.entries.write_own',
       riskClass: 'write:draft',

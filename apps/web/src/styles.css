@@ -4705,6 +4705,13 @@ button.nav-me:hover { background: var(--surface); }
 .tracker-what { flex: 1; min-width: 8rem; }
 .tracker-running-what { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tracker-warn { border-color: var(--warning); background: var(--warning-bg); }
+/* Why the clock is asking for a duration, next to the field that asks. */
+.tracker-overrun {
+  margin: var(--space-2) 0 0;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  max-width: 60ch;
+}
 
 .tracker-totals {
   display: flex;

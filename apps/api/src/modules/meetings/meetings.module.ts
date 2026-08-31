@@ -98,6 +98,10 @@ export class MeetingsModule implements OnModuleInit {
         { aiInitiated: true },
       ),
     );
+    this.aiTools.bind('meetings_transcript', (actor: Actor, input) => {
+      const i = input as { noteId: string; query?: string; limit?: number };
+      return this.meetings.transcriptFor(actor, i.noteId, { query: i.query, limit: i.limit });
+    });
     this.aiTools.bind('meetings_propose_action_items', async (actor: Actor, input) => {
       const i = input as { noteId: string; items: Array<{ text: string; dueOn?: string }> };
       let note;

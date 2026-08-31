@@ -87,7 +87,7 @@ export function TopNav({
 }) {
   const navigate = useNavigate();
   const { can } = useCan();
-  const { running, busy, stop } = useRunningTimer();
+  const { running, needsDuration, busy, stop } = useRunningTimer();
   const [menu, setMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -178,9 +178,19 @@ export function TopNav({
             <button
               type="button"
               className="clock-stop"
-              onClick={() => void stop()}
+              /*
+               * A clock that has outrun a single entry cannot be stopped in one click — it
+               * needs the hours actually worked — so from here it hands over to the page that
+               * can ask, rather than failing silently under the cursor.
+               */
+              onClick={() => (needsDuration ? navigate('/time') : void stop().catch(() => {}))}
               disabled={busy}
-              aria-label="Stop the timer"
+              aria-label={needsDuration ? 'Stop the timer on the Time page' : 'Stop the timer'}
+              title={
+                needsDuration
+                  ? 'Running over a day — stop it on the Time page and say how long you worked'
+                  : undefined
+              }
             >
               <span aria-hidden="true">■</span>
             </button>
