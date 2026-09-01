@@ -51,9 +51,17 @@ describe('applySession', () => {
       ],
     });
 
+    // The note joins the write-up; the decision joins the decisions. Each in one place.
     expect(body).toContain('They are on Snowflake now');
-    expect(body).toContain('Possible decision: Weekly rather than daily refresh');
-    expect(body).toContain('Agenda item possibly covered: Data model walkthrough');
+    expect(body).toContain('Weekly rather than daily refresh');
+
+    /*
+     * Agenda coverage is a guess about the agenda, and it stayed a guess — the item is never
+     * marked covered. Printing it into the record that gets mailed to a client read as
+     * "Agenda item possibly covered: Blockers", three times over, in a real meeting. It
+     * belongs in the live panel, which is where it can still be acted on.
+     */
+    expect(body).not.toContain('Data model walkthrough');
   });
 
   it('leaves actions out of the body, because they become action points', () => {
@@ -63,7 +71,13 @@ describe('applySession', () => {
     expect(body).not.toContain('Suggested by the assistant');
   });
 
-  it('stamps every section, so a second recording does not read as one meeting', () => {
+  /*
+   * Recording twice used to append `## Summary — 14:35` and `## Summary — 16:10`, so the note
+   * grew a heading per recording and the ceremony's own `## Decisions` sat empty beside them.
+   * The second recording now adds to the section the first one wrote, which keeps both
+   * accounts without making the reader choose between two headings of the same name.
+   */
+  it('adds a second recording to the same sections rather than new ones', () => {
     const first = applyTo('', {
       state: { summary: 'Scoped the model', decisions: ['Go weekly'], openQuestions: [] },
     });
@@ -72,10 +86,16 @@ describe('applySession', () => {
       state: { summary: 'Reviewed the build', decisions: ['Ship Friday'], openQuestions: [] },
     });
 
-    expect(second).toContain('## Summary — 14:35');
-    expect(second).toContain('## Summary — 16:10');
+    // Nothing from either recording is lost.
     expect(second).toContain('Scoped the model');
     expect(second).toContain('Reviewed the build');
+    expect(second).toContain('Go weekly');
+    expect(second).toContain('Ship Friday');
+
+    // And there is one of each heading, not one per recording.
+    expect(second.split('\n').filter((l) => l.trim() === '## Summary')).toHaveLength(1);
+    expect(second.split('\n').filter((l) => l.trim() === '## Decisions')).toHaveLength(1);
+    expect(second).not.toMatch(/## \w[\w ]* — \d{2}:\d{2}/);
   });
 
   it("replaces the assistant's own notes section and keeps what was typed around it", () => {

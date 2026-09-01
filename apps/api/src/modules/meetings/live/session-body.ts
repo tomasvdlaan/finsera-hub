@@ -1,6 +1,10 @@
-import type { Transform } from '@platform/note-doc';
-import { appendMarkdown, replaceSectionMarkdown } from '../doc/note-edit.js';
-import { AI_NOTES_SECTION } from './behaviours/note-taker.behaviour.js';
+import { docToMarkdown, type Transform } from '@platform/note-doc';
+import { replaceSectionMarkdown } from '../doc/note-edit.js';
+import {
+  AI_NOTES_SECTION,
+  isBlankForm,
+  sectionMarkdownOf,
+} from './behaviours/note-taker.behaviour.js';
 import type { LiveSession, Proposal, TranscriptLine } from './live-session.js';
 
 export interface SessionSummary {
@@ -13,26 +17,22 @@ export interface SessionSummary {
 }
 
 /**
- * The heading the extracted notes live under.
+ * Write a section, replacing only what the machine is allowed to replace.
  *
- * Separate from the note-taker's section on purpose. The note-taker revises one running
- * write-up and rewrites it wholesale every pass; these are discrete observations that
- * accumulate. Sharing a heading would mean each one clobbering the other every ninety
- * seconds, which is the one failure mode a live document cannot recover from.
+ * Absent, empty, or still the template's blank form: replace, because none of those is
+ * anybody's writing. Anything else: append below it. Same rule the live note-taker follows —
+ * see `permitted` — so a recording that stops cannot overwrite a summary you typed yourself,
+ * and the two writers cannot disagree about what is safe.
  */
-export const NOTED_SECTION = 'Noted during the meeting';
-
-/**
- * The extracted notes as a list, in the order they were heard.
- *
- * Dismissed ones are gone — saying "not that" about a note has to mean it leaves the
- * document, or the button is decoration.
- */
-export function notedMarkdown(proposals: Proposal[]): string {
-  return proposals
-    .filter((p) => p.kind === 'note' && p.status !== 'dismissed')
-    .map((p) => `- ${p.text}`)
-    .join('\n');
+function writeSection(tr: Transform, heading: string, content: string): void {
+  const body = content.trim();
+  if (!body) return;
+  const existing = sectionMarkdownOf(docToMarkdown(tr.doc), heading).trim();
+  if (!existing || isBlankForm(existing)) {
+    replaceSectionMarkdown(tr, heading, body);
+    return;
+  }
+  replaceSectionMarkdown(tr, heading, `${existing}\n\n${body}`);
 }
 
 /**
@@ -68,8 +68,6 @@ export function notedMarkdown(proposals: Proposal[]): string {
  * second copy of it under a different heading.
  */
 export function applySession(tr: Transform, session: SessionSummary): void {
-  const at = stamp(session.startedAt);
-
   // The assistant's own section is replaced rather than appended — it is the same section it
   // has been revising all meeting, and a second copy of it would be nobody's notes.
   if (session.aiNotes.trim()) {
@@ -77,30 +75,80 @@ export function applySession(tr: Transform, session: SessionSummary): void {
   }
 
   /*
-   * The notes, in their own section, replaced rather than appended.
+   * Summary, decisions and open questions go under the headings the note already has.
    *
-   * They were written here as they were heard, so this is usually a no-op that confirms what
-   * is already on the page — and the thing that repairs it when a live write failed.
+   * They used to be appended as `## Summary — 14:37`, a fresh section per recording. On a note
+   * that already carried the ceremony's own `## Decisions` heading, that produced two headings
+   * about decisions — one empty because nothing ever filled it, one stamped with a time — and
+   * left the reader to work out which was the record. The stamp was there so two recordings of
+   * one meeting stayed apart; putting them under stable headings solves that better, because
+   * the second recording revises the first rather than sitting beside it.
+   *
+   * `writeSection` replaces only what the machine may replace — an absent, empty or blank-form
+   * section — and appends otherwise, so a summary you have edited yourself is never lost.
    */
-  const noted = notedMarkdown(session.keptProposals);
-  if (noted) replaceSectionMarkdown(tr, NOTED_SECTION, noted);
+  writeSection(tr, 'Summary', session.state.summary);
 
-  // Actions become action points on their own, so listing them here too would be a second
-  // copy that goes stale the moment one is accepted or dismissed. Notes are excluded for the
-  // opposite reason: they are already in the document, above.
-  const suggestions = session.keptProposals.filter(
-    (p) => p.kind !== 'action' && p.kind !== 'note',
+  /*
+   * Decisions come from two places and must end up in one.
+   *
+   * The rolling state holds what the extractor concluded; `keptProposals` holds the ones you
+   * were asked about and said yes to. Writing only the first would mean that ACCEPTING a
+   * decision — pressing the button that says "yes, record that" — was the one way to keep it
+   * out of the note. That inversion existed once and is what the guard below is for.
+   */
+  writeSection(
+    tr,
+    'Decisions',
+    bullets(
+      merged(
+        session.state.decisions,
+        session.keptProposals.filter((p) => p.kind === 'decision').map((p) => p.text),
+      ),
+    ),
   );
 
-  const section = (title: string, content: string) => {
-    if (!content.trim()) return;
-    appendMarkdown(tr, `## ${title} — ${at}\n\n${content}`);
-  };
+  writeSection(tr, 'Open questions', bullets(session.state.openQuestions));
 
-  section('Summary', session.state.summary);
-  section('Decisions', session.state.decisions.map((d) => `- ${d}`).join('\n'));
-  section('Open questions', session.state.openQuestions.map((q) => `- ${q}`).join('\n'));
-  section('Suggested by the assistant', suggestions.map(describe).join('\n'));
+  /*
+   * What the assistant noticed, folded into the write-up rather than listed beside it.
+   *
+   * These were mirrored into a section of their own, next to the narrative the note-taker was
+   * building from the same conversation — so a finished note carried the meeting twice, in two
+   * voices, and the reader had to compare them to find out whether they disagreed. Merged in
+   * here, and only the ones the write-up does not already make: the note-taker usually says the
+   * same thing in better prose, and when it does, this adds nothing.
+   *
+   * Appended after the write-up, never woven into it. This runs when the recording stops, so
+   * the note-taker has had its last pass and nothing will overwrite this afterwards.
+   */
+  const noticed = merged(
+    [],
+    session.keptProposals.filter((p) => p.kind === 'note').map((p) => p.text),
+  ).filter((t) => !mentions(session.aiNotes, t));
+  if (noticed.length > 0) {
+    const existing = sectionMarkdownOf(docToMarkdown(tr.doc), AI_NOTES_SECTION).trim();
+    replaceSectionMarkdown(
+      tr,
+      AI_NOTES_SECTION,
+      existing ? `${existing}\n\n${bullets(noticed)}` : bullets(noticed),
+    );
+  }
+
+  /*
+   * Agenda coverage is not a document.
+   *
+   * `## Suggested by the assistant` used to be appended here, and on a real meeting it read
+   * "Agenda item possibly covered: Blockers" three times over — a guess about the agenda, in
+   * the record that gets printed and mailed to a client. It belongs in the live panel, where
+   * it is already shown and can be acted on, and nowhere else. Actions are excluded for a
+   * different reason: they become action points, and a copy here would go stale the moment one
+   * was accepted.
+   *
+   * Notes are excluded because they are the same facts the assistant has been writing up all
+   * meeting. Keeping a second list of them under its own heading was the largest single source
+   * of duplication in a finished note — the reader got the meeting twice, in two voices.
+   */
 
   // No transcript. It is saved as its own record — see MeetingsService.saveTranscript —
   // because this text is what gets chunked, embedded and searched, and a transcript buried
@@ -113,22 +161,6 @@ export function formatTranscript(lines: TranscriptLine[]): string {
     .map((l) => `${clock(l.at)} ${l.speaker ? `**${l.speaker}:** ` : ''}${l.text}`)
     .join('\n');
 }
-
-/**
- * How a surviving proposal reads once the meeting is over.
- *
- * Agenda coverage is labelled as a belief rather than a fact, because it is never applied —
- * the agenda item stays open, deliberately, since marking something covered on the strength
- * of a passing mention is the quiet kind of wrong that makes a tool untrustworthy. So the
- * note says what the assistant thought and leaves the decision where it belongs.
- */
-function describe(p: Proposal): string {
-  if (p.kind === 'agenda_covered') return `- Agenda item possibly covered: ${p.text}`;
-  if (p.kind === 'decision') return `- Possible decision: ${p.text}`;
-  return `- ${p.text}`;
-}
-
-const stamp = (d: Date) => d.toTimeString().slice(0, 5);
 
 function clock(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -149,3 +181,48 @@ export const sessionSummary = (session: LiveSession): SessionSummary => ({
   keptProposals: session.keptProposals,
   startedAt: session.startedAt,
 });
+
+/** Lines as a Markdown list, or '' when there is nothing to list. */
+function bullets(items: string[]): string {
+  return items.map((i) => `- ${i}`).join('\n');
+}
+
+/**
+ * Two lists of the same kind of thing, in order, without saying anything twice.
+ *
+ * Compared on normalised text rather than identity: the extractor's running state and the
+ * proposal you accepted are the same sentence arrived at twice, and they differ only in
+ * punctuation and case often enough that identity would let both through.
+ */
+function merged(first: string[], second: string[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const item of [...first, ...second]) {
+    const text = item.trim();
+    const key = normalise(text);
+    if (!text || seen.has(key)) continue;
+    seen.add(key);
+    out.push(text);
+  }
+  return out;
+}
+
+/** Whether a body already says a thing, allowing for it being worded a little differently. */
+function mentions(body: string, text: string): boolean {
+  const hay = normalise(body);
+  const needle = normalise(text);
+  if (!needle) return true;
+  if (hay.includes(needle)) return true;
+  /*
+   * A long opening in common counts as already said.
+   *
+   * The write-up and the extractor produce the same fact in different registers — "Dhany will
+   * share the repository" against "Dhany Indraswara to share access to the GitHub repository".
+   * Whole-string containment misses that and the reader gets both.
+   */
+  const head = needle.slice(0, 40);
+  return head.length >= 40 && hay.includes(head);
+}
+
+const normalise = (s: string) =>
+  s.toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();

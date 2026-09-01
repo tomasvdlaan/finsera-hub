@@ -12,9 +12,8 @@ import { AiToolRegistry } from '../../../core/llm/tool-registry.service.js';
 import { LlmService } from '../../../core/llm/llm.service.js';
 import { TtsService } from '../../../core/llm/tts.service.js';
 import { BehaviourRegistry, type BehaviourSettings } from './behaviours/behaviour.registry.js';
-import { NOTED_SECTION, applySession, notedMarkdown, sessionSummary } from './session-body.js';
+import { applySession, sessionSummary } from './session-body.js';
 import { NoteDocService } from '../doc/note-doc.service.js';
-import { replaceSectionMarkdown } from '../doc/note-edit.js';
 import { DEFAULT_EAGERNESS, readEagerness, type Eagerness } from './eagerness.js';
 import { TEMPLATES, type Template, type TemplateName } from '../templates.js';
 
@@ -503,21 +502,15 @@ export class LiveRunner {
 
     for (const note of notes) live.decide(note.id, 'accepted');
 
-    const markdown = notedMarkdown(live.keptProposals);
-    if (markdown) {
-      try {
-        await this.docs.edit(noteId, actor, (tr) =>
-          replaceSectionMarkdown(tr, NOTED_SECTION, markdown),
-        );
-      } catch (error) {
-        /*
-         * Never fatal: applySession replaces this exact
-         * section from the same source when the recording stops, so a failure here costs
-         * liveness rather than the notes.
-         */
-        this.logger.warn(`Could not write live notes on ${noteId}: ${(error as Error).message}`);
-      }
-    }
+    /*
+     * Kept, not written to a section of their own.
+     *
+     * These used to be mirrored into `## Noted during the meeting`, beside the write-up the
+     * note-taker was building from the same conversation — so a finished note carried the
+     * meeting twice, in two voices, and the reader had to diff them to find out whether the
+     * two lists disagreed. They are the same facts; the write-up is the record. These stay
+     * live-panel signals, where they can still be dismissed.
+     */
 
     return added.filter((p) => p.kind !== 'note');
   }
