@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { markdownToDoc } from '@platform/note-doc';
-import { AI_NOTES_SECTION, permitted, sectionMarkdownOf, type Op } from './note-taker.behaviour.js';
+import {
+  AI_NOTES_SECTION,
+  isBlankForm,
+  permitted,
+  sectionMarkdownOf,
+  type Op,
+} from './note-taker.behaviour.js';
 
 const op = (over: Partial<Op>): Op => ({
   op: 'replace',
@@ -103,5 +109,75 @@ describe('sectionMarkdownOf', () => {
 
   it('is empty for a heading that is not there', () => {
     expect(sectionMarkdownOf(body, 'Three')).toBe('');
+  });
+});
+
+/**
+ * The two things that are not somebody's writing.
+ *
+ * The ownership rule protects text a PERSON wrote, and it could not tell that from a blank
+ * form or from the agent's own last pass. So it protected those too, and the agent — allowed
+ * to add but never to correct — stacked a second copy underneath instead. A real stand-up note
+ * came out with the same person's "Yesterday / Today / Blockers" three deep.
+ */
+describe('what the agent may revise', () => {
+  const standup = () =>
+    markdownToDoc(
+      [
+        '### Tomas van der Laan',
+        '',
+        '- Yesterday:',
+        '- Today:',
+        '- Blockers:',
+        '',
+      ].join('\n'),
+    );
+
+  it('recognises a template block nobody has filled in', () => {
+    expect(isBlankForm('- Yesterday:\n- Today:\n- Blockers:')).toBe(true);
+    expect(isBlankForm('')).toBe(true);
+    expect(isBlankForm('- [ ] Todo:')).toBe(true);
+  });
+
+  it('stops recognising it the moment somebody answers', () => {
+    // One word after a colon and the block is an answer, and the answer is theirs.
+    expect(isBlankForm('- Yesterday: reviewed the model\n- Today:')).toBe(false);
+    expect(isBlankForm('- Something entirely else')).toBe(false);
+  });
+
+  it('fills in a blank form rather than appending a second one', () => {
+    const verdict = permitted(standup(), op({ heading: 'Tomas van der Laan' }));
+    expect(verdict).toEqual({ allowed: true, op: 'replace' });
+  });
+
+  it('lets it correct what it wrote itself last pass', () => {
+    const doc = markdownToDoc('## Blockers\n\n- Waiting on credentials\n');
+    const written = new Map([['blockers', '- Waiting on credentials']]);
+
+    // Unchanged since the machine left it there, so replacing it destroys nothing.
+    expect(permitted(doc, op({ heading: 'Blockers' }), written)).toEqual({
+      allowed: true,
+      op: 'replace',
+    });
+  });
+
+  it('goes back to appending the moment a person edits it', () => {
+    const doc = markdownToDoc('## Blockers\n\n- Waiting on credentials, chased Tuesday\n');
+    // What the agent left is no longer what is there: somebody has been in it.
+    const written = new Map([['blockers', '- Waiting on credentials']]);
+
+    expect(permitted(doc, op({ heading: 'Blockers' }), written)).toEqual({
+      allowed: true,
+      op: 'append_to',
+    });
+  });
+
+  it('still refuses to clear something a person wrote', () => {
+    // No memory and no blank form: the original guarantee, untouched.
+    const doc = markdownToDoc('## Blockers\n\n- My own note\n');
+    expect(permitted(doc, op({ op: 'clear', heading: 'Blockers' }))).toEqual({
+      allowed: false,
+      why: 'refusing to clear a section somebody wrote',
+    });
   });
 });

@@ -148,8 +148,15 @@ describe('ReportingService', () => {
     const inside = await reporting.revenue(actor, month);
     expect(inside.totalExVatCents).toBe(35_000);
 
-    // A period ending the day the invoice was issued must exclude it.
-    const upToToday = await reporting.revenue(actor, { from: month.from, to: TODAY });
+    /*
+     * A period ending the day the invoice was issued must exclude it.
+     *
+     * The start is a fixed date in the past rather than the first of this month, which on the
+     * first of the month IS today — so the period was zero-width and the service refused it
+     * with "the end of a period must fall after its start". The test then failed once a month,
+     * for a reason that had nothing to do with what it is checking.
+     */
+    const upToToday = await reporting.revenue(actor, { from: '2020-01-01', to: TODAY });
     expect(upToToday.totalExVatCents).toBe(0);
   });
 

@@ -565,6 +565,8 @@ describe('LiveRunner', () => {
     const note = await noteWithConsent();
     const session = new LiveSession(note.id, actor.userId);
     sessions.start(note.id, session);
+    // Without a line, stop() returns early and the body is never written — see withProposal.
+    session.addLine('Something was said.', { id: '7', name: 'Marieke' });
 
     const added = session.mergeProposals(
       [{ kind: 'note', text: 'Marieke wants the supplier drill-down before the audit' }],
@@ -573,17 +575,29 @@ describe('LiveRunner', () => {
 
     const suggestions = await runner.recordNotes(actor, note.id, session, added);
 
-    // Nothing left to answer, and it is on the page.
+    // Nothing left to answer: a note is recorded, not put to you as a question.
     expect(suggestions).toHaveLength(0);
-    const body = await docs.markdown(note.id);
-    expect(body).toContain('Noted during the meeting');
-    expect(body).toContain('supplier drill-down');
+
+    /*
+     * It reaches the note when the recording stops, not during it.
+     *
+     * It used to be written live into a section of its own, beside the write-up the note-taker
+     * was building from the same conversation — the finished note then carried the meeting
+     * twice, in two voices. There is only one write-up now, and the note-taker rewrites it
+     * wholesale every pass, so anything written into it mid-meeting would be overwritten
+     * ninety seconds later. It stays visible in the live panel throughout either way.
+     */
+    sessions.attachCapture(note.id, joined);
+    await runner.stop(actor, note.id);
+    expect(await docs.markdown(note.id)).toContain('supplier drill-down');
   });
 
   it('still asks about an action, which becomes somebody’s task', async () => {
     const note = await noteWithConsent();
     const session = new LiveSession(note.id, actor.userId);
     sessions.start(note.id, session);
+    // Without a line, stop() returns early and the body is never written — see withProposal.
+    session.addLine('Something was said.', { id: '7', name: 'Marieke' });
 
     const added = session.mergeProposals(
       [
@@ -597,24 +611,28 @@ describe('LiveRunner', () => {
     const suggestions = await runner.recordNotes(actor, note.id, session, added);
 
     expect(suggestions.map((p) => p.kind)).toEqual(['action', 'decision']);
+    sessions.attachCapture(note.id, joined);
+    await runner.stop(actor, note.id);
     expect(await docs.markdown(note.id)).toContain('The export runs at 03:00');
   });
 
   /*
-   * The end-of-session write covers the same section. It has to replace it rather than
-   * append a second copy under a heading of its own, which is what the panel-era code did
-   * with everything it had been showing all meeting.
+   * One fact, one place. The whole point of folding the noticed items into the write-up is
+   * that the reader is not handed the same sentence under two headings.
    */
   it('does not write a note a second time when the meeting stops', async () => {
     const note = await noteWithConsent();
     const session = new LiveSession(note.id, actor.userId);
     sessions.start(note.id, session);
+    // Without a line, stop() returns early and the body is never written — see withProposal.
+    session.addLine('Something was said.', { id: '7', name: 'Marieke' });
 
     const added = session.mergeProposals(
       [{ kind: 'note', text: 'Marieke wants the supplier drill-down' }],
       () => crypto.randomUUID(),
     );
     await runner.recordNotes(actor, note.id, session, added);
+    sessions.attachCapture(note.id, joined);
     await runner.stop(actor, note.id);
 
     const body = await docs.markdown(note.id);

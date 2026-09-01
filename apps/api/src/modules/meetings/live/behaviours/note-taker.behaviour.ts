@@ -119,8 +119,22 @@ export class NoteTakerBehaviour implements MeetingBehaviour {
 
   private readonly logger = new Logger(NoteTakerBehaviour.name);
   private readonly lastLength = new Map<string, number>();
+  /**
+   * Per note, what this behaviour last left under each heading it wrote.
+   *
+   * In memory and for the length of the meeting only. Losing it costs nothing but a pass of
+   * append-only behaviour, which is the safe direction to fail in — and it means a restart
+   * can never hand the agent permission to overwrite something it did not write.
+   */
+  private readonly written = new Map<string, Map<string, string>>();
 
   constructor(private readonly docs: NoteDocService) {}
+
+  /** The meeting is over; keep nothing about it. */
+  forget(noteId: string): void {
+    this.lastLength.delete(noteId);
+    this.written.delete(noteId);
+  }
 
   shouldRun(ctx: BehaviourContext): boolean {
     const seen = this.lastLength.get(ctx.note.id) ?? 0;
@@ -173,10 +187,17 @@ export class NoteTakerBehaviour implements MeetingBehaviour {
         'Leave out: small talk, thinking aloud, and anything already obvious from the agenda.',
         '',
         'HOW TO EDIT:',
-        `- Your own section is "${AI_NOTES_SECTION}". You may rewrite it however you like.`,
-        '- You may write under any other heading in the document. Prefer `append_to` there:',
-        '  a person may have written it, and replacing somebody else\'s sentence is worse',
-        '  than adding one below it.',
+        `- Your own section is "${AI_NOTES_SECTION}". It is the write-up: one account of the`,
+        '  meeting, which you revise as you go. Everything you have to say about what was',
+        '  discussed belongs here, rewritten each pass rather than added to.',
+        '- You may also write under any other heading. Two of those you may REPLACE:',
+        '  a heading whose content is still a blank form (`- Today:` with nothing after it),',
+        '  and one where the text is still exactly what you left there last pass — correcting',
+        '  your own earlier line is better than leaving it wrong and adding another below it.',
+        '- Anywhere a person has written, `append_to` only. Replacing somebody else\'s',
+        '  sentence is worse than adding one under it, and the system will downgrade you.',
+        '- Do not restate in one section what you have written in another. A reader given the',
+        '  same fact twice has to work out whether the two versions disagree.',
         '- Naming a heading that does not exist creates that section at the end.',
         '- Return NO ops for a section the last few minutes did not change. Restating a',
         '  section unchanged is not a neutral act: it is a write, and somebody may be typing',
@@ -272,10 +293,11 @@ export class NoteTakerBehaviour implements MeetingBehaviour {
   ): Promise<BehaviourResult> {
     const refused: string[] = [];
     const applied: string[] = [];
+    const written = this.written.get(ctx.note.id) ?? new Map<string, string>();
 
     await this.docs.edit(ctx.note.id, ctx.actor, (tr) => {
       for (const op of ops) {
-        const verdict = permitted(tr.doc, op);
+        const verdict = permitted(tr.doc, op, written);
         if (!verdict.allowed) {
           refused.push(`${op.heading}: ${verdict.why}`);
           continue;
@@ -296,7 +318,19 @@ export class NoteTakerBehaviour implements MeetingBehaviour {
         }
         applied.push(`${target} ${op.heading}`);
       }
+
+      /*
+       * Remember what was left behind, so the next pass may revise it.
+       *
+       * Read back out of the document rather than from `op.markdown`: an append writes the
+       * concatenation, not the fragment, and a mismatch here would silently cost the agent
+       * permission to correct its own work.
+       */
+      for (const op of ops) {
+        written.set(op.heading.toLowerCase(), sectionMarkdown(tr.doc, op.heading).trim());
+      }
     });
+    this.written.set(ctx.note.id, written);
 
     /*
      * The owned section, kept in step for the end of the meeting.
@@ -357,6 +391,21 @@ export class NoteTakerBehaviour implements MeetingBehaviour {
 export function permitted(
   doc: Parameters<typeof sectionRange>[0],
   op: Op,
+  /**
+   * What the machine last put under each heading, this session.
+   *
+   * The rule below protects text a PERSON wrote. It could not tell a person's writing from a
+   * template's blank form or from the agent's own previous pass, so it protected those too —
+   * and the agent, forbidden to revise, could only pile on. That is what produced a stand-up
+   * note with the same person's "Yesterday / Today / Blockers" stacked three deep, each pass
+   * appending another copy instead of correcting the last.
+   *
+   * Matching on the exact text is what keeps this safe. If the section still says precisely
+   * what the machine left there, nobody has touched it and replacing it destroys nothing. The
+   * moment you type a single character the text no longer matches, and the section reverts to
+   * append-only for the rest of the meeting.
+   */
+  written?: ReadonlyMap<string, string>,
 ): { allowed: true; op: Op['op'] } | { allowed: false; why: string } {
   const heading = op.heading.trim();
   if (!heading) return { allowed: false, why: 'no heading named' };
@@ -379,6 +428,19 @@ export function permitted(
 
   const empty = doc.slice(range.from, range.to).content.size === 0;
   if (empty) return { allowed: true, op: op.op === 'clear' ? 'clear' : 'replace' };
+
+  const current = sectionMarkdownOf(docToMarkdown(doc), heading).trim();
+
+  // A blank form is not somebody's writing. `- Yesterday:` with nothing after the colon is
+  // the template asking a question, and filling it in is the answer, not an overwrite.
+  if (isBlankForm(current)) {
+    return { allowed: true, op: op.op === 'clear' ? 'clear' : 'replace' };
+  }
+
+  // Unchanged since the machine wrote it — see `written` above.
+  if (written?.get(heading.toLowerCase())?.trim() === current) {
+    return { allowed: true, op: op.op };
+  }
 
   if (op.op === 'append_to') return { allowed: true, op: 'append_to' };
   return op.op === 'clear'
@@ -419,4 +481,24 @@ export function sectionMarkdownOf(markdown: string, heading: string): string {
   }
 
   return start === -1 ? '' : lines.slice(start).join('\n').trim();
+}
+
+/**
+ * A section that is still the template's blank form rather than anybody's notes.
+ *
+ * Every line is either empty or a labelled bullet with nothing after the label — `- Today:`,
+ * `- Blockers:`. That is what `bodyFor` seeds a stand-up with, and treating it as content is
+ * why the agent appended a second set of labels underneath the first instead of filling in
+ * the ones already there.
+ *
+ * Deliberately strict: one word after any colon and this is false, because at that point
+ * somebody has answered and the answer is theirs.
+ */
+export function isBlankForm(markdown: string): boolean {
+  const lines = markdown
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+  if (lines.length === 0) return true;
+  return lines.every((l) => /^([-*]|\d+\.)\s*(\[[ x]\])?\s*[^:]*:\s*$/.test(l));
 }
