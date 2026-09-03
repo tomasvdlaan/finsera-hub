@@ -98,15 +98,15 @@ export class LiveGateway implements OnGatewayConnection, OnGatewayDisconnect, On
 
       // Same verification as every HTTP request; a socket is not a way around auth.
       const actor = await this.auth.verifyToken(token);
-      const note = await this.meetings.get(actor, noteId);
+      // Read to prove this actor may open this meeting; the value itself is not needed.
+      await this.meetings.get(actor, noteId);
 
-      // The consent gate. Not advisory: without every attendee having agreed, the socket
-      // closes before a single byte of audio is accepted.
-      if (!note.everyoneConsented) {
-        throw new Error(
-          'Every attendee must be recorded as having consented before a meeting can be transcribed',
-        );
-      }
+      /*
+       * No consent gate here either — see LiveRunner.startBot for why it went.
+       *
+       * `note` is still read: it is what proves this actor may open this meeting at all, which
+       * is the check that was doing the real work.
+       */
 
       const running = this.sessions.get(noteId);
 

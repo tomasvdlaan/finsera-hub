@@ -97,6 +97,27 @@ export class RecallProvider implements MeetingCaptureProvider {
       body: JSON.stringify({
         meeting_url: options.meetingUrl,
         bot_name: options.botName,
+        /*
+         * When the bot gives up, decided here rather than by whatever Recall defaults to.
+         *
+         * Left unset, the defaults govern — including a silence detector and a short
+         * everyone-left timeout — and a bot that leaves for one of those reasons looks
+         * identical from the room to one that crashed. These are the conditions we actually
+         * want, and naming them means a future surprise is a change to this list.
+         *
+         * The generous one is `in_call_not_recording`: a meeting can sit quiet for a long
+         * stretch and still be a meeting, and there is no cost to us in the bot waiting —
+         * audio is transcribed on speech, so silence is nearly free.
+         */
+        automatic_leave: {
+          // Nobody ever turned up. Twenty minutes, then stop paying for an empty room.
+          noone_joined_timeout: 1200,
+          // Everyone genuinely left. Not instant: a Teams reconnect empties the room for a
+          // few seconds and the bot should still be there when people come back.
+          everyone_left_timeout: 120,
+          in_call_not_recording_timeout: 7200,
+          recording_permission_denied_timeout: 60,
+        },
         recording_config: {
           // Per-participant audio: the whole point. Recall's own transcription stays off.
           audio_separate_raw: {},
@@ -140,6 +161,19 @@ export class RecallProvider implements MeetingCaptureProvider {
  * `SpeechBuffer` per participant, which is what stops four silent streams from costing
  * four streams' worth of transcription.
  */
+/**
+ * How long a dropped stream has to come back before the meeting is called over.
+ *
+ * Recall reconnected within eight seconds every time it was observed doing so, so a minute is
+ * generous. It is the cost of being wrong in the other direction that sets it: ending early
+ * evicts a bot from a meeting that is still running, and the only way back is for somebody to
+ * notice and start again.
+ */
+const RECONNECT_GRACE_MS = 60_000;
+
+/** How often to ping an idle stream. Well inside any idle timeout worth worrying about. */
+const PING_EVERY_MS = 30_000;
+
 export class RecallSession implements CaptureSession {
   readonly providerName = 'recall';
   private readonly buffers = new Map<string, SpeechBuffer>();
@@ -152,6 +186,12 @@ export class RecallSession implements CaptureSession {
   /** Counters so a shape mismatch is logged a few times, not every frame. */
   private unrecognised = 0;
   private noParticipant = 0;
+  /** Running while the stream is gone but the bot may still come back — see `onClosed`. */
+  private reconnectTimer: NodeJS.Timeout | null = null;
+  /** Keeps the stream from being closed for being quiet — see `attach`. */
+  private pingTimer: NodeJS.Timeout | null = null;
+  /** Set once the meeting is deliberately over, so a late close cannot re-end it. */
+  private finished = false;
 
   constructor(
     readonly id: string,
@@ -163,9 +203,38 @@ export class RecallSession implements CaptureSession {
     readonly streamToken: string,
   ) {}
 
-  /** Called by the gateway when Recall's websocket arrives and identifies this session. */
+  /**
+   * Called by the gateway when Recall's websocket arrives and identifies this session.
+   *
+   * May be called more than once for one meeting. Recall's realtime stream reconnects when it
+   * drops, and it drops: on a real recording the connection was closed from our end roughly
+   * every eight minutes, with Recall logging "peer closed connection without sending TLS
+   * close_notify" and reconnecting within seconds. That is ordinary and the meeting should not
+   * notice it.
+   */
   attach(socket: WebSocket): void {
+    const previous = this.socket;
     this.socket = socket;
+
+    // The bot is back. Whatever grace period was running is over, and nothing ended.
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+      this.logger.log(`Recall stream for ${this.id} came back; the meeting continues`);
+    }
+
+    /*
+     * The old socket's listeners go before the new one's arrive.
+     *
+     * This is the bug that ended three real meetings. `close` fires late — up to a minute or
+     * two after the connection actually failed — so the dead socket's handler ran AFTER the
+     * replacement had attached, ended the session, and made the server post `leave_call`. In
+     * Recall's own log: reconnect succeeds at 15:11:12, we evict the bot at 15:11:13.
+     */
+    previous?.removeAllListeners();
+    if (previous && previous !== socket) previous.close();
+
+    this.startPing(socket);
     this.events.onReady({ sessionId: this.id, joinedAt: this.startedAt });
     // Returned rather than voided, for the same two reasons as the live gateway: `void` on a
     // rejecting promise is an unhandled rejection, and a caller that cannot await the handler
@@ -175,7 +244,55 @@ export class RecallSession implements CaptureSession {
         this.logger.error(`Recall message failed: ${String(error)}`),
       ),
     );
-    socket.on('close', () => this.events.onEnded('The bot disconnected'));
+    socket.on('close', () => this.onClosed(socket));
+    socket.on('error', (error: Error) =>
+      this.logger.warn(`Recall stream error on ${this.id}: ${error.message}`),
+    );
+  }
+
+  /**
+   * The stream went away. That is not the same as the meeting being over.
+   *
+   * It used to be treated as the same thing: any close ended the session, wrote up the note and
+   * told the bot to leave a call it was still sitting in. Recall would reconnect a few seconds
+   * later and find nothing to attach to — ten such reconnects were refused across one
+   * afternoon, and each looked, from the room, like the bot wandering off for no reason.
+   *
+   * So a close starts a clock instead. Reconnect inside it and the meeting never noticed;
+   * miss it and the meeting ends as before, with a reason that says what actually happened.
+   */
+  private onClosed(socket: WebSocket): void {
+    // A late close from a socket that has already been replaced. The meeting is fine.
+    if (socket !== this.socket) return;
+    if (this.finished || this.reconnectTimer) return;
+
+    this.stopPing();
+    this.logger.warn(
+      `Recall stream for ${this.id} dropped; waiting ${RECONNECT_GRACE_MS / 1000}s for it to return`,
+    );
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this.events.onEnded('The bot stopped sending audio and did not come back');
+    }, RECONNECT_GRACE_MS);
+  }
+
+  /**
+   * A ping every half minute, because a quiet meeting is not an abandoned one.
+   *
+   * Nothing kept the stream warm, so a stretch with no audio looked like an idle connection to
+   * whatever sits between us and Recall, and it was closed. A ping is the cheapest frame there
+   * is and it makes the connection's silence indistinguishable from its use.
+   */
+  private startPing(socket: WebSocket): void {
+    this.stopPing();
+    this.pingTimer = setInterval(() => {
+      if (socket.readyState === socket.OPEN) socket.ping();
+    }, PING_EVERY_MS);
+  }
+
+  private stopPing(): void {
+    if (this.pingTimer) clearInterval(this.pingTimer);
+    this.pingTimer = null;
   }
 
   private async onMessage(raw: Buffer): Promise<void> {
@@ -316,6 +433,14 @@ export class RecallSession implements CaptureSession {
   }
 
   async leave(): Promise<void> {
+    // Deliberate: no grace period applies, and a close from here must not re-end anything.
+    this.finished = true;
+    this.stopPing();
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+
     // Flush anything held, so a meeting ending mid-sentence keeps that sentence.
     for (const [speakerId, buffer] of this.buffers) {
       const held = buffer.drain();
@@ -338,6 +463,7 @@ export class RecallSession implements CaptureSession {
       this.logger.warn(`Could not delete the recording: ${(error as Error).message}`),
     );
 
+    this.socket?.removeAllListeners();
     this.socket?.close();
   }
 }

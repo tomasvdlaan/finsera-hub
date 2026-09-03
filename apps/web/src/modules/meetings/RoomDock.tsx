@@ -214,7 +214,6 @@ export function RoomDock({
                   noteId={note.id}
                   live={live}
                   running={running}
-                  canRecord={note.everyoneConsented}
                   onStartBot={onStartBot}
                   onStartCapture={onStartCapture}
                   onStop={onStop}

@@ -26,7 +26,6 @@ export function LiveTab({
   noteId,
   live,
   running,
-  canRecord,
   onStartBot,
   onStartCapture,
   onStop,
@@ -38,7 +37,6 @@ export function LiveTab({
   live: LiveState;
   running: boolean;
   /** Consent, which the server enforces — the socket closes without it. */
-  canRecord: boolean;
   onStartBot: (meetingUrl: string) => void;
   onStartCapture: (source: 'microphone' | 'tab', deviceId?: string) => void;
   onStop: () => void;
@@ -65,16 +63,6 @@ export function LiveTab({
     const timer = setInterval(() => tick((n) => n + 1), 1000);
     return () => clearInterval(timer);
   }, [running]);
-
-  if (!canRecord) {
-    return (
-      <p className="muted">
-        Recording needs every attendee marked as having consented — the server refuses the
-        connection otherwise. Add the people who are in the meeting under People, and record
-        what each of them said.
-      </p>
-    );
-  }
 
   if (!running && !live.connecting) {
     return (

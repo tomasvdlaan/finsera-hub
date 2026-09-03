@@ -228,27 +228,31 @@ describe('LiveGateway', () => {
     return note;
   };
 
-  // ── the gate ──
+  // ── who may open it ──
 
-  it('refuses to open without consent from everyone', async () => {
+  /*
+   * Consent no longer gates the socket — see LiveRunner.startBot for why. What still gates it
+   * is the only check that was doing real work: whether this actor may open this meeting at
+   * all. These two guard that the removal took the gate and not the guard.
+   */
+  it('opens whether or not consent has been recorded', async () => {
     const note = await noteWithConsent(false);
     const socket = new FakeSocket();
 
     await gateway.handleConnection(socket as never, request(`token=t&noteId=${note.id}`));
 
-    expect(socket.closed).toBe(true);
-    expect(socket.messagesOfType('ready')).toHaveLength(0);
-    expect(String(socket.messagesOfType('error')[0]?.message)).toMatch(/consent/i);
+    expect(socket.closed).toBe(false);
+    expect(socket.messagesOfType('ready')).toHaveLength(1);
   });
 
-  it('refuses when one attendee declined', async () => {
+  it('opens even when somebody declined', async () => {
     const note = await noteWithConsent(false);
     await meetings.setConsent(actor, note.id, note.attendees[0]!.id, 'granted');
     await meetings.setConsent(actor, note.id, note.attendees[1]!.id, 'declined');
 
     const socket = new FakeSocket();
     await gateway.handleConnection(socket as never, request(`token=t&noteId=${note.id}`));
-    expect(socket.closed).toBe(true);
+    expect(socket.closed).toBe(false);
   });
 
   it('opens once everyone has consented', async () => {

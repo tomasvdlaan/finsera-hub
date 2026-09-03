@@ -113,11 +113,9 @@ function Dial({
  */
 export function LivePanel({
   noteId,
-  canRecord,
   onFinished,
 }: {
   noteId: string;
-  canRecord: boolean;
   onFinished: () => void;
 }) {
   const {
@@ -178,15 +176,6 @@ export function LivePanel({
     seen.current = live.noteStaleAt;
     onFinished();
   }, [live.noteStaleAt, onFinished]);
-
-  if (!canRecord) {
-    return (
-      <p className="muted">
-        Recording needs every attendee marked as having consented. Add the people who are
-        in the meeting and record what each of them said.
-      </p>
-    );
-  }
 
   return (
     <div>
