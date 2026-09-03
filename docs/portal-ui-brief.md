@@ -36,7 +36,9 @@ EUR in `nl-NL` format (`€ 1.234,56`).
 - **Trust matters more than delight.** Money, contracts and a company's own project data.
   Nothing playful around amounts, statuses or acceptance.
 - **Infrequent use.** Nothing may rely on the reader remembering how it worked last time.
-- **No settings, no profile, no notifications.** Deliberately absent, and out of scope.
+- **No settings, no profile, no notifications.** Deliberately absent. Personalisation is
+  something Finsera configures per client — the welcome line, the logo, which tabs exist —
+  never something a client visiting twice a year has to set and then remember.
 
 ## 3. Global shell
 
@@ -44,8 +46,13 @@ Present on every screen once signed in:
 
 - **Header bar** — the Finsera wordmark, the navigation, the signed-in email address, and a
   "uitloggen" link.
-- **Navigation, seven items in this order**: Projecten · Taken · Offertes · Facturen ·
-  Documenten · Rapporten · Vragen. The active item is marked.
+- **Navigation, up to eight items in this order**: Overzicht · Projecten · Taken · Offertes ·
+  Facturen · Documenten · Rapporten · Vragen. The active item is marked. **A tab appears
+  only when there is something behind it** — a client with no quotes has no Offertes tab —
+  so the navigation is shorter for a new client and grows as the relationship does. Overzicht
+  and Vragen are always present.
+- **The client's logo**, when they have given us one, sits beside the Finsera wordmark. Their
+  mark, our design language; the portal is Finsera's, at their address.
 - **Staff banner** — shown only to Finsera employees, above the header, currently a solid
   warning-coloured strip: *"Finsera — u bekijkt het portaal van {client} als medewerker.
   Acties van de klant zijn uitgeschakeld."* It must be impossible to overlook or mistake for
@@ -73,6 +80,27 @@ identity provider; the portal only starts and ends it.
   currently unstyled and would benefit from the same treatment as the signed-out screen.
 
 ## 5. The seven screens
+
+### 5.0 Overzicht — the front page
+Where signing in lands, and deliberately not a dashboard. The portal shows a client nothing
+about the business, and a page of totals would be the first place that stopped being true.
+It answers two questions instead.
+
+- **A greeting** using the person's first name, then a **welcome sentence** written per client
+  by their account manager in the internal app. This is the one genuinely personal thing on
+  the screen and should be treated as the page's anchor.
+- **Wacht op u** — quotes to review, overdue invoices, tickets where the ball is with them.
+  Exactly the three things a client can act on in this portal, so the list is short by
+  construction. When it is empty it says so plainly, because nothing waiting is the good
+  outcome rather than an empty state to apologise for.
+- **Rapportages**, promoted here rather than left behind the last tab.
+- **Nieuw sinds uw vorige bezoek**, measured from their previous sign-in. Absent on a first
+  visit and on most visits, which is correct.
+- **Loopt nu** — the projects actually under way.
+- **Uw contactpersoon** — their account manager by name, with an email link.
+
+Design note: five short sections, most of them often empty. The hardest part is making a page
+that is mostly absent still feel like a welcome rather than a stub.
 
 ### 5.1 Projecten
 A read-only table of the client's projects.
@@ -191,9 +219,8 @@ Ranked, for a designer deciding where to spend effort:
    currently a heading and a button on a white page.
 4. **Mobile.** Six of the seven screens are wide tables. They do not collapse today.
 5. **The staff banner** (§3) — correct but crude.
-6. **An overview.** There is no landing screen; signing in drops the client on Projecten.
-   Whether one is wanted is an open question — it risks becoming a dashboard, which this
-   deliberately is not.
+6. **The front page's empty condition.** A new client sees a greeting, a welcome sentence and
+   almost nothing else. That is the honest state and it should still read as considered.
 
 ## 8. Reference: the visual language today
 

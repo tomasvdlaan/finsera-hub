@@ -421,6 +421,13 @@
       "when": 1788468556245,
       "tag": "0059_handoff_binding",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1788473223976,
+      "tag": "0060_portal_welcome_and_last_visit",
+      "breakpoints": true
     }
   ]
 }

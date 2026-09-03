@@ -534,3 +534,38 @@ removal is not possible.
 **The alternative considered and dropped:** a "sign in with a different account" link using
 `prompt=login`. It works, and it treats the symptom — the reason anyone needed it was that
 logout did not log out.
+
+---
+
+## The portal gets a front page, and it is not a dashboard (2026-09-04) · **Decided**
+
+Signing in used to land on Projecten, which was first for no reason, and nothing told a
+client visiting twice a year what had changed or what was waiting on them.
+
+**The organising question is "what needs you", not "how much of everything is there."** A
+dashboard would have been the first place this platform started telling a client about the
+business, which every other screen refuses to do. So the page carries a greeting, the three
+things a client can actually act on, what is new since their last sign-in, the reports, the
+live projects, and who to contact. No totals, no charts, no activity feed.
+
+**"Since you were last here" needed a column.** `last_seen_at` is stamped at sign-in, so by
+the time the page renders it means *now* and everything is older than it. `previous_seen_at`
+carries the old value across at each sign-in, which makes the claim answerable and honest.
+
+**Tabs hide themselves rather than being configured.** An empty Offertes tab reads as
+neglect; a per-client list of switches reads as a settings screen nobody updates. A tab
+exists when there is something behind it, computed from the same queries the tabs run — a
+tab that disagreed with the page behind it would be worse than either answer. Vragen is
+always present, because hiding it when a client has asked nothing would remove the one
+thing they came to do. The same pass made those queries degrade rather than throw when a
+module declares no exposure: everywhere else an undeclared type is a refusal, but "is there
+anything behind this tab" has an obvious answer for a type nobody publishes, and letting one
+module take the whole front page down with it was not it.
+
+**Personalisation is ours to set; customisation is not theirs to have.** The welcome line and
+the logo are edited on the client's page in hub, by the person who thought of something worth
+saying. There are no per-user preferences: somebody visiting twice a year should not arrive to
+settings they chose last March and have forgotten. The logo sits *beside* the Finsera wordmark
+rather than replacing it — full white-labelling would say the portal is theirs, and it is
+Finsera's, at their address. A logo is a PNG or a JPEG and never an SVG, which is a document
+that can carry script and would be rendered on a page holding the client's session.

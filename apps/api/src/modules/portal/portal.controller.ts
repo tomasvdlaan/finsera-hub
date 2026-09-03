@@ -98,19 +98,73 @@ export class PortalController {
    * back invites a front end to start passing it as a parameter — which is how a
    * server-side fact quietly becomes a client-supplied one.
    */
+  /**
+   * Who is looking, whose portal this is, and which tabs there is anything behind.
+   *
+   * The client id is still not here. It would be an internal identifier of no use to them,
+   * and echoing it back invites a front end to start passing it as a parameter — which is
+   * how a server-side fact quietly becomes a client-supplied one.
+   */
   @Get('me')
   async me(@CurrentViewer() viewer: PortalViewer, @Req() req: Request) {
-    // The client's name only for a staff viewer, and only because the banner has to say
-    // whose portal this is. A client already knows who they are, and echoing their client
-    // id back would invite a front end to start passing it as a parameter — which is how a
-    // server-side fact quietly becomes a client-supplied one.
-    if (!isStaff(viewer)) return { email: viewer.email, staff: false };
     const host = req.portalHost ?? (await this.hosts.resolve(req.headers.host));
+    const clientName = host?.kind === 'client' ? host.clientName : null;
+    const [branding, tabs, pages] = await Promise.all([
+      this.portalPages.branding(viewer.clientId),
+      this.projection.availability(viewer),
+      this.portalPages.forClient(viewer.clientId),
+    ]);
+
     return {
       email: viewer.email,
-      staff: true,
-      clientName: host?.kind === 'client' ? host.clientName : null,
+      // A first name if we have one. The greeting is the whole reason this is here.
+      name: isStaff(viewer) ? null : (viewer.displayName ?? null),
+      staff: isStaff(viewer),
+      clientName,
+      welcome: branding.welcome,
+      logo: branding.hasLogo,
+      contact: branding.contact,
+      tabs: { ...tabs, pages: pages.length > 0 },
     };
+  }
+
+  /** The front page. See `PortalProjection.overview` for why it is not a dashboard. */
+  @Get('overview')
+  async overview(@CurrentViewer() viewer: PortalViewer) {
+    await this.recordRead(viewer, 'overview');
+    const since = isStaff(viewer) ? null : (viewer.previousSeenAt ?? null);
+    const [overview, pages, tickets] = await Promise.all([
+      this.projection.overview(viewer, since),
+      this.portalPages.forClient(viewer.clientId),
+      this.tickets.forClient(viewer),
+    ]);
+    return {
+      ...overview,
+      pages,
+      // A ticket waiting on the client is the third thing they can act on; the status is
+      // already derived from who wrote last, so this needs no rule of its own.
+      awaitingTickets: (tickets as Array<Record<string, unknown>>).filter(
+        (t) => t.status === 'waiting_on_client',
+      ),
+    };
+  }
+
+  /**
+   * The client's own logo, if they gave us one.
+   *
+   * Served from here rather than linked from wherever it lives, for the same reason a
+   * report is: a page carrying somebody's session should not be fetching images from a
+   * third party, sending a referrer along with it.
+   */
+  @Get('logo')
+  async logo(@CurrentViewer() viewer: PortalViewer, @Res() res: Response) {
+    const file = await this.portalPages.logo(viewer.clientId);
+    if (!file) throw new NotFoundException('Not found');
+    const data = await this.storage.get(file.key);
+    res.setHeader('Content-Type', file.mimeType);
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.send(data);
   }
 
   @Get('projects')

@@ -45,7 +45,7 @@ export default defineConfig({
        * which `PortalPagesService` already enforces with the same list. A key beginning
        * with `^` is a regular expression to Vite.
        */
-      '^/(?!$|api/|auth/|src/|@|node_modules/|favicon|assets/|projecten|taken|offertes|facturen|documenten|rapporten|vragen)':
+      '^/(?!$|api/|auth/|src/|@|node_modules/|favicon|assets/|overzicht|projecten|taken|offertes|facturen|documenten|rapporten|vragen)':
         { target: 'http://localhost:3001' },
     },
   },

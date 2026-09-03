@@ -64,15 +64,30 @@ export class PortalUsersService {
       throw new ForbiddenException('No portal access');
     }
 
-    // Deliberately not awaited on the request path — a failed timestamp write should not
-    // cost a client their session, and nothing reads it synchronously.
+    /*
+     * The previous visit is carried forward before this one is stamped.
+     *
+     * `last_seen_at` becomes now, so on its own it can never answer "what is new since I
+     * was last here" — everything is older than now. Moving the old value across at the
+     * same moment is what makes the front page's one genuinely personal claim possible.
+     *
+     * Deliberately not awaited: a failed timestamp write should not cost a client their
+     * session, and nothing reads it synchronously. This runs once per sign-in, not per
+     * request, so the value it writes is a visit rather than a heartbeat.
+     */
     void this.db
       .update(portalUsers)
-      .set({ lastSeenAt: new Date() })
+      .set({ previousSeenAt: row.lastSeenAt, lastSeenAt: new Date() })
       .where(eq(portalUsers.id, row.id))
       .catch((err: Error) => this.logger.warn(`Could not record last seen: ${err.message}`));
 
-    return { portalUserId: row.id, clientId: row.clientId, email: row.email };
+    return {
+      portalUserId: row.id,
+      clientId: row.clientId,
+      email: row.email,
+      displayName: row.displayName,
+      previousSeenAt: row.previousSeenAt ?? null,
+    };
   }
 
   /**
@@ -151,7 +166,13 @@ export class PortalUsersService {
       });
     });
 
-    return { portalUserId: claimed.id, clientId: claimed.clientId, email: claimed.email };
+    return {
+      portalUserId: claimed.id,
+      clientId: claimed.clientId,
+      email: claimed.email,
+      displayName: null,
+      previousSeenAt: null,
+    };
   }
 
   /** Invite a client login. Internal-only: creating one is how a client gets in at all. */

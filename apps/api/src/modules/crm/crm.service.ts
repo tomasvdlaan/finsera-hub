@@ -40,6 +40,8 @@ export interface CreateClientInput {
   invoiceEmail?: string | null;
   /** Their portal address: `duce` for `duce.finsera.nl`. Null removes it (Phase 8). */
   portalSlug?: string | null;
+  /** A sentence from us on their portal's front page. */
+  portalWelcome?: string | null;
 }
 
 export interface CreateProjectInput {
@@ -221,6 +223,10 @@ export class CrmService {
           invoiceEmail:
             patch.invoiceEmail === undefined ? before.invoiceEmail : patch.invoiceEmail,
           portalSlug,
+          portalWelcome:
+            patch.portalWelcome === undefined
+              ? before.portalWelcome
+              : (patch.portalWelcome?.trim() || null),
           updatedAt: new Date(),
         })
         .where(eq(clients.id, id));

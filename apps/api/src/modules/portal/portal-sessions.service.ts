@@ -37,6 +37,9 @@ export interface ResolvedSession {
    * remembers to revoke them.
    */
   email: string | null;
+  /** For a client session: what to call them, and when they were last here before this visit. */
+  displayName: string | null;
+  previousSeenAt: Date | null;
 }
 
 /**
@@ -96,6 +99,8 @@ export class PortalSessionsService {
         expiresAt: portalSessions.expiresAt,
         revokedAt: portalSessions.revokedAt,
         email: portalUsers.email,
+        displayName: portalUsers.displayName,
+        previousSeenAt: portalUsers.previousSeenAt,
         userDisabledAt: portalUsers.disabledAt,
         userClientId: portalUsers.clientId,
         staffEmail: staffUser.email,
@@ -144,6 +149,8 @@ export class PortalSessionsService {
       staffUserId: row.staffUserId,
       clientId: row.clientId,
       email: row.kind === 'staff' ? row.staffEmail : row.email,
+      displayName: row.kind === 'staff' ? null : row.displayName,
+      previousSeenAt: row.kind === 'staff' ? null : row.previousSeenAt,
     };
   }
 

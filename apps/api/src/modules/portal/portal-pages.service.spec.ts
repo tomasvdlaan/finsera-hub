@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Actor } from '@platform/contracts';
 import { sql } from 'drizzle-orm';
 import { AuditService } from '../../core/audit/audit.service.js';
+import { StorageService } from '../../core/storage/storage.service.js';
 import { EventBus } from '../../core/events/event-bus.service.js';
 import { LinkService } from '../../core/links/link.service.js';
 import { ManifestRegistry } from '../../core/manifest/manifest.registry.js';
@@ -43,7 +44,7 @@ describe('PortalPagesService', () => {
       testDb, registry, permissions, audit,
       new EventBus(manifests), new LinkService(testDb, registry, permissions, audit, manifests),
     );
-    pages = new PortalPagesService(testDb, permissions, audit);
+    pages = new PortalPagesService(testDb, permissions, audit, new StorageService());
     clientId = (await crm.createClient(admin, { name: 'Duce', status: 'active' })).id;
   });
 

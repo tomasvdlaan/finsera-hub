@@ -9,11 +9,12 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { Actor } from '@platform/contracts';
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, sql } from 'drizzle-orm';
 import { v7 as uuidv7 } from 'uuid';
 import { AuditService } from '../../core/audit/audit.service.js';
 import { DB, type Database } from '../../core/db/db.module.js';
 import { PermissionService } from '../../core/permissions/permission.service.js';
+import { StorageService } from '../../core/storage/storage.service.js';
 import {
   PageSecretKeyMissing,
   decryptPageSecret,
@@ -36,6 +37,7 @@ const RESERVED = [
   'api',
   'assets',
   'auth',
+  'overzicht',
   'projecten',
   'taken',
   'offertes',
@@ -89,6 +91,7 @@ export class PortalPagesService {
     @Inject(DB) private readonly db: Database,
     private readonly permissions: PermissionService,
     private readonly audit: AuditService,
+    private readonly storage: StorageService,
   ) {}
 
   /** The page a path's first segment names, if this client has one and it is on. */
@@ -110,6 +113,107 @@ export class PortalPagesService {
       .from(portalPages)
       .where(and(eq(portalPages.clientId, clientId), eq(portalPages.enabled, true)))
       .orderBy(asc(portalPages.title));
+  }
+
+  /**
+   * What makes a portal feel like it belongs to this client: a sentence from us, their
+   * logo, and the name of the person they actually deal with.
+   *
+   * The contact is the client's owner, by name and work address. That is an internal
+   * person's email being handed to somebody outside the business, which is the point — a
+   * portal that cannot tell you who to ask is a filing cabinet.
+   */
+  async branding(clientId: string): Promise<{
+    welcome: string | null;
+    hasLogo: boolean;
+    contact: { name: string; email: string } | null;
+  }> {
+    const { rows } = await this.db.execute<{
+      portal_welcome: string | null;
+      portal_logo_key: string | null;
+      owner_name: string | null;
+      owner_email: string | null;
+    }>(sql`
+      SELECT c.portal_welcome, c.portal_logo_key,
+             u.display_name AS owner_name, u.email AS owner_email
+        FROM crm.clients c
+        LEFT JOIN core.users u ON u.id = c.owner_id AND u.is_active = true
+       WHERE c.id = ${clientId}
+    `);
+    const row = rows[0];
+    return {
+      welcome: row?.portal_welcome ?? null,
+      // Whether there is one, never where it is kept.
+      hasLogo: Boolean(row?.portal_logo_key),
+      contact:
+        row?.owner_name && row.owner_email
+          ? { name: row.owner_name, email: row.owner_email }
+          : null,
+    };
+  }
+
+  /** The stored logo for a client, for the one route that serves it. */
+  async logo(clientId: string): Promise<{ key: string; mimeType: string } | null> {
+    const { rows } = await this.db.execute<{ portal_logo_key: string | null }>(
+      sql`SELECT portal_logo_key FROM crm.clients WHERE id = ${clientId}`,
+    );
+    const key = rows[0]?.portal_logo_key;
+    if (!key) return null;
+    // The type is read from the key's own extension rather than stored beside it: the
+    // upload accepts two formats and writes the extension itself, so there is nothing here
+    // a second column could disagree with.
+    return { key, mimeType: key.endsWith('.png') ? 'image/png' : 'image/jpeg' };
+  }
+
+  /**
+   * Replace a client's logo, or remove it.
+   *
+   * PNG and JPEG only. Not SVG: it is a document that can carry script, and this one is
+   * rendered on a page holding the client's session — the one place in the portal where
+   * somebody else's file becomes markup on our origin.
+   */
+  async setLogo(
+    actor: Actor,
+    clientId: string,
+    input: { contentBase64?: string; mimeType?: string } | null,
+  ): Promise<{ hasLogo: boolean }> {
+    await this.require(actor, 'portal.admin');
+    const { rows } = await this.db.execute<{ portal_logo_key: string | null }>(
+      sql`SELECT portal_logo_key FROM crm.clients WHERE id = ${clientId}`,
+    );
+    const previous = rows[0]?.portal_logo_key ?? null;
+
+    let key: string | null = null;
+    if (input?.contentBase64) {
+      const mime = input.mimeType ?? '';
+      if (mime !== 'image/png' && mime !== 'image/jpeg') {
+        throw new BadRequestException('A logo has to be a PNG or a JPEG');
+      }
+      const data = Buffer.from(input.contentBase64, 'base64');
+      if (data.length === 0) throw new BadRequestException('Empty image');
+      if (data.length > 1024 * 1024) throw new BadRequestException('A logo is limited to 1 MB');
+      const stored = await this.storage.put(data, `logo.${mime === 'image/png' ? 'png' : 'jpg'}`);
+      key = stored.key;
+    }
+
+    await this.db.transaction(async (tx) => {
+      await tx.execute(sql`UPDATE crm.clients SET portal_logo_key = ${key} WHERE id = ${clientId}`);
+      await this.audit.record(tx, {
+        actorId: actor.userId,
+        action: key ? 'portal.logo.set' : 'portal.logo.cleared',
+        entityType: 'client',
+        entityId: clientId,
+      });
+    });
+
+    // Only once the row no longer points at it, so a failure leaves a file nobody reads
+    // rather than a row pointing at a file nobody has.
+    if (previous && previous !== key) {
+      await this.storage.delete(previous).catch((err: Error) =>
+        this.logger.warn(`Could not remove the old logo: ${err.message}`),
+      );
+    }
+    return { hasLogo: key !== null };
   }
 
   async list(actor: Actor, clientId: string): Promise<PageRow[]> {

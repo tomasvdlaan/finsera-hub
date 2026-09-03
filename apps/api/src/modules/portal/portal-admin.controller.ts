@@ -104,4 +104,19 @@ export class PortalAdminController {
   probePage(@CurrentActor() actor: Actor, @Param('id', ParseUUIDPipe) id: string) {
     return this.pages.probe(actor, id);
   }
+
+  /**
+   * The client's own logo, replaced or removed.
+   *
+   * Posted as base64 rather than multipart, matching how a pasted note image already
+   * arrives here — one body parser, one size limit, one thing to reason about.
+   */
+  @Post('clients/:clientId/logo')
+  setLogo(
+    @CurrentActor() actor: Actor,
+    @Param('clientId', ParseUUIDPipe) clientId: string,
+    @Body() body: { contentBase64?: string; mimeType?: string } | null,
+  ) {
+    return this.pages.setLogo(actor, clientId, body);
+  }
 }

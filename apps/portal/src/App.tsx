@@ -5,6 +5,7 @@ import { login, logout } from './lib/auth.js';
 import { Documents } from './pages/Documents.js';
 import { Pages } from './pages/Pages.js';
 import { Invoices } from './pages/Invoices.js';
+import { Overview } from './pages/Overview.js';
 import { Projects } from './pages/Projects.js';
 import { Quotes } from './pages/Quotes.js';
 import { Tasks } from './pages/Tasks.js';
@@ -19,7 +20,16 @@ import { Requests } from './pages/Requests.js';
  * colleague is not offered a button that would fail, and so that nobody accepts a quote
  * believing they are doing the client a favour.
  */
-const ViewerContext = createContext<PortalMe>({ email: '', staff: false });
+const ViewerContext = createContext<PortalMe>({
+  email: '',
+  name: null,
+  staff: false,
+  clientName: null,
+  welcome: null,
+  logo: false,
+  contact: null,
+  tabs: { projects: false, tasks: false, quotes: false, invoices: false, documents: false, pages: false },
+});
 export const useViewer = () => useContext(ViewerContext);
 
 /**
@@ -99,14 +109,27 @@ function Session() {
         </p>
       )}
       <header className="bar">
-        <h1>Finsera</h1>
+        <h1>
+          {/* Their logo beside our name, not instead of it. The portal is Finsera's, at
+              their address; a page wearing only their branding would say otherwise. */}
+          {me?.logo && <img className="client-logo" src="/api/portal/logo" alt="" />}
+          Finsera
+        </h1>
         <nav className="tabs">
-          <NavLink to="/projecten">Projecten</NavLink>
-          <NavLink to="/taken">Taken</NavLink>
-          <NavLink to="/offertes">Offertes</NavLink>
-          <NavLink to="/facturen">Facturen</NavLink>
-          <NavLink to="/documenten">Documenten</NavLink>
-          <NavLink to="/rapporten">Rapporten</NavLink>
+          <NavLink to="/overzicht">Overzicht</NavLink>
+          {/*
+            A tab exists when there is something behind it.
+            An empty Offertes tab reads as neglect, and a per-client list of switches to
+            keep in step with reality reads as a settings screen nobody updates. Vragen is
+            always here whatever it holds — hiding it when a client has asked nothing would
+            take away the one thing they came to do.
+          */}
+          {me?.tabs.projects && <NavLink to="/projecten">Projecten</NavLink>}
+          {me?.tabs.tasks && <NavLink to="/taken">Taken</NavLink>}
+          {me?.tabs.quotes && <NavLink to="/offertes">Offertes</NavLink>}
+          {me?.tabs.invoices && <NavLink to="/facturen">Facturen</NavLink>}
+          {me?.tabs.documents && <NavLink to="/documenten">Documenten</NavLink>}
+          {me?.tabs.pages && <NavLink to="/rapporten">Rapporten</NavLink>}
           <NavLink to="/vragen">Vragen</NavLink>
         </nav>
         <span className="tag">
@@ -118,7 +141,8 @@ function Session() {
       </header>
 
       <Routes>
-        <Route path="/" element={<Navigate to="/projecten" replace />} />
+        <Route path="/" element={<Navigate to="/overzicht" replace />} />
+        <Route path="/overzicht" element={<Overview />} />
         <Route path="/projecten" element={<Projects />} />
         <Route path="/taken" element={<Tasks />} />
         <Route path="/offertes" element={<Quotes />} />
@@ -126,7 +150,7 @@ function Session() {
         <Route path="/documenten" element={<Documents />} />
         <Route path="/rapporten" element={<Pages />} />
         <Route path="/vragen" element={<Requests />} />
-        <Route path="*" element={<Navigate to="/projecten" replace />} />
+        <Route path="*" element={<Navigate to="/overzicht" replace />} />
       </Routes>
       </div>
     </ViewerContext.Provider>

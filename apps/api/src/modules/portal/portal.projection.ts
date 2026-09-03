@@ -14,6 +14,10 @@ import { ManifestRegistry } from '../../core/manifest/manifest.registry.js';
 export interface PortalVisitor extends PortalAudience {
   portalUserId: string;
   email: string;
+  /** What to call them on their own front page. Null until they have a name on file. */
+  displayName?: string | null;
+  /** When they were last here, *before* this visit. Null on a first sign-in. */
+  previousSeenAt?: Date | null;
 }
 
 /**
@@ -200,6 +204,97 @@ export class PortalProjection {
     // checked rather than left to the SELECT list staying as written.
     this.assertFields('task', result.rows, ['project_name']);
     return result.rows;
+  }
+
+  /**
+   * Which tabs a client should be offered at all.
+   *
+   * A client with no quotes seeing an empty Offertes tab reads as neglect, and a per-client
+   * list of switches to keep in step with reality reads as a settings screen nobody updates.
+   * So it is derived: a tab exists when there is something behind it.
+   *
+   * Built from the same queries the tabs themselves run, rather than from counts written
+   * separately — a tab that disagrees with the page behind it is worse than either answer.
+   * Cheap enough at this size, and it runs once per page load.
+   *
+   * Vragen is always offered, whatever it returns. Hiding it when a client has asked
+   * nothing would take away the one thing they came to do.
+   */
+  async availability(audience: PortalAudience) {
+    const [projects, tasks, quotes, invoices, documents] = await Promise.all([
+      this.ifExposed('project', () => this.projects(audience)),
+      this.ifExposed('task', () => this.tasks(audience)),
+      this.ifExposed('quote', () => this.quotes(audience)),
+      this.ifExposed('invoice', () => this.invoices(audience)),
+      this.ifExposed('document', () => this.documents(audience)),
+    ]);
+    return {
+      projects: projects.length > 0,
+      tasks: tasks.length > 0,
+      quotes: quotes.length > 0,
+      invoices: invoices.length > 0,
+      documents: documents.length > 0,
+    };
+  }
+
+  /**
+   * A query, or nothing at all if the owning module does not expose that type.
+   *
+   * Everywhere else an undeclared type is a refusal, because somewhere else somebody asked
+   * for it directly. Here the question is "is there anything behind this tab", and a type
+   * no module publishes has nothing behind it by definition — so the honest answer is an
+   * empty list rather than an error that takes the whole front page down with it.
+   */
+  private async ifExposed(
+    entityType: string,
+    run: () => Promise<Array<Record<string, unknown>>>,
+  ): Promise<Array<Record<string, unknown>>> {
+    return this.exposedFields(entityType).length === 0 ? [] : run();
+  }
+
+  /**
+   * The front page: what is waiting on the client, and what has changed since they were here.
+   *
+   * Deliberately not a dashboard. This platform shows a client nothing about the business,
+   * and a page of totals would be the first place that stopped being true — so the
+   * organising question is "what needs you", not "how much of everything is there".
+   *
+   * Everything is filtered in memory from the same projection queries the pages use. That
+   * is a few more rows than a purpose-built query would move and one fewer place for the
+   * rule about what a client may see to be written down differently.
+   */
+  async overview(audience: PortalAudience, since: Date | null) {
+    const [projects, quotes, invoices] = await Promise.all([
+      this.ifExposed('project', () => this.projects(audience)),
+      this.ifExposed('quote', () => this.quotes(audience)),
+      this.ifExposed('invoice', () => this.invoices(audience)),
+    ]);
+
+    const newer = (value: unknown) => {
+      if (!since || typeof value !== 'string') return false;
+      const at = new Date(value);
+      return !Number.isNaN(at.getTime()) && at > since;
+    };
+
+    return {
+      since: since?.toISOString() ?? null,
+      // The three things a client can actually act on, and nothing else can appear here
+      // because nothing else in this portal is an action they can take.
+      awaiting: {
+        quotes: quotes.filter((q) => q.status === 'sent' && q.expired !== true),
+        invoices: invoices.filter((i) => i.overdue === true),
+      },
+      // What changed while they were away. Nothing is "new" on a first visit, which is
+      // right: everything is, and saying so would be noise on the one screen that should
+      // read as a welcome.
+      recent: {
+        invoices: invoices.filter((i) => newer(i.issue_date)),
+      },
+      // What is under way, which is not the same as everything on file: a prospective or
+      // cancelled project under a heading that says "loopt nu" would be a small lie, and a
+      // completed one belongs in the list rather than on the front page.
+      projects: projects.filter((p) => p.status === 'active' || p.status === 'on_hold'),
+    };
   }
 
   async invoices(audience: PortalAudience) {

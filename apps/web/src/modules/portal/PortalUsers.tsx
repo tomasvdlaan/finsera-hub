@@ -30,6 +30,59 @@ const when = (iso: string | null) =>
  * question you have while looking at DocHorse, and a permission you have to go somewhere
  * else to grant is one that gets granted by asking someone else to run a query.
  */
+/**
+ * Their logo, beside ours in their portal's header.
+ *
+ * Their mark, our design language. Full white-labelling would say the portal is theirs,
+ * and it is Finsera's — at their address, which is the part that matters to them.
+ */
+function PortalLogo({ clientId }: { clientId: string }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  // Bumped after a change so the browser fetches the new one rather than the cached old.
+  const [version, setVersion] = useState(0);
+
+  const send = async (body: { contentBase64?: string; mimeType?: string } | null) => {
+    setError(undefined);
+    setBusy(true);
+    try {
+      await api.post(`/portal-admin/clients/${clientId}/logo`, body ?? {});
+      setVersion((v) => v + 1);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const choose = (file: File | undefined) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result);
+      void send({ contentBase64: result.slice(result.indexOf(',') + 1), mimeType: file.type });
+    };
+    reader.readAsDataURL(file);
+  };
+
+  return (
+    <p className="row">
+      <span className="muted">Logo:</span>
+      <input
+        type="file"
+        accept="image/png,image/jpeg"
+        disabled={busy}
+        onChange={(e) => choose(e.target.files?.[0])}
+      />
+      <button className="link-button" disabled={busy} onClick={() => void send(null)}>
+        remove
+      </button>
+      {version > 0 && <span className="muted">saved</span>}
+      {error && <span className="error">{error}</span>}
+    </p>
+  );
+}
+
 export function PortalUsers({
   clientId,
   portalSlug,
@@ -101,6 +154,8 @@ export function PortalUsers({
       )}
 
       {error && <p className="error">{error}</p>}
+
+      <PortalLogo clientId={clientId} />
 
       {rows && rows.length > 0 && (
         <table>

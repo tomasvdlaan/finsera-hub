@@ -140,12 +140,37 @@ export interface PortalDocument {
   created_at: string;
 }
 
-/** Who is looking. `staff` is one of us; a client sees `staff: false` and no banner. */
+/** Which tabs there is anything behind. Derived, never configured. */
+export interface PortalTabs {
+  projects: boolean;
+  tasks: boolean;
+  quotes: boolean;
+  invoices: boolean;
+  documents: boolean;
+  pages: boolean;
+}
+
+/** Who is looking, whose portal this is, and how it should be dressed. */
 export interface PortalMe {
   email: string;
+  /** Their own name, when we have one. Null for a staff viewer. */
+  name: string | null;
   staff: boolean;
-  /** Whose portal this is, sent only to staff — a client already knows. */
-  clientName?: string | null;
+  clientName: string | null;
+  welcome: string | null;
+  logo: boolean;
+  contact: { name: string; email: string } | null;
+  tabs: PortalTabs;
+}
+
+export interface PortalOverview {
+  /** When they were last here, before this visit. Null on a first sign-in. */
+  since: string | null;
+  awaiting: { quotes: PortalQuote[]; invoices: PortalInvoice[] };
+  recent: { invoices: PortalInvoice[] };
+  projects: PortalProject[];
+  pages: PortalPage[];
+  awaitingTickets: PortalTicket[];
 }
 
 /** A page of custom content. The link is a path on this host; the source is never sent. */
@@ -157,6 +182,7 @@ export interface PortalPage {
 
 export const api = {
   me: () => request<PortalMe>('/me'),
+  overview: () => request<PortalOverview>('/overview'),
   projects: () => request<PortalProject[]>('/projects'),
   tasks: () => request<PortalTask[]>('/tasks'),
   invoices: () => request<PortalInvoice[]>('/invoices'),

@@ -29,6 +29,8 @@ export interface Client {
   invoiceEmail: string | null;
   /** Their portal address: `duce` means `duce.finsera.nl`. Null means no portal. */
   portalSlug: string | null;
+  /** A sentence from us on their portal's front page. */
+  portalWelcome: string | null;
 }
 
 export interface Contact {

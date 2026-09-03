@@ -95,6 +95,8 @@ export class PortalAuthGuard implements CanActivate {
             portalUserId: session.portalUserId!,
             clientId: session.clientId,
             email: session.email,
+            displayName: session.displayName,
+            previousSeenAt: session.previousSeenAt,
           };
     return true;
   }

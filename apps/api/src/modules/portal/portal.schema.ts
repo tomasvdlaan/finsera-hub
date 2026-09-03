@@ -53,6 +53,15 @@ export const portalUsers = portal.table(
 
     invitedBy: uuid('invited_by').notNull(),
     lastSeenAt: timestamp('last_seen_at', { withTimezone: true }),
+    /**
+     * The visit before this one, which is the only one worth showing anybody.
+     *
+     * "New since you were last here" cannot be measured against `last_seen_at`: that is
+     * stamped when this sign-in happens, so by the time the page renders it means *now* and
+     * everything is older than it. Carrying the previous value forward at each sign-in
+     * costs one column and makes the question answerable.
+     */
+    previousSeenAt: timestamp('previous_seen_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

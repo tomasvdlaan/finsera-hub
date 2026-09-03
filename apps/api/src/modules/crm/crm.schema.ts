@@ -87,6 +87,25 @@ export const clients = crm.table(
      * not become a hostname the reverse proxy would ask a certificate for.
      */
     portalSlug: text('portal_slug'),
+
+    /**
+     * A sentence from us, on their portal's front page.
+     *
+     * The single most personal thing the portal can carry, and the cheapest: a client
+     * arriving to a line written by the person they actually deal with is in a
+     * relationship, and one arriving to a table of invoices is using software. Written on
+     * the client's own page in hub, because that is where somebody is when they think of
+     * something worth saying.
+     */
+    portalWelcome: text('portal_welcome'),
+    /**
+     * Their logo, as a storage key rather than a URL.
+     *
+     * A URL would mean the client's browser fetching an image from somewhere we do not
+     * control, on a page carrying their session — a referrer sent to a third party, and a
+     * portal that breaks when somebody else reorganises their website.
+     */
+    portalLogoKey: text('portal_logo_key'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
     archivedAt: timestamp('archived_at', { withTimezone: true }),

@@ -126,6 +126,41 @@ describe('PortalProjection.tasks', () => {
     expect(await projection.tasks({ clientId: mine })).toEqual([]);
   });
 
+  // ── the front page, and the tabs it decides ──
+
+  it('offers a tab only when there is something behind it', async () => {
+    // An empty Offertes tab reads as neglect; a switch somebody has to remember to flip
+    // reads as a settings screen nobody updates. So it is derived.
+    expect(await projection.availability({ clientId: mine })).toMatchObject({
+      projects: true, tasks: false, quotes: false, invoices: false, documents: false,
+    });
+    await makeTask(myProject, 'Iets zichtbaars', true);
+    expect((await projection.availability({ clientId: mine })).tasks).toBe(true);
+  });
+
+  it('shows a client only their own projects on the front page, and only live ones', async () => {
+    // A new project is 'prospective', which is on file rather than under way — the front
+    // page says "loopt nu" and must not be describing something that has not started.
+    expect((await projection.overview({ clientId: mine }, null)).projects).toEqual([]);
+
+    await crm.updateProject(actor, myProject, { status: 'active' });
+    const overview = await projection.overview({ clientId: mine }, null);
+    expect(overview.projects.map((p) => (p as { name: string }).name)).toEqual(['Dashboard']);
+    // And never anybody else's, whatever its status.
+    await crm.updateProject(actor, theirProject, { status: 'active' });
+    expect(await projection.overview({ clientId: mine }, null)).toMatchObject({
+      projects: [{ name: 'Dashboard' }],
+    });
+  });
+
+  it('says nothing is new on a first visit', async () => {
+    // Everything is new then, and saying so would be noise on the one screen that should
+    // read as a welcome.
+    const first = await projection.overview({ clientId: mine }, null);
+    expect(first.since).toBeNull();
+    expect(first.recent.invoices).toEqual([]);
+  });
+
   it('refuses to serve tasks at all if the module stops declaring them', async () => {
     // `assertExposed` is what makes the manifest the decision rather than this query.
     const bare = new ManifestRegistry();

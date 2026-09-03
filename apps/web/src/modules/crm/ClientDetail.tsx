@@ -166,6 +166,15 @@ export function ClientDetail() {
         onSave={(v) => patch({ portalSlug: v })}
       />
       {client.portalSlug && (
+        <EditableField
+          label="Portal welcome"
+          value={client.portalWelcome}
+          placeholder="A line they see when they open their portal"
+          multiline
+          onSave={(v) => patch({ portalWelcome: v })}
+        />
+      )}
+      {client.portalSlug && (
         <p className="muted" style={{ marginTop: '-.5rem' }}>
           Their portal is at{' '}
           <a href={portalUrl(client.portalSlug)} target="_blank" rel="noreferrer">
