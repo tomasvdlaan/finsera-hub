@@ -210,7 +210,8 @@ use, so adding a client is setting their portal address in hub and nothing else.
    what keeps them off the wildcard.
 2. **`deploy/.env`:**
    ```
-   PORTAL_ADDRESSES=*.finsera.nl, portal.finsera.nl
+   PORTAL_AUTH_ADDRESS=portal.finsera.nl
+   PORTAL_CLIENT_ADDRESS=https://
    PORTAL_BASE_DOMAIN=finsera.nl
    PORTAL_AUTH_HOST=portal.finsera.nl
    PORTAL_SESSION_SECRET=<openssl rand -base64 32>
@@ -234,6 +235,13 @@ use, so adding a client is setting their portal address in hub and nothing else.
    and put its secret in `ZITADEL_PORTAL_CLIENT_SECRET`; PKCE is used either way, so this
    can wait.
 4. Deploy as usual.
+
+**Never put a wildcard hostname in `PORTAL_CLIENT_ADDRESS`.** It is `https://`, a catch-all.
+A `*` in a Caddy site address is a domain Caddy *manages*, so it tries to obtain a real
+wildcard certificate — which only the DNS-01 challenge can issue, which needs a provider
+plugin this build does not have. The failed attempt does not stay in its own corner: it
+stopped TLS being served for every name on the server, `hub` included. That happened once,
+on 2026-09-03, and the symptom was a TLS handshake alert rather than anything in the log.
 
 **How a certificate appears.** Caddy has on-demand TLS for the portal hostnames and asks
 the API first (`/api/portal-host/check?domain=`), which answers 200 only for the login
