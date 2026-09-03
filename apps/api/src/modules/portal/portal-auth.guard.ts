@@ -1,201 +1,101 @@
 import {
   CanActivate,
   ExecutionContext,
+  ForbiddenException,
   Injectable,
-  Logger,
-  type OnModuleInit,
   UnauthorizedException,
 } from '@nestjs/common';
 import type { Request } from 'express';
-import { createRemoteJWKSet, jwtVerify, type JWTPayload } from 'jose';
-import { PORTAL_ROLE, hasRole } from '../../core/auth/roles.js';
-import { PortalUsersService } from './portal-users.service.js';
-import type { PortalVisitor } from './portal.projection.js';
+import { SESSION_COOKIE, readCookie } from './cookies.js';
+import { PortalHostService, type PortalHost } from './portal-host.service.js';
+import { PortalSessionsService } from './portal-sessions.service.js';
+import type { PortalViewer } from './portal.projection.js';
 
 declare module 'express' {
   interface Request {
-    visitor?: PortalVisitor;
+    viewer?: PortalViewer;
+    portalHost?: PortalHost;
   }
 }
 
+/** The header every state-changing portal request must carry. A cross-site form cannot add it. */
+export const CSRF_HEADER = 'x-requested-with';
+export const CSRF_VALUE = 'portal';
+
 /**
- * Verifies a token from the portal application and resolves it to a visitor.
+ * Turns the session cookie into a viewer, or refuses.
  *
- * Three separate things have to be true, and conflating any two is how this goes wrong:
+ * What used to happen here — verifying a Zitadel token — now happens once at login in
+ * `PortalIdentityService`. This guard's job is smaller and runs on every request:
  *
- *   1. The token is genuine — signed by Zitadel, not expired. Standard.
- *   2. It was issued **for the portal application** — the audience. Necessary, and on its
- *      own worth less than it looks: Zitadel lets a client request an arbitrary audience
- *      scope and returns a token carrying it whether or not the holder has a grant for
- *      it. So `aud` restates what was asked for, not what was permitted.
- *   3. The holder **is a portal client** — the role. This is the one that authorises,
- *      because roles are written from server-side grants and cannot be requested into
- *      existence. Zitadel's own guidance is to verify roles in addition to `aud`.
+ *   1. There is a cookie, and it names a live session (not revoked, not expired, and its
+ *      account still enabled — `PortalSessionsService.resolve` re-reads the user row every
+ *      time, so revoking a login ends its sessions on the next request).
+ *   2. **The host agrees with the session.** A session carries a client id: from the
+ *      invitation row for a client, from the host it was created on for an employee. If
+ *      the request arrived at a client host, that host must belong to the same client, or
+ *      the answer is 403. The host never chooses the client — it can only disagree and
+ *      lose. A cookie is scoped to one hostname anyway, so this is the second lock.
+ *   3. A write carries the `X-Requested-With` header. `SameSite=Lax` already stops a
+ *      cross-site form from sending the cookie on a POST in every current browser; the
+ *      header is the second lock there, because a cookie-only rule is one browser quirk
+ *      from open.
  *
- * Then, and only then, `portal.users` decides *whose* data this is.
+ * What it does NOT decide is whether a staff viewer may do the thing being asked. That is
+ * the difference between `@CurrentViewer()` and `@CurrentVisitor()` on the route itself:
+ * reads take a viewer, writes take a visitor, and a staff session cannot satisfy the
+ * second (P5).
  *
- * `audience` is still required rather than optional. The internal guard tolerates an empty
- * one (`audience || undefined`), defensible for a single trusted tenant and indefensible
- * here: an unset variable would silently turn a check off, which is the failure that looks
- * like everything working.
+ * `req.actor` is never set: a portal request must never satisfy an internal guard, and
+ * leaving that field unset is what makes an accidentally-shared controller fail closed.
  */
 @Injectable()
-export class PortalAuthGuard implements CanActivate, OnModuleInit {
-  private readonly logger = new Logger(PortalAuthGuard.name);
-  private jwks?: ReturnType<typeof createRemoteJWKSet>;
-
-  constructor(private readonly portalUsers: PortalUsersService) {}
-
-  private get issuer() {
-    return process.env.ZITADEL_ISSUER ?? '';
-  }
-
-  /** The portal application's client id — never the internal one. */
-  private get audience() {
-    return process.env.ZITADEL_PORTAL_CLIENT_ID ?? '';
-  }
-
-  /**
-   * On unless explicitly switched off, and never off by accident.
-   *
-   * The opt-out is a named value rather than an absent one, so an unset or misspelled
-   * variable leaves the check ON. That is the opposite of how the audience behaves in the
-   * internal guard, and deliberately so: a security check that disappears when you forget
-   * to configure something is the failure mode this module exists to avoid.
-   */
-  private get roleCheckEnabled() {
-    return process.env.PORTAL_ROLE_CHECK !== 'off';
-  }
-
-  /**
-   * An unconfigured portal admits nobody, rather than admitting everybody.
-   *
-   * Unset audience is not "skip the check" — that is the shape of the bug this guard
-   * exists to prevent, and it is what the internal guard's `audience || undefined` would
-   * do here. Below, an unset audience makes `verifyToken` reject every request.
-   *
-   * It is a warning rather than a fatal error only because the portal has no endpoints
-   * yet; failing the whole platform's boot over an unconfigured feature nobody can reach
-   * would be theatre. The equality check IS fatal, because two projects sharing a client
-   * id is not a missing configuration — it is a wrong one, and it silently makes an
-   * internal token valid at the portal.
-   */
-  onModuleInit(): void {
-    if (this.audience && this.audience === process.env.ZITADEL_CLIENT_ID) {
-      throw new Error(
-        'ZITADEL_PORTAL_CLIENT_ID equals ZITADEL_CLIENT_ID. The portal needs its own ' +
-          'Zitadel application, or the two are indistinguishable by audience.',
-      );
-    }
-    if (!this.audience) {
-      this.logger.warn(
-        'ZITADEL_PORTAL_CLIENT_ID is not set — the portal will refuse every request. ' +
-          'Set it to the portal application’s client id (see .env.example).',
-      );
-      return;
-    }
-    this.logger.log(`Portal auth configured for audience ${this.audience}`);
-
-    if (!this.roleCheckEnabled) {
-      // Loud, and on every boot. A temporary relaxation that nobody is reminded of is a
-      // permanent one, and this is the sort of thing that is discovered years later.
-      this.logger.warn(
-        `PORTAL_ROLE_CHECK=off — the '${PORTAL_ROLE}' role is NOT required. Portal access ` +
-          'rests on the audience and the portal.users invitation alone. Remove this ' +
-          'setting once Zitadel role grants work.',
-      );
-    }
-  }
+export class PortalAuthGuard implements CanActivate {
+  constructor(
+    private readonly sessions: PortalSessionsService,
+    private readonly hosts: PortalHostService,
+  ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const req = context.switchToHttp().getRequest<Request>();
-    const token = req.headers.authorization?.replace(/^Bearer /i, '');
-    if (!token) throw new UnauthorizedException('Missing bearer token');
 
-    req.visitor = await this.verifyToken(token);
-    // No `req.actor`: a portal request must never satisfy an internal guard, and leaving
-    // that field unset is what makes an accidentally-shared controller fail closed.
+    const host = await this.hosts.resolve(req.headers.host);
+    /*
+     * A client's data is served on a client's own host, and nowhere else.
+     *
+     * The login host resolves without consulting `crm.clients` at all — it is nobody's —
+     * so a session held there would outlive the client being archived or their address
+     * being cleared, because there would be no host to disagree with it. Refusing here is
+     * what makes those two gestures actually end access: on a client host, `resolve()`
+     * stops answering the moment either happens.
+     */
+    if (!host || host.kind !== 'client') throw new UnauthorizedException('No portal session');
+
+    const secret = readCookie(req, SESSION_COOKIE);
+    if (!secret) throw new UnauthorizedException('No portal session');
+
+    const session = await this.sessions.resolve(secret);
+    if (!session) throw new UnauthorizedException('No portal session');
+
+    if (host.clientId !== session.clientId) {
+      throw new ForbiddenException('Not your portal');
+    }
+
+    if (req.method !== 'GET' && req.method !== 'HEAD' && req.headers[CSRF_HEADER] !== CSRF_VALUE) {
+      throw new ForbiddenException('Missing request header');
+    }
+
+    if (!session.email) throw new UnauthorizedException('No portal session');
+
+    req.portalHost = host;
+    req.viewer =
+      session.kind === 'staff'
+        ? { staffUserId: session.staffUserId!, clientId: session.clientId, email: session.email }
+        : {
+            portalUserId: session.portalUserId!,
+            clientId: session.clientId,
+            email: session.email,
+          };
     return true;
-  }
-
-  async verifyToken(token: string): Promise<PortalVisitor> {
-    if (!this.issuer) throw new UnauthorizedException('ZITADEL_ISSUER is not configured');
-
-    // The fail-closed half of the boot warning above. Verifying without an audience would
-    // accept any token this Zitadel instance ever issued, internal ones included.
-    if (!this.audience) {
-      this.logger.error('Portal request refused: ZITADEL_PORTAL_CLIENT_ID is not configured');
-      throw new UnauthorizedException('Portal is not configured');
-    }
-
-    if (token.split('.').length !== 3) {
-      this.logger.error(
-        'Received an opaque access token. Set the portal application’s Auth Token Type ' +
-          'to "JWT" (Token Settings) so it can be validated via JWKS.',
-      );
-      throw new UnauthorizedException('Opaque access token — expected a JWT');
-    }
-
-    let payload: JWTPayload;
-    try {
-      this.jwks ??= createRemoteJWKSet(new URL(`${this.issuer}/oauth/v2/keys`));
-      ({ payload } = await jwtVerify(token, this.jwks, {
-        issuer: this.issuer,
-        audience: this.audience,
-      }));
-    } catch (err) {
-      this.logger.warn(`Portal token rejected: ${(err as Error).message}`);
-      throw new UnauthorizedException('Invalid token');
-    }
-
-    // The audience above is necessary and not sufficient: Zitadel will issue a token
-    // carrying an audience the holder has no grant for, so `aud` restates the request
-    // rather than proving authorisation. The role comes from a grant, so it does.
-    if (this.roleCheckEnabled && !hasRole(payload, PORTAL_ROLE)) {
-      this.logger.warn(
-        `Portal token rejected: subject '${payload.sub}' has no '${PORTAL_ROLE}' role`,
-      );
-      throw new UnauthorizedException('Invalid token');
-    }
-
-    // Third gate, and the only one that says *whose* data this is: an invitation we wrote.
-    try {
-      return await this.portalUsers.resolveFromSubject(payload.sub!);
-    } catch (err) {
-      // An unknown subject may be someone signing in for the first time against an
-      // invitation that names their email. Anything else — revoked, never invited — has
-      // already thrown something more specific and is rethrown untouched.
-      const claimed = await this.claimByEmail(token, payload.sub!);
-      if (claimed) return claimed;
-      throw err;
-    }
-  }
-
-  /**
-   * Bind a first-time sign-in to the invitation naming that email.
-   *
-   * The email is read from Zitadel's userinfo endpoint with the caller's own token, never
-   * from a claim the caller could have shaped and never from the request body — and it is
-   * used only if Zitadel says it is verified. Without `email_verified`, an address is a
-   * string somebody typed, and this would be a way to claim another company's invitation
-   * by naming it.
-   */
-  private async claimByEmail(token: string, subject: string): Promise<PortalVisitor | null> {
-    try {
-      const res = await fetch(`${this.issuer}/oidc/v1/userinfo`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) return null;
-
-      const info = (await res.json()) as { email?: string; email_verified?: boolean };
-      if (!info.email || info.email_verified !== true) {
-        this.logger.warn(`Portal sign-in by '${subject}' has no verified email to claim with`);
-        return null;
-      }
-      return await this.portalUsers.claimInvitation(subject, info.email);
-    } catch (err) {
-      this.logger.warn(`Could not check for a pending invitation: ${(err as Error).message}`);
-      return null;
-    }
   }
 }

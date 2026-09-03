@@ -379,3 +379,158 @@ existed to produce. Four implementation-level facts were learned by running it:
 - Delete the demo module (its job is done; it is the pattern CRM copies).
 - Change `POSTGRES_PASSWORD` in `deploy/.env` before any real deployment.
 - Provision Hetzner and close criterion 9.
+
+---
+
+## Phase 8 — Portal on its own hosts: P1–P5 (2026-09-03) · **Decided**
+
+Confirmed by Tomas from [phase8-portal-v2-brief.md](phase8-portal-v2-brief.md) §3, which
+carries the reasoning. In one line each:
+
+- **P1 — Sessions are cookies, issued by the API.** A report link is a plain navigation and
+  carries no Bearer header, so the portal's credential has to be a cookie. Zitadel stays
+  the identity provider; the API does the code exchange, verifies the token once, and the
+  browser holds an opaque reference to a `portal.sessions` row. The three Phase 7 gates
+  moved from the request guard to the login callback unchanged — `PortalIdentityService`
+  is the old `PortalAuthGuard` with a new entry point, and its tests moved with it.
+- **P2 — One login callback, on `portal.finsera.nl`.** Zitadel redirect URIs are exact,
+  so a callback per client host would be a manual step per onboarding that silently
+  breaks. The callback hands off to the client host with a one-time, one-host,
+  sixty-second ticket (`portal.handoff_tickets`), and the session is created on the host
+  that will read it.
+- **P3 — Reports are reverse-proxied by the API** (step 3, not yet built), with Vercel's
+  Protection Bypass header. Not redirected (leaks the origin) and not iframed (same, plus
+  frame headers).
+- **P4 — Wildcard DNS plus Caddy on-demand TLS** (step 2, not yet built). No wildcard
+  certificate, no DNS-01, no ZXCS plugin; a per-host certificate on first request, gated
+  by an `ask` endpoint that only admits known slugs.
+- **P5 — Same Zitadel project; employees enter every portal, clients only their own.**
+  Corrects a premise: hub and portal were already one project as two applications (the
+  2026-07-29 revision above). What is new is the rule: a `core.users` row makes a staff
+  session valid on any client host; a `portal.users` row makes a client session valid on
+  that client's host only. Both are rows we wrote, which is the same kind of evidence.
+  Staff sessions are built in step 2.
+
+**What the host is allowed to decide.** `crm.clients.portal_slug` is the only thing
+derived from a hostname, and for a client session it is used for one check: after the
+session has named a client, the host must belong to that client or the answer is 403. The
+host never chooses the client. This is the same shape as the Phase 7 rule that
+`portal.users.client_id` is a column and not a claim, applied one layer up.
+
+**How a hostname becomes a certificate, as built (step 2).** Caddy's on-demand TLS with
+an `ask` endpoint, not a wildcard certificate. A wildcard would need DNS-01 and a ZXCS
+plugin build of Caddy; on-demand needs neither, and issues per hostname on the first
+handshake. The `ask` matters as much as the mechanism: without it, anything resolving to
+this server could ask for a certificate in its own name, and Let's Encrypt counts those
+against a weekly limit **per registered domain** — so a stray record could deny
+certificates to real clients. `/api/portal-host/check` answers 200 only for the login host
+and for slugs a client has. `hub.finsera.nl` keeps its own site block, which Caddy matches
+ahead of the wildcard (verified against the adapted config, not assumed).
+
+**A staff session is a second kind of session, not a client session with a flag.**
+`portal.sessions.kind` and a `PortalStaff` type that is deliberately not a `PortalVisitor`
+— the same move Phase 7 made when it refused to let a visitor be an `Actor`. Read routes
+take `@CurrentViewer()` and write routes take `@CurrentVisitor()`, so an employee cannot
+accept a quote or file a request as the client by construction rather than by a check
+somebody has to remember on each new route. `portal.controller.spec.ts` asserts which
+factory every route asked for, because the two decorators look identical at a call site
+and the wrong one would work perfectly until a colleague used it.
+
+**Two small facts worth not rediscovering.** `res.cookie` exists in Express without
+`cookie-parser`, so reading one cookie by name is twelve lines and not a dependency. And
+Vite's dev proxy passes `Host` through unchanged, which is why `localhost:5174` is the
+default auth host in development and `duce.localhost:5174` a client host — browsers resolve
+`*.localhost` to loopback on their own. And `core.users` and `portal.users` are both called
+`users`, so any query joining them needs a drizzle `alias()`; without one it raises before
+Postgres ever sees it.
+
+---
+
+## Phase 8 steps 3–6 (2026-09-03) · **Built**
+
+**Custom content is proxied, and the path is checked in both directions.** `portal.pages`
+holds where a report really lives; the API fetches it with Vercel's protection-bypass
+header and returns the bytes, so the deployment URL never reaches a browser and access
+becomes the same question as access to an invoice. The security review found the one place
+this leaked: Express does not normalise the request line and `encodeURIComponent('..')` is
+`..`, so `/rapport/../../elders/` reached `fetch`, which collapsed it — an arbitrary path on
+the source origin, with the bypass secret attached. The lesson is narrow and worth keeping:
+**`sameOriginPath` had already implemented exactly the right check for upstream redirects,
+and nobody applied it to the request path.** A rule stated once, in one direction, is half
+a rule.
+
+**A proxied page gets a content-security policy, because same-origin is a capability.**
+`HttpOnly` stops a script reading the session cookie and does nothing to stop it using one.
+Without `connect-src 'none'` any code inside a report — a compromised deployment, a
+dependency, an analytics snippet — could have accepted a quote as the client, walking
+around the `@CurrentVisitor()` boundary entirely rather than breaking it.
+
+**Tickets replace requests, and status is derived rather than typed.** `portal.requests`
+was terminal, so the answer went back to email and the system held half a conversation.
+`portal.tickets` has a thread, and whose turn it is comes from who wrote last — only
+closing is a decision. There is deliberately no `open` status: nothing would ever set it,
+and a state nothing sets is one that lies the first time somebody filters on it. An
+internal note does not change whose turn it is. The rule from the old schema comment
+survives word for word: a ticket is not a task, and the client's words are fenced and
+labelled as a quotation in any task made from one, because that string ends up where the
+assistant reads it.
+
+**A task is visible to a client only when somebody says so, and then only in part.** Off by
+default, because opting in means somebody decided and opting out would mean somebody forgot,
+once, in public. `scrum.manifest.ts` declares seven fields and the projection now *enforces*
+the list — the review's finding was that `assertExposed` checked only that the entity type
+was declared at all, so the field lists were an intention rather than a rule. The assistant
+cannot set the flag: it is absent from the tool's zod schema and from `UpdateTaskToolInput`,
+so removing that protection is a compile error rather than an edit.
+
+**The login host holds no client data.** It resolves without consulting `crm.clients`, so a
+session there survived the client being archived or their address cleared. Rather than
+teaching it to check, a client signing in there is handed off to their own portal and the
+guard refuses every host that is not a client's. The same review pass removed the 30-second
+host cache: it was never invalidated, so clearing a slug left the portal live and reassigning
+one locked out its new owner — and keeping it correct would have meant CRM reaching into the
+portal's cache. One indexed lookup is cheaper than that arrangement.
+
+**Ten findings, all closed** — see [phase8-portal-v2-brief.md](phase8-portal-v2-brief.md) §6
+for the table and for what was tried and held.
+
+---
+
+## Logging out means logging out (2026-09-03) · **Decided, reversing an earlier call**
+
+Phase 8 shipped a portal logout that ended our session and deliberately left the identity
+provider's alone, reasoning that a client federated to their own IdP should not be signed
+out of their company's session by our button.
+
+**That was wrong, and testing found it within the hour.** The provider's session survived,
+so the next press of *Inloggen* signed the same person straight back in without a prompt.
+Two consequences, and the second is the serious one: somebody with two accounts cannot
+reach the other, and on a shared machine a button labelled "uitloggen" leaves the next
+person one click from a client's invoices. A logout that does not log out is worse than no
+logout button, because it is believed.
+
+So the portal now redirects to the issuer's `end_session_endpoint` after clearing its own
+cookie. Three details worth keeping:
+
+- **The endpoint is read from discovery, not assumed.** An issuer that advertises none gets
+  a local logout and a warning, rather than a redirect into a 404.
+- **`client_id` stands in for `id_token_hint`.** Keeping an id token on every session purely
+  to hand it back at logout would mean storing a bundle of somebody's claims for the life of
+  the session to save a click.
+- **The post-logout URI is on the login host, with the client host in `state`.** Post-logout
+  URIs are exact-match, so per-client registration would be a manual step per onboarding
+  that silently breaks — the same problem, and the same answer, as the callback in P2. The
+  returned `state` is honoured only if it names a host this deployment serves, so it cannot
+  become an open redirect.
+
+**The same bug existed in the internal app**, from the other direction: `signoutRedirect`
+navigates away and the local user is only removed when something handles the signout
+callback, which nothing did. A refused account therefore pressed Sign out, went to Zitadel,
+came back to `/` with the stored session still in place, and was refused again — with the
+one route out being the one just taken. `logout()` now drops the stored user first and
+passes the id token as a hint, so losing the redirect is survivable and losing the local
+removal is not possible.
+
+**The alternative considered and dropped:** a "sign in with a different account" link using
+`prompt=login`. It works, and it treats the symptom — the reason anyone needed it was that
+logout did not log out.

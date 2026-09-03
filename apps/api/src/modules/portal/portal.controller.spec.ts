@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { GUARDS_METADATA, METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants.js';
+import {
+  GUARDS_METADATA,
+  METHOD_METADATA,
+  PATH_METADATA,
+  ROUTE_ARGS_METADATA,
+} from '@nestjs/common/constants.js';
 import { RequestMethod } from '@nestjs/common';
 import { IS_PUBLIC } from '../../core/auth/public.decorator.js';
+import { resolveViewer, resolveVisitor } from './current-visitor.decorator.js';
 import { PortalAuthGuard } from './portal-auth.guard.js';
 import { PortalController } from './portal.controller.js';
 
@@ -64,26 +70,62 @@ describe('PortalController wiring', () => {
       'documents',
       'invoicePdf',
       'invoices',
-      'listRequests',
       'me',
+      'openTicket',
+      'pages',
       'projects',
       'quoteLines',
       'quotes',
-      'submitRequest',
+      'replyToTicket',
+      'tasks',
+      'ticket',
+      'tickets_',
     ]);
   });
 
-  it('permits exactly one write, and names it', () => {
-    // Step 4 added the first thing a client can change. This is the assertion that was
-    // read-only until it was deliberately changed — a second write must be as deliberate.
+  /**
+   * Which routes an employee may use, asserted from the wiring rather than trusted.
+   *
+   * `@CurrentVisitor()` throws for a staff session and `@CurrentViewer()` does not, so a
+   * route's choice between them IS the P5 rule. Both look identical at a call site, and a
+   * new write route wired to the wrong one would work perfectly until a colleague used it
+   * to accept a quote on a client's behalf.
+   */
+  it('lets staff read everything and act on nothing', () => {
+    const factoryPerRoute = (route: string): unknown[] => {
+      const args = (Reflect.getMetadata(ROUTE_ARGS_METADATA, PortalController, route) ??
+        {}) as Record<string, { factory?: unknown }>;
+      return Object.values(args).map((a) => a.factory);
+    };
+
+    // Everything that changes something asks for a visitor; everything else asks for a
+    // viewer. The lists are spelled out so that adding a route means deciding which it is.
+    const writes = ['acceptQuote', 'openTicket', 'replyToTicket'];
+    for (const route of routeNames) {
+      const factories = factoryPerRoute(route);
+      const wantsVisitor = factories.includes(resolveVisitor);
+      const wantsViewer = factories.includes(resolveViewer);
+      expect(wantsVisitor || wantsViewer, `${route} resolves no portal session`).toBe(true);
+      expect(wantsVisitor, `${route} asks for the wrong kind of session`).toBe(
+        writes.includes(route),
+      );
+      expect(wantsViewer, `${route} asks for both kinds of session`).toBe(
+        !writes.includes(route),
+      );
+    }
+  });
+
+  it('permits exactly these writes, and names them', () => {
+    // Phase 7 step 4 added the first thing a client can change. This is the assertion that
+    // was read-only until it was deliberately changed — every further write is as deliberate.
     const writes = routeNames.filter((name) => {
       const handler = proto[name];
       if (!handler) return false;
       const method = Reflect.getMetadata(METHOD_METADATA, handler) as RequestMethod;
       return RequestMethod[method] !== 'GET';
     });
-    // Two now: accepting a quote, and asking for something. Both had to be added here
+    // Accepting a quote, opening a ticket, and answering on one. Each had to be added here
     // deliberately, which is the only reason this assertion is worth having.
-    expect(writes.sort()).toEqual(['acceptQuote', 'submitRequest']);
+    expect(writes.sort()).toEqual(['acceptQuote', 'openTicket', 'replyToTicket']);
   });
 });

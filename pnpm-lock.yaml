@@ -153,9 +153,6 @@ importers:
 
   apps/portal:
     dependencies:
-      oidc-client-ts:
-        specifier: ^3.5.0
-        version: 3.5.0
       react:
         specifier: ^19.0.0
         version: 19.2.8

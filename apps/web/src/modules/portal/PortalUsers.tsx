@@ -11,6 +11,15 @@ interface PortalUser {
   pending: boolean;
 }
 
+/**
+ * Where a slug lives. Read from the page's own host so that development (`localhost:5173`)
+ * and production (`hub.finsera.nl`) each point at their own portal: the internal app is
+ * `hub.` on the same domain the portals hang off, so stripping `hub.` is the rule.
+ */
+export const portalHost = (slug: string) =>
+  `${slug}.${window.location.host.replace(/^hub\./, '').replace(/:5173$/, ':5174')}`;
+export const portalUrl = (slug: string) => `${window.location.protocol}//${portalHost(slug)}`;
+
 const when = (iso: string | null) =>
   iso ? new Intl.DateTimeFormat('nl-NL', { dateStyle: 'medium' }).format(new Date(iso)) : '—';
 
@@ -21,7 +30,14 @@ const when = (iso: string | null) =>
  * question you have while looking at DocHorse, and a permission you have to go somewhere
  * else to grant is one that gets granted by asking someone else to run a query.
  */
-export function PortalUsers({ clientId }: { clientId: string }) {
+export function PortalUsers({
+  clientId,
+  portalSlug,
+}: {
+  clientId: string;
+  /** From the client row. Null means no portal address yet, and no invitations until there is. */
+  portalSlug: string | null;
+}) {
   const [rows, setRows] = useState<PortalUser[]>();
   const [email, setEmail] = useState('');
   const [busy, setBusy] = useState(false);
@@ -68,6 +84,21 @@ export function PortalUsers({ clientId }: { clientId: string }) {
         quotes, invoices and shared documents. They still need an account in Zitadel; the
         invitation binds to them the first time they sign in with this address.
       </p>
+      {portalSlug ? (
+        <p className="muted">
+          Their portal:{' '}
+          <a href={portalUrl(portalSlug)} target="_blank" rel="noreferrer">
+            {portalHost(portalSlug)}
+          </a>
+        </p>
+      ) : (
+        // The invite form below is disabled for the same reason the API refuses it: a login
+        // with nowhere to go is a support ticket. The address field is on this page.
+        <p className="muted">
+          Set a <strong>portal address</strong> for this client (above) before giving anyone
+          access — that is where they will sign in.
+        </p>
+      )}
 
       {error && <p className="error">{error}</p>}
 
@@ -120,9 +151,10 @@ export function PortalUsers({ clientId }: { clientId: string }) {
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           placeholder="their.name@client.nl"
+          disabled={!portalSlug}
           required
         />
-        <button type="submit" disabled={busy || !email.trim()}>
+        <button type="submit" disabled={busy || !email.trim() || !portalSlug}>
           Give access
         </button>
       </form>

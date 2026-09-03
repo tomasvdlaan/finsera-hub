@@ -1,49 +1,50 @@
-import { User, UserManager, WebStorageStateStore } from 'oidc-client-ts';
+/**
+ * Signing in and out — both of which happen on the server now (Phase 8, P1).
+ *
+ * Phase 7 ran the OIDC flow in this bundle with `oidc-client-ts` and kept the access token
+ * in `sessionStorage`. That cannot open a report link from an email: a plain navigation
+ * carries no Authorization header, and neither do the report's own scripts and images. So
+ * the API does the exchange, sets an HttpOnly cookie, and this file is two redirects.
+ *
+ * Nothing here knows the issuer or the client id. That is the point: the bundle a client's
+ * browser downloads contains nothing about how authentication works.
+ */
+
+/** Go and sign in; come back to `next` (defaults to wherever we are). */
+export function login(next: string = window.location.pathname + window.location.search): void {
+  const url = new URL('/api/portal-auth/login', window.location.origin);
+  url.searchParams.set('next', next);
+  window.location.assign(url.toString());
+}
 
 /**
- * OIDC Authorization Code + PKCE against the PORTAL Zitadel application.
+ * Sign out here **and** at the identity provider.
  *
- * Two things differ from the internal app, and both are deliberate.
+ * Ending only our own session was the obvious reading of "log out" and the wrong one: the
+ * provider's session survived, so the next press of Inloggen signed the same person
+ * straight back in without asking. On a shared machine that is a logout button that does
+ * not log anybody out, and for anyone with two accounts it is a door that only opens one way.
  *
- * The client id is the portal application's. That gives the token an audience the API can
- * check — though the audience is only a supporting check there, because Zitadel will
- * issue a token carrying an audience the holder has no grant for. What actually
- * authorises is the `portal_client` role, which is why the roles scope is requested here.
- *
- * The scope asks for roles explicitly rather than relying solely on the project's "assert
- * roles" setting. Either alone usually works; asking for both means a missing role claim
- * is a real authorisation failure rather than a configuration gap that looks like one.
+ * Two steps, in this order. The POST ends our session — it carries the header the API
+ * requires on a write, which a plain navigation could not — and answers with where to go
+ * next. Then the browser navigates there, because ending the provider's session is a
+ * redirect and not something `fetch` can do. If the provider offers no such endpoint, or
+ * anything at all goes wrong, we still land on the signed-out screen with our own session
+ * gone.
  */
-export const userManager = new UserManager({
-  authority: import.meta.env.VITE_ZITADEL_ISSUER,
-  client_id: import.meta.env.VITE_ZITADEL_CLIENT_ID,
-  redirect_uri: `${window.location.origin}/auth/callback`,
-  post_logout_redirect_uri: `${window.location.origin}/`,
-  response_type: 'code',
-  scope: 'openid profile email urn:zitadel:iam:org:project:roles',
-  automaticSilentRenew: true,
-  // sessionStorage, so a token does not outlive the tab. This matters more here than
-  // internally: a client's device is not a device we know anything about.
-  userStore: new WebStorageStateStore({ store: window.sessionStorage }),
-});
-
-export const login = () => userManager.signinRedirect();
-export const getUser = (): Promise<User | null> => userManager.getUser();
-
-/**
- * Sign out at Zitadel, or failing that at least here.
- *
- * The redirect leg needs the post-logout URI registered on the application, and if it is
- * not, `signoutRedirect` throws — leaving someone signed in with no way out, which is the
- * one thing a logout button must never do. Dropping the local session is not a true
- * single sign-out (the Zitadel session survives, so signing in again will not prompt),
- * but it ends the session in this browser, which is what was asked for.
- */
-export const logout = async (): Promise<void> => {
+export async function logout(): Promise<void> {
+  let next = '/';
   try {
-    await userManager.signoutRedirect();
-  } catch {
-    await userManager.removeUser();
-    window.location.replace('/');
+    const res = await fetch('/api/portal-auth/logout', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'X-Requested-With': 'portal' },
+    });
+    if (res.ok) {
+      const body = (await res.json()) as { endSession?: string | null };
+      if (body.endSession) next = body.endSession;
+    }
+  } finally {
+    window.location.replace(next);
   }
-};
+}

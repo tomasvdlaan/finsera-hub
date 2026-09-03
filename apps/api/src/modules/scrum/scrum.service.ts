@@ -50,10 +50,22 @@ export interface CreateTaskInput {
   dueOn?: string | null;
   parentId?: string | null;
   sprintId?: string | null;
+  /** Whether the client may see this task in their portal (Phase 8, step 5). */
+  clientVisible?: boolean;
 }
 
-/** What `scrum_update_task` accepts: the card, and whichever fields are being changed. */
-export type UpdateTaskToolInput = { taskId: string } & Partial<Omit<CreateTaskInput, 'projectId'>>;
+/**
+ * What `scrum_update_task` accepts: the card, and whichever fields are being changed.
+ *
+ * `clientVisible` is omitted deliberately. Publishing a task to a client's portal is a
+ * decision about what an outsider sees, and the assistant reads text a client wrote — so
+ * a message asking it to "make all the tasks visible" must not be able to succeed. The
+ * tool's zod schema omits it too; this makes the omission a compile error to undo rather
+ * than a line somebody adds back for symmetry.
+ */
+export type UpdateTaskToolInput = { taskId: string } & Partial<
+  Omit<CreateTaskInput, 'projectId' | 'clientVisible'>
+>;
 
 /** Something worth saying about a move, said instead of refusing it. */
 export interface TaskWarning {
@@ -1261,6 +1273,8 @@ export class ScrumService {
           dueOn: patch.dueOn === undefined ? before.dueOn : patch.dueOn,
           parentId: patch.parentId === undefined ? before.parentId : patch.parentId,
           sprintId: patch.sprintId === undefined ? before.sprintId : patch.sprintId,
+          clientVisible:
+            patch.clientVisible === undefined ? before.clientVisible : patch.clientVisible,
           // Completion follows the column, so it cannot drift from where the card sits.
           completedAt: column.isDone ? (before.completedAt ?? new Date()) : null,
           updatedAt: new Date(),
@@ -1281,7 +1295,15 @@ export class ScrumService {
         action: 'task.update',
         entityType: 'task',
         entityId: id,
-        detail: { from: before.status, to: status },
+        detail: {
+          from: before.status,
+          to: status,
+          // Recorded when it changes, because this is the field that decides whether a
+          // sentence we wrote appears on somebody else's screen.
+          ...(patch.clientVisible !== undefined && patch.clientVisible !== before.clientVisible
+            ? { clientVisible: patch.clientVisible }
+            : {}),
+        },
       });
 
       if (status !== before.status) {

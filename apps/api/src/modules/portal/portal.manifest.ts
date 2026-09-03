@@ -45,7 +45,9 @@ export const portalManifest = defineManifest({
     },
   ],
 
-  navigation: [{ label: 'Client requests', path: '/portal/requests', icon: 'inbox', section: 'work', order: 4 }],
+  navigation: [
+    { label: 'Client tickets', path: '/portal/tickets', icon: 'inbox', section: 'work', order: 4 },
+  ],
   widgets: [],
   chatWidgets: [],
   reportingViews: [],

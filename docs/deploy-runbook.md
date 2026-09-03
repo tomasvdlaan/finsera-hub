@@ -193,6 +193,108 @@ prints row counts, and checks every `docs.versions.storage_key` exists in the fi
 archive. Run it now, and quarterly after that. Backups decay quietly; the drill is the
 only thing that says otherwise.
 
+## 9. The client portal (Phase 8)
+
+The portal is served by the API on its own hostnames, not by Caddy from disk: on a portal
+host a path is either the API, a page the client was given, or the portal bundle, and only
+the API can tell. `deploy/Dockerfile.api` builds `apps/portal` into the image; Caddy's
+second site block proxies the portal hostnames to it wholesale.
+
+Each client gets their own hostname, `<slug>.finsera.nl`, and `portal.finsera.nl` is the
+login host every sign-in passes through. Certificates are issued per hostname on first
+use, so adding a client is setting their portal address in hub and nothing else.
+
+1. **DNS at ZXCS:** a wildcard `*` `A` + `AAAA` → the server, plus `portal` `A` + `AAAA`
+   → the server. A wildcard only answers for names that have no record of their own, so
+   `hub`, the apex, `www` and MX are untouched — but do not remove them, because that is
+   what keeps them off the wildcard.
+2. **`deploy/.env`:**
+   ```
+   PORTAL_ADDRESSES=*.finsera.nl, portal.finsera.nl
+   PORTAL_BASE_DOMAIN=finsera.nl
+   PORTAL_AUTH_HOST=portal.finsera.nl
+   PORTAL_SESSION_SECRET=<openssl rand -base64 32>
+   PORTAL_PAGE_KEY=<openssl rand -base64 32>
+   PORTAL_ASK_TOKEN=<openssl rand -hex 16>
+   PORTAL_ASK_URL=http://api:3001/api/portal-host/check?t=<the same token>
+   ```
+   The API refuses to boot in production without `PORTAL_SESSION_SECRET`. `PORTAL_PAGE_KEY`
+   encrypts the per-page Vercel bypass secrets — without it a report has to be publicly
+   reachable, which is the thing proxying it was meant to avoid. The ask token keeps the
+   certificate endpoint from being a list of which clients exist. The first three are what
+   make any portal host resolve at all.
+3. **Zitadel, on the portal application:** add the redirect URI
+   `https://portal.finsera.nl/api/portal-auth/callback` and the post-logout URI
+   `https://portal.finsera.nl/api/portal-auth/signed-out`. Those are the only two it will
+   ever need, however many clients there are — every client host hands off from the first
+   and returns through the second (P2). In development they are
+   `http://localhost:5174/api/portal-auth/callback` and
+   `http://localhost:5174/api/portal-auth/signed-out`.
+   Optionally switch the application from a public SPA to a confidential web application
+   and put its secret in `ZITADEL_PORTAL_CLIENT_SECRET`; PKCE is used either way, so this
+   can wait.
+4. Deploy as usual.
+
+**How a certificate appears.** Caddy has on-demand TLS for the portal hostnames and asks
+the API first (`/api/portal-host/check?domain=`), which answers 200 only for the login
+host and for slugs a client actually has. So `duce.finsera.nl` gets its certificate on
+the first visit and `typo.finsera.nl` never reaches Let's Encrypt — which matters,
+because the certificate authority counts refusals against a weekly limit for the whole
+domain. `hub.finsera.nl` keeps its own site block and is matched before the wildcard.
+
+**Onboarding a client** is done in hub, on the client's page: set the **portal address**
+(`duce` → `duce.finsera.nl`), then invite logins under *Portal access*. The invite button
+is disabled until the address exists. Their portal is live at that hostname immediately —
+no deploy, no DNS record, no restart. Changing the address later breaks links they
+already have, and the field says so.
+
+**Employees do not need an invitation.** Anyone with an active internal account can open
+any client's portal at its own address and sign in with their ordinary Zitadel account
+(P5). The page then carries a banner naming whose portal it is, and the client's own
+actions — accepting a quote, submitting a request — are refused: those are statements by
+the client. Staff reads are audited under the employee's own id.
+
+**Signing out** ends both sessions: ours, and the one at Zitadel. That second half matters
+more than it sounds — without it the next press of *Inloggen* returns the same person
+without asking, so on a shared machine the button logs nobody out. It needs the post-logout
+URI above registered; without it Zitadel still ends the session but shows its own page
+instead of returning to the portal.
+
+**Revoking a client's access** is *Revoke* on their client page; every session they hold ends in
+the same commit. Deactivating a colleague internally ends their staff portal sessions the
+same way. Clearing a client's portal address, or archiving the client, takes their whole
+portal away immediately — including any session already open.
+
+### Giving a client a custom report
+
+Reports are built and hosted wherever they already are, usually Vercel. On the client's
+page in hub, under **Custom content**, add a page: a title, an address (`rapportage-q3` →
+`duce.finsera.nl/rapportage-q3/`), the source URL, and the Vercel protection-bypass secret
+if the deployment is protected. *Test* makes one real request from the server and reports
+what came back, which is how the three indistinguishable failures — no secret, wrong
+secret, unreachable URL — get told apart.
+
+The API fetches the report itself, so the source URL never reaches the client's browser and
+the Vercel project can keep Deployment Protection on. Two things are worth knowing when
+building one:
+
+- **Build it with a relative base** (`base: './'` in Vite, `assetPrefix` in Next). Assets at
+  root-absolute paths would resolve against the portal instead of the page; HTML and CSS are
+  rewritten as a fallback, but a URL assembled in JavaScript is not.
+- **A report cannot call the portal's API.** Proxied pages carry a content-security policy
+  with `connect-src 'none'`, so a script inside a report cannot use the visitor's session.
+
+### Tickets and visible tasks
+
+*Client tickets* in the internal navigation is the inbox: every open conversation across
+every client, oldest first. Replying there is what the client sees in their portal; an
+*internal note* stays with us. *Make a task* is still a deliberate act by somebody who has
+read the thread, and it no longer closes the ticket.
+
+A task appears in a client's portal only when somebody ticks **Visible to the client** on
+it. They see the title, status, type, due date and whether it is done — never the
+description, assignee, estimate or labels. The assistant cannot set that flag.
+
 ## Deploying changes afterwards
 
 ```bash
@@ -211,6 +313,4 @@ Volumes survive rebuilds, restarts and reboots. The one command that destroys th
   headroom, but the growth is linear in document volume — size it again at Phase 3.
   Retention pruning only runs after a fully successful cycle, so failures cannot eat
   the good copies.
-- **The client portal is not deployed.** It is absent from the production compose and
-  will want its own hostname (`portal.finsera.nl`) and its own Zitadel application at
-  Phase 7.
+- ~~**The client portal is not deployed.**~~ Closed by Phase 8 step 1 — see §9.

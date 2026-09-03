@@ -59,10 +59,28 @@ export const clearSession = () => userManager.removeUser();
  * user who cannot leave.
  */
 export const logout = async () => {
+  /*
+   * The stored session goes first, and unconditionally.
+   *
+   * `signoutRedirect` navigates away, and the local user is only removed when the provider
+   * redirects back *and* something handles the signout callback. Nothing here does — the
+   * post-logout URI is the app's root — so on a session the platform refuses, the round
+   * trip ended with the browser back on `/` and the stored user still in place: refused
+   * again, with the same one route out, which had just been taken. Signing out looked like
+   * it worked and changed nothing.
+   *
+   * The hint is read before the removal so the provider is still told which session to end
+   * and does not have to ask. Losing the redirect is survivable; losing the local removal
+   * is what strands somebody.
+   */
+  const hint = await userManager.getUser().then((u) => u?.id_token, () => undefined);
+  await userManager.removeUser().catch(() => undefined);
   try {
-    await userManager.signoutRedirect();
+    await userManager.signoutRedirect(hint ? { id_token_hint: hint } : undefined);
   } catch {
-    await userManager.removeUser();
+    // The provider would not end its session — ours is already gone, so land on the
+    // sign-in screen rather than leaving the page as it was.
+    window.location.replace('/');
   }
 };
 export const getUser = (): Promise<User | null> => userManager.getUser();

@@ -1,25 +1,17 @@
-import { useState } from 'react';
 import { api, openFile, type PortalInvoice } from '../lib/api.js';
 import { Listing, date, euros, useList } from './shared.js';
 
 export function Invoices() {
   const { rows, error } = useList<PortalInvoice>(api.invoices);
-  const [failed, setFailed] = useState<string>();
 
-  const download = (invoice: PortalInvoice) => {
-    setFailed(undefined);
-    // The archived PDF, or nothing. The portal cannot render one — that would mean
-    // reaching into Billing — so a missing archive surfaces here rather than silently.
-    openFile(`/invoices/${invoice.id}/pdf`, `${invoice.number}.pdf`).catch((err: Error) =>
-      setFailed(`Factuur ${invoice.number}: ${err.message}`),
-    );
-  };
+  // The archived PDF, or a 404 in a new tab. The portal cannot render one — that would
+  // mean reaching into Billing. Opened as a navigation so the session cookie goes with it.
+  const download = (invoice: PortalInvoice) => openFile(`/invoices/${invoice.id}/pdf`);
 
   return (
     <Listing rows={rows} error={error} empty="Er zijn nog geen facturen.">
       {(invoices) => (
         <>
-          {failed && <p className="error">{failed}</p>}
           <table>
             <thead>
               <tr>

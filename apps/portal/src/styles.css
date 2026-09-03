@@ -15,6 +15,21 @@ body { margin: 0; background: var(--bg); }
 
 .shell { max-width: 60rem; margin: 0 auto; padding: 0 1.25rem 4rem; }
 
+/*
+ * The staff banner, and the one place this stylesheet is deliberately loud.
+ *
+ * It says the screen belongs to somebody else. Quiet would be worse than absent: a muted
+ * line at the top of a page that otherwise looks exactly like a client's own portal is a
+ * line that stops being read on the second visit.
+ */
+.staff-bar {
+  margin: 0 -1.25rem 0;
+  padding: .6rem 1.25rem;
+  background: var(--warn);
+  color: #fff;
+  font-size: .85rem;
+}
+
 header.bar {
   display: flex; align-items: center; justify-content: space-between;
   gap: 1rem; padding: 1.25rem 0; border-bottom: 1px solid var(--line);
@@ -44,3 +59,18 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 
 .signin { max-width: 22rem; margin: 6rem auto; text-align: center; }
 .signin button { background: var(--accent); color: #fff; border-color: var(--accent); padding: .55rem 1.1rem; }
+
+/* The reports list: a link and its address, because the address is the thing worth having. */
+ul.pages { list-style: none; padding: 0; margin: 0; }
+ul.pages li {
+  display: flex; align-items: baseline; gap: .75rem;
+  padding: .7rem 0; border-bottom: 1px solid var(--line);
+}
+ul.pages a { color: var(--accent); font-weight: 500; }
+
+/* A thread: two voices, told apart by where the line sits rather than by colour alone. */
+.thread { margin: .75rem 0 1.25rem; padding-left: .75rem; border-left: 2px solid var(--line); }
+.thread .msg { margin: 0 0 .9rem; }
+.thread .msg.mine { padding-left: 1.5rem; }
+.thread .msg .body { margin: .15rem 0 0; white-space: pre-wrap; }
+.thread textarea { width: 100%; }

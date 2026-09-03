@@ -17,6 +17,32 @@ export interface PortalVisitor extends PortalAudience {
 }
 
 /**
+ * One of us, looking at a client's portal (Phase 8, P5).
+ *
+ * Deliberately not a `PortalVisitor`, for the same reason a visitor is not an `Actor`: the
+ * two are allowed different things, and a different type makes passing the wrong one a
+ * compile error rather than a policy someone has to remember. A staff viewer may read
+ * everything the client can read — that is what "see what they see" means — and may not
+ * *act* as them, because accepting a quote is a statement by the client. The routes that
+ * write ask for a `PortalVisitor`, so they refuse staff by construction.
+ *
+ * It carries a `core.users` id, so a staff read is audited under a real internal identity
+ * and "who looked at Duce's portal" has an answer.
+ */
+export interface PortalStaff extends PortalAudience {
+  staffUserId: string;
+  email: string;
+}
+
+/** Anyone with a portal session. Enough to read; not necessarily enough to write. */
+export type PortalViewer = PortalVisitor | PortalStaff;
+
+/** Narrow a viewer. `'staffUserId' in v` rather than a flag, so the union stays honest. */
+export function isStaff(viewer: PortalViewer): viewer is PortalStaff {
+  return 'staffUserId' in viewer;
+}
+
+/**
  * Whose data a projection query is about.
  *
  * Narrower than `PortalVisitor` because there are two legitimate callers and only one of
@@ -103,6 +129,38 @@ export class PortalProjection {
     }
   }
 
+  /**
+   * And refuse any *column* no module declared.
+   *
+   * `assertExposed` checks that the entity type may be shown at all; this checks that what
+   * is about to be returned is what was declared. Without it, the field lists in the
+   * manifests describe an intention rather than a rule — narrowing one would silently
+   * change nothing, and a column added to a query would reach a client's browser with
+   * nobody having decided that it should.
+   *
+   * `derived` is for the columns a query composes rather than exposes — a project's name
+   * joined onto a task, say. Naming them at the call site keeps them a short, visible list
+   * instead of a hole this check quietly permits.
+   */
+  private assertFields(
+    entityType: string,
+    rows: Array<Record<string, unknown>>,
+    derived: string[] = [],
+  ): void {
+    const row = rows[0];
+    if (!row) return;
+    const allowed = new Set([...this.exposedFields(entityType), ...derived]);
+    const extra = Object.keys(row).filter((key) => !allowed.has(key));
+    if (extra.length > 0) {
+      // Loud and fatal rather than filtered: a query returning something undeclared is a
+      // mistake in the query, and silently trimming it would leave the mistake in place.
+      this.logger.error(
+        `Portal read refused: '${entityType}' query returned undeclared fields — ${extra.join(', ')}`,
+      );
+      throw new BadRequestException('Not available');
+    }
+  }
+
   async projects(audience: PortalAudience) {
     this.assertExposed('project');
     const result = await this.db.execute(sql`
@@ -113,6 +171,34 @@ export class PortalProjection {
     `);
     // No rates, no budget, no margin: those columns are not selected, so no future
     // change to this query can leak them by accident.
+    return result.rows;
+  }
+
+  /**
+   * The work, as far as a client is entitled to see it.
+   *
+   * Two conditions, and both are necessary: the task is marked visible, and its project
+   * belongs to this client. The first is a decision somebody made per task; the second is
+   * the bound parameter every query here has. Neither alone would do — a visible task on
+   * somebody else's project is still somebody else's.
+   *
+   * Archived tasks are gone from this view. A client should not watch us delete things.
+   */
+  async tasks(audience: PortalAudience) {
+    this.assertExposed('task');
+    const result = await this.db.execute(sql`
+      SELECT t.id, t.project_id, t.title, t.status, t.type, t.due_on, t.completed_at,
+             p.name AS project_name
+        FROM scrum.tasks t
+        JOIN crm.v_projects p ON p.id = t.project_id
+       WHERE p.client_id = ${audience.clientId}
+         AND t.client_visible = true
+         AND t.archived_at IS NULL
+       ORDER BY p.name, t.completed_at NULLS FIRST, t.rank
+    `);
+    // No description, no assignee, no estimate, no labels, no blocked reason — and that is
+    // checked rather than left to the SELECT list staying as written.
+    this.assertFields('task', result.rows, ['project_name']);
     return result.rows;
   }
 

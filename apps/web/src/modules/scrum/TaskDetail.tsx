@@ -250,6 +250,28 @@ export function TaskDetail() {
         onSave={(v) => patch({ dueOn: v })}
       />
 
+      {/*
+        What the client sees, said next to the switch rather than left to be remembered.
+        The list is short on purpose and the projection refuses anything not on it — but
+        somebody deciding whether to tick this needs to know what they are publishing, and
+        "the title" is the answer that matters: a title written for us reads differently on
+        a client's screen.
+      */}
+      <p>
+        <label>
+          <input
+            type="checkbox"
+            checked={task.clientVisible}
+            onChange={(e) => void patch({ clientVisible: e.target.checked })}
+          />{' '}
+          Visible to the client
+        </label>{' '}
+        <span className="muted">
+          They would see the title, status, type, due date and whether it is done — not the
+          description, the assignee, the estimate or the labels.
+        </span>
+      </p>
+
       <div className="row">
         <label className="field">
           <span className="field-label">Assignee</span>

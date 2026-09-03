@@ -12,7 +12,7 @@ import type { Actor } from '@platform/contracts';
 import { AuditService } from '../../core/audit/audit.service.js';
 import { DB, type Database } from '../../core/db/db.module.js';
 import { PermissionService } from '../../core/permissions/permission.service.js';
-import { portalUsers } from './portal.schema.js';
+import { portalSessions, portalUsers } from './portal.schema.js';
 import type { PortalVisitor } from './portal.projection.js';
 
 /**
@@ -164,6 +164,17 @@ export class PortalUsersService {
     const email = input.email.trim();
     if (!email.includes('@')) throw new BadRequestException('That is not an email address');
 
+    // A login with nowhere to go. The portal lives at the client's own address (Phase 8),
+    // so a client without one has no portal, and inviting somebody to it would produce a
+    // person who signs in successfully and lands nowhere.
+    const { rows } = await this.db.execute<{ portal_slug: string | null }>(
+      sql`SELECT portal_slug FROM crm.clients WHERE id = ${input.clientId} AND archived_at IS NULL`,
+    );
+    if (!rows[0]) throw new NotFoundException('No such client');
+    if (!rows[0].portal_slug) {
+      throw new BadRequestException('Set a portal address for this client before inviting anyone');
+    }
+
     const existing = await this.db
       .select({ id: portalUsers.id })
       .from(portalUsers)
@@ -223,6 +234,14 @@ export class PortalUsersService {
         .returning({ id: portalUsers.id, email: portalUsers.email });
 
       if (!updated) throw new NotFoundException('No such active portal user');
+
+      // Their sessions end in the same commit. `PortalSessionsService.resolve` would refuse
+      // them anyway on the next request, by re-reading `disabled_at` — this is so that the
+      // session rows say so too, and "when did their access actually end" has one answer.
+      await tx
+        .update(portalSessions)
+        .set({ revokedAt: new Date() })
+        .where(and(eq(portalSessions.portalUserId, id), isNull(portalSessions.revokedAt)));
 
       await this.audit.record(tx, {
         actorId: actor.userId,

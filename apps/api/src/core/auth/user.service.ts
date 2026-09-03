@@ -7,7 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { Actor } from '@platform/contracts';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { v7 as uuidv7 } from 'uuid';
 import { DB, type Database } from '../db/db.module.js';
 import { users } from '../db/core.schema.js';
@@ -221,6 +221,37 @@ export class UserService {
       this.logger.warn(`userinfo unreachable (${(err as Error).message}); using token claims`);
       return null;
     }
+  }
+
+  /**
+   * A member by their Zitadel subject, or undefined — with no provisioning.
+   *
+   * `resolveFromClaims` is the other way in and does provision, which is right for the
+   * internal app and wrong for the portal: an employee opening a client's portal should be
+   * recognised if they already work here, and never *created* by the act of visiting.
+   * Deactivated people are not returned, so the flag that ends a session internally ends a
+   * staff portal session too (Phase 8, P5).
+   */
+  async bySubject(subject: string) {
+    const row = await this.db.query.users.findFirst({ where: eq(users.oidcSubject, subject) });
+    return row?.isActive ? row : undefined;
+  }
+
+  /**
+   * Whether an address belongs to somebody who works here.
+   *
+   * Asked before a portal invitation is claimed by email: a colleague whose Zitadel account
+   * happens to match a pending invitation must not become that client's portal user. It is
+   * the one case `bySubject` cannot catch, because a colleague who has never signed in to
+   * the internal app has no subject on their row yet.
+   */
+  async memberWithEmail(email: string): Promise<boolean> {
+    const [row] = await this.db
+      .select({ id: users.id })
+      .from(users)
+      .where(sql`lower(${users.email}) = ${email.trim().toLowerCase()}`)
+      .limit(1);
+    return row !== undefined;
   }
 
   async byId(userId: string) {

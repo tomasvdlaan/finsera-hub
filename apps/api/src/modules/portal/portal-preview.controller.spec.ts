@@ -15,12 +15,23 @@ import { resetDb, seedUser, testDb, truncate } from '../../test/db.js';
 import { crmManifest } from '../crm/crm.manifest.js';
 import { CrmService } from '../crm/crm.service.js';
 import { PortalPreviewController } from './portal-preview.controller.js';
-import type { PortalRequestsService } from './portal-requests.service.js';
+import type { PortalTicketsService } from './portal-tickets.service.js';
 import { portalManifest } from './portal.manifest.js';
 import { PortalProjection } from './portal.projection.js';
 
 const admin: Actor = { userId: crypto.randomUUID(), role: 'admin' };
 const member: Actor = { userId: crypto.randomUUID(), role: 'member' };
+
+/** Routes about our own inbox rather than about one client's portal. */
+const TRIAGE = [
+  'openTickets',
+  'ticket',
+  'replyToTicket',
+  'convertTicket',
+  'closeTicket',
+  'reopenTicket',
+  'assignTicket',
+];
 
 describe('PortalPreviewController wiring', () => {
   const proto = PortalPreviewController.prototype as unknown as Record<string, object>;
@@ -49,8 +60,8 @@ describe('PortalPreviewController wiring', () => {
   });
 
   it('never previews a client’s portal with anything but a GET', () => {
-    // Clients can accept quotes (step 4). Previewing must never be able to accept on
-    // their behalf, and that is a property of this list rather than of anyone's care.
+    // Clients can accept quotes. Previewing must never be able to accept on their behalf,
+    // and that is a property of this list rather than of anyone's care.
     for (const route of clientScoped) {
       const method = Reflect.getMetadata(METHOD_METADATA, proto[route] ?? {}) as RequestMethod;
       expect(RequestMethod[method], `${route} is not a GET`).toBe('GET');
@@ -61,18 +72,22 @@ describe('PortalPreviewController wiring', () => {
   it('scopes every preview route to one client id', () => {
     // No preview route may return data without naming a client. A "list everything"
     // endpoint here would be the cross-client read this module exists to prevent.
-    const previewRoutes = routes.filter((name) => !name.endsWith('Request') && name !== 'openRequests');
+    const previewRoutes = routes.filter((name) => !TRIAGE.includes(name));
     for (const route of previewRoutes) {
       expect(pathOf(route), `${route} is not client-scoped`).toMatch(/^:clientId(\/|$)/);
     }
     expect(previewRoutes).toEqual(clientScoped);
   });
 
-  it('keeps request triage separate from previewing, and admin-only', () => {
+  it('keeps ticket triage separate from previewing, and admin-only', () => {
     // Triage is about our inbox rather than one client's portal, so it is not
     // client-scoped — and every one of its routes still checks portal.admin.
+    //
+    // The list is the point. Writes on this controller must always be ours (answering a
+    // ticket, closing one, turning one into a task) and never the client's, so a new route
+    // fails here until somebody writes it down and looks at which kind it is.
     const triage = routes.filter((name) => !clientScoped.includes(name));
-    expect(triage.sort()).toEqual(['convertRequest', 'declineRequest', 'openRequests']);
+    expect(triage.sort()).toEqual([...TRIAGE].sort());
   });
 });
 
@@ -104,8 +119,8 @@ describe('PortalPreviewController behaviour', () => {
       permissions,
       new StorageService(),
       audit,
-      // Request triage is exercised by its own spec; these tests are about previewing.
-      {} as unknown as PortalRequestsService,
+      // Ticket triage is exercised by its own spec; these tests are about previewing.
+      {} as unknown as PortalTicketsService,
       testDb,
     );
     await crm.ensureReportingViews();

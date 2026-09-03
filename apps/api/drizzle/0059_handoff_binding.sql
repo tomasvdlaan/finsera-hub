@@ -1,0 +1,1 @@
+ALTER TABLE "portal"."handoff_tickets" ADD COLUMN "binding_hash" text;

@@ -1,0 +1,1 @@
+ALTER TABLE "scrum"."tasks" ADD COLUMN "client_visible" boolean DEFAULT false NOT NULL;

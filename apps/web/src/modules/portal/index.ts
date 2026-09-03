@@ -1,5 +1,5 @@
 import type { WebModule } from '../types.js';
-import { ClientRequests } from './ClientRequests.js';
+import { ClientTickets } from './ClientTickets.js';
 import { PortalPreview } from './PortalPreview.js';
 
 /**
@@ -13,7 +13,7 @@ export const portalWebModule: WebModule = {
   name: 'portal',
   routes: [
     { path: '/clients/:id/portal', Component: PortalPreview },
-    { path: '/portal/requests', Component: ClientRequests },
+    { path: '/portal/tickets', Component: ClientTickets },
   ],
 
 };

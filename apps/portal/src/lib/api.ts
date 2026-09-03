@@ -1,11 +1,13 @@
-import { getUser } from './auth.js';
-
 /**
  * The portal's only way to reach the server.
  *
  * Every path is under `/api/portal`, and that is enforced here rather than left to each
  * caller: a typo pointing at `/api/billing` would otherwise produce a 401 in development
  * and a puzzled bug report, instead of failing immediately and obviously.
+ *
+ * Authentication is a cookie the browser sends on its own (Phase 8). What this adds is the
+ * `X-Requested-With` header the API demands on every write, which a cross-site form cannot
+ * add — the second lock behind `SameSite=Lax`.
  */
 export class PortalError extends Error {
   constructor(
@@ -21,13 +23,11 @@ async function request<T>(
   method: 'GET' | 'POST' = 'GET',
   body?: unknown,
 ): Promise<T> {
-  const user = await getUser();
-  if (!user) throw new PortalError('Not signed in', 0);
-
   const res = await fetch(`/api/portal${path}`, {
     method,
+    credentials: 'same-origin',
     headers: {
-      Authorization: `Bearer ${user.access_token}`,
+      'X-Requested-With': 'portal',
       ...(body ? { 'Content-Type': 'application/json' } : {}),
     },
     body: body ? JSON.stringify(body) : undefined,
@@ -48,26 +48,13 @@ async function errorMessage(res: Response): Promise<string> {
   }
 }
 
-/** A file URL the browser fetches itself, with the token attached as a blob download. */
-export async function openFile(path: string, filename?: string): Promise<void> {
-  const user = await getUser();
-  if (!user) throw new PortalError('Not signed in', 0);
-
-  const res = await fetch(`/api/portal${path}`, {
-    headers: { Authorization: `Bearer ${user.access_token}` },
-  });
-  if (!res.ok) throw new PortalError(await errorMessage(res), res.status);
-
-  // Fetched rather than linked because the endpoint needs an Authorization header, which
-  // a plain <a href> cannot carry. The object URL is revoked once the tab has it.
-  const url = URL.createObjectURL(await res.blob());
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  if (filename) anchor.download = filename;
-  else anchor.target = '_blank';
-  anchor.rel = 'noopener';
-  anchor.click();
-  setTimeout(() => URL.revokeObjectURL(url), 30_000);
+/**
+ * Open a file the API serves. A plain navigation now: the cookie goes with it, so there is
+ * no longer a blob to download and re-serve, and the browser's own PDF viewer gets a URL it
+ * can reload.
+ */
+export function openFile(path: string): void {
+  window.open(`/api/portal${path}`, '_blank', 'noopener');
 }
 
 export interface PortalProject {
@@ -76,6 +63,18 @@ export interface PortalProject {
   status: string;
   starts_on: string | null;
   ends_on: string | null;
+}
+
+/** A piece of work being done for the client, in the reduced form they are shown. */
+export interface PortalTask {
+  id: string;
+  project_id: string;
+  project_name: string;
+  title: string;
+  status: string;
+  type: string;
+  due_on: string | null;
+  completed_at: string | null;
 }
 
 export interface PortalInvoice {
@@ -108,11 +107,30 @@ export interface PortalQuoteLine {
   amount_cents: number;
 }
 
-export interface PortalRequest {
+/** A conversation with Finsera, as it appears in the list. */
+export interface PortalTicket {
   id: string;
   subject: string;
-  status: string;
+  status: 'waiting_on_finsera' | 'waiting_on_client' | 'closed';
+  created_at: string;
+  last_activity_at: string;
+  message_count: number;
+}
+
+export interface PortalTicketMessage {
+  id: string;
+  author_kind: 'client' | 'internal';
+  author_name: string | null;
+  body: string;
+  created_at: string;
+}
+
+export interface PortalThread {
+  id: string;
+  subject: string;
+  status: PortalTicket['status'];
   createdAt: string;
+  messages: PortalTicketMessage[];
 }
 
 export interface PortalDocument {
@@ -122,16 +140,36 @@ export interface PortalDocument {
   created_at: string;
 }
 
+/** Who is looking. `staff` is one of us; a client sees `staff: false` and no banner. */
+export interface PortalMe {
+  email: string;
+  staff: boolean;
+  /** Whose portal this is, sent only to staff — a client already knows. */
+  clientName?: string | null;
+}
+
+/** A page of custom content. The link is a path on this host; the source is never sent. */
+export interface PortalPage {
+  slug: string;
+  title: string;
+  kind: string;
+}
+
 export const api = {
-  me: () => request<{ email: string }>('/me'),
+  me: () => request<PortalMe>('/me'),
   projects: () => request<PortalProject[]>('/projects'),
+  tasks: () => request<PortalTask[]>('/tasks'),
   invoices: () => request<PortalInvoice[]>('/invoices'),
   quotes: () => request<PortalQuote[]>('/quotes'),
   documents: () => request<PortalDocument[]>('/documents'),
+  pages: () => request<PortalPage[]>('/pages'),
   quoteLines: (id: string) => request<PortalQuoteLine[]>(`/quotes/${id}/lines`),
   acceptQuote: (id: string) =>
     request<{ id: string; number: string; status: string }>(`/quotes/${id}/accept`, 'POST'),
-  requests: () => request<PortalRequest[]>('/requests'),
-  submitRequest: (input: { subject: string; body: string; projectId?: string }) =>
-    request<{ id: string; status: string }>('/requests', 'POST', input),
+  tickets: () => request<PortalTicket[]>('/tickets'),
+  ticket: (id: string) => request<PortalThread>(`/tickets/${id}`),
+  openTicket: (input: { subject: string; body: string; projectId?: string }) =>
+    request<{ id: string; status: string }>('/tickets', 'POST', input),
+  replyToTicket: (id: string, body: string) =>
+    request<{ id: string; status: string }>(`/tickets/${id}/messages`, 'POST', { body }),
 };

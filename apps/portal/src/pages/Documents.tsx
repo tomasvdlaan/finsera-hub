@@ -1,16 +1,13 @@
-import { useState } from 'react';
 import { api, openFile, type PortalDocument } from '../lib/api.js';
 import { Listing, date, useList } from './shared.js';
 
 export function Documents() {
   const { rows, error } = useList<PortalDocument>(api.documents);
-  const [failed, setFailed] = useState<string>();
 
   return (
     <Listing rows={rows} error={error} empty="Er zijn nog geen documenten met u gedeeld.">
       {(documents) => (
         <>
-          {failed && <p className="error">{failed}</p>}
           <table>
             <thead>
               <tr>
@@ -27,12 +24,7 @@ export function Documents() {
                   <td className="num">
                     <button
                       className="link"
-                      onClick={() => {
-                        setFailed(undefined);
-                        openFile(`/documents/${d.id}/download`, d.title).catch((err: Error) =>
-                          setFailed(`${d.title}: ${err.message}`),
-                        );
-                      }}
+                      onClick={() => openFile(`/documents/${d.id}/download`)}
                     >
                       Downloaden
                     </button>

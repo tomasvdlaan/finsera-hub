@@ -12,23 +12,34 @@ COPY packages/contracts/package.json packages/contracts/
 COPY packages/note-doc/package.json packages/note-doc/
 COPY apps/api/package.json apps/api/
 COPY apps/web/package.json apps/web/
+COPY apps/portal/package.json apps/portal/
 RUN pnpm install --frozen-lockfile
 
 COPY packages packages
 COPY apps/api apps/api
+COPY apps/portal apps/portal
 # Every workspace package that publishes a build, rather than a hand-listed one:
 # note-doc was added after this file was written and silently went unbuilt.
-RUN pnpm -r --filter "./packages/*" run build && pnpm --filter @platform/api build
+#
+# The portal bundle is built here too and shipped inside the API image: on a portal host
+# the API serves it (Phase 8 §4.3), because only the API can tell a client's page from an
+# SPA route. It carries no build-time configuration — no issuer, no client id — since the
+# login moved to the server.
+RUN pnpm -r --filter "./packages/*" run build \
+    && pnpm --filter @platform/api build \
+    && pnpm --filter @platform/portal build
 
 # Production dependency tree only, hoisted into apps/api/node_modules so the runtime
 # stage needs no pnpm and no symlink farm.
 RUN pnpm --filter @platform/api deploy --prod --legacy /out \
     && cp -r apps/api/dist /out/dist \
-    && cp -r apps/api/drizzle /out/drizzle
+    && cp -r apps/api/drizzle /out/drizzle \
+    && cp -r apps/portal/dist /out/portal
 
 FROM node:24-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
+ENV PORTAL_STATIC_DIR=/app/portal
 
 # Run unprivileged; the node image already provides this user.
 COPY --from=build --chown=node:node /out /app

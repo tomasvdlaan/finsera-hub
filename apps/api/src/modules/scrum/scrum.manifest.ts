@@ -92,7 +92,25 @@ export const scrumManifest = defineManifest({
     },
   ],
 
-  portalExposure: [], // Phase 7 exposes task status in reduced form
+  /**
+   * What a client may see of a task, and it is deliberately less than a task is.
+   *
+   * Not `description`: internal notes end up there, and it is the field most likely to
+   * contain a sentence written for colleagues. Not `assignee_id`, which would put a
+   * named colleague on a client's screen and invite them to chase that person directly.
+   * Not `estimate_minutes` or `labels` — how long we think something takes is an internal
+   * planning number, and a client reading it as a promise is a conversation nobody wants.
+   * Not `blocked_reason`, which is often "waiting on the client" phrased for us.
+   *
+   * The projection refuses any field not on this list, so widening it is an edit here and
+   * a decision somebody makes on purpose.
+   */
+  portalExposure: [
+    {
+      entityType: 'task',
+      fields: ['id', 'project_id', 'title', 'status', 'type', 'due_on', 'completed_at'],
+    },
+  ],
 
   aiTools: [
     {
@@ -161,6 +179,9 @@ export const scrumManifest = defineManifest({
         assigneeId: z.string().uuid().nullable().optional(),
         sprintId: z.string().uuid().nullable().optional(),
         parentId: z.string().uuid().nullable().optional(),
+        // No `clientVisible`. Whether a task appears in a client's portal is a decision
+        // about what an outsider sees, and this assistant reads text clients wrote — so
+        // "make everything visible" must not be a thing it can be talked into doing.
       }),
       outputSchema: z.object({ id: z.string(), title: z.string() }),
       permission: 'scrum.tasks.write',
