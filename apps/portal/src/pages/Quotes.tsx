@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useViewer } from '../App.js';
 import { api, type PortalQuote, type PortalQuoteLine } from '../lib/api.js';
 import { Listing, date, euros, useList } from './shared.js';
 
@@ -58,6 +59,9 @@ function Lines({ quoteId }: { quoteId: string }) {
 
 export function Quotes() {
   const { rows, error } = useList<PortalQuote>(api.quotes);
+  // Accepting is a statement by the client about a price, so an employee looking at their
+  // portal is not offered it. The server refuses it too, whatever this decides.
+  const { staff } = useViewer();
   const [open, setOpen] = useState<string>();
   const [accepting, setAccepting] = useState<string>();
   // Which quote is awaiting confirmation. Deliberately not `window.confirm`: this app
@@ -126,6 +130,7 @@ export function Quotes() {
                           both again — this decides what to show, not what is allowed. */}
                       {status === 'sent' &&
                         !expired &&
+                        !staff &&
                         (confirming === q.id ? (
                           // Two steps, because this is the one action that commits the
                           // client to a price. The amount is repeated so what is being

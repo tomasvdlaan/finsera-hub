@@ -1,5 +1,26 @@
-# Caddy serves the SPA and proxies the API on one origin, so the browser sees no CORS
-# and cookies/tokens stay same-site.
+# On-demand TLS: a client portal appears the moment a slug is set.
+#
+# Every client gets their own hostname (`duce.finsera.nl`), and there are many more to
+# come, so the certificate cannot be a line in this file — it would mean an edit, a
+# reload, and a step somebody forgets during onboarding. Caddy issues one per hostname on
+# the first TLS handshake instead.
+#
+# `ask` is what keeps that safe. Anything pointed at this server could otherwise ask for a
+# certificate in its own name, and Let's Encrypt counts those against a weekly limit per
+# registered domain. The API answers 200 only for the login host and for slugs a client
+# actually has, so an unknown name never reaches the certificate authority at all.
+#
+# Put a `?t=<token>` on the ask URL and set PORTAL_ASK_TOKEN to the same value: the API then
+# answers only this question, from here, rather than being an open list of which clients
+# exist for anyone who can reach /api.
+{
+	on_demand_tls {
+		ask {$PORTAL_ASK_URL:http://api:3001/api/portal-host/check}
+	}
+}
+
+# Caddy serves the internal SPA and proxies the API on one origin, so the browser sees no
+# CORS and cookies/tokens stay same-site.
 #
 # SITE_ADDRESS is the domain in production (Caddy then provisions TLS automatically)
 # and :80 locally.
@@ -23,4 +44,27 @@
 		X-Frame-Options DENY
 		Referrer-Policy strict-origin-when-cross-origin
 	}
+}
+
+# The client portals (Phase 8): one hostname per client, plus the login host.
+#
+# `hub.finsera.nl` has its own block above and keeps it — Caddy matches the most specific
+# site address first, so the wildcard never takes traffic away from the internal app, and
+# the `ask` endpoint would refuse it anyway.
+#
+# Everything goes to the API, static files included: on a portal host a path is either the
+# API, a page the client was given, or the portal bundle, and only the database knows
+# which. The API sets the security headers for what it serves, so none are added here — a
+# proxied report has to be allowed to decide its own framing.
+#
+# The default address is a port nothing publishes, so this block is inert locally; set
+# PORTAL_ADDRESSES to "*.finsera.nl, portal.finsera.nl" in production.
+{$PORTAL_ADDRESSES:localhost:9443} {
+	encode gzip
+
+	tls {
+		on_demand
+	}
+
+	reverse_proxy {$API_UPSTREAM:api:3001}
 }

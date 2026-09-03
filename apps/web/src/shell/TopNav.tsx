@@ -216,27 +216,32 @@ export function TopNav({
         </button>
 
         {/*
-          Always, whenever there is a session at all.
+          Always, whenever there is a session at all — and this time actually always.
 
-          Sign out is the one control that has to work when everything else has failed —
-          it is the way out of a session the server no longer accepts, and it was the first
-          thing to disappear when that happened.
+          Sign out is the one control that has to work when everything else has failed: it
+          is the way out of a session the server no longer accepts. It was once gated on
+          `me`, which removed it exactly when it was needed; the fix moved it onto the
+          token's name instead, which is the same mistake one step further out. A token need
+          not carry `name`, `preferred_username` or `email` — this instance's does not — so
+          an account the platform refuses had no avatar, no menu, and no way to leave, under
+          a sentence telling the reader to use the menu at the top right.
+          Nothing here may depend on knowing who somebody is.
         */}
-        {name && (
-          <div className="me" ref={menuRef}>
+        <div className="me" ref={menuRef}>
             <button
               type="button"
               className="avatar"
               aria-haspopup="menu"
               aria-expanded={menu}
+              aria-label={name ? `Account: ${name}` : 'Account'}
               onClick={() => setMenu((o) => !o)}
             >
-              {name.slice(0, 1).toUpperCase()}
+              {name ? name.slice(0, 1).toUpperCase() : '?'}
             </button>
             {menu && (
               <div className="me-menu" role="menu">
                 <div className="me-who">
-                  <b>{name}</b>
+                  <b>{name ?? 'Signed in'}</b>
                   {/*
                     The role comes from the API, so when the API is refusing us there is no
                     role to state. Saying so is better than showing a blank line where one
@@ -271,8 +276,7 @@ export function TopNav({
                 </button>
               </div>
             )}
-          </div>
-        )}
+        </div>
       </div>
     </header>
   );

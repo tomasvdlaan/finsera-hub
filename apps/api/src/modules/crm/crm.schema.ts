@@ -73,12 +73,51 @@ export const clients = crm.table(
     vatTreatment: text('vat_treatment').notNull().default('domestic_21'),
     paymentTermsDays: integer('payment_terms_days').notNull().default(30),
     invoiceEmail: text('invoice_email'),
+
+    /*
+     * The client's own portal address: `duce` is `duce.finsera.nl`.
+     *
+     * Null means no portal host, and the portal refuses to invite a login for a client
+     * without one — a login with nowhere to go is a support ticket. The only thing the
+     * portal derives from a hostname is this column, and it uses it for one purpose: after a
+     * session has already named a client, to check that the host belongs to that client. The
+     * host never chooses the client; it can only disagree with the session and lose.
+     *
+     * The character rule is also a CHECK below, so a value that bypassed the service could
+     * not become a hostname the reverse proxy would ask a certificate for.
+     */
+    portalSlug: text('portal_slug'),
+
+    /**
+     * A sentence from us, on their portal's front page.
+     *
+     * The single most personal thing the portal can carry, and the cheapest: a client
+     * arriving to a line written by the person they actually deal with is in a
+     * relationship, and one arriving to a table of invoices is using software. Written on
+     * the client's own page in hub, because that is where somebody is when they think of
+     * something worth saying.
+     */
+    portalWelcome: text('portal_welcome'),
+    /**
+     * Their logo, as a storage key rather than a URL.
+     *
+     * A URL would mean the client's browser fetching an image from somewhere we do not
+     * control, on a page carrying their session — a referrer sent to a third party, and a
+     * portal that breaks when somebody else reorganises their website.
+     */
+    portalLogoKey: text('portal_logo_key'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
     archivedAt: timestamp('archived_at', { withTimezone: true }),
   },
   (t) => [
     index('clients_status_idx').on(t.status),
+    // NULLs are distinct, so any number of clients may have no portal; two may not share one.
+    uniqueIndex('clients_portal_slug_unique').on(t.portalSlug),
+    check(
+      'clients_portal_slug_shape',
+      sql`${t.portalSlug} IS NULL OR ${t.portalSlug} ~ '^[a-z0-9][a-z0-9-]{0,38}[a-z0-9]$'`,
+    ),
     check('clients_status_valid', sql`${t.status} IN ('lead','proposal','active','dormant','lost')`),
     check(
       'clients_vat_treatment_valid',

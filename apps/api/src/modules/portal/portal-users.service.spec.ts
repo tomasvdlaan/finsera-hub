@@ -12,7 +12,8 @@ import { crmManifest } from '../crm/crm.manifest.js';
 import { CrmService } from '../crm/crm.service.js';
 import { PortalUsersService } from './portal-users.service.js';
 import { portalManifest } from './portal.manifest.js';
-import { portalUsers } from './portal.schema.js';
+import { PortalSessionsService } from './portal-sessions.service.js';
+import { portalSessions, portalUsers } from './portal.schema.js';
 
 const admin: Actor = { userId: crypto.randomUUID(), role: 'admin' };
 const member: Actor = { userId: crypto.randomUUID(), role: 'member' };
@@ -24,7 +25,7 @@ describe('PortalUsersService', () => {
 
   beforeEach(async () => {
     await resetDb();
-    await truncate(sql`TRUNCATE portal.users, crm.projects, crm.clients CASCADE`);
+    await truncate(sql`TRUNCATE portal.sessions, portal.users, crm.projects, crm.clients CASCADE`);
     await seedUser(admin.userId, 'admin');
     await seedUser(member.userId, 'member');
 
@@ -43,6 +44,35 @@ describe('PortalUsersService', () => {
     service = new PortalUsersService(testDb, permissions, audit);
 
     clientId = (await crm.createClient(admin, { name: 'A client', status: 'active' })).id;
+    // Phase 8: a login needs somewhere to go, so a client without a portal address cannot
+    // have one invited. Every test below invites, so every test gets an address.
+    await crm.updateClient(admin, clientId, { portalSlug: 'aclient' });
+  });
+
+  it('refuses to invite anyone to a client without a portal address', async () => {
+    const homeless = (await crm.createClient(admin, { name: 'No portal yet', status: 'active' })).id;
+
+    // A successful sign-in that lands nowhere is a support ticket, not a feature.
+    await expect(
+      service.invite(admin, { clientId: homeless, email: 'someone@noportal.nl' }),
+    ).rejects.toThrow(/portal address/i);
+  });
+
+  it('ends every session of a login it revokes, in the same commit', async () => {
+    const { id } = await service.invite(admin, {
+      clientId, email: 'leaving@aclient.nl', oidcSubject: 'sub-leaving',
+    });
+    const sessions = new PortalSessionsService(testDb);
+    const { secret } = await sessions.create({ kind: 'client', portalUserId: id, clientId });
+    expect(await sessions.resolve(secret)).not.toBeNull();
+
+    await service.revoke(admin, id);
+
+    // Refused twice over: the session row is revoked, and the user row it points at is
+    // disabled. Either alone would do; the test is that neither was forgotten.
+    expect(await sessions.resolve(secret)).toBeNull();
+    const [row] = await testDb.select().from(portalSessions).where(eq(portalSessions.portalUserId, id));
+    expect(row?.revokedAt).not.toBeNull();
   });
 
   // ── the rule that separates this from internal auth ──
@@ -93,6 +123,7 @@ describe('PortalUsersService', () => {
 
   it('will not map one subject to two clients', async () => {
     const other = (await crm.createClient(admin, { name: 'Other', status: 'active' })).id;
+    await crm.updateClient(admin, other, { portalSlug: 'other' });
     await service.invite(admin, { clientId, email: 'both@x.nl', oidcSubject: 'sub-both' });
 
     // A person working for two clients gets two logins. Merging them would mean a session
@@ -104,6 +135,7 @@ describe('PortalUsersService', () => {
 
   it('allows the same person a separate login per client', async () => {
     const other = (await crm.createClient(admin, { name: 'Other', status: 'active' })).id;
+    await crm.updateClient(admin, other, { portalSlug: 'other' });
     await service.invite(admin, { clientId, email: 'both@x.nl', oidcSubject: 'sub-one' });
     await service.invite(admin, { clientId: other, email: 'both@x.nl', oidcSubject: 'sub-two' });
 
@@ -181,6 +213,7 @@ describe('PortalUsersService', () => {
 
   it('still allows the same address at a different client', async () => {
     const other = (await crm.createClient(admin, { name: 'Other', status: 'active' })).id;
+    await crm.updateClient(admin, other, { portalSlug: 'other' });
     await service.invite(admin, { clientId, email: 'consultant@bureau.nl' });
     await expect(
       service.invite(admin, { clientId: other, email: 'consultant@bureau.nl' }),
@@ -189,6 +222,7 @@ describe('PortalUsersService', () => {
 
   it('gives one Zitadel account access to one client, not both', async () => {
     const other = (await crm.createClient(admin, { name: 'Other', status: 'active' })).id;
+    await crm.updateClient(admin, other, { portalSlug: 'other' });
     await service.invite(admin, { clientId, email: 'consultant@bureau.nl' });
     await service.invite(admin, { clientId: other, email: 'consultant@bureau.nl' });
 

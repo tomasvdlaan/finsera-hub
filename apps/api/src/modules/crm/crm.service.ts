@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
-import type { Actor } from '@platform/contracts';
+import { portalSlugProblem, type Actor } from '@platform/contracts';
 import { and, asc, desc, eq, ilike, inArray, isNull, sql } from 'drizzle-orm';
 import { AuditService } from '../../core/audit/audit.service.js';
 import { users } from '../../core/db/core.schema.js';
@@ -38,6 +38,10 @@ export interface CreateClientInput {
   vatTreatment?: (typeof VAT_TREATMENTS)[number];
   paymentTermsDays?: number;
   invoiceEmail?: string | null;
+  /** Their portal address: `duce` for `duce.finsera.nl`. Null removes it (Phase 8). */
+  portalSlug?: string | null;
+  /** A sentence from us on their portal's front page. */
+  portalWelcome?: string | null;
 }
 
 export interface CreateProjectInput {
@@ -95,6 +99,10 @@ export class CrmService {
     const status = input.status ?? 'lead';
 
     const id = this.registry.newId();
+    // Validated here too, not only on update. The field was accepted and silently dropped
+    // on this path — harmless while nothing sent it, and a way past the reserved-name and
+    // uniqueness rules the day anything did.
+    const portalSlug = await this.validPortalSlug(id, input.portalSlug ?? null);
     await this.db.transaction(async (tx) => {
       await this.registry.register(tx, {
         id,
@@ -117,6 +125,7 @@ export class CrmService {
         vatTreatment: this.validVatTreatment(input.vatTreatment, input.vatNumber),
         paymentTermsDays: input.paymentTermsDays ?? 30,
         invoiceEmail: input.invoiceEmail ?? null,
+        portalSlug,
       });
       await this.audit.record(tx, {
         actorId: actor.userId,
@@ -188,6 +197,8 @@ export class CrmService {
     }
     const ownerId =
       patch.ownerId === undefined ? before.ownerId : await this.resolveOwner(patch.ownerId);
+    const portalSlug =
+      patch.portalSlug === undefined ? before.portalSlug : await this.validPortalSlug(id, patch.portalSlug);
 
     await this.db.transaction(async (tx) => {
       const vatNumber = patch.vatNumber === undefined ? before.vatNumber : patch.vatNumber;
@@ -211,6 +222,11 @@ export class CrmService {
           paymentTermsDays: patch.paymentTermsDays ?? before.paymentTermsDays,
           invoiceEmail:
             patch.invoiceEmail === undefined ? before.invoiceEmail : patch.invoiceEmail,
+          portalSlug,
+          portalWelcome:
+            patch.portalWelcome === undefined
+              ? before.portalWelcome
+              : (patch.portalWelcome?.trim() || null),
           updatedAt: new Date(),
         })
         .where(eq(clients.id, id));
@@ -225,7 +241,10 @@ export class CrmService {
         action: 'client.update',
         entityType: 'client',
         entityId: id,
-        detail: { before: { name: before.name, status: before.status }, after: { name, status } },
+        detail: {
+          before: { name: before.name, status: before.status, portalSlug: before.portalSlug },
+          after: { name, status, portalSlug },
+        },
         aiInitiated: origin.aiInitiated ?? false,
         conversationId: origin.conversationId,
       });
@@ -242,6 +261,31 @@ export class CrmService {
     });
 
     return this.getClient(actor, id);
+  }
+
+  /**
+   * A portal address, or a reason it cannot be one.
+   *
+   * The shape rule lives in `@platform/contracts` so the client page can show it while
+   * somebody types. Uniqueness is the database's — but checked here first, because "that
+   * name is taken by X" is a sentence and a unique-violation is a 500. Lowercased rather than
+   * refused: `Duce` is what somebody will type, and `duce` is what they meant.
+   */
+  private async validPortalSlug(clientId: string, raw: string | null): Promise<string | null> {
+    if (raw === null) return null;
+    const slug = raw.trim().toLowerCase();
+    if (slug === '') return null;
+    const problem = portalSlugProblem(slug);
+    if (problem) throw new BadRequestException(`Portal address: ${problem}`);
+    const [taken] = await this.db
+      .select({ id: clients.id, name: clients.name })
+      .from(clients)
+      .where(eq(clients.portalSlug, slug))
+      .limit(1);
+    if (taken && taken.id !== clientId) {
+      throw new BadRequestException(`Portal address '${slug}' is already used by ${taken.name}`);
+    }
+    return slug;
   }
 
   async archiveClient(actor: Actor, id: string) {

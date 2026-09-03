@@ -246,6 +246,20 @@ export const tasks = scrum.table(
     /** Who we are waiting on, when it is a person. A core.users id, no cross-schema FK. */
     blockedOnUserId: uuid('blocked_on_user_id'),
 
+    /**
+     * Whether this task appears in the client's own portal (Phase 8, step 5).
+     *
+     * Off by default, and that default is the design. A board holds the internal shape of
+     * the work — spikes, chores, "chase Sander about the credentials", the bug we caused —
+     * and the client's view of a project should be the handful of items that mean something
+     * to them. Opting in per task means somebody decided; opting out would mean somebody
+     * forgot, once, in public.
+     *
+     * Even when it is on, the portal shows a reduced form: `scrum.manifest.ts` declares the
+     * exact fields, and the projection refuses anything undeclared. The description is not
+     * among them — internal notes end up there.
+     */
+    clientVisible: boolean('client_visible').notNull().default(false),
     createdBy: uuid('created_by').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

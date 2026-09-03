@@ -58,6 +58,8 @@ export interface Task {
   sprintId: string | null;
   labels: string[];
   dueOn: string | null;
+  /** Whether the client sees this task in their portal. Off unless somebody said so. */
+  clientVisible: boolean;
   parentId: string | null;
   completedAt: string | null;
   /**

@@ -18,6 +18,13 @@ services:
       # Blank locally → Caddy listens on :80 inside the container; a domain in
       # production → Caddy provisions TLS for it.
       SITE_ADDRESS: ${SITE_ADDRESS:-:80}
+      # The client portals' hostnames (Phase 8): "*.finsera.nl, portal.finsera.nl" in
+      # production. Everything on them is proxied to the API, which serves the portal
+      # bundle itself and decides what each path is. The default is a port nothing
+      # publishes, so the block is inert until this is set.
+      PORTAL_ADDRESSES: ${PORTAL_ADDRESSES:-localhost:9443}
+      # What Caddy asks before getting a certificate for a hostname it has not seen.
+      PORTAL_ASK_URL: ${PORTAL_ASK_URL:-http://api:3001/api/portal-host/check}
     ports:
       - "${HTTP_PORT:-8080}:80"
       - "${HTTPS_PORT:-8443}:443"
@@ -48,6 +55,22 @@ services:
       ZITADEL_PROJECT_ID: ${ZITADEL_PROJECT_ID:-}
       # No default: unset leaves the gate enforced, which is the point of it (G6).
       PORTAL_ROLE_CHECK: ${PORTAL_ROLE_CHECK:-}
+      # ── client portal on its own hosts (Phase 8) ──
+      # The login is done server-side now: the portal application's secret (blank keeps
+      # it a public PKCE application), the domain client portals hang off, the host the
+      # login callback lives on, and the key that signs the in-flight login state. The
+      # last one has no default and the API refuses to boot in production without it.
+      ZITADEL_PORTAL_CLIENT_SECRET: ${ZITADEL_PORTAL_CLIENT_SECRET:-}
+      PORTAL_BASE_DOMAIN: ${PORTAL_BASE_DOMAIN:-}
+      PORTAL_AUTH_HOST: ${PORTAL_AUTH_HOST:-}
+      PORTAL_SESSION_SECRET: ${PORTAL_SESSION_SECRET:-}
+      # Encrypts the per-page bypass secrets. Absent here and the admin form permanently
+      # says it cannot store one — and the workaround somebody reaches for is turning
+      # Vercel's deployment protection off, which is the whole problem P3 exists to end.
+      PORTAL_PAGE_KEY: ${PORTAL_PAGE_KEY:-}
+      # Shared with Caddy's on-demand-TLS `ask` URL, so that endpoint answers the reverse
+      # proxy and not anyone who can reach /api. Unset leaves it open.
+      PORTAL_ASK_TOKEN: ${PORTAL_ASK_TOKEN:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY:-}
       # The gateway, which was missing here — so a key set in deploy/.env reached the host

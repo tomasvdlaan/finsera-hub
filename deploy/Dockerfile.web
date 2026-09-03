@@ -12,6 +12,7 @@ COPY packages/contracts/package.json packages/contracts/
 COPY packages/note-doc/package.json packages/note-doc/
 COPY apps/api/package.json apps/api/
 COPY apps/web/package.json apps/web/
+COPY apps/portal/package.json apps/portal/
 RUN pnpm install --frozen-lockfile
 
 COPY packages packages

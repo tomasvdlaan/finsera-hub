@@ -1,191 +1,108 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { jwtVerify } from 'jose';
+import { describe, expect, it, vi } from 'vitest';
+import type { ExecutionContext } from '@nestjs/common';
 import { PortalAuthGuard } from './portal-auth.guard.js';
-import type { PortalUsersService } from './portal-users.service.js';
+import type { PortalHost, PortalHostService } from './portal-host.service.js';
+import type { PortalSessionsService, ResolvedSession } from './portal-sessions.service.js';
+
+const DUCE: PortalHost = {
+  kind: 'client', host: 'duce.finsera.nl', slug: 'duce', clientId: 'c-duce', clientName: 'Duce',
+};
+const DOCHORSE: PortalHost = {
+  kind: 'client', host: 'dochorse.finsera.nl', slug: 'dochorse', clientId: 'c-dh', clientName: 'DocHorse',
+};
+
+const clientSession: ResolvedSession = {
+  id: 's-1', kind: 'client', portalUserId: 'pu-1', staffUserId: null,
+  clientId: 'c-duce', email: 'finance@duce.nl', displayName: 'Finance', previousSeenAt: null,
+};
+const staffSession: ResolvedSession = {
+  id: 's-2', kind: 'staff', portalUserId: null, staffUserId: 'u-1',
+  clientId: 'c-duce', email: 'tomas@finsera.nl', displayName: null, previousSeenAt: null,
+};
+
+function build(host: PortalHost | null, session: ResolvedSession | null) {
+  const sessions = { resolve: vi.fn().mockResolvedValue(session) } as unknown as PortalSessionsService;
+  const hosts = { resolve: vi.fn().mockResolvedValue(host) } as unknown as PortalHostService;
+  return new PortalAuthGuard(sessions, hosts);
+}
+
+function ctx(req: Record<string, unknown>): ExecutionContext {
+  const request = { method: 'GET', headers: { host: 'duce.finsera.nl', cookie: 'psid=secret' }, ...req };
+  return { switchToHttp: () => ({ getRequest: () => request }) } as unknown as ExecutionContext;
+}
 
 /**
- * Only the signature check is stubbed. Verifying that `jose` verifies would prove the
- * mock agrees with itself; what is worth testing is what this guard does with a token
- * `jose` has already accepted.
- */
-vi.mock('jose', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('jose')>()),
-  jwtVerify: vi.fn(),
-  createRemoteJWKSet: vi.fn(() => vi.fn()),
-}));
-
-const accepts = (payload: Record<string, unknown>) =>
-  vi.mocked(jwtVerify).mockResolvedValue({ payload } as never);
-
-/**
- * The guard's own logic, without a live Zitadel.
+ * What the cookie is allowed to mean, and where it is not.
  *
- * What is worth testing here is not JWT verification — that is `jose`, and re-testing it
- * would only prove the mock agrees with itself. It is the configuration handling around
- * it, because every failure mode here is silent: a portal that accepts internal tokens
- * looks exactly like a portal that works.
+ * The interesting cases are all refusals, and none of them are about the cookie being
+ * valid — it is, in every test below. They are about a valid session being presented
+ * somewhere it does not belong.
  */
 describe('PortalAuthGuard', () => {
-  const original = { ...process.env };
-  let resolveFromSubject: ReturnType<typeof vi.fn>;
-  let guard: PortalAuthGuard;
-
-  beforeEach(() => {
-    resolveFromSubject = vi.fn();
-    guard = new PortalAuthGuard({ resolveFromSubject } as unknown as PortalUsersService);
-    process.env.ZITADEL_ISSUER = 'https://example.zitadel.cloud';
+  it('resolves a client session on its own host', async () => {
+    const guard = build(DUCE, clientSession);
+    const c = ctx({});
+    expect(await guard.canActivate(c)).toBe(true);
+    expect(c.switchToHttp().getRequest<{ viewer: unknown }>().viewer).toEqual({
+      portalUserId: 'pu-1', clientId: 'c-duce', email: 'finance@duce.nl',
+      displayName: 'Finance', previousSeenAt: null,
+    });
   });
 
-  afterEach(() => {
-    process.env = { ...original };
+  it('refuses a client session presented at another client’s host', async () => {
+    // The attack the whole hostname design has to survive: a real, live session for Duce,
+    // sent to DocHorse's portal. The cookie is scoped per host so it should not arrive at
+    // all — this is the lock behind that one.
+    const guard = build(DOCHORSE, clientSession);
+    await expect(guard.canActivate(ctx({ headers: { host: 'dochorse.finsera.nl', cookie: 'psid=secret' } })))
+      .rejects.toThrow(/Not your portal/);
   });
 
-  it('refuses every request when the portal audience is unset', async () => {
-    delete process.env.ZITADEL_PORTAL_CLIENT_ID;
-
-    // Fail closed. Verifying without an audience would accept any token this Zitadel
-    // instance ever issued, an internal user's included.
-    await expect(guard.verifyToken('a.b.c')).rejects.toThrow(/not configured/i);
-    expect(resolveFromSubject).not.toHaveBeenCalled();
+  it('never sets an internal actor', async () => {
+    const guard = build(DUCE, clientSession);
+    const c = ctx({});
+    await guard.canActivate(c);
+    // A portal request must not satisfy an internal guard, and an unset field is what makes
+    // an accidentally-shared controller fail closed rather than serve the business.
+    expect(c.switchToHttp().getRequest<{ actor?: unknown }>().actor).toBeUndefined();
   });
 
-  it('refuses to start when the portal shares the internal application', () => {
-    process.env.ZITADEL_CLIENT_ID = '123';
-    process.env.ZITADEL_PORTAL_CLIENT_ID = '123';
-
-    // Not a missing configuration but a wrong one, and the symptom would be an internal
-    // token quietly working at the portal — so it is fatal rather than a warning.
-    expect(() => guard.onModuleInit()).toThrow(/its own Zitadel application/);
+  it('refuses a request with no cookie, no session, or no host', async () => {
+    await expect(build(DUCE, clientSession).canActivate(ctx({ headers: { host: 'duce.finsera.nl' } })))
+      .rejects.toThrow(/No portal session/);
+    await expect(build(DUCE, null).canActivate(ctx({}))).rejects.toThrow(/No portal session/);
+    // `hub.finsera.nl` and anything unknown resolve to no host at all.
+    await expect(build(null, clientSession).canActivate(ctx({}))).rejects.toThrow(/No portal session/);
   });
 
-  it('starts, with a warning, when the portal is simply not configured yet', () => {
-    delete process.env.ZITADEL_PORTAL_CLIENT_ID;
-    process.env.ZITADEL_CLIENT_ID = '123';
-
-    // The portal has no endpoints yet. Failing the whole platform's boot over a feature
-    // nobody can reach would be theatre — requests are refused instead.
-    expect(() => guard.onModuleInit()).not.toThrow();
+  it('requires the request header on a write, and not on a read', async () => {
+    const guard = build(DUCE, clientSession);
+    await expect(guard.canActivate(ctx({ method: 'POST' }))).rejects.toThrow(/Missing request header/);
+    expect(
+      await guard.canActivate(
+        ctx({ method: 'POST', headers: { host: 'duce.finsera.nl', cookie: 'psid=secret', 'x-requested-with': 'portal' } }),
+      ),
+    ).toBe(true);
   });
 
-  it('rejects an opaque token instead of reporting a generic failure', async () => {
-    process.env.ZITADEL_PORTAL_CLIENT_ID = '456';
-    process.env.ZITADEL_CLIENT_ID = '123';
+  // ── staff (P5) ──
 
-    // Zitadel issues opaque access tokens by default, which cannot be checked offline.
-    // A 401 with no explanation sent someone hunting last time; this one names the setting.
-    await expect(guard.verifyToken('opaque-token')).rejects.toThrow(/Opaque access token/);
+  it('lets an employee in, as staff rather than as the client', async () => {
+    const guard = build(DUCE, staffSession);
+    const c = ctx({});
+    expect(await guard.canActivate(c)).toBe(true);
+    const { viewer } = c.switchToHttp().getRequest<{ viewer: Record<string, unknown> }>();
+    // A staff id and no portal user id, which is what the write routes key off: they ask
+    // for a visitor, and this cannot be one.
+    expect(viewer).toEqual({ staffUserId: 'u-1', clientId: 'c-duce', email: 'tomas@finsera.nl' });
+    expect(viewer.portalUserId).toBeUndefined();
   });
 
-  it('never resolves a visitor from a token it could not verify', async () => {
-    process.env.ZITADEL_PORTAL_CLIENT_ID = '456';
-    process.env.ZITADEL_CLIENT_ID = '123';
-    vi.mocked(jwtVerify).mockRejectedValue(new Error('signature verification failed'));
-
-    // Signature check first, identity lookup second. Reversing them would make the portal
-    // user table the only thing standing between a forged token and a client's data.
-    await expect(guard.verifyToken('not.a.jwt')).rejects.toThrow(/Invalid token/);
-    expect(resolveFromSubject).not.toHaveBeenCalled();
-  });
-
-  // ── the role, which is the check that actually authorises ──
-
-  describe('once the signature and audience are accepted', () => {
-    beforeEach(() => {
-      process.env.ZITADEL_PORTAL_CLIENT_ID = '456';
-      process.env.ZITADEL_CLIENT_ID = '123';
-      delete process.env.ZITADEL_PROJECT_ID;
-    });
-
-    it('refuses a token carrying the right audience but no portal role', async () => {
-      // The reason this check exists: Zitadel will issue a token containing an audience
-      // the holder has no grant for, so a passing `aud` restates what the client asked
-      // for. Roles come from grants, and cannot be requested into existence.
-      delete process.env.PORTAL_ROLE_CHECK;
-      accepts({ sub: 'sub-1' });
-
-      await expect(guard.verifyToken('a.b.c')).rejects.toThrow(/Invalid token/);
-      expect(resolveFromSubject).not.toHaveBeenCalled();
-    });
-
-    it('refuses an internal user holding an internal role', async () => {
-      delete process.env.PORTAL_ROLE_CHECK;
-      accepts({
-        sub: 'sub-employee',
-        'urn:zitadel:iam:org:project:roles': { internal: { orgId: 'finsera.nl' } },
-      });
-
-      // Refused before anyone asks which client this is — the portal user lookup is not
-      // what keeps employees out, and must never be the only thing that does.
-      await expect(guard.verifyToken('a.b.c')).rejects.toThrow(/Invalid token/);
-      expect(resolveFromSubject).not.toHaveBeenCalled();
-    });
-
-    it('keeps the role check on unless it is switched off by name', async () => {
-      // An unset or misspelled value must leave the check ON. A security check that
-      // vanishes when configuration is forgotten is the failure this module is about.
-      for (const value of [undefined, '', 'false', 'no', 'OFF', '0']) {
-        if (value === undefined) delete process.env.PORTAL_ROLE_CHECK;
-        else process.env.PORTAL_ROLE_CHECK = value;
-
-        resolveFromSubject.mockClear();
-        accepts({ sub: 'sub-1' });
-        await expect(
-          guard.verifyToken('a.b.c'),
-          `PORTAL_ROLE_CHECK=${String(value)} disabled the check`,
-        ).rejects.toThrow(/Invalid token/);
-        expect(resolveFromSubject).not.toHaveBeenCalled();
-      }
-    });
-
-    // ── with the gate deliberately off (G6) ──
-
-    it('falls back to the invitation when the role check is off', async () => {
-      process.env.PORTAL_ROLE_CHECK = 'off';
-      accepts({ sub: 'sub-client' });
-      resolveFromSubject.mockResolvedValue({
-        portalUserId: 'pu-1', clientId: 'c-1', email: 'them@aclient.nl',
-      });
-
-      expect(await guard.verifyToken('a.b.c')).toMatchObject({ clientId: 'c-1' });
-    });
-
-    it('still refuses an employee with the gate off, via the invitation', async () => {
-      process.env.PORTAL_ROLE_CHECK = 'off';
-      accepts({
-        sub: 'sub-employee',
-        'urn:zitadel:iam:org:project:roles': { internal: { orgId: 'finsera.nl' } },
-      });
-      // No portal.users row, because we never wrote one. This is what carries the weight
-      // while the role gate is off: an invitation we control, not a claim we are handed.
-      resolveFromSubject.mockRejectedValue(new Error('No portal access'));
-
-      await expect(guard.verifyToken('a.b.c')).rejects.toThrow(/No portal access/);
-      expect(resolveFromSubject).toHaveBeenCalledWith('sub-employee');
-    });
-
-    it('resolves a visitor holding the portal role', async () => {
-      accepts({
-        sub: 'sub-client',
-        'urn:zitadel:iam:org:project:roles': { portal_client: { orgId: 'finsera.nl' } },
-      });
-      resolveFromSubject.mockResolvedValue({
-        portalUserId: 'pu-1', clientId: 'c-1', email: 'them@aclient.nl',
-      });
-
-      expect(await guard.verifyToken('a.b.c')).toMatchObject({ clientId: 'c-1' });
-      expect(resolveFromSubject).toHaveBeenCalledWith('sub-client');
-    });
-
-    it('still refuses a portal role that was never invited', async () => {
-      accepts({
-        sub: 'sub-uninvited',
-        'urn:zitadel:iam:org:project:roles': { portal_client: { orgId: 'finsera.nl' } },
-      });
-      resolveFromSubject.mockRejectedValue(new Error('No portal access'));
-
-      // The role says "a client"; the invitation says "which client". Both are required,
-      // and the role alone does not name whose data anyone gets.
-      await expect(guard.verifyToken('a.b.c')).rejects.toThrow(/No portal access/);
-    });
+  it('holds a staff session to the client it was opened for', async () => {
+    // Staff may open every portal — one at a time, each with its own login. A session
+    // created at Duce is not a key to DocHorse; signing in there is a redirect, not a risk.
+    const guard = build(DOCHORSE, staffSession);
+    await expect(guard.canActivate(ctx({ headers: { host: 'dochorse.finsera.nl', cookie: 'psid=secret' } })))
+      .rejects.toThrow(/Not your portal/);
   });
 });

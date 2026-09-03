@@ -8,7 +8,8 @@ import { useDialog } from '../../shell/ui/Dialog.js';
 import { useToast } from '../../shell/ui/Toast.js';
 import { Links } from '../../shell/Links.js';
 import { Timeline } from '../../shell/Timeline.js';
-import { PortalUsers } from '../portal/PortalUsers.js';
+import { PortalPages } from '../portal/PortalPages.js';
+import { PortalUsers, portalHost, portalUrl } from '../portal/PortalUsers.js';
 import { EditableField } from './EditableField.js';
 import type { EntityRef } from '@platform/contracts';
 import {
@@ -158,6 +159,30 @@ export function ClientDetail() {
         multiline
         onSave={(v) => patch({ notes: v })}
       />
+      <EditableField
+        label="Portal address"
+        value={client.portalSlug}
+        placeholder="duce  →  duce.finsera.nl"
+        onSave={(v) => patch({ portalSlug: v })}
+      />
+      {client.portalSlug && (
+        <EditableField
+          label="Portal welcome"
+          value={client.portalWelcome}
+          placeholder="A line they see when they open their portal"
+          multiline
+          onSave={(v) => patch({ portalWelcome: v })}
+        />
+      )}
+      {client.portalSlug && (
+        <p className="muted" style={{ marginTop: '-.5rem' }}>
+          Their portal is at{' '}
+          <a href={portalUrl(client.portalSlug)} target="_blank" rel="noreferrer">
+            {portalHost(client.portalSlug)}
+          </a>
+          . Changing the address breaks links they already have.
+        </p>
+      )}
 
       {error && <p className="error">{error}</p>}
 
@@ -225,7 +250,11 @@ export function ClientDetail() {
       <EntityWidgets entityId={id} entityType="client" />
 
       <section>
-        <PortalUsers clientId={client.id} />
+        <PortalUsers clientId={client.id} portalSlug={client.portalSlug} />
+      </section>
+
+      <section>
+        <PortalPages clientId={client.id} portalSlug={client.portalSlug} />
       </section>
 
       <section data-span={6}>

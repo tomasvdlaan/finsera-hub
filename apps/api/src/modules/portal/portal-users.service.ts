@@ -12,7 +12,7 @@ import type { Actor } from '@platform/contracts';
 import { AuditService } from '../../core/audit/audit.service.js';
 import { DB, type Database } from '../../core/db/db.module.js';
 import { PermissionService } from '../../core/permissions/permission.service.js';
-import { portalUsers } from './portal.schema.js';
+import { portalSessions, portalUsers } from './portal.schema.js';
 import type { PortalVisitor } from './portal.projection.js';
 
 /**
@@ -64,15 +64,30 @@ export class PortalUsersService {
       throw new ForbiddenException('No portal access');
     }
 
-    // Deliberately not awaited on the request path — a failed timestamp write should not
-    // cost a client their session, and nothing reads it synchronously.
+    /*
+     * The previous visit is carried forward before this one is stamped.
+     *
+     * `last_seen_at` becomes now, so on its own it can never answer "what is new since I
+     * was last here" — everything is older than now. Moving the old value across at the
+     * same moment is what makes the front page's one genuinely personal claim possible.
+     *
+     * Deliberately not awaited: a failed timestamp write should not cost a client their
+     * session, and nothing reads it synchronously. This runs once per sign-in, not per
+     * request, so the value it writes is a visit rather than a heartbeat.
+     */
     void this.db
       .update(portalUsers)
-      .set({ lastSeenAt: new Date() })
+      .set({ previousSeenAt: row.lastSeenAt, lastSeenAt: new Date() })
       .where(eq(portalUsers.id, row.id))
       .catch((err: Error) => this.logger.warn(`Could not record last seen: ${err.message}`));
 
-    return { portalUserId: row.id, clientId: row.clientId, email: row.email };
+    return {
+      portalUserId: row.id,
+      clientId: row.clientId,
+      email: row.email,
+      displayName: row.displayName,
+      previousSeenAt: row.previousSeenAt ?? null,
+    };
   }
 
   /**
@@ -151,7 +166,13 @@ export class PortalUsersService {
       });
     });
 
-    return { portalUserId: claimed.id, clientId: claimed.clientId, email: claimed.email };
+    return {
+      portalUserId: claimed.id,
+      clientId: claimed.clientId,
+      email: claimed.email,
+      displayName: null,
+      previousSeenAt: null,
+    };
   }
 
   /** Invite a client login. Internal-only: creating one is how a client gets in at all. */
@@ -163,6 +184,17 @@ export class PortalUsersService {
 
     const email = input.email.trim();
     if (!email.includes('@')) throw new BadRequestException('That is not an email address');
+
+    // A login with nowhere to go. The portal lives at the client's own address (Phase 8),
+    // so a client without one has no portal, and inviting somebody to it would produce a
+    // person who signs in successfully and lands nowhere.
+    const { rows } = await this.db.execute<{ portal_slug: string | null }>(
+      sql`SELECT portal_slug FROM crm.clients WHERE id = ${input.clientId} AND archived_at IS NULL`,
+    );
+    if (!rows[0]) throw new NotFoundException('No such client');
+    if (!rows[0].portal_slug) {
+      throw new BadRequestException('Set a portal address for this client before inviting anyone');
+    }
 
     const existing = await this.db
       .select({ id: portalUsers.id })
@@ -223,6 +255,14 @@ export class PortalUsersService {
         .returning({ id: portalUsers.id, email: portalUsers.email });
 
       if (!updated) throw new NotFoundException('No such active portal user');
+
+      // Their sessions end in the same commit. `PortalSessionsService.resolve` would refuse
+      // them anyway on the next request, by re-reading `disabled_at` — this is so that the
+      // session rows say so too, and "when did their access actually end" has one answer.
+      await tx
+        .update(portalSessions)
+        .set({ revokedAt: new Date() })
+        .where(and(eq(portalSessions.portalUserId, id), isNull(portalSessions.revokedAt)));
 
       await this.audit.record(tx, {
         actorId: actor.userId,

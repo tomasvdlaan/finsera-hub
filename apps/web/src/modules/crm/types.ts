@@ -27,6 +27,10 @@ export interface Client {
   vatTreatment: 'domestic_21' | 'reverse_charge' | 'outside_eu';
   paymentTermsDays: number;
   invoiceEmail: string | null;
+  /** Their portal address: `duce` means `duce.finsera.nl`. Null means no portal. */
+  portalSlug: string | null;
+  /** A sentence from us on their portal's front page. */
+  portalWelcome: string | null;
 }
 
 export interface Contact {
