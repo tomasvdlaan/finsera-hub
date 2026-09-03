@@ -6,7 +6,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, eq, isNotNull, isNull, sql } from 'drizzle-orm';
 import { v7 as uuidv7 } from 'uuid';
 import type { Actor } from '@platform/contracts';
 import { AuditService } from '../../core/audit/audit.service.js';
@@ -196,8 +196,8 @@ export class PortalUsersService {
       throw new BadRequestException('Set a portal address for this client before inviting anyone');
     }
 
-    const existing = await this.db
-      .select({ id: portalUsers.id })
+    const [existing] = await this.db
+      .select({ id: portalUsers.id, disabledAt: portalUsers.disabledAt })
       .from(portalUsers)
       .where(
         and(
@@ -206,7 +206,22 @@ export class PortalUsersService {
         ),
       )
       .limit(1);
-    if (existing.length > 0) {
+    /*
+     * A revoked login is not a free address, and it says so.
+     *
+     * Inviting the same person again cannot work and must not look like it might: the row
+     * is still there (revoking keeps it, for the audit trail), `(email, client_id)` is
+     * unique, and if they ever signed in their subject is on that row and unique too — so
+     * a second row would be refused by the database, and a second *subject* could never be
+     * claimed by the same person anyway. Restoring the row is the only thing that means
+     * what the person asking wants, so that is what the message names.
+     */
+    if (existing?.disabledAt) {
+      throw new BadRequestException(
+        'That address had access and it was revoked — restore it instead of inviting again',
+      );
+    }
+    if (existing) {
       throw new BadRequestException('That address already has access to this client');
     }
 
@@ -278,6 +293,46 @@ export class PortalUsersService {
     // that parses the response chokes on it. Found by clicking Revoke, not by a test —
     // the service tests never went through HTTP.
     return { id, status: 'revoked' };
+  }
+
+  /**
+   * Give a revoked login its access back.
+   *
+   * The counterpart revoking has always needed. Because the row survives being revoked and
+   * `(email, client_id)` is unique, re-inviting somebody is not merely awkward but
+   * impossible — and for anyone who had signed in, their subject is on that row, so no
+   * fresh invitation could be claimed by them either. This clears `disabled_at` on the row
+   * that already exists, which is also what keeps the history in one place: one login, one
+   * trail of when access started, ended and started again.
+   *
+   * Their old sessions stay revoked. Access is restored, not resumed — somebody whose
+   * access was taken away signs in again, and that sign-in is a line in the audit log.
+   */
+  async reinstate(actor: Actor, id: string): Promise<{ id: string; status: 'active' }> {
+    await this.require(actor, 'portal.admin');
+
+    await this.db.transaction(async (tx) => {
+      // `isNotNull` for the same reason revoke uses `isNull`: reinstating an active login
+      // is a mistake to report, not a no-op to absorb.
+      const [updated] = await tx
+        .update(portalUsers)
+        .set({ disabledAt: null })
+        .where(and(eq(portalUsers.id, id), isNotNull(portalUsers.disabledAt)))
+        .returning({ id: portalUsers.id, email: portalUsers.email });
+
+      if (!updated) throw new NotFoundException('No such revoked portal user');
+
+      await this.audit.record(tx, {
+        actorId: actor.userId,
+        action: 'portal.reinstated',
+        entityType: 'portal_user',
+        entityId: id,
+        detail: { email: updated.email },
+      });
+      this.logger.log(`Portal access restored for ${updated.email}`);
+    });
+
+    return { id, status: 'active' };
   }
 
   private async require(actor: Actor, capability: string): Promise<void> {

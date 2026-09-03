@@ -33,6 +33,39 @@ export function useList<T>(load: () => Promise<T[]>) {
   return { rows, error };
 }
 
+/**
+ * A screen's heading, and the one line that says what it is for.
+ *
+ * Every page had only a tab to name it, so each one opened straight into a table with no
+ * hierarchy above it — nothing for the eye to land on, and no room to say anything. A
+ * heading and a sentence cost one row of vertical space and give a client, who is here
+ * twice a year, somewhere to start reading.
+ */
+export function Page({
+  title,
+  lead,
+  children,
+}: {
+  title: string;
+  lead?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <>
+      <header className="page-head">
+        <h2>{title}</h2>
+        {lead && <p>{lead}</p>}
+      </header>
+      {children}
+    </>
+  );
+}
+
+/** A table's surface: one hairline, one radius, and its own scroll on a narrow screen. */
+export function Card({ children }: { children: React.ReactNode }) {
+  return <div className="card">{children}</div>;
+}
+
 export function Listing<T>({
   rows,
   error,

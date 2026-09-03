@@ -119,11 +119,13 @@ export function PortalUsers({
       .finally(() => setBusy(false));
   };
 
-  const revoke = (user: PortalUser) => {
+  // Revoking and restoring are the same gesture with a different verb, so they are the
+  // same function: the row already says which of the two is on offer.
+  const setAccess = (user: PortalUser, action: 'revoke' | 'reinstate') => {
     setError(undefined);
     setBusy(true);
     api
-      .post(`/portal-admin/users/${user.id}/revoke`, {})
+      .post(`/portal-admin/users/${user.id}/${action}`, {})
       .then(load)
       .catch((err: Error) => setError(err.message))
       .finally(() => setBusy(false));
@@ -184,8 +186,15 @@ export function PortalUsers({
                 </td>
                 <td>{when(u.lastSeenAt)}</td>
                 <td>
-                  {!u.disabledAt && (
-                    <button disabled={busy} onClick={() => revoke(u)}>
+                  {u.disabledAt ? (
+                    // The only way back. Re-inviting the address cannot work — the row is
+                    // still here and the address is unique per client — so without this
+                    // button a revoked login is revoked for good.
+                    <button disabled={busy} onClick={() => setAccess(u, 'reinstate')}>
+                      Restore
+                    </button>
+                  ) : (
+                    <button disabled={busy} onClick={() => setAccess(u, 'revoke')}>
                       Revoke
                     </button>
                   )}

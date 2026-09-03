@@ -256,6 +256,13 @@ is disabled until the address exists. Their portal is live at that hostname imme
 no deploy, no DNS record, no restart. Changing the address later breaks links they
 already have, and the field says so.
 
+**Revoking is reversible, and only through *Restore*.** Revoking keeps the row — the audit
+trail of what that login saw outlives the person leaving — so inviting the same address
+again is refused rather than merely redundant: the address is unique per client, and if
+they had ever signed in, their Zitadel subject is on that row too. The revoked row gets a
+*Restore* button, which gives the same login its access back. Their old sessions stay
+revoked, so they sign in again and that sign-in is recorded.
+
 **Employees do not need an invitation.** Anyone with an active internal account can open
 any client's portal at its own address and sign in with their ordinary Zitadel account
 (P5). The page then carries a banner naming whose portal it is, and the client's own

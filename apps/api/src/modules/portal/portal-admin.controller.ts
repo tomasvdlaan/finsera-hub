@@ -54,6 +54,11 @@ export class PortalAdminController {
     return this.users.revoke(actor, id);
   }
 
+  @Post('users/:id/reinstate')
+  reinstate(@CurrentActor() actor: Actor, @Param('id', ParseUUIDPipe) id: string) {
+    return this.users.reinstate(actor, id);
+  }
+
   // ── custom content (Phase 8, step 3) ──
 
   /**

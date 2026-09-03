@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { useViewer } from '../App.js';
 import { api, type PortalQuote, type PortalQuoteLine } from '../lib/api.js';
-import { Listing, date, euros, useList } from './shared.js';
+import { Card, Listing, Page, date, euros, useList } from './shared.js';
 
 const STATUS: Record<string, string> = {
   sent: 'Ter beoordeling',
@@ -85,16 +85,17 @@ export function Quotes() {
   };
 
   return (
-    <Listing rows={rows} error={error} empty="Er staan geen offertes open.">
-      {(quotes) => (
-        <>
-          {failed && <p className="error">{failed}</p>}
-          <table>
+    <Page title="Offertes" lead="Wat we voorstellen, wat het kost, en wat u ervan vindt.">
+      <Listing rows={rows} error={error} empty="Er staan geen offertes open.">
+        {(quotes) => (
+          <>
+            {failed && <p className="error">{failed}</p>}
+            <Card>
+              <table>
             <thead>
               <tr>
                 <th>Nummer</th>
                 <th>Omschrijving</th>
-                <th>Geldig tot</th>
                 <th className="num">Bedrag</th>
                 <th>Status</th>
                 <th />
@@ -105,18 +106,33 @@ export function Quotes() {
                 const status = accepted[q.id] ?? q.status;
                 const expired = q.expired && status === 'sent';
                 return (
-                  <tr key={q.id}>
-                    <td>
+                  /*
+                   * The lines get a row of their own, spanning the table.
+                   *
+                   * They used to render inside the number cell, which is the narrowest
+                   * column on the widest screen — four columns of money folded into about
+                   * ninety pixels. What they are is a breakdown of the row above, so that
+                   * is where they belong: underneath it, across the full width.
+                   */
+                  <Fragment key={q.id}>
+                  <tr>
+                    <td className="nowrap">
                       <button
                         className="link"
                         onClick={() => setOpen(open === q.id ? undefined : q.id)}
                       >
                         {q.number}
                       </button>
-                      {open === q.id && <Lines quoteId={q.id} />}
                     </td>
-                    <td>{q.title}</td>
-                    <td>{date(q.valid_until)}</td>
+                    <td>
+                      {q.title}
+                      {/* Validity belongs to the quote rather than to a column of its own:
+                          six columns squeezed the description into four wrapped lines, and
+                          a date nobody scans down a column reads better beneath it. */}
+                      {q.valid_until && (
+                        <span className="meta">Geldig tot {date(q.valid_until)}</span>
+                      )}
+                    </td>
                     <td className="num">{euros(q.total_cents)}</td>
                     <td>
                       {expired ? (
@@ -128,33 +144,60 @@ export function Quotes() {
                     <td className="num">
                       {/* Only an open, unexpired quote offers the button. The server checks
                           both again — this decides what to show, not what is allowed. */}
-                      {status === 'sent' &&
-                        !expired &&
-                        !staff &&
-                        (confirming === q.id ? (
-                          // Two steps, because this is the one action that commits the
-                          // client to a price. The amount is repeated so what is being
-                          // agreed to is on screen at the moment of agreeing.
-                          <span>
-                            <span className="tag">Akkoord met {euros(q.total_cents)}?</span>{' '}
-                            <button onClick={() => accept(q)} disabled={accepting === q.id}>
+                      {status === 'sent' && !expired && !staff && confirming !== q.id && (
+                        <button onClick={() => setConfirming(q.id)}>Accepteren</button>
+                      )}
+                    </td>
+                  </tr>
+                  {confirming === q.id && (
+                    /*
+                     * Two steps, and the second one gets a row to itself.
+                     *
+                     * This is the only place a client commits to a price, and it was three
+                     * controls crammed into the narrowest cell of a scrolling table — half
+                     * of it off the edge on a laptop. Across the full width there is room
+                     * to repeat the amount at a size somebody actually reads before
+                     * agreeing to it.
+                     */
+                    <tr className="confirm">
+                      <td colSpan={5}>
+                        <div>
+                          <p>
+                            Akkoord met <strong>{euros(q.total_cents)}</strong> voor{' '}
+                            {q.title}?
+                          </p>
+                          <div className="row">
+                            <button
+                              className="primary"
+                              onClick={() => accept(q)}
+                              disabled={accepting === q.id}
+                            >
                               {accepting === q.id ? 'Bezig…' : 'Ja, accepteren'}
-                            </button>{' '}
+                            </button>
                             <button className="link" onClick={() => setConfirming(undefined)}>
                               annuleren
                             </button>
-                          </span>
-                        ) : (
-                          <button onClick={() => setConfirming(q.id)}>Accepteren</button>
-                        ))}
-                    </td>
-                  </tr>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                  {open === q.id && (
+                    <tr className="lines">
+                      <td colSpan={5}>
+                        <Lines quoteId={q.id} />
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
                 );
               })}
             </tbody>
-          </table>
-        </>
-      )}
-    </Listing>
+              </table>
+            </Card>
+          </>
+        )}
+      </Listing>
+    </Page>
   );
 }

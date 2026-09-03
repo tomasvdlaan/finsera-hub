@@ -1,5 +1,5 @@
 import { api, type PortalProject } from '../lib/api.js';
-import { Listing, date, useList } from './shared.js';
+import { Card, Listing, Page, date, useList } from './shared.js';
 
 const STATUS: Record<string, string> = {
   active: 'Loopt',
@@ -12,9 +12,11 @@ export function Projects() {
   const { rows, error } = useList<PortalProject>(api.projects);
 
   return (
-    <Listing rows={rows} error={error} empty="Er lopen op dit moment geen projecten.">
-      {(projects) => (
-        <table>
+    <Page title="Projecten" lead="Het werk dat we voor u doen, en waar het staat.">
+      <Listing rows={rows} error={error} empty="Er lopen op dit moment geen projecten.">
+        {(projects) => (
+          <Card>
+            <table>
           <thead>
             <tr>
               <th>Project</th>
@@ -28,13 +30,15 @@ export function Projects() {
               <tr key={p.id}>
                 <td>{p.name}</td>
                 <td>{STATUS[p.status] ?? p.status}</td>
-                <td>{date(p.starts_on)}</td>
-                <td>{date(p.ends_on)}</td>
+                <td className="nowrap">{date(p.starts_on)}</td>
+                <td className="nowrap">{date(p.ends_on)}</td>
               </tr>
             ))}
           </tbody>
-        </table>
-      )}
-    </Listing>
+            </table>
+          </Card>
+        )}
+      </Listing>
+    </Page>
   );
 }

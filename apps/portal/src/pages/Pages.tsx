@@ -1,5 +1,5 @@
 import { api, type PortalPage } from '../lib/api.js';
-import { Listing, useList } from './shared.js';
+import { Listing, Page, useList } from './shared.js';
 
 /**
  * The reports built for this client, each a link on their own address.
@@ -12,8 +12,9 @@ export function Pages() {
   const { rows, error } = useList<PortalPage>(api.pages);
 
   return (
-    <Listing rows={rows} error={error} empty="Er staan nog geen rapportages voor u klaar.">
-      {(pages) => (
+    <Page title="Rapporten" lead="De rapportages die we voor u gebouwd hebben.">
+      <Listing rows={rows} error={error} empty="Er staan nog geen rapportages voor u klaar.">
+        {(pages) => (
         <ul className="pages">
           {pages.map((p) => (
             <li key={p.slug}>
@@ -21,8 +22,9 @@ export function Pages() {
               <span className="tag">/{p.slug}</span>
             </li>
           ))}
-        </ul>
-      )}
-    </Listing>
+          </ul>
+        )}
+      </Listing>
+    </Page>
   );
 }

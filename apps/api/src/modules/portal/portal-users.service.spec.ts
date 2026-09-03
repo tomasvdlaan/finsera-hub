@@ -119,6 +119,48 @@ describe('PortalUsersService', () => {
     await expect(service.revoke(admin, id)).rejects.toThrow(/No such active portal user/);
   });
 
+  // ── and back again ──
+
+  it('lets a revoked login in again once it is restored', async () => {
+    const { id } = await service.invite(admin, {
+      clientId, email: 'returned@aclient.nl', oidcSubject: 'sub-returned',
+    });
+    await service.revoke(admin, id);
+    await expect(service.resolveFromSubject('sub-returned')).rejects.toThrow(/No portal access/);
+
+    await service.reinstate(admin, id);
+
+    const visitor = await service.resolveFromSubject('sub-returned');
+    expect(visitor.portalUserId).toBe(id);
+    expect(visitor.clientId).toBe(clientId);
+    // The same row, not a second one: the history of this login stays in one place.
+    const rows = await testDb.select().from(portalUsers).where(eq(portalUsers.clientId, clientId));
+    expect(rows.filter((r) => r.email === 'returned@aclient.nl')).toHaveLength(1);
+  });
+
+  it('says to restore rather than re-invite, because re-inviting cannot work', async () => {
+    // The reason this message exists: `(email, client_id)` is unique and the row survives
+    // revoking, so a second invitation for the same address is impossible rather than
+    // merely redundant — and the old wording ('already has access') described a revoked
+    // login as having access.
+    const { id } = await service.invite(admin, { clientId, email: 'back@aclient.nl' });
+    await service.revoke(admin, id);
+    await expect(
+      service.invite(admin, { clientId, email: 'back@aclient.nl' }),
+    ).rejects.toThrow(/revoked — restore it/);
+  });
+
+  it('does not restore a login that was never revoked', async () => {
+    const { id } = await service.invite(admin, { clientId, email: 'here@aclient.nl' });
+    await expect(service.reinstate(admin, id)).rejects.toThrow(/No such revoked portal user/);
+  });
+
+  it('refuses to restore without portal.admin', async () => {
+    const { id } = await service.invite(admin, { clientId, email: 'guarded@aclient.nl' });
+    await service.revoke(admin, id);
+    await expect(service.reinstate(member, id)).rejects.toThrow(/Missing capability/);
+  });
+
   // ── one login is one client ──
 
   it('will not map one subject to two clients', async () => {

@@ -45,19 +45,24 @@ export function Overview() {
           <ul className="waiting">
             {o.awaiting.quotes.map((q) => (
               <li key={q.id}>
-                <Link to="/offertes">Offerte {q.number}</Link> — {euros(q.total_cents)}, te
-                beoordelen{q.valid_until ? ` tot ${date(q.valid_until)}` : ''}
+                <Link to="/offertes">Offerte {q.number}</Link>
+                <span className="detail">
+                  {euros(q.total_cents)}, te beoordelen
+                  {q.valid_until ? ` tot ${date(q.valid_until)}` : ''}
+                </span>
               </li>
             ))}
             {o.awaiting.invoices.map((i) => (
               <li key={i.id}>
-                <Link to="/facturen">Factuur {i.number}</Link> — {euros(i.total_cents, i.currency)},{' '}
+                <Link to="/facturen">Factuur {i.number}</Link>
+                <span className="detail">{euros(i.total_cents, i.currency)}</span>
                 <span className="tag overdue">vervallen {date(i.due_on)}</span>
               </li>
             ))}
             {o.awaitingTickets.map((t) => (
               <li key={t.id}>
-                <Link to="/vragen">{t.subject}</Link> — wacht op uw antwoord
+                <Link to="/vragen">{t.subject}</Link>
+                <span className="detail">wacht op uw antwoord</span>
               </li>
             ))}
           </ul>
@@ -85,7 +90,8 @@ export function Overview() {
           <ul className="waiting">
             {o.recent.invoices.map((i) => (
               <li key={i.id}>
-                <Link to="/facturen">Factuur {i.number}</Link> — {date(i.issue_date)}
+                <Link to="/facturen">Factuur {i.number}</Link>
+                <span className="detail">{date(i.issue_date)}</span>
               </li>
             ))}
           </ul>

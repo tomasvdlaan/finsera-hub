@@ -99,7 +99,6 @@ function Session() {
 
   return (
     <ViewerContext.Provider value={me!}>
-      <div className="shell">
       {me?.staff && (
         // Said plainly and kept on screen. Somebody reading a client's portal should never
         // have to work out from context whose it is, or forget that it is not their own.
@@ -108,13 +107,31 @@ function Session() {
           Acties van de klant zijn uitgeschakeld.
         </p>
       )}
+      <div className="bar-wrap">
       <header className="bar">
-        <h1>
-          {/* Their logo beside our name, not instead of it. The portal is Finsera's, at
-              their address; a page wearing only their branding would say otherwise. */}
-          {me?.logo && <img className="client-logo" src="/api/portal/logo" alt="" />}
-          Finsera
-        </h1>
+        {/*
+          Two rows on purpose, rather than one row that wraps.
+          Eight tabs, a wordmark and an address do not fit on one line at any width a
+          laptop actually has, and a single row left to wrap produced three ragged ones
+          with the account line stranded in the middle. Identity and account on top, the
+          navigation beneath it, and it holds from a phone to a wide screen.
+        */}
+        <div className="bar-top">
+          <h1>
+            {/* Their logo beside our name, not instead of it. The portal is Finsera's, at
+                their address; a page wearing only their branding would say otherwise. */}
+            {me?.logo && <img className="client-logo" src="/api/portal/logo" alt="" />}
+            Finsera
+          </h1>
+          <span className="account">
+            {/* The address truncates; the way out never does. Wrapping the whole line meant
+                a long email pushed "uitloggen" behind an ellipsis on a phone. */}
+            <span className="who">{me?.email}</span>
+            <button className="link" onClick={() => void logout()}>
+              uitloggen
+            </button>
+          </span>
+        </div>
         <nav className="tabs">
           <NavLink to="/overzicht">Overzicht</NavLink>
           {/*
@@ -132,14 +149,10 @@ function Session() {
           {me?.tabs.pages && <NavLink to="/rapporten">Rapporten</NavLink>}
           <NavLink to="/vragen">Vragen</NavLink>
         </nav>
-        <span className="tag">
-          {me?.email} ·{' '}
-          <button className="link" onClick={() => void logout()}>
-            uitloggen
-          </button>
-        </span>
       </header>
+      </div>
 
+      <div className="shell">
       <Routes>
         <Route path="/" element={<Navigate to="/overzicht" replace />} />
         <Route path="/overzicht" element={<Overview />} />
