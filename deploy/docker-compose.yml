@@ -18,11 +18,14 @@ services:
       # Blank locally → Caddy listens on :80 inside the container; a domain in
       # production → Caddy provisions TLS for it.
       SITE_ADDRESS: ${SITE_ADDRESS:-:80}
-      # The client portals' hostnames (Phase 8): "*.finsera.nl, portal.finsera.nl" in
-      # production. Everything on them is proxied to the API, which serves the portal
-      # bundle itself and decides what each path is. The default is a port nothing
+      # The login host, an ordinary name with an ordinary certificate.
+      PORTAL_AUTH_ADDRESS: ${PORTAL_AUTH_ADDRESS:-portal.localhost}
+      # Every client's own portal. `https://` in production — a catch-all, never a
+      # wildcard hostname: a `*` in a site address is a domain Caddy tries to obtain a
+      # real wildcard certificate for, which needs a DNS challenge this build cannot do,
+      # and the failure takes TLS down for every name on the box. Default: a port nothing
       # publishes, so the block is inert until this is set.
-      PORTAL_ADDRESSES: ${PORTAL_ADDRESSES:-localhost:9443}
+      PORTAL_CLIENT_ADDRESS: ${PORTAL_CLIENT_ADDRESS:-localhost:9443}
       # What Caddy asks before getting a certificate for a hostname it has not seen.
       PORTAL_ASK_URL: ${PORTAL_ASK_URL:-http://api:3001/api/portal-host/check}
     ports:

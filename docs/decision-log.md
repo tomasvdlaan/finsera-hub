@@ -569,3 +569,37 @@ settings they chose last March and have forgotten. The logo sits *beside* the Fi
 rather than replacing it — full white-labelling would say the portal is theirs, and it is
 Finsera's, at their address. A logo is a PNG or a JPEG and never an SVG, which is a document
 that can carry script and would be rendered on a page holding the client's session.
+
+---
+
+## A wildcard in a Caddy site address took the platform down (2026-09-03) · **Fixed**
+
+The first production deploy of Phase 8 set `PORTAL_ADDRESSES=*.finsera.nl, portal.finsera.nl`.
+Within a minute `hub.finsera.nl` stopped serving TLS entirely — not the portal, the internal
+platform, for everyone.
+
+**Why.** A hostname with a `*` in a site address is a domain Caddy *manages*. It does not
+mean "match these names and get certificates for them as they arrive"; it means "obtain a
+wildcard certificate", and a wildcard certificate can only be issued through the DNS-01
+challenge, which needs a provider plugin this build does not contain. The boot log said it
+plainly and I did not read it as a warning: `enabling automatic TLS certificate management
+domains ["portal.finsera.nl","hub.finsera.nl","*.finsera.nl"]`. The failure then took TLS
+down for every name the server answered on, including the two that had perfectly good
+certificates already.
+
+**The fix is a catch-all, `https://`, with no host in it at all.** Nothing to manage in
+advance, so certificates are only ever obtained on demand, one hostname at a time, and only
+for names the `ask` endpoint recognises. `hub` and the login host keep their own blocks,
+which are more specific and match first.
+
+**What made this reach production.** The config was validated twice — `caddy validate`
+passed, and the adapted JSON showed the route order and the on-demand policy exactly as
+intended. Both were true and neither was the question. The thing that mattered was which
+domains Caddy would try to *manage at boot*, which appears in neither: it is a runtime log
+line. The check that would have caught it takes six seconds — run the image against
+placeholder `.test` names and read that line — and is now what this config is verified with.
+
+**Recovery took four minutes** and was one env value plus a Caddy restart, which is the
+only reason this is a note rather than an incident. The rollback in `deploy/update.sh` did
+not help and could not: the API was healthy the whole time, so from the deploy script's
+point of view nothing had gone wrong.

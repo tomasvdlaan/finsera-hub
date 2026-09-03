@@ -13,6 +13,8 @@
 # Put a `?t=<token>` on the ask URL and set PORTAL_ASK_TOKEN to the same value: the API then
 # answers only this question, from here, rather than being an open list of which clients
 # exist for anyone who can reach /api.
+#
+# Note what is NOT here: any hostname with a `*` in it. See the last block for why.
 {
 	on_demand_tls {
 		ask {$PORTAL_ASK_URL:http://api:3001/api/portal-host/check}
@@ -46,20 +48,28 @@
 	}
 }
 
-# The client portals (Phase 8): one hostname per client, plus the login host.
+# The login host, which is an ordinary name with an ordinary certificate.
+{$PORTAL_AUTH_ADDRESS:portal.localhost} {
+	encode gzip
+	reverse_proxy {$API_UPSTREAM:api:3001}
+}
+
+# Every client's own portal — `duce.finsera.nl` and whatever is added next.
 #
-# `hub.finsera.nl` has its own block above and keeps it — Caddy matches the most specific
-# site address first, so the wildcard never takes traffic away from the internal app, and
-# the `ask` endpoint would refuse it anyway.
+# A catch-all rather than `*.finsera.nl`, and that distinction took the site down once.
+# A wildcard in a site address is a domain Caddy *manages*, so it tries to obtain a real
+# wildcard certificate — which only the DNS-01 challenge can issue, which needs a provider
+# plugin this build does not have. The attempt fails, and it does not fail quietly in its
+# own corner: TLS stopped being served for every name on the box, `hub` included.
 #
-# Everything goes to the API, static files included: on a portal host a path is either the
-# API, a page the client was given, or the portal bundle, and only the database knows
-# which. The API sets the security headers for what it serves, so none are added here — a
-# proxied report has to be allowed to decide its own framing.
+# With no host in the address there is nothing to manage in advance, so certificates are
+# only ever obtained on demand, one hostname at a time, and only for names the API
+# recognises. `hub` and the login host keep their own blocks above, which are more specific
+# and so match first, and their certificates are managed the ordinary way.
 #
-# The default address is a port nothing publishes, so this block is inert locally; set
-# PORTAL_ADDRESSES to "*.finsera.nl, portal.finsera.nl" in production.
-{$PORTAL_ADDRESSES:localhost:9443} {
+# Locally this is a port nothing publishes, so the block is inert; production sets it to
+# `https://`.
+{$PORTAL_CLIENT_ADDRESS:localhost:9443} {
 	encode gzip
 
 	tls {
