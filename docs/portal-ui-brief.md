@@ -79,7 +79,7 @@ identity provider; the portal only starts and ends it.
   mislukt", "Inloggen verlopen", "Portaal niet beschikbaar"), each with one action. They are
   currently unstyled and would benefit from the same treatment as the signed-out screen.
 
-## 5. The seven screens
+## 5. The eight screens
 
 ### 5.0 Overzicht — the front page
 Where signing in lands, and deliberately not a dashboard. The portal shows a client nothing
