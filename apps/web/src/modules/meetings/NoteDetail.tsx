@@ -282,7 +282,6 @@ export function NoteDetail() {
   const ran = minutesBetween(note.startedAt, note.endedAt);
   const timebox = templates.find((t) => t.name === note.template)?.timeboxMinutes ?? null;
   const over = ran != null && timebox != null && ran > timebox ? ran - timebox : null;
-  const consentMissing = note.unconsentedPresent.length > 0 || !note.everyoneConsented;
 
   /** One proposed point, with the two fields that decide who it lands on. */
   const decide = (item: ActionItem) => (
@@ -524,36 +523,24 @@ export function NoteDetail() {
     ),
 
     /*
-     * Who was there, and whether the bot may listen.
+     * Who was there.
      *
-     * Open whenever consent is incomplete, wherever the phase would otherwise have put it.
-     * Recording is refused unless everyone has agreed, and this list is the only thing that
-     * can fix that — it used to sit second from the bottom, below the panel that needed it.
+     * The consent controls that used to live here are gone with the gate that needed them —
+     * recording no longer waits for every attendee to be ticked off, because the list is filled
+     * in by hand and the gate therefore blocked recording a meeting already in progress. The
+     * columns still exist and what was recorded before is untouched; nothing asks for more.
      */
     people: (
       <Fold
         key="people"
         title="People"
-        open={phase === 'scheduled' || consentMissing}
+        open={phase === 'scheduled'}
         aside={
-          note.unconsentedPresent.length > 0 ? (
-            <Badge tone="danger">{note.unconsentedPresent.length} not asked</Badge>
-          ) : note.attendees.length > 0 ? (
-            <Badge tone={note.everyoneConsented ? 'ok' : 'warning'}>
-              {note.attendees.length} {note.everyoneConsented ? 'consented' : 'attendees'}
-            </Badge>
+          note.attendees.length > 0 ? (
+            <Badge tone="neutral">{note.attendees.length} attendees</Badge>
           ) : undefined
         }
       >
-        {note.unconsentedPresent.length > 0 && (
-          <p className="error">
-            {note.unconsentedPresent.map((p) => p.name).join(', ')}{' '}
-            {note.unconsentedPresent.length === 1 ? 'is' : 'are'} in the meeting and{' '}
-            {note.unconsentedPresent.length === 1 ? 'has' : 'have'} not been asked about
-            recording. The consent check runs before the bot joins, so it cannot cover
-            somebody who arrived afterwards.
-          </p>
-        )}
         {note.attendees.length === 0 ? (
           <Empty>Nobody recorded.</Empty>
         ) : (
@@ -564,17 +551,8 @@ export function NoteDetail() {
                 {person.email && <span className="muted"> · {person.email}</span>}{' '}
                 {person.detectedAt && (
                   <Badge tone="ok" title="Seen in the meeting by the bot">present</Badge>
-                )}{' '}
-                {person.consent === 'granted' && <Badge tone="ok">consented</Badge>}
-                {person.consent === 'declined' && <Badge tone="danger">declined</Badge>}
-                {!person.consent && <Badge tone="warning">not asked</Badge>}
+                )}
                 <div className="row">
-                  <Button size="sm" onClick={() => void act(() => api.post(`/meetings/${id}/attendees/${person.id}/consent`, { consent: 'granted' }))}>
-                    consented
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={() => void act(() => api.post(`/meetings/${id}/attendees/${person.id}/consent`, { consent: 'declined' }))}>
-                    declined
-                  </Button>
                   <Button size="sm" variant="ghost" onClick={() => void act(() => api.del(`/meetings/${id}/attendees/${person.id}`))}>
                     remove
                   </Button>
@@ -589,9 +567,8 @@ export function NoteDetail() {
           onAdd={(name) => act(() => api.post(`/meetings/${id}/attendees`, { name }))}
         />
         <p className="muted">
-          Consent is asked per person and recorded with a timestamp. Recording needs every
-          attendee to have agreed. Anyone the bot sees join is added here automatically, so
-          the list ends up being who was actually there rather than who was expected.
+          Anyone the bot sees join is added here automatically, so the list ends up being who
+          was actually there rather than who was expected.
         </p>
       </Fold>
     ),
@@ -603,7 +580,7 @@ export function NoteDetail() {
         open={phase === 'scheduled' || phase === 'live'}
         aside={note.transcribedAt ? <Badge tone="ok">transcribed</Badge> : undefined}
       >
-        <LivePanel noteId={id} canRecord={note.everyoneConsented} onFinished={() => void load()} />
+        <LivePanel noteId={id} onFinished={() => void load()} />
         {note.transcribedAt && (
           <p className="muted">
             Transcribed {note.transcribedAt.slice(0, 16).replace('T', ' ')}

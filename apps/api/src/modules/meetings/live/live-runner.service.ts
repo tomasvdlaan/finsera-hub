@@ -171,17 +171,18 @@ export class LiveRunner {
   /**
    * Send a bot to a meeting.
    *
-   * The consent gate is checked here rather than at the socket, because with a bot the
-   * audio arrives from the internet long after anyone clicked anything — refusing at that
-   * point would mean the bot had already sat in the client's meeting.
+   * No longer gated on every attendee having been ticked off as consenting. That gate refused
+   * to start until the list was complete, and the list is filled in by hand — so in practice it
+   * blocked recording a meeting that was already happening, which is the only moment anybody
+   * wants to start one.
+   *
+   * What consent was for has not gone anywhere: it is still recorded per attendee, still shown,
+   * and `unconsentedPresent` still names anybody the bot sees who was never asked — see
+   * `recordSpeaker`. Announcing the recording in the room is the part that actually matters,
+   * and no gate here ever did that.
    */
   async startBot(actor: Actor, noteId: string, meetingUrl: string) {
-    const note = await this.meetings.get(actor, noteId);
-    if (!note.everyoneConsented) {
-      throw new BadRequestException(
-        'Every attendee must be recorded as having consented before a bot can join',
-      );
-    }
+    await this.meetings.get(actor, noteId);
     if (!this.recall.isConfigured()) {
       throw new BadRequestException('RECALL_API_KEY is not set');
     }

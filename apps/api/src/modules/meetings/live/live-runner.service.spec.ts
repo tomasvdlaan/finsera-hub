@@ -203,14 +203,20 @@ describe('LiveRunner', () => {
 
   // ── the consent gate, checked before the bot travels ──
 
-  it('refuses to send a bot without consent from everyone', async () => {
+  /*
+   * The gate is gone, deliberately.
+   *
+   * It refused to start until every attendee had been ticked off as consenting, and the list is
+   * filled in by hand — so what it actually blocked was recording a meeting that had already
+   * started, which is the only moment anybody wants to start one. Consent is still recorded and
+   * still shown; nothing now waits on it.
+   */
+  it('sends a bot whether or not consent has been recorded', async () => {
     const note = await noteWithConsent(false);
-    await expect(
-      runner.startBot(actor, note.id, 'https://teams.microsoft.com/meet/123'),
-    ).rejects.toThrow(/consent/i);
-    // The bot never left, which is the point: refusing later would mean it had already
-    // sat in the client's meeting.
-    expect(capture.join).not.toHaveBeenCalled();
+    const result = await runner.startBot(actor, note.id, 'https://teams.microsoft.com/meet/123');
+
+    expect(result.provider).toBe('recall');
+    expect(capture.join).toHaveBeenCalled();
   });
 
   it('sends a named bot once everyone has consented', async () => {

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Logger } from '@nestjs/common';
 import { SAMPLE_RATE } from './vad.js';
 import { RecallProvider, RecallSession } from './recall.provider.js';
@@ -29,11 +29,26 @@ const participantEvent = (event: string, id: string, name: string) =>
 class FakeSocket {
   private handlers = new Map<string, (raw: Buffer) => unknown>();
   closed = false;
+  pings = 0;
+  readonly OPEN = 1;
+  readyState = 1;
   on(event: string, handler: (raw: Buffer) => unknown) {
     this.handlers.set(event, handler);
+    return this;
+  }
+  removeAllListeners() {
+    this.handlers.clear();
+    return this;
+  }
+  ping() {
+    this.pings++;
   }
   close() {
     this.closed = true;
+  }
+  /** Fire the close handler, as `ws` does when the connection actually goes. */
+  fireClose() {
+    this.handlers.get('close')?.(Buffer.alloc(0));
   }
   /** Deliver, and wait for it to be handled — the provider returns the handler's promise. */
   async deliver(raw: Buffer) {
@@ -60,16 +75,18 @@ describe('RecallSession', () => {
   let speakerEvents: Array<{ speaker: Speaker; event: string }>;
   let session: RecallSession;
   let socket: FakeSocket;
+  let ended: string[];
 
   beforeEach(() => {
     segments = [];
     speakerEvents = [];
+    ended = [];
     const events: CaptureEvents = {
       onReady: vi.fn(),
       onSpeaker: (speaker, event) => speakerEvents.push({ speaker, event }),
       onSegment: (segment) => void segments.push(segment),
       onError: vi.fn(),
-      onEnded: vi.fn(),
+      onEnded: (reason) => void ended.push(reason),
     };
     session = new RecallSession('bot-1', 'key', 'https://eu-central-1.recall.ai', events, new Logger('test'), 'secret-token');
     socket = new FakeSocket();
@@ -158,5 +175,92 @@ describe('RecallSession', () => {
     await socket.deliver(Buffer.from('not json at all'));
     await say('7', 'Marieke');
     expect(segments).toHaveLength(1);
+  });
+});
+
+/**
+ * The stream dropping is not the meeting ending.
+ *
+ * This cost three real recordings in one afternoon. Recall's realtime websocket closes and
+ * reopens — on a live meeting it did so roughly every eight minutes, our side hanging up
+ * without a TLS close_notify — and every close was treated as the end: the session was torn
+ * down, the note written, and `leave_call` posted to a bot still sitting in the meeting. In
+ * Recall's own log the reconnect succeeds at 15:11:12 and the eviction follows at 15:11:13.
+ */
+describe('RecallSession when the stream drops', () => {
+  let ended: string[];
+  let session: RecallSession;
+  let socket: FakeSocket;
+
+  const events = (): CaptureEvents => ({
+    onReady: vi.fn(),
+    onSpeaker: vi.fn(),
+    onSegment: vi.fn(),
+    onError: vi.fn(),
+    onEnded: (reason: string) => void ended.push(reason),
+  });
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    ended = [];
+    session = new RecallSession('bot-1', 'key', 'https://x', events(), new Logger('test'), 'tok');
+    socket = new FakeSocket();
+    session.attach(socket as never);
+  });
+
+  afterEach(() => vi.useRealTimers());
+
+  it('does not end the meeting the moment the stream goes', () => {
+    socket.fireClose();
+    // Recall reconnected within eight seconds every time it was seen doing this.
+    vi.advanceTimersByTime(10_000);
+    expect(ended).toEqual([]);
+  });
+
+  it('carries on when the stream comes back inside the window', () => {
+    socket.fireClose();
+    vi.advanceTimersByTime(10_000);
+
+    const replacement = new FakeSocket();
+    session.attach(replacement as never);
+
+    // Well past the grace period: the reconnect cancelled it, so nothing ends.
+    vi.advanceTimersByTime(120_000);
+    expect(ended).toEqual([]);
+  });
+
+  it('ignores a dead socket closing after its replacement arrived', () => {
+    /*
+     * The exact bug. `close` fires late, so the old socket's handler ran after the new one had
+     * attached and ended a meeting that was working perfectly.
+     */
+    const replacement = new FakeSocket();
+    session.attach(replacement as never);
+
+    socket.fireClose();
+    vi.advanceTimersByTime(120_000);
+
+    expect(ended).toEqual([]);
+  });
+
+  it('ends the meeting when the stream never comes back', () => {
+    socket.fireClose();
+    vi.advanceTimersByTime(61_000);
+
+    expect(ended).toHaveLength(1);
+    // Says what happened, rather than "the bot disconnected" for every possible cause.
+    expect(ended[0]).toMatch(/did not come back/i);
+  });
+
+  it('pings, so a quiet meeting does not look like an idle connection', () => {
+    vi.advanceTimersByTime(95_000);
+    expect(socket.pings).toBeGreaterThanOrEqual(3);
+  });
+
+  it('stops pinging once the stream is gone', () => {
+    socket.fireClose();
+    const before = socket.pings;
+    vi.advanceTimersByTime(95_000);
+    expect(socket.pings).toBe(before);
   });
 });
