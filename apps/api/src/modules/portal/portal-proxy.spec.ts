@@ -62,7 +62,7 @@ function fakeReq(path: string, cookie = 'psid=secret'): Request {
   } as unknown as Request;
 }
 
-/** A write, shaped the way Nest's JSON body parser leaves one: stream consumed, `_body` set. */
+/** A write, shaped the way the JSON body parser leaves one: stream consumed, `req.body` set. */
 function fakeWrite(path: string, body: unknown, method = 'POST'): Request {
   return {
     path,
@@ -70,7 +70,6 @@ function fakeWrite(path: string, body: unknown, method = 'POST'): Request {
     url: path,
     method,
     headers: { host: 'duce.finsera.nl', cookie: 'psid=secret', 'content-type': 'application/json' },
-    _body: true,
     body,
   } as unknown as Request;
 }

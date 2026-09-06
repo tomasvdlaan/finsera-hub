@@ -376,16 +376,21 @@ async function serve(
  * one content type it handles the request stream is already at its end and the body lives on
  * `req.body` as an object. Piping `req` upstream would therefore send a POST with nothing in
  * it, and the deployment would answer as though the client had saved an empty document —
- * which is the failure that looks like success. `_body` is body-parser's own record of
- * having consumed the stream, and it is the only reliable way to ask: `req.body` is set to
- * `{}` even for the requests it skipped.
+ * which is the failure that looks like success.
+ *
+ * `req.body === undefined` is how to tell the two apart, and it is a deliberate choice over
+ * body-parser's old `_body` flag: express 5 ships body-parser 2, which removed that flag
+ * entirely. Reading it there is always `undefined`, which reads as "not parsed" for every
+ * request — so the parsed body is skipped, the drained stream yields nothing, and the write
+ * goes upstream empty. Version 2 instead sets `req.body` to `undefined` up front and assigns
+ * it only on a successful parse, so the property itself answers the question.
  *
  * Anything it did not take is read from the stream and capped, like every other body here.
  */
 async function requestBody(req: Request): Promise<{ type: string; data: string | Buffer } | null> {
   const type = req.headers['content-type'];
-  if ((req as Request & { _body?: boolean })._body) {
-    return { type: type ?? 'application/json', data: JSON.stringify(req.body ?? null) };
+  if (req.body !== undefined) {
+    return { type: type ?? 'application/json', data: JSON.stringify(req.body) };
   }
 
   const chunks: Buffer[] = [];
