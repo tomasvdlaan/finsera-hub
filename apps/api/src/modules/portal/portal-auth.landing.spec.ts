@@ -5,7 +5,6 @@ import type { PortalHostService } from './portal-host.service.js';
 import type { PortalIdentityService } from './portal-identity.service.js';
 import type { PortalOidcService } from './portal-oidc.service.js';
 import type { PortalSessionsService } from './portal-sessions.service.js';
-import type { ZitadelAdminService } from './zitadel-admin.service.js';
 import type { AuditService } from '../../core/audit/audit.service.js';
 import type { EventBus } from '../../core/events/event-bus.service.js';
 import type { Database } from '../../core/db/db.module.js';
@@ -21,6 +20,15 @@ import type { Database } from '../../core/db/db.module.js';
  * Asserted at the controller rather than end to end, because the interesting part is a
  * branch in the callback and not the HTTP around it: a client whose login landed on the host
  * that belongs to nobody is sent on to the one that is theirs.
+ */
+/*
+ * What this file does NOT prove, said here because it once looked as though it did.
+ *
+ * These call `controller.callback` directly, so they assert where a client goes *once
+ * Zitadel has returned* — never that it returns. It does not, after an activation mail:
+ * Zitadel finishes with no auth request in context and falls back to its Default Redirect
+ * URI, whose stock value is the management console. That is a setting on the instance, not
+ * a branch in this file, and no test here can reach it.
  */
 describe('landing after registration', () => {
   const AUTH_HOST = 'portal.finsera.nl';
@@ -79,7 +87,6 @@ describe('landing after registration', () => {
       oidc,
       { identify } as unknown as PortalIdentityService,
       sessions,
-      { zitadelInviteUrl: vi.fn() } as unknown as ZitadelAdminService,
       { record: vi.fn() } as unknown as AuditService,
       { publish: vi.fn() } as unknown as EventBus,
       { transaction: vi.fn(async (fn: (tx: unknown) => unknown) => fn({})) } as unknown as Database,

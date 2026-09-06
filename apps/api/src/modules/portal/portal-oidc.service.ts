@@ -3,12 +3,6 @@ import { Injectable, Logger, type OnModuleInit, UnauthorizedException } from '@n
 import { SignJWT, createRemoteJWKSet, jwtVerify } from 'jose';
 
 /** How long a login may take between "Inloggen" and the callback. */
-/** The auth request Zitadel just made, and the query parameter it calls it by. */
-export interface AuthRequestRef {
-  param: 'authRequest' | 'authRequestID';
-  value: string;
-}
-
 export const LOGIN_STATE_MS = 10 * 60 * 1000;
 
 /** What `beginLogin` hands the controller: where to send the browser, and what to remember. */
@@ -173,54 +167,6 @@ export class PortalOidcService implements OnModuleInit {
   }
 
   /** Build the authorize redirect and the cookie that will recognise its answer. */
-  /**
-   * The id of the auth request behind an authorize URL.
-   *
-   * Zitadel answers `/oauth/v2/authorize` with a redirect to its own login UI carrying
-   * `authRequestID`, so this follows exactly one hop and reads it out of the `Location`.
-   * Nothing is followed further: the redirect is the answer, and the browser makes the real
-   * journey afterwards.
-   *
-   * Only the invitation needs this. An ordinary login sends the browser to the authorize URL
-   * and lets Zitadel put it wherever it belongs; an invitation has to reach a *particular*
-   * Zitadel page — the one that takes a first password — and hand it the request to finish.
-   *
-   * Returns null rather than throwing on anything unexpected. The caller degrades to a link
-   * that still lets the client create their account, which is worth more than being right
-   * about where they land.
-   */
-  async authRequestIdFor(authorizeUrl: string): Promise<AuthRequestRef | null> {
-    try {
-      const res = await fetch(authorizeUrl, {
-        redirect: 'manual',
-        signal: AbortSignal.timeout(10_000),
-      });
-      const location = res.headers.get('location');
-      if (!location) return null;
-      // Relative on some versions, absolute on others, so it needs a base either way.
-      const params = new URL(location, this.issuer).searchParams;
-
-      /*
-       * The two login UIs name this differently, and the name travels with the value.
-       *
-       * v2 answers `/ui/v2/login/login?authRequest=V2_…` and v1 answers
-       * `/ui/login/login?authRequestID=…`. Which one an instance uses is not ours to choose
-       * — Zitadel decides when it answers the authorize call — so the name is discovered
-       * here and carried to whoever builds the next URL, rather than assumed at either end.
-       * Assuming `authRequestID` is exactly how the first attempt at this silently fell back
-       * to a link with no request on it at all.
-       */
-      for (const param of ['authRequest', 'authRequestID'] as const) {
-        const value = params.get(param);
-        if (value) return { param, value };
-      }
-      return null;
-    } catch (err) {
-      this.logger.warn(`Could not mint an auth request: ${(err as Error).message}`);
-      return null;
-    }
-  }
-
   async beginLogin(input: {
     redirectUri: string;
     targetHost: string;

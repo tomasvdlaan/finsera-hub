@@ -1,6 +1,4 @@
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
-import { PortalHostService } from './portal-host.service.js';
-import type { AuthRequestRef } from './portal-oidc.service.js';
 import { PORTAL_ROLE } from '../../core/auth/roles.js';
 
 /**
@@ -32,8 +30,6 @@ export interface PortalInvite {
 @Injectable()
 export class ZitadelAdminService {
   private readonly logger = new Logger(ZitadelAdminService.name);
-
-  constructor(private readonly hosts: PortalHostService) {}
 
   private get issuer(): string {
     return (process.env.ZITADEL_ISSUER ?? '').replace(/\/$/, '');
@@ -188,69 +184,41 @@ export class ZitadelAdminService {
   }
 
   /**
-   * The address on the link, which is ours and no longer Zitadel's.
+   * The address on the link.
    *
-   * It used to point straight at Zitadel's invite page, and that is why a client who
-   * finished registering arrived at Zitadel's console instead of their portal. The page
-   * carries an `authRequestID` — the OIDC request it should complete when the password is
-   * set — and a link built here had none to give it. With no request in flight Zitadel has
-   * nowhere to return to, so it kept them, and our callback never ran at all.
-   *
-   * The request has to be minted when the link is *clicked*, not when it is written: an
-   * auth request is short-lived and single-use, and an invitation is opened whenever the
-   * client gets round to it. So the link comes to us first — see `portal-auth/invite`.
-   *
-   * `PORTAL_INVITE_VIA_HUB=off` restores the old direct link. Kept because this hop is the
-   * one step between a client and their account, and an operator should be able to take it
-   * out without waiting for a deploy.
+   * Zitadel hosts the page that takes a first password, so we never handle one — and the
+   * shape of that URL is Zitadel's, not ours, which is why it is a template rather than a
+   * string built in code. Verify it once against a real invitation (send one with `sendCode`
+   * and read the link in the mail) and set `ZITADEL_INVITE_URL` if this default is wrong for
+   * your version; a link that 404s is the one failure a client cannot work around.
    */
   private inviteUrl(userId: string, code: string): string {
-    if ((process.env.PORTAL_INVITE_VIA_HUB ?? '').toLowerCase() === 'off') {
-      return this.zitadelInviteUrl(userId, code, null);
-    }
-    const url = new URL(`https://${this.hosts.authHost}/api/portal-auth/invite`);
-    url.searchParams.set('userId', userId);
-    url.searchParams.set('code', code);
-    return url.toString();
-  }
-
-  /**
-   * Zitadel's own page, with the request it should finish.
-   *
-   * The shape of this URL is Zitadel's, not ours, which is why it is a template rather than
-   * a string built in code. Verify it once against a real invitation (send one with
-   * `sendCode` and read the link in the mail) and set `ZITADEL_INVITE_URL` if this default
-   * is wrong for your version; a link that 404s is the one failure a client cannot work
-   * around.
-   *
-   * `authRequestID` is appended rather than templated: it is not part of the address, it is
-   * what turns the page from a dead end into a step in a login.
-   */
-  zitadelInviteUrl(userId: string, code: string, request: AuthRequestRef | null): string {
     /*
-     * The v2 page, because that is what this Zitadel answers with.
+     * Where a client lands *after* this page is not ours to decide.
      *
-     * The default used to be v1's `/ui/login/user/invite`, which still returns 200 — both
-     * UIs are served — but the authorize endpoint hands out `V2_…` request ids destined for
-     * `/ui/v2/login`, and a v2 id posted into a v1 page is not a request that page can
-     * finish. Two live URLs, only one of which is part of the same conversation.
+     * It is Zitadel's "Default Redirect URI" — Settings → Login Behavior and Security —
+     * which is where the login sends anyone whose auth request context is absent, and
+     * Zitadel's own docs name activation mail as one of the ways that happens. Its default
+     * is the management console, which is exactly where a registering client ended up.
      *
-     * `invite=true` is what makes it the activation page rather than an ordinary
-     * verification. Verified against the instance: it answers 200 and carries the request
-     * through, and its title is "Verify user".
+     * An attempt was made to solve this in code, by minting an auth request here and putting
+     * it on the link. It cannot work: `/oauth/v2/authorize` sets `__Host-zitadel.useragent`
+     * and binds the request to the browser that asked for it, so a request made by this
+     * server belongs to this server, and the client's browser arrives holding nothing.
+     * Reverted rather than left in place, because a mechanism that cannot work is worse than
+     * none — it looks like the thing that handles this.
+     *
+     * The address itself is the v2 page. Both UIs answer 200 on this instance, which is how
+     * the v1 default went unnoticed, but authorize hands out `V2_` requests destined for
+     * `/ui/v2/login` and that is the UI in use.
      */
     const template =
       process.env.ZITADEL_INVITE_URL ||
       `${this.issuer}/ui/v2/login/verify?userId={userId}&code={code}&invite=true`;
-    const url = new URL(
-      template
-        .replace('{userId}', encodeURIComponent(userId))
-        .replace('{code}', encodeURIComponent(code))
-        .replace('{orgId}', encodeURIComponent(this.organisationId)),
-    );
-    // Named by whatever Zitadel called it when it made the request — see `authRequestIdFor`.
-    if (request) url.searchParams.set(request.param, request.value);
-    return url.toString();
+    return template
+      .replace('{userId}', encodeURIComponent(userId))
+      .replace('{code}', encodeURIComponent(code))
+      .replace('{orgId}', encodeURIComponent(this.organisationId));
   }
 
   private assertConfigured(): void {

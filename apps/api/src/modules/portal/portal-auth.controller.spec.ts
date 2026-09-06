@@ -6,8 +6,7 @@ import { PortalAuthController, safeNext } from './portal-auth.controller.js';
 /**
  * The login routes are the one part of the portal that is reachable with no session at all,
  * and that is asserted rather than assumed — along with the fact that they are exactly the
- * routes the flow in the controller's comment describes. Adding one here is adding a door
- * that opens with no session, so it should cost a deliberate edit to this list.
+ * five routes the flow in the controller's comment describes.
  */
 describe('PortalAuthController wiring', () => {
   const proto = PortalAuthController.prototype as unknown as Record<string, object>;
@@ -24,10 +23,7 @@ describe('PortalAuthController wiring', () => {
 
   it('exposes exactly the login flow', () => {
     expect([...routeNames].sort()).toEqual([
-      // `invite` opens the link in an activation mail. It takes a Zitadel user id and a
-      // one-time code, mints an auth request and forwards to Zitadel — it grants nothing on
-      // its own, and the code is Zitadel's to accept or refuse.
-      'callback', 'complete', 'invite', 'login', 'logout', 'signedOut', 'start',
+      'callback', 'complete', 'login', 'logout', 'signedOut', 'start',
     ]);
   });
 });
