@@ -33,7 +33,10 @@ export function Timeline({ entityId, refreshKey }: { entityId: string; refreshKe
             {e.subject.displayName}
           </Link>
           <span className="muted">
-            {e.actor ? ` by ${e.actor.displayName}` : ' by system'} ·{' '}
+            {/* An outsider — a client signing in to their portal — has no user row to
+                resolve, so the event names them itself. "by system" for a person who was
+                plainly there is worse than saying nothing. */}
+            {` by ${e.actor?.displayName ?? e.actorLabel ?? 'system'}`} ·{' '}
             {new Date(e.createdAt).toLocaleString()}
           </span>
         </li>

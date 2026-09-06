@@ -154,6 +154,21 @@ export class PortalSessionsService {
     };
   }
 
+  /**
+   * What to call a portal login on a timeline.
+   *
+   * Their name if we have one, their address otherwise. Display text and nothing more — the
+   * timeline shows it beside an event and never resolves, joins or checks anything with it.
+   */
+  async labelFor(portalUserId: string): Promise<string | null> {
+    const [row] = await this.db
+      .select({ displayName: portalUsers.displayName, email: portalUsers.email })
+      .from(portalUsers)
+      .where(eq(portalUsers.id, portalUserId))
+      .limit(1);
+    return row?.displayName?.trim() || row?.email || null;
+  }
+
   /** End one session. Idempotent: a second revoke matches nothing and that is fine. */
   async revoke(id: string): Promise<void> {
     await this.db

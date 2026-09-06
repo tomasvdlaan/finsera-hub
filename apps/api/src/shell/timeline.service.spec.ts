@@ -79,7 +79,7 @@ describe('TimelineService.recent', () => {
     entityType?: string;
     name?: string;
     displayName?: string;
-    actor?: Actor;
+    actor?: Actor | null;
     at?: string;
     payload?: Record<string, unknown>;
   }) => {
@@ -95,7 +95,9 @@ describe('TimelineService.recent', () => {
         name: opts.name ?? 'fixture.created',
         entityType: opts.entityType ?? 'fixture_item',
         entityId: id,
-        actorId: (opts.actor ?? admin).userId,
+        // `null` on purpose, not "unset": an event done by somebody outside the platform
+        // has no user row, which is the case `actorLabel` exists for.
+        actorId: opts.actor === null ? null : (opts.actor ?? admin).userId,
         payload: opts.payload ?? {},
       });
     });
@@ -164,6 +166,35 @@ describe('TimelineService.recent', () => {
         (e) => e.subject.displayName,
       ),
     ).toEqual(['A move']);
+  });
+
+  it('names an actor the platform has no user row for', async () => {
+    // A client signing in to their portal did it. There is no `core.users` row to resolve,
+    // and reading "by system" for a person who was plainly there is worse than saying
+    // nothing at all.
+    await happen({ actor: null, payload: { actorLabel: 'Charlotte de Vries' } });
+
+    const [entry] = await f.timeline.recent(admin);
+    expect(entry!.actor).toBeNull();
+    expect(entry!.actorLabel).toBe('Charlotte de Vries');
+  });
+
+  it('prefers the real actor, and never carries both', async () => {
+    // An event naming an internal actor *and* an outsider would be describing two different
+    // people, and only one of them can be checked.
+    await happen({ payload: { actorLabel: 'Somebody else entirely' } });
+
+    const [entry] = await f.timeline.recent(admin);
+    expect(entry!.actor?.id).toBe(admin.userId);
+    expect(entry!.actorLabel).toBeNull();
+  });
+
+  it('ignores a label that is not display text', async () => {
+    for (const actorLabel of [42, null, '', 'x'.repeat(201), { name: 'nope' }]) {
+      await happen({ actor: null, payload: { actorLabel } });
+      const [entry] = await f.timeline.recent(admin);
+      expect(entry!.actorLabel, JSON.stringify(actorLabel)).toBeNull();
+    }
   });
 
   it('drops an event whose subject has left the registry', async () => {
