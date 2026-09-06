@@ -22,14 +22,25 @@ echo "[deploy] on $BRANCH at ${previous:0:8}"
 
 git fetch -q origin "$BRANCH"
 target=$(git rev-parse "origin/$BRANCH")
-if [[ "$previous" == "$target" ]]; then
-  echo "[deploy] already at ${target:0:8} — nothing to do"
-  exit 0
-fi
 
-echo "[deploy] ${previous:0:8} → ${target:0:8}"
-git log --oneline "$previous..$target" | sed 's/^/[deploy]   /'
-git reset -q --hard "$target"
+# Already there is not nothing to do.
+#
+# This used to exit early, which quietly made `workflow_dispatch` — whose entire stated
+# purpose is re-running a deploy without a new commit — a no-op that reported success.
+# There are two real reasons to rebuild the same commit: something was fixed on the server
+# by hand, and confirming the current state still builds from scratch. Both were unreachable.
+#
+# It also matters for anything that changes THIS FILE. Bash has already read the script by
+# the time the reset below lands, so a deploy that ships a change to the deploy runs the old
+# one; the new behaviour only takes effect the next time round. A rebuild that can be asked
+# for on demand is how you close that gap without waiting for an unrelated commit.
+if [[ "$previous" == "$target" ]]; then
+  echo "[deploy] already at ${target:0:8} — rebuilding anyway"
+else
+  echo "[deploy] ${previous:0:8} → ${target:0:8}"
+  git log --oneline "$previous..$target" | sed 's/^/[deploy]   /'
+  git reset -q --hard "$target"
+fi
 
 # ── health ──────────────────────────────────────────────────
 # Asks the API rather than docker: a container can be up while the app inside it is
