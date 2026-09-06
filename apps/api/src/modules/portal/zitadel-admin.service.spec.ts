@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ZitadelAdminService } from './zitadel-admin.service.js';
+import type { PortalHostService } from './portal-host.service.js';
 
 /**
  * The three calls that turn an email address into a client login.
@@ -48,7 +49,8 @@ describe('ZitadelAdminService', () => {
     process.env.ZITADEL_PROJECT_ID = 'proj-1';
     delete process.env.ZITADEL_ORG_ID;
     delete process.env.ZITADEL_INVITE_URL;
-    zitadel = new ZitadelAdminService();
+    // The link now points at the login host, so the service needs to know it.
+    zitadel = new ZitadelAdminService({ authHost: 'portal.finsera.example' } as PortalHostService);
     respond();
   });
 
@@ -72,8 +74,16 @@ describe('ZitadelAdminService', () => {
     expect(calls[3]!.body).toEqual({ returnCode: {} });
 
     expect(invite.zitadelUserId).toBe('zit-1');
+    /*
+     * Our address, not Zitadel's.
+     *
+     * The link used to go straight to Zitadel's invite page, which is why a client who
+     * finished registering landed on Zitadel's console: that page completes an OIDC request
+     * when the password is set, and a link written here has none to give it. The request has
+     * to be minted when the link is clicked, so the click has to reach us first.
+     */
     expect(invite.url).toBe(
-      'https://finsera.example/ui/login/user/invite?userID=zit-1&code=the-code',
+      'https://portal.finsera.example/api/portal-auth/invite?userId=zit-1&code=the-code',
     );
   });
 
@@ -102,7 +112,7 @@ describe('ZitadelAdminService', () => {
 
   it('says what to fix when the credential is missing, and does not call out', async () => {
     delete process.env.ZITADEL_ADMIN_TOKEN;
-    zitadel = new ZitadelAdminService();
+    zitadel = new ZitadelAdminService({ authHost: 'portal.finsera.example' } as PortalHostService);
 
     expect(zitadel.configured).toBe(false);
     expect(zitadel.unconfiguredReason).toMatch(/ZITADEL_ADMIN_TOKEN/);
@@ -112,7 +122,7 @@ describe('ZitadelAdminService', () => {
 
   it('refuses to invite when no project is configured, rather than granting nothing', async () => {
     delete process.env.ZITADEL_PROJECT_ID;
-    zitadel = new ZitadelAdminService();
+    zitadel = new ZitadelAdminService({ authHost: 'portal.finsera.example' } as PortalHostService);
 
     // An account with no grant signs in successfully and is refused at the portal with
     // "Geen toegang" — the failure that looks like the platform being broken.
@@ -134,16 +144,44 @@ describe('ZitadelAdminService', () => {
     const again = await zitadel.reissue('zit-7');
 
     expect(calls.map((c) => c.path)).toEqual(['/v2/users/zit-7/invite_code']);
-    expect(again.url).toContain('userID=zit-7');
+    expect(again.url).toContain('userId=zit-7');
   });
 
   it('lets the link shape be corrected without a deploy of new code', async () => {
     // The URL belongs to Zitadel's login UI and has changed across versions. A link that
-    // 404s is the one failure a client cannot work around, so it is configuration.
+    // 404s is the one failure a client cannot work around, so it is configuration. It now
+    // shapes the page we forward to rather than the link we send.
     process.env.ZITADEL_INVITE_URL = 'https://id.finsera.nl/invite?u={userId}&c={code}';
-    zitadel = new ZitadelAdminService();
+    zitadel = new ZitadelAdminService({ authHost: 'portal.finsera.example' } as PortalHostService);
 
-    const invite = await zitadel.inviteToPortal({ email: 'anna@dochorse.nl' });
-    expect(invite.url).toBe('https://id.finsera.nl/invite?u=zit-1&c=the-code');
+    expect(zitadel.zitadelInviteUrl('zit-1', 'the-code', 'req-2')).toBe(
+      'https://id.finsera.nl/invite?u=zit-1&c=the-code&authRequestID=req-2',
+    );
+  });
+
+  it('appends the auth request without disturbing the rest of the address', () => {
+    // The id is not part of Zitadel's URL shape; it is what turns that page from a dead end
+    // into a step in a login, so it is appended rather than templated in.
+    expect(zitadel.zitadelInviteUrl('zit-1', 'the-code', 'req-2')).toBe(
+      'https://finsera.example/ui/login/user/invite?userID=zit-1&code=the-code&authRequestID=req-2',
+    );
+    expect(zitadel.zitadelInviteUrl('zit-1', 'the-code', null)).toBe(
+      'https://finsera.example/ui/login/user/invite?userID=zit-1&code=the-code',
+    );
+  });
+
+  it('can be sent straight at Zitadel again by an operator', async () => {
+    // The hop is the one step between a client and their account. If it misbehaves in a way
+    // nobody predicted, the previous behaviour is an environment variable away — no deploy,
+    // no revert, at the cost of landing on the wrong page again.
+    process.env.PORTAL_INVITE_VIA_HUB = 'off';
+    try {
+      const invite = await zitadel.inviteToPortal({ email: 'anna@dochorse.nl' });
+      expect(invite.url).toBe(
+        'https://finsera.example/ui/login/user/invite?userID=zit-1&code=the-code',
+      );
+    } finally {
+      delete process.env.PORTAL_INVITE_VIA_HUB;
+    }
   });
 });

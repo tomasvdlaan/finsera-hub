@@ -34,6 +34,7 @@ import { PortalHostService, type PortalHost } from './portal-host.service.js';
 import { PortalIdentityService } from './portal-identity.service.js';
 import { LOGIN_STATE_MS, PortalOidcService } from './portal-oidc.service.js';
 import { PortalSessionsService, type SessionOwner } from './portal-sessions.service.js';
+import { ZitadelAdminService } from './zitadel-admin.service.js';
 
 const CALLBACK_PATH = '/api/portal-auth/callback';
 
@@ -69,6 +70,7 @@ export class PortalAuthController {
     private readonly oidc: PortalOidcService,
     private readonly identity: PortalIdentityService,
     private readonly sessions: PortalSessionsService,
+    private readonly zitadel: ZitadelAdminService,
     private readonly audit: AuditService,
     private readonly events: EventBus,
     @Inject(DB) private readonly db: Database,
@@ -126,6 +128,62 @@ export class PortalAuthController {
     });
     setLoginCookie(req, res, stateCookie, LOGIN_STATE_MS);
     res.redirect(302, authorizeUrl);
+  }
+
+  /**
+   * An invitation, opened.
+   *
+   * The step that was missing, and the reason a client who finished registering landed on
+   * Zitadel's console: the link went straight to Zitadel's invite page, which completes an
+   * OIDC request when the password is set and has none to complete unless it is given one.
+   * With nothing in flight there is nowhere to return to, so Zitadel kept them.
+   *
+   * So the invitation comes here first. This starts an ordinary portal login — the same
+   * `beginLogin` and the same cookie as `/start` — asks Zitadel for the auth request without
+   * following the browser there, and then sends the browser to the invite page carrying that
+   * request's id. Zitadel takes the password, finishes the request, and calls the callback
+   * below, which already knows how to put a client on their own portal.
+   *
+   * Minted here rather than when the invitation was written, because an auth request is
+   * short-lived and single-use and an invitation is opened whenever the client gets to it.
+   * That is the whole reason this is an endpoint and not a longer string in an email.
+   *
+   * `targetHost` is the login host on purpose. A client is routed to their own portal from
+   * their identity, never from where they started — see the callback — so naming the login
+   * host here is naming "nobody in particular", which is what an invitation knows.
+   */
+  @Get('invite')
+  async invite(
+    @Req() req: Request,
+    @Res() res: Response,
+    @Query('userId') userId?: string,
+    @Query('code') code?: string,
+  ) {
+    await this.requireAuthHost(req);
+    if (!userId || !code) throw new NotFoundException();
+
+    const { authorizeUrl, stateCookie } = await this.oidc.beginLogin({
+      redirectUri: this.callbackUri(req),
+      targetHost: this.hosts.authHost,
+      next: '/',
+      binding: null,
+    });
+
+    const authRequestId = await this.oidc.authRequestIdFor(authorizeUrl);
+    if (!authRequestId) {
+      /*
+       * Better a working link to the wrong place than a broken one.
+       *
+       * If Zitadel will not tell us the request id, the invitation still has to open: the
+       * client can set their password and reach the portal by its own address afterwards.
+       * Refusing here would turn a wrong landing page into an account they cannot create.
+       */
+      this.logger.warn('No authRequestID from Zitadel; invitation falls back to a direct link');
+      return res.redirect(302, this.zitadel.zitadelInviteUrl(userId, code, null));
+    }
+
+    setLoginCookie(req, res, stateCookie, LOGIN_STATE_MS);
+    res.redirect(302, this.zitadel.zitadelInviteUrl(userId, code, authRequestId));
   }
 
   /** Step 3, auth host only: Zitadel is back. */
