@@ -10,6 +10,7 @@ import { RegistryService } from '../../core/registry/registry.service.js';
 import { resetDb, seedUser, testDb, truncate } from '../../test/db.js';
 import { crmManifest } from '../crm/crm.manifest.js';
 import { CrmService } from '../crm/crm.service.js';
+import { UserService } from '../../core/auth/user.service.js';
 import { PortalUsersService } from './portal-users.service.js';
 import { portalManifest } from './portal.manifest.js';
 import { PortalSessionsService } from './portal-sessions.service.js';
@@ -41,7 +42,7 @@ describe('PortalUsersService', () => {
       testDb, registry, permissions, audit,
       new EventBus(manifests), new LinkService(testDb, registry, permissions, audit, manifests),
     );
-    service = new PortalUsersService(testDb, permissions, audit);
+    service = new PortalUsersService(testDb, permissions, audit, new UserService(testDb, audit));
 
     clientId = (await crm.createClient(admin, { name: 'A client', status: 'active' })).id;
     // Phase 8: a login needs somewhere to go, so a client without a portal address cannot
@@ -56,6 +57,45 @@ describe('PortalUsersService', () => {
     await expect(
       service.invite(admin, { clientId: homeless, email: 'someone@noportal.nl' }),
     ).rejects.toThrow(/portal address/i);
+  });
+
+  it('refuses a colleague\'s address at the invitation, not at the sign-in', async () => {
+    /*
+     * The rule already existed at the far end: `claimByEmail` will not let a member's address
+     * claim a client's invitation, or that member becomes the client's portal user forever.
+     * But refusing there means the invitation is written, the mail is sent, a password is
+     * set, and the answer arrives as "no access" with the reason in a log file — which is
+     * exactly how an afternoon was spent testing with the one address that can never work.
+     */
+    // `seedUser` gives a colleague this address; the point is that it is a member's, not
+    // that it looks like one.
+    await expect(
+      service.invite(admin, { clientId, email: `${member.userId}@test.local` }),
+    ).rejects.toThrow(/colleague/i);
+  });
+
+  it('lets an invitation bind again after the account behind it is gone', async () => {
+    const { id } = await service.invite(admin, { clientId, email: 'anna@aclient.nl' });
+    expect(await service.claimInvitation('subject-old', 'anna@aclient.nl')).toMatchObject({
+      clientId,
+    });
+
+    // Re-created in Zitadel, so a new subject. The row still names the old one, every
+    // sign-in resolves to nothing, and it reads exactly like never having been invited.
+    await expect(service.resolveFromSubject('subject-new')).rejects.toThrow(/no portal access/i);
+    expect(await service.claimInvitation('subject-new', 'anna@aclient.nl')).toBeNull();
+
+    await service.unbind(admin, id);
+
+    expect(await service.claimInvitation('subject-new', 'anna@aclient.nl')).toMatchObject({
+      clientId,
+    });
+    await expect(service.resolveFromSubject('subject-new')).resolves.toMatchObject({ clientId });
+  });
+
+  it('treats unbinding an unbound login as the state it already wanted', async () => {
+    const { id } = await service.invite(admin, { clientId, email: 'never@aclient.nl' });
+    await expect(service.unbind(admin, id)).resolves.toMatchObject({ pending: true });
   });
 
   it('ends every session of a login it revokes, in the same commit', async () => {

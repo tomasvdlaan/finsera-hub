@@ -14,6 +14,7 @@ import { crmManifest } from '../crm/crm.manifest.js';
 import { CrmService } from '../crm/crm.service.js';
 import { PortalHostService } from './portal-host.service.js';
 import { PortalSessionsService, SESSION_IDLE_MS } from './portal-sessions.service.js';
+import { UserService } from '../../core/auth/user.service.js';
 import { PortalUsersService } from './portal-users.service.js';
 import { portalManifest } from './portal.manifest.js';
 import { portalHandoffTickets, portalSessions } from './portal.schema.js';
@@ -52,7 +53,7 @@ describe('PortalSessionsService', () => {
       testDb, registry, permissions, audit,
       new EventBus(manifests), new LinkService(testDb, registry, permissions, audit, manifests),
     );
-    users = new PortalUsersService(testDb, permissions, audit);
+    users = new PortalUsersService(testDb, permissions, audit, new UserService(testDb, audit));
     sessions = new PortalSessionsService(testDb);
 
     clientId = (await crm.createClient(admin, { name: 'Duce', status: 'active' })).id;

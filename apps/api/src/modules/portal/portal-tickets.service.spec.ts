@@ -15,6 +15,7 @@ import { CrmService } from '../crm/crm.service.js';
 import { scrumManifest } from '../scrum/scrum.manifest.js';
 import { ScrumService } from '../scrum/scrum.service.js';
 import { PortalTicketsService } from './portal-tickets.service.js';
+import { UserService } from '../../core/auth/user.service.js';
 import { PortalUsersService } from './portal-users.service.js';
 import { portalManifest } from './portal.manifest.js';
 import { portalTicketMessages, portalTickets } from './portal.schema.js';
@@ -52,7 +53,7 @@ describe('PortalTicketsService', () => {
     const scrum = new ScrumService(
       testDb, registry, permissions, audit, events, links, crm, time,
     );
-    const users = new PortalUsersService(testDb, permissions, audit);
+    const users = new PortalUsersService(testDb, permissions, audit, new UserService(testDb, audit));
     tickets = new PortalTicketsService(testDb, audit, scrum);
 
     clientId = (await crm.createClient(actor, { name: 'Duce', status: 'active' })).id;

@@ -10,6 +10,7 @@ import { and, eq, isNotNull, isNull, sql } from 'drizzle-orm';
 import { v7 as uuidv7 } from 'uuid';
 import type { Actor } from '@platform/contracts';
 import { AuditService } from '../../core/audit/audit.service.js';
+import { UserService } from '../../core/auth/user.service.js';
 import { DB, type Database } from '../../core/db/db.module.js';
 import { PermissionService } from '../../core/permissions/permission.service.js';
 import { portalSessions, portalUsers } from './portal.schema.js';
@@ -35,6 +36,7 @@ export class PortalUsersService {
     @Inject(DB) private readonly db: Database,
     private readonly permissions: PermissionService,
     private readonly audit: AuditService,
+    private readonly users: UserService,
   ) {}
 
   /**
@@ -185,6 +187,24 @@ export class PortalUsersService {
     const email = input.email.trim();
     if (!email.includes('@')) throw new BadRequestException('That is not an email address');
 
+    /*
+     * A colleague's address can never become a client's portal login, so it is refused here
+     * rather than at the sign-in that would fail weeks later.
+     *
+     * `claimByEmail` already blocks it, deliberately — a member who happened to share an
+     * address with a pending invitation would otherwise become that client's portal user and
+     * the row would say so forever. But it blocks it at the *end*: the invitation is created,
+     * the mail goes out, the client sets a password, and the refusal arrives as four words on
+     * a screen with the reason in a log file. This is the same rule, said at the only moment
+     * anybody can act on it.
+     */
+    if (await this.users.memberWithEmail(email)) {
+      throw new BadRequestException(
+        `${email} is a colleague's account, so it cannot be a client portal login. ` +
+          'Invite an address at the client instead.',
+      );
+    }
+
     // A login with nowhere to go. The portal lives at the client's own address (Phase 8),
     // so a client without one has no portal, and inviting somebody to it would produce a
     // person who signs in successfully and lands nowhere.
@@ -280,6 +300,51 @@ export class PortalUsersService {
   }
 
   /** One invitation, by id — for the routes that re-issue a link. */
+  /**
+   * Let this invitation bind to a different account than the one it bound to.
+   *
+   * `claimInvitation` only ever claims a row whose subject is null, which is what stops one
+   * Zitadel account quietly inheriting another's portal — and it also means a row bound once
+   * is bound for good. That is right until the account behind it is gone: a client who was
+   * re-created in Zitadel, or a test account replaced. Their row still names the old subject,
+   * every sign-in resolves to nothing, and the message is the same "no access" as a person
+   * who was never invited at all.
+   *
+   * So this clears the binding and nothing else. The invitation, the client and the audit
+   * trail stay; the next sign-in with this address claims it afresh. Deliberately not part of
+   * "revoke and re-invite" — that loses the row's history, and the address is unique per
+   * client so the re-invite is refused anyway.
+   *
+   * Idempotent: unbinding a row that was never bound is not an error, it is a no-op with the
+   * same end state.
+   */
+  async unbind(actor: Actor, id: string): Promise<{ id: string; pending: true }> {
+    await this.require(actor, 'portal.admin');
+
+    const [row] = await this.db
+      .select({ id: portalUsers.id, email: portalUsers.email, oidcSubject: portalUsers.oidcSubject })
+      .from(portalUsers)
+      .where(eq(portalUsers.id, id))
+      .limit(1);
+    if (!row) throw new NotFoundException('No such portal login');
+    if (!row.oidcSubject) return { id, pending: true };
+
+    await this.db.transaction(async (tx) => {
+      await tx.update(portalUsers).set({ oidcSubject: null }).where(eq(portalUsers.id, id));
+      await this.audit.record(tx, {
+        actorId: actor.userId,
+        action: 'portal_user.unbind',
+        entityType: 'portal_user',
+        entityId: id,
+        // The subject that was released, because "who could sign in as this before" is the
+        // question asked afterwards and nothing else records it.
+        detail: { email: row.email, releasedSubject: row.oidcSubject },
+      });
+    });
+    this.logger.log(`Portal login ${row.email} unbound from subject '${row.oidcSubject}'`);
+    return { id, pending: true };
+  }
+
   async byId(actor: Actor, id: string) {
     await this.require(actor, 'portal.admin');
     const [row] = await this.db

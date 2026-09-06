@@ -110,6 +110,19 @@ export class PortalAdminController {
     return this.users.revoke(actor, id);
   }
 
+  /**
+   * Release the account this invitation bound to, so it can bind again.
+   *
+   * The one repair that had no button. A portal login binds to a Zitadel account on first
+   * sign-in and never rebinds, so when that account is replaced the row points at a subject
+   * nobody has and every attempt reads as "no access" — indistinguishable from never having
+   * been invited, and until now fixable only with a query against the database.
+   */
+  @Post('users/:id/unbind')
+  unbind(@CurrentActor() actor: Actor, @Param('id', ParseUUIDPipe) id: string) {
+    return this.users.unbind(actor, id);
+  }
+
   @Post('users/:id/reinstate')
   reinstate(@CurrentActor() actor: Actor, @Param('id', ParseUUIDPipe) id: string) {
     return this.users.reinstate(actor, id);

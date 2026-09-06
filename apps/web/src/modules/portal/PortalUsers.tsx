@@ -169,6 +169,29 @@ export function PortalUsers({
 
   // Revoking and restoring are the same gesture with a different verb, so they are the
   // same function: the row already says which of the two is on offer.
+  /**
+   * Release the Zitadel account this login bound to.
+   *
+   * Confirmed, because it is not obvious from the button what it costs: the next person to
+   * sign in with this address takes the invitation, and if that is not who you meant, the
+   * only way back is to unbind again. Rare enough to be worth a sentence and a click.
+   */
+  const unbind = (user: PortalUser) => {
+    const ok = window.confirm(
+      `Ontkoppel ${user.email} van het account waarmee is ingelogd?\n\n` +
+        'De uitnodiging blijft bestaan. De eerstvolgende aanmelding met dit adres koppelt ' +
+        'zich opnieuw — gebruik dit als het Zitadel-account opnieuw is aangemaakt.',
+    );
+    if (!ok) return;
+    setError(undefined);
+    setBusy(true);
+    api
+      .post(`/portal-admin/users/${user.id}/unbind`, {})
+      .then(load)
+      .catch((err: Error) => setError(err.message))
+      .finally(() => setBusy(false));
+  };
+
   const setAccess = (user: PortalUser, action: 'revoke' | 'reinstate') => {
     setError(undefined);
     setBusy(true);
@@ -261,6 +284,20 @@ export function PortalUsers({
                       >
                         {u.pending ? 'Link' : 'New link'}
                       </button>
+                      {/*
+                        Only on a login that has actually bound to an account. On a pending
+                        row there is nothing to release, and offering it would invite the
+                        reading that this is how you resend an invitation.
+                      */}
+                      {!u.pending && (
+                        <button
+                          disabled={busy}
+                          title="Releases the Zitadel account this login is tied to, so the next sign-in with this address binds afresh. For an account that was re-created."
+                          onClick={() => unbind(u)}
+                        >
+                          Unlink
+                        </button>
+                      )}
                       <button disabled={busy} onClick={() => setAccess(u, 'revoke')}>
                         Revoke
                       </button>
