@@ -22,6 +22,13 @@ describe('OIDC scope', () => {
     expect(source).toMatch(/scope:\s*`openid profile email \$\{ROLES_SCOPE\}`/);
   });
 
+  it('asks for the login page in Dutch', () => {
+    // The instance-wide way to say this is Admin API only and needs IAM_OWNER, so the app
+    // asks per request instead — and an app that stops asking would silently revert to an
+    // English login screen, which nothing else here would notice.
+    expect(source).toMatch(/ui_locales:\s*'nl'/);
+  });
+
   it('still requests the basics', () => {
     expect(source).toContain('openid profile email');
   });

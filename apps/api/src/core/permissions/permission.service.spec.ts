@@ -78,6 +78,52 @@ describe('PermissionService', () => {
     expect(visible.has(ghost)).toBe(false);
   });
 
+  /**
+   * The type's own read capability decides, everywhere — not only in search.
+   *
+   * Listings answered "does this row exist", so anything that reaches an entity indirectly
+   * — the activity feed, related records, the assistant's references — showed entities whose
+   * type is admin-only to read. A member could not ask for a colleague's hours and could
+   * watch their timer start in the feed.
+   */
+  it('hides an entity whose type this actor may not read', async () => {
+    const manifests = new ManifestRegistry();
+    manifests.register(
+      defineManifest({
+        name: 'demo',
+        version: '1.0.0',
+        entities: [
+          { type: 'demo_item', displayTemplate: '{title}', urlPattern: '/demo/items/:id', readPermission: 'demo.items.read' },
+          { type: 'demo_private', displayTemplate: '{title}', urlPattern: '/demo/private/:id', readPermission: 'demo.private.read' },
+        ],
+        permissions: [
+          { capability: 'demo.items.read', description: 'Read demo items.' },
+          { capability: 'demo.private.read', description: "Read somebody else's.", adminOnly: true },
+        ],
+      }),
+    );
+    manifests.seal();
+    const registry = new RegistryService(testDb, manifests);
+    const permissions = new PermissionService(testDb, manifests);
+
+    const id = registry.newId();
+    await testDb.transaction((tx) =>
+      registry.register(tx, {
+        id,
+        entityType: 'demo_private',
+        displayName: 'running — client work',
+        urlPath: `/demo/private/${id}`,
+      }),
+    );
+
+    expect((await permissions.visibleIds(member, [id])).size).toBe(0);
+    expect((await permissions.visibleIds(admin, [id])).has(id)).toBe(true);
+
+    // `canSee` stays reachability rather than readability: the owner of a record whose type
+    // they may not read in general still has to be able to link it when it is created.
+    expect(await permissions.canSee(member, id)).toBe(true);
+  });
+
   it('grants declared capabilities to both roles in v0', async () => {
     const permissions = new PermissionService(testDb, makeManifests());
     expect(await permissions.can(admin, 'demo.items.create')).toBe(true);
@@ -154,7 +200,7 @@ describe('AuditService', () => {
   it('records a mutation inside the caller’s transaction', async () => {
     const manifests = makeManifests();
     const registry = new RegistryService(testDb, manifests);
-    const audit = new AuditService();
+    const audit = new AuditService(testDb);
     const id = registry.newId();
 
     await testDb.transaction(async (tx) => {
@@ -183,7 +229,7 @@ describe('AuditService', () => {
   });
 
   it('rolls back with the change it describes', async () => {
-    const audit = new AuditService();
+    const audit = new AuditService(testDb);
     await expect(
       testDb.transaction(async (tx) => {
         await audit.record(tx, {
@@ -200,7 +246,7 @@ describe('AuditService', () => {
   });
 
   it('marks AI-initiated mutations for the audit trail', async () => {
-    const audit = new AuditService();
+    const audit = new AuditService(testDb);
     const conversationId = crypto.randomUUID();
     const entityId = crypto.randomUUID();
 

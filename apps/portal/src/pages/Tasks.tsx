@@ -1,5 +1,5 @@
 import { api, type PortalTask } from '../lib/api.js';
-import { Listing, date, useList } from './shared.js';
+import { Card, Listing, Page, date, useList } from './shared.js';
 
 /** Card types, in words a client uses. `spike` is research; nobody outside says "spike". */
 const TYPE: Record<string, string> = {
@@ -23,8 +23,9 @@ export function Tasks() {
   const { rows, error } = useList<PortalTask>(api.tasks);
 
   return (
-    <Listing rows={rows} error={error} empty="Er staat op dit moment niets voor u open.">
-      {(tasks) => {
+    <Page title="Taken" lead="Waar we op dit moment aan werken, per project.">
+      <Listing rows={rows} error={error} empty="Er staat op dit moment niets voor u open.">
+        {(tasks) => {
         const byProject = new Map<string, PortalTask[]>();
         for (const t of tasks) {
           const list = byProject.get(t.project_name) ?? [];
@@ -37,7 +38,8 @@ export function Tasks() {
             {[...byProject.entries()].map(([project, items]) => (
               <section key={project}>
                 <h2>{project}</h2>
-                <table>
+                <Card>
+                  <table>
                   <thead>
                     <tr>
                       <th>Wat</th>
@@ -51,7 +53,7 @@ export function Tasks() {
                       <tr key={t.id}>
                         <td>{t.title}</td>
                         <td>{TYPE[t.type] ?? t.type}</td>
-                        <td>{date(t.due_on)}</td>
+                        <td className="nowrap">{date(t.due_on)}</td>
                         <td>
                           {t.completed_at ? (
                             <span className="tag">Afgerond {date(t.completed_at)}</span>
@@ -65,12 +67,14 @@ export function Tasks() {
                       </tr>
                     ))}
                   </tbody>
-                </table>
+                  </table>
+                </Card>
               </section>
             ))}
           </>
         );
-      }}
-    </Listing>
+        }}
+      </Listing>
+    </Page>
   );
 }

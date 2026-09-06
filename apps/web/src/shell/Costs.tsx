@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { PageHeader, Block } from './ui/layout.js';
 import { Card } from './ui/card.js';
 import { StatTile, MetricRow } from './ui/data.js';
-import { Empty } from './ui/primitives.js';
+import { Button, Empty } from './ui/primitives.js';
 import { api } from '../lib/api.js';
 import { useDocumentTitle } from './useDocumentTitle.js';
 
@@ -429,6 +429,102 @@ export function Costs() {
           {summary && <Split rows={summary.byModel} empty="No model was called." />}
         </Card>
       </Block>
+
+      <Block span={12}>
+        <Failures />
+      </Block>
     </>
+  );
+}
+
+/** One failed answer, as the export and this list both carry it. */
+interface FailureRecord {
+  id: string;
+  conversationId: string;
+  at: string;
+  question: string | null;
+  failure: {
+    requestId: string;
+    name: string;
+    message: string;
+    status?: number;
+    model?: string;
+    steps?: number;
+  };
+}
+
+/**
+ * What the assistant has failed on lately.
+ *
+ * On this page rather than one of its own, because a run of failures is almost always one of
+ * the three things this screen already governs: a model that has been retired, an account out
+ * of credit, or a choice somebody made in the picker above. Two of the four failures on
+ * record in development were the first of those, and the page that could have said so was
+ * this one.
+ */
+function Failures() {
+  const [rows, setRows] = useState<FailureRecord[] | null>(null);
+  const [failed, setFailed] = useState<string | undefined>();
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    api
+      .get<FailureRecord[]>('/core/assistant/failures?limit=50')
+      .then(setRows)
+      .catch((e: Error) => setFailed(e.message));
+  }, []);
+
+  /*
+   * The whole point of the feature: the failures are on the deployed server and the person who
+   * can fix them is not. `api.file` carries the bearer token, which a plain link does not — a
+   * bare `<a href>` saves the 401 as a .json and looks like it worked.
+   */
+  const download = async () => {
+    setSaving(true);
+    try {
+      const { blob, filename } = await api.file('/core/assistant/failures/export');
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Card
+      title="Assistant failures"
+      loading={!rows && !failed}
+      error={failed}
+      aside={
+        <Button size="sm" onClick={() => void download()} disabled={saving || !rows?.length}>
+          {saving ? 'Preparing…' : 'Download all'}
+        </Button>
+      }
+    >
+      {rows && rows.length === 0 && <Empty>The assistant has not failed since this started recording.</Empty>}
+      {rows && rows.length > 0 && (
+        <ul className="failure-list">
+          {rows.map((r) => (
+            <li key={r.id}>
+              <p className="failure-head">
+                <code>{r.failure.name}</code>
+                {r.failure.status != null && <span className="muted"> · HTTP {r.failure.status}</span>}
+                <span className="muted"> · {r.at.slice(0, 16).replace('T', ' ')}</span>
+              </p>
+              <p className="failure-why">{r.failure.message}</p>
+              <p className="muted failure-meta">
+                {r.failure.model ?? 'model unknown'}
+                {r.failure.steps ? ` · ${r.failure.steps} tool call(s)` : ''}
+                {r.question ? ` · asked: ${r.question.slice(0, 80)}` : ''}
+              </p>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
   );
 }

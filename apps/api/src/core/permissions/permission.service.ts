@@ -1,6 +1,6 @@
 import { Inject, Injectable, ForbiddenException } from '@nestjs/common';
 import type { Actor } from '@platform/contracts';
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import { DB, type Database, type Executor } from '../db/db.module.js';
 import { entities } from '../db/core.schema.js';
 import { ManifestRegistry } from '../manifest/manifest.registry.js';
@@ -24,10 +24,17 @@ export class PermissionService {
   ) {}
 
   /**
-   * May this actor see this entity?
+   * Does this entity exist and is this actor entitled to reach it at all?
    *
-   * v0: any active user may see any existing entity. Phase 1 replaces the body with
-   * "resolve the entity's client/project and check team membership".
+   * Reachability, not readability — and the distinction is load-bearing. Whether a *record*
+   * may be READ is decided by `visibleIds` below, which is what every listing goes through.
+   * This one guards the write paths, chiefly linking: a module registers an entity and links
+   * it to its project in the same transaction, so an owner must be able to reach a record
+   * whose type they may not read in general. Logging your own hours is exactly that, and
+   * making this type-aware broke it — the link refused, so the entry could not be created.
+   *
+   * Still permissive about *which* records: record-level scoping remains the open v0
+   * promise, and nothing here narrows a project to its team.
    */
   async canSee(actor: Actor, entityId: string, executor: Executor = this.db): Promise<boolean> {
     if (!actor?.userId) return false;
@@ -39,12 +46,57 @@ export class PermissionService {
     return row !== undefined;
   }
 
-  /** Filter a set of entity ids down to those the actor may see, in one pass. */
+  /**
+   * Filter a set of entity ids down to those the actor may READ, in one pass.
+   *
+   * Every listing that reaches entities indirectly comes through here — the activity feed,
+   * related records, the assistant's references — and each id is now judged by the
+   * `readPermission` its type's module declared, the same rule search has always applied to
+   * its own results.
+   *
+   * It used to answer "which of these exist", which meant a member watched every colleague's
+   * timer start and stop in the feed — `running — client work`, under their name — while the
+   * API refused them those same hours at the endpoint. The capability was declared and simply
+   * never consulted.
+   *
+   * Type-level, so it cannot say "yours". An entry of your own is hidden here too, and the
+   * Time page — which knows about ownership — is where your hours are shown in full.
+   */
   async visibleIds(actor: Actor, ids: string[], executor: Executor = this.db): Promise<Set<string>> {
     if (!actor?.userId || ids.length === 0) return new Set();
-    const rows = await executor.select({ id: entities.id }).from(entities);
-    const existing = new Set(rows.map((r) => r.id));
-    return new Set(ids.filter((id) => existing.has(id)));
+    // Scoped to the ids asked about. This read every row in `core.entities` to answer a
+    // question about a page of twenty, which was survivable only while the table was small.
+    const rows = await executor
+      .select({ id: entities.id, entityType: entities.entityType })
+      .from(entities)
+      .where(inArray(entities.id, ids));
+
+    // One capability check per distinct type rather than per row: a feed of forty events is
+    // four or five types.
+    const byType = new Map<string, boolean>();
+    const visible = new Set<string>();
+    for (const row of rows) {
+      if (!byType.has(row.entityType)) {
+        byType.set(row.entityType, await this.mayReadType(actor, row.entityType));
+      }
+      if (byType.get(row.entityType)) visible.add(row.id);
+    }
+    return visible;
+  }
+
+  /**
+   * The capability that governs a type, per its manifest.
+   *
+   * An undeclared type cannot occur — `RegistryService.register` refuses one — so reaching
+   * here means the manifest that owned it is gone, and hiding the orphan is the only answer
+   * that is not a guess.
+   */
+  private async mayReadType(actor: Actor, entityType: string): Promise<boolean> {
+    const declared = this.manifests
+      .all()
+      .flatMap((m) => m.entities)
+      .find((e) => e.type === entityType);
+    return declared ? await this.can(actor, declared.readPermission) : false;
   }
 
   /**

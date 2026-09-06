@@ -74,7 +74,7 @@ describe('PortalProjection', () => {
 
     const registry = new RegistryService(testDb, manifests);
     const permissions = new PermissionService(testDb, manifests);
-    const audit = new AuditService();
+    const audit = new AuditService(testDb);
     links = new LinkService(testDb, registry, permissions, audit, manifests);
     const bus = new EventBus(manifests);
     crm = new CrmService(testDb, registry, permissions, audit, bus, links);

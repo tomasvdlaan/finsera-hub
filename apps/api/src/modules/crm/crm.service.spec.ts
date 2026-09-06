@@ -22,7 +22,7 @@ function build() {
 
   const registry = new RegistryService(testDb, manifests);
   const permissions = new PermissionService(testDb, manifests);
-  const audit = new AuditService();
+  const audit = new AuditService(testDb);
   const links = new LinkService(testDb, registry, permissions, audit, manifests);
   return new CrmService(testDb, registry, permissions, audit, new EventBus(manifests), links);
 }
@@ -33,7 +33,7 @@ function links() {
   manifests.seal();
   const registry = new RegistryService(testDb, manifests);
   const permissions = new PermissionService(testDb, manifests);
-  return new LinkService(testDb, registry, permissions, new AuditService(), manifests);
+  return new LinkService(testDb, registry, permissions, new AuditService(testDb), manifests);
 }
 
 describe('CrmService', () => {
@@ -318,7 +318,7 @@ describe('CrmService', () => {
     })(testDb, manifests);
 
     const registry = new RegistryService(testDb, manifests);
-    const audit = new AuditService();
+    const audit = new AuditService(testDb);
     const restricted = new CrmService(
       testDb,
       registry,

@@ -1,8 +1,9 @@
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { Actor } from '@platform/contracts';
-import { and, desc, eq, inArray, notInArray, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, notInArray, or, sql } from 'drizzle-orm';
 import { AuditService } from '../../core/audit/audit.service.js';
 import { DB, type Database } from '../../core/db/db.module.js';
+import { DepartmentsService } from '../../core/auth/departments.service.js';
 import { PermissionService } from '../../core/permissions/permission.service.js';
 import { RegistryService } from '../../core/registry/registry.service.js';
 import { insightRows } from './insights.schema.js';
@@ -29,6 +30,7 @@ export class InsightsService {
     private readonly registry: RegistryService,
     private readonly permissions: PermissionService,
     private readonly audit: AuditService,
+    private readonly departments: DepartmentsService,
   ) {}
 
   /**
@@ -71,6 +73,8 @@ export class InsightsService {
           rule: c.rule,
           subjectId: c.subjectId,
           subjectType: c.subjectType,
+          personId: c.personId ?? null,
+          audience: c.audience ?? null,
           severity: c.severity,
           title: c.title,
           detail: c.detail,
@@ -93,6 +97,10 @@ export class InsightsService {
           facts: c.facts,
           magnitude: c.magnitude,
           severity: c.severity,
+          // Carried on the refresh too: a rule that starts naming a person or a department
+          // must narrow the insight it already raised, not only the next one.
+          personId: c.personId ?? null,
+          audience: c.audience ?? null,
           lastSeenAt: now,
           // A resolved insight whose condition returned is open again.
           status: existing.status === 'resolved' ? 'open' : existing.status,
@@ -121,9 +129,34 @@ export class InsightsService {
 
   async list(actor: Actor, filter: { status?: string; rule?: string } = {}) {
     await this.require(actor, 'insights.read');
+    /*
+     * Addressed to you, or to a department you are in. Admins see everything.
+     *
+     * The filter is here rather than in the rules because it is not a rule's business who is
+     * looking: a rule states a fact and says whose it is, and this decides who reads it.
+     *
+     * Three addresses, in order of precedence:
+     *
+     *   personId  — this is yours by name. A card you hold, a clock you left running.
+     *   audience  — nobody in particular holds it, so whoever staffs that department does.
+     *   neither   — admins only, deliberately. An item nobody is responsible for is the
+     *               owner's, and showing it to everybody is how it became nobody's.
+     *
+     * An item named for somebody else never reaches you through its department: `personId`
+     * winning outright is what stops "assigned to Ana" reappearing on the whole team's list.
+     */
+    const seesEverything = await this.permissions.can(actor, 'insights.read_all');
+    const mine = await this.departments.keysFor(actor.userId);
+    const addressedToMe = or(
+      eq(insightRows.personId, actor.userId ?? ''),
+      mine.length > 0
+        ? and(isNull(insightRows.personId), inArray(insightRows.audience, mine))
+        : undefined,
+    );
     const where = [
       eq(insightRows.status, filter.status ?? 'open'),
       filter.rule ? eq(insightRows.rule, filter.rule) : undefined,
+      seesEverything ? undefined : addressedToMe,
     ].filter(Boolean);
 
     const rows = await this.db
@@ -146,6 +179,7 @@ export class InsightsService {
   async dismiss(actor: Actor, id: string) {
     await this.require(actor, 'insights.write');
     const row = await this.raw(id);
+    await this.assertVisible(actor, row);
     if (row.status === 'dismissed') return row;
 
     await this.db.transaction(async (tx) => {
@@ -166,6 +200,7 @@ export class InsightsService {
 
   async restore(actor: Actor, id: string) {
     await this.require(actor, 'insights.write');
+    await this.assertVisible(actor, await this.raw(id));
     await this.db
       .update(insightRows)
       .set({ status: 'open', dismissedAt: null, dismissedBy: null })
@@ -184,6 +219,29 @@ export class InsightsService {
       info: open.filter((i) => i.severity === 'info').length,
       top: open.slice(0, 5),
     };
+  }
+
+  /**
+   * Refuse to act on an insight raised about somebody else.
+   *
+   * `list` hides those, but an id is guessable and `dismiss` took one directly — so without
+   * this a colleague's personal insight could be silenced by someone who was never allowed
+   * to read it, and the person it was for would simply never see it.
+   */
+  private async assertVisible(
+    actor: Actor,
+    row: { personId: string | null; audience: string | null },
+  ): Promise<void> {
+    if (await this.permissions.can(actor, 'insights.read_all')) return;
+    if (row.personId) {
+      if (row.personId === actor.userId) return;
+      await this.require(actor, 'insights.read_all');
+      return;
+    }
+    // Addressed to a department: anyone in it may say "I know" on the department's behalf.
+    const mine = await this.departments.keysFor(actor.userId);
+    if (row.audience && mine.includes(row.audience)) return;
+    await this.require(actor, 'insights.read_all');
   }
 
   private async raw(id: string) {

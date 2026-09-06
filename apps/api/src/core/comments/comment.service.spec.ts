@@ -52,7 +52,7 @@ describe('CommentService', () => {
     const m = manifests();
     registry = new RegistryService(testDb, m);
     hidden = new Set<string>();
-    comments = new CommentService(testDb, registry, new Hiding(hidden, m), new AuditService(), new MentionService(testDb));
+    comments = new CommentService(testDb, registry, new Hiding(hidden, m), new AuditService(testDb), new MentionService(testDb));
   };
 
   const seed = async (name: string) => {

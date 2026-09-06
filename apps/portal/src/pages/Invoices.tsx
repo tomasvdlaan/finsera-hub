@@ -1,5 +1,5 @@
 import { api, openFile, type PortalInvoice } from '../lib/api.js';
-import { Listing, date, euros, useList } from './shared.js';
+import { Card, Listing, Page, date, euros, useList } from './shared.js';
 
 export function Invoices() {
   const { rows, error } = useList<PortalInvoice>(api.invoices);
@@ -9,15 +9,15 @@ export function Invoices() {
   const download = (invoice: PortalInvoice) => openFile(`/invoices/${invoice.id}/pdf`);
 
   return (
-    <Listing rows={rows} error={error} empty="Er zijn nog geen facturen.">
-      {(invoices) => (
-        <>
-          <table>
+    <Page title="Facturen" lead="Wat er openstaat en wat voldaan is, met de pdf erbij.">
+      <Listing rows={rows} error={error} empty="Er zijn nog geen facturen.">
+        {(invoices) => (
+          <Card>
+            <table>
             <thead>
               <tr>
                 <th>Nummer</th>
                 <th>Datum</th>
-                <th>Vervaldatum</th>
                 <th className="num">Bedrag</th>
                 <th>Status</th>
                 <th />
@@ -26,9 +26,13 @@ export function Invoices() {
             <tbody>
               {invoices.map((i) => (
                 <tr key={i.id}>
-                  <td>{i.number}</td>
-                  <td>{date(i.issue_date)}</td>
-                  <td>{date(i.due_on)}</td>
+                  <td className="nowrap">{i.number}</td>
+                  <td className="nowrap">
+                    {date(i.issue_date)}
+                    {/* The due date under the issue date rather than beside it: nobody
+                        scans a column of due dates, they check one invoice's. */}
+                    <span className="meta">vervalt {date(i.due_on)}</span>
+                  </td>
                   <td className="num">{euros(i.total_cents, i.currency)}</td>
                   <td>
                     {i.status === 'paid' ? (
@@ -47,9 +51,10 @@ export function Invoices() {
                 </tr>
               ))}
             </tbody>
-          </table>
-        </>
-      )}
-    </Listing>
+            </table>
+          </Card>
+        )}
+      </Listing>
+    </Page>
   );
 }

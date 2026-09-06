@@ -39,7 +39,7 @@ describe('PortalPagesService', () => {
     manifests.seal();
     const registry = new RegistryService(testDb, manifests);
     const permissions = new PermissionService(testDb, manifests);
-    const audit = new AuditService();
+    const audit = new AuditService(testDb);
     crm = new CrmService(
       testDb, registry, permissions, audit,
       new EventBus(manifests), new LinkService(testDb, registry, permissions, audit, manifests),

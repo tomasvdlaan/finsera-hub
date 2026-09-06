@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useState } from 'react';
 import { useViewer } from '../App.js';
 import {
   api,
@@ -6,7 +6,7 @@ import {
   type PortalThread,
   type PortalTicket,
 } from '../lib/api.js';
-import { Listing, date, useList } from './shared.js';
+import { Card, Listing, Page, date, useList } from './shared.js';
 
 const STATUS: Record<PortalTicket['status'], string> = {
   waiting_on_finsera: 'Bij Finsera',
@@ -147,24 +147,33 @@ export function Requests() {
   const all = refreshed ?? rows;
 
   return (
-    <>
+    <Page
+      title="Vragen"
+      lead="Iets nodig? Stel het hier, en volg wat ermee gebeurt."
+    >
       {staff ? (
         <p className="tag" style={{ marginBottom: '2rem' }}>
           Vragen van deze klant. Zelf een vraag indienen kan alleen de klant.
         </p>
       ) : (
-        <form onSubmit={submit} style={{ marginBottom: '2rem' }}>
-          <p className="tag">Iets nodig? Laat het hier weten.</p>
-          <p>
+        <form onSubmit={submit} className="ask">
+          {/*
+            Real labels, not placeholders standing in for them.
+            A placeholder disappears the moment somebody types, so a half-filled form stops
+            saying what its fields are — and a screen reader is never told at all.
+          */}
+          <label>
+            <span>Onderwerp</span>
             <input
               value={subject}
               onChange={(e) => setSubject(e.target.value)}
-              placeholder="Onderwerp"
+              placeholder="Waar gaat het over?"
               maxLength={200}
               required
             />
-          </p>
-          <p>
+          </label>
+          <label>
+            <span>Uw vraag</span>
             <textarea
               value={body}
               onChange={(e) => setBody(e.target.value)}
@@ -173,9 +182,10 @@ export function Requests() {
               maxLength={5000}
               required
             />
-          </p>
+          </label>
           {projects && projects.length > 0 && (
-            <p>
+            <label>
+              <span>Project</span>
               <select value={projectId} onChange={(e) => setProjectId(e.target.value)}>
                 <option value="">Niet aan een project gekoppeld</option>
                 {projects.map((p) => (
@@ -184,7 +194,7 @@ export function Requests() {
                   </option>
                 ))}
               </select>
-            </p>
+            </label>
           )}
           {failed && <p className="error">{failed}</p>}
           <button type="submit" disabled={sending || !subject.trim() || !body.trim()}>
@@ -199,7 +209,8 @@ export function Requests() {
         empty={staff ? 'Deze klant heeft nog niets gevraagd.' : 'U heeft nog niets gevraagd.'}
       >
         {(tickets) => (
-          <table>
+          <Card>
+            <table>
             <thead>
               <tr>
                 <th>Onderwerp</th>
@@ -209,28 +220,44 @@ export function Requests() {
             </thead>
             <tbody>
               {tickets.map((t) => (
-                <tr key={t.id}>
-                  <td>
-                    <button
-                      className="link"
-                      onClick={() => setOpen(open === t.id ? undefined : t.id)}
-                    >
-                      {t.subject}
-                    </button>
-                    {open === t.id && <Thread id={t.id} onChanged={reload} />}
-                  </td>
-                  <td>{date(t.last_activity_at)}</td>
-                  <td>
-                    <span className={t.status === 'waiting_on_client' ? 'tag overdue' : 'tag'}>
-                      {STATUS[t.status] ?? t.status}
-                    </span>
-                  </td>
-                </tr>
+                /*
+                 * The conversation gets a row of its own, spanning the table.
+                 *
+                 * Opened inside the subject cell it pushed that one cell to the height of
+                 * the whole thread, leaving the date and the status floating beside its
+                 * middle — attached to nothing they described.
+                 */
+                <Fragment key={t.id}>
+                  <tr>
+                    <td>
+                      <button
+                        className="link"
+                        onClick={() => setOpen(open === t.id ? undefined : t.id)}
+                      >
+                        {t.subject}
+                      </button>
+                    </td>
+                    <td className="nowrap">{date(t.last_activity_at)}</td>
+                    <td>
+                      <span className={t.status === 'waiting_on_client' ? 'tag overdue' : 'tag'}>
+                        {STATUS[t.status] ?? t.status}
+                      </span>
+                    </td>
+                  </tr>
+                  {open === t.id && (
+                    <tr className="lines">
+                      <td colSpan={3}>
+                        <Thread id={t.id} onChanged={reload} />
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
               ))}
             </tbody>
-          </table>
+            </table>
+          </Card>
         )}
       </Listing>
-    </>
+    </Page>
   );
 }

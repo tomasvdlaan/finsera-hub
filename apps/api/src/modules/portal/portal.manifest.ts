@@ -32,7 +32,14 @@ export const portalManifest = defineManifest({
     },
   ],
   structuralRefs: [],
-  publishes: [],
+  publishes: [
+    {
+      name: 'portal.signed_in',
+      description:
+        'Somebody opened a client portal — the client themselves, or one of us looking at ' +
+        'theirs. Recorded against the client, so it appears on their timeline.',
+    },
+  ],
   subscribes: [],
 
   permissions: [

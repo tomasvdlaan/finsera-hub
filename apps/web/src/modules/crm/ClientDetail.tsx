@@ -250,7 +250,7 @@ export function ClientDetail() {
       <EntityWidgets entityId={id} entityType="client" />
 
       <section>
-        <PortalUsers clientId={client.id} portalSlug={client.portalSlug} />
+        <PortalUsers clientId={client.id} clientName={client.name} portalSlug={client.portalSlug} />
       </section>
 
       <section>

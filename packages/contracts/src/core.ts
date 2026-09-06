@@ -47,6 +47,19 @@ export const timelineEntrySchema = z.object({
   eventName: z.string(),
   subject: entityRefSchema,
   actor: z.object({ id: z.string().uuid(), displayName: z.string() }).nullable(),
+  /**
+   * Who did it, when the platform has no user row for them.
+   *
+   * `actor` resolves an internal colleague by id. Some things on a timeline are done by
+   * somebody outside the business — a client signing in to their portal, accepting a
+   * quote — and for those there is no `core.users` row to name, which used to leave the
+   * entry reading "by system" as though nobody had been involved.
+   *
+   * A label rather than an id on purpose: it is a name to display and never something to
+   * resolve, join on, or treat as an identity. The publisher puts it in the event payload.
+   * Optional in the schema so an older client keeps parsing.
+   */
+  actorLabel: z.string().nullable().optional(),
   createdAt: z.string(),
 });
 export type TimelineEntry = z.infer<typeof timelineEntrySchema>;

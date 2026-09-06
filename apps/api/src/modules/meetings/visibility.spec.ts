@@ -65,7 +65,7 @@ describe('meeting note visibility', () => {
 
     const registry = new RegistryService(testDb, manifests);
     const permissions = new PermissionService(testDb, manifests);
-    const audit = new AuditService();
+    const audit = new AuditService(testDb);
     const links = new LinkService(testDb, registry, permissions, audit, manifests);
     const bus = new EventBus(manifests);
     crm = new CrmService(testDb, registry, permissions, audit, bus, links);
@@ -74,7 +74,7 @@ describe('meeting note visibility', () => {
     const docs = new NoteDocService();
     meetings = new MeetingsService(
       testDb, registry, permissions, audit, bus, links,
-      new EmbeddingService(), crm, scrum, new UserService(testDb), docs,
+      new EmbeddingService(), crm, scrum, new UserService(testDb, new AuditService(testDb)), docs,
     );
 
     const client = await crm.createClient(admin, { name: 'Vandenberg' });

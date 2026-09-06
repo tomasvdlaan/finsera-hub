@@ -1,0 +1,1 @@
+ALTER TABLE "core"."users" ADD COLUMN "last_seen_at" timestamp with time zone;

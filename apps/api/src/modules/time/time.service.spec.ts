@@ -26,7 +26,7 @@ function build() {
 
   const registry = new RegistryService(testDb, manifests);
   const permissions = new PermissionService(testDb, manifests);
-  const audit = new AuditService();
+  const audit = new AuditService(testDb);
   const links = new LinkService(testDb, registry, permissions, audit, manifests);
   const bus = new EventBus(manifests);
   const crm = new CrmService(testDb, registry, permissions, audit, bus, links);
@@ -429,7 +429,7 @@ describe('TimeService', () => {
         return capability !== 'time.entries.manage' && super.can(a, capability);
       }
     })(testDb, manifests);
-    const audit = new AuditService();
+    const audit = new AuditService(testDb);
     const links = new LinkService(testDb, registry, denied, audit, manifests);
     const bus = new EventBus(manifests);
     const restricted = new TimeService(
@@ -720,6 +720,52 @@ describe('exporting hours', () => {
     await expect(
       time.exportHours(member, { from: MONDAY, to: MONDAY, personId: 'all' }),
     ).rejects.toThrow(/time.entries.read_all/);
+  });
+
+  /*
+   * The same boundary, on the screens rather than the file.
+   *
+   * Export was the only place this was asserted, and it is the least used of the three ways
+   * hours are read — the tracker and the day view are what somebody actually opens. A
+   * widened default there would be invisible to every test in this file.
+   */
+  it("shows a colleague only their own hours, and refuses to name anybody else", async () => {
+    // The admin's 90 minutes on Monday are already logged by the setup above.
+    await time.createEntry(member, {
+      projectId,
+      workedOn: MONDAY,
+      minutes: 30,
+      description: 'Their own half hour',
+    });
+
+    const theirs = await time.getRecent(member, { from: MONDAY, to: MONDAY });
+    const descriptions = theirs.days.flatMap((d) => d.entries.map((e) => e.description));
+    expect(descriptions).toEqual(['Their own half hour']);
+
+    const day = await time.getDay(member, { date: MONDAY });
+    expect(day.entries).toHaveLength(1);
+
+    for (const ask of [
+      () => time.getRecent(member, { personId: actor.userId }),
+      () => time.getRecent(member, { everyone: true }),
+      () => time.getDay(member, { date: MONDAY, personId: actor.userId }),
+      () => time.getWeek(member, { weekOf: MONDAY, personId: actor.userId }),
+      () => time.timesheet(member, { weekOf: MONDAY, personId: actor.userId }),
+    ]) {
+      await expect(ask()).rejects.toThrow(/time.entries.read_all/);
+    }
+  });
+
+  it('lets the owner read and export anybody, and everybody', async () => {
+    await time.createEntry(member, { projectId, workedOn: MONDAY, minutes: 30 });
+
+    const theirs = await time.getRecent(actor, { from: MONDAY, to: MONDAY, personId: mate });
+    expect(theirs.days.flatMap((d) => d.entries)).toHaveLength(1);
+
+    const everyone = await time.exportHours(actor, { from: MONDAY, to: MONDAY, personId: 'all' });
+    expect(everyone.filename).toContain('iedereen');
+    // Both people's rows, in one file — which is the whole point of the owner's view.
+    expect(everyone.csv.trim().split('\n')).toHaveLength(3);
   });
 
   it('refuses cost columns rather than quietly dropping them', async () => {

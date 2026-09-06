@@ -428,6 +428,41 @@
       "when": 1788473223976,
       "tag": "0060_portal_welcome_and_last_visit",
       "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1788476823976,
+      "tag": "0061_message_failure",
+      "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1788694607935,
+      "tag": "0062_insight_person",
+      "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1788696718478,
+      "tag": "0063_departments",
+      "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1788696880225,
+      "tag": "0064_insight_audience",
+      "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1788699058016,
+      "tag": "0065_user_last_seen",
+      "breakpoints": true
     }
   ]
 }

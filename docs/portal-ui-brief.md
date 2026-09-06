@@ -4,6 +4,11 @@ A complete description of the client portal's surface as it is built today, writ
 handed to a designer. Everything below exists and works; nothing here is aspirational. The
 internal platform (`hub.finsera.nl`) is a separate application and is **not** in scope.
 
+**Updated after the 2026-09-04 craft pass.** The surface described here is the reworked one:
+a type scale, a 4px spacing scale, a measured neutral ramp, one elevation language
+(hairlines on white), designed hover, focus, disabled, loading, empty and error states, and
+a header that is a band rather than three wrapped rows. §8 carries the tokens.
+
 ---
 
 ## 1. What this is, and who uses it
@@ -209,16 +214,18 @@ These are behaviours, not preferences — changing them changes the system.
 
 ## 7. Where the current design is thinnest
 
-Ranked, for a designer deciding where to spend effort:
+Ranked, for a designer deciding where to spend effort. The craft pass fixed the structural
+faults; what is left is judgement about the product rather than the CSS:
 
 1. **Rapporten and the report experience** (§5.6) — the reason the whole per-client-address
    architecture exists, and the least designed screen.
 2. **The thread in Vragen** (§5.7) — two voices in one column, currently separated only by
    indentation and a border.
-3. **The signed-out and interstitial screens** (§4) — the first thing a client ever sees,
-   currently a heading and a button on a white page.
-4. **Mobile.** Six of the seven screens are wide tables. They do not collapse today.
-5. **The staff banner** (§3) — correct but crude.
+3. **The interstitial screens** (§4) — the three full-page login messages are still plain
+   HTML served by the API, and are the one surface the craft pass did not reach.
+4. **Mobile.** The rows stack and the tables scroll inside their cards, which is correct
+   rather than considered. A table is still a table on a phone.
+5. **The staff banner** (§3) — loud on purpose, and it could be loud more gracefully.
 6. **The front page's empty condition.** A new client sees a greeting, a welcome sentence and
    almost nothing else. That is the honest state and it should still read as considered.
 
@@ -226,14 +233,26 @@ Ranked, for a designer deciding where to spend effort:
 
 Deliberately plain, and offered as a starting point rather than a constraint.
 
-| Token | Value |
-|---|---|
-| Ink | `#1a1a1a` |
-| Muted | `#6b6b6b` |
-| Line | `#e4e4e7` |
-| Background | `#fafafa` |
-| Accent | `#1f5f4f` (deep green) |
-| Warning | `#9a3412` (rust — overdue, waiting on you, staff banner) |
+One warm-grey ramp, so borders and secondary text belong to the same family as the paper.
 
-System font stack. Content is capped around 60rem and centred. Status values are rendered as
-small "tag" pills. Tables are borderless with a single rule between rows.
+| Token | Value | Used for |
+|---|---|---|
+| `--paper` | `#f6f6f3` | the page |
+| `--surface` | `#ffffff` | cards, tables, the header band |
+| `--surface-sunk` | `#fbfbf9` | table headers, row hover, message bodies |
+| `--ink` | `#15181a` | body text |
+| `--ink-2` | `#565d62` | secondary text, 6.7:1 |
+| `--ink-3` | `#6b7075` | 12–13px labels, 4.6:1 on paper — measured, not chosen by eye |
+| `--line` | `#e7e7e2` | hairlines |
+| `--line-strong` | `#d8d8d1` | form borders |
+| `--accent` | `#1f5f4f` | links and the one primary action, 6.9:1 |
+| `--alert` | `#9a3412` | overdue, waiting on you, the staff banner — nothing else |
+
+**Spacing** is a 4px scale, `--s1` (4px) through `--s8` (72px), and nothing is eyeballed.
+**Type** is 12 / 13 / 14 / 15 / 17 / 26 / 34, with hierarchy carried by weight and colour
+before size. Numbers use tabular figures so columns of money align. Content is capped at
+68rem. **Elevation is hairlines only** — nothing in the app floats, so nothing has a shadow.
+**Motion** is 140ms on named properties, never `all`, and `prefers-reduced-motion` is
+honoured. Every interactive element has hover, focus-visible, active and disabled states,
+and a disabled primary turns neutral rather than translucent — a half-faded green button
+reads as "working", which is the one thing it must not say while refusing to be pressed.

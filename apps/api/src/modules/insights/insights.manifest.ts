@@ -22,6 +22,19 @@ export const insightsManifest = defineManifest({
   permissions: [
     { capability: 'insights.read', description: 'See what the platform has noticed.' },
     { capability: 'insights.write', description: 'Dismiss and restore insights.' },
+    /*
+     * The company's insights are everybody's; a person's are not.
+     *
+     * Without this every colleague read every insight, including the ones that name one
+     * person — which is how a rule about somebody's forgotten timer became a line on the
+     * whole team's dashboard. Admin-only, and it is the same boundary `time.entries.read_all`
+     * draws over the hours those insights are about.
+     */
+    {
+      capability: 'insights.read_all',
+      description: "See insights raised about other people, not just your own.",
+      adminOnly: true,
+    },
   ],
 
   // Beside Today rather than in More. It is the page that says what needs attention, and

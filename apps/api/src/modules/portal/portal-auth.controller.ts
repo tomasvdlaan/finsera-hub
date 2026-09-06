@@ -14,6 +14,7 @@ import {
 import { createHash, randomBytes } from 'node:crypto';
 import type { Request, Response } from 'express';
 import { AuditService } from '../../core/audit/audit.service.js';
+import { EventBus } from '../../core/events/event-bus.service.js';
 import { Public } from '../../core/auth/public.decorator.js';
 import { DB, type Database } from '../../core/db/db.module.js';
 import {
@@ -69,6 +70,7 @@ export class PortalAuthController {
     private readonly identity: PortalIdentityService,
     private readonly sessions: PortalSessionsService,
     private readonly audit: AuditService,
+    private readonly events: EventBus,
     @Inject(DB) private readonly db: Database,
   ) {}
 
@@ -363,6 +365,16 @@ export class PortalAuthController {
       userAgent: req.headers['user-agent'],
     });
     setSessionCookie(req, res, secret, maxAgeMs);
+
+    // Who to name on the client's timeline. A colleague is named by their `core.users` row,
+    // which the timeline resolves from `actorId`; a client has no such row, so their own
+    // name travels as a label. Read here rather than carried through the handoff, because a
+    // one-time ticket in a URL should hold an identity and nothing about a person.
+    const label =
+      owner.kind === 'client' && owner.portalUserId
+        ? await this.sessions.labelFor(owner.portalUserId)
+        : null;
+
     await this.db.transaction(async (tx) => {
       await this.audit.record(tx, {
         // A staff login is attributable to a person, so it is attributed: "who opened
@@ -378,6 +390,25 @@ export class PortalAuthController {
             ? { staff: true }
             : { portalUserId: owner.portalUserId }),
         },
+      });
+
+      /*
+       * And on the client's own timeline, beside their quotes and invoices.
+       *
+       * The audit log has recorded this since Phase 8 shipped and nothing reads it — it is
+       * written by every mutation in the platform and has no surface at all. The timeline
+       * does, on the client page, which is where "has anyone from DocHorse actually been in
+       * since we sent that quote?" is asked.
+       *
+       * A sign-in and not a page view: this fires once per session, so a client reading a
+       * report all afternoon leaves one line rather than forty.
+       */
+      await this.events.publish(tx, {
+        name: 'portal.signed_in',
+        entityType: 'client',
+        entityId: owner.clientId,
+        actorId: owner.staffUserId ?? null,
+        payload: { staff: owner.kind === 'staff', ...(label ? { actorLabel: label } : {}) },
       });
     });
   }

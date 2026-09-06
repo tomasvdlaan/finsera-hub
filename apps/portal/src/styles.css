@@ -1,90 +1,896 @@
-/* Deliberately plain. A client should be able to find their invoice and leave. */
+/*
+ * The client portal's surface.
+ *
+ * A client opens this a few times a year, to approve a quote or fetch an invoice, and what
+ * they should feel is that their affairs are in careful hands. So the work here is
+ * hierarchy and restraint rather than decoration: one accent, one alert colour, hairlines
+ * for structure, and a lot of quiet. Nothing glows, nothing fades, nothing moves unless it
+ * is answering a click.
+ */
+
 :root {
-  --ink: #1a1a1a;
-  --muted: #6b6b6b;
-  --line: #e4e4e7;
-  --bg: #fafafa;
+  /*
+   * A single warm-grey ramp, so borders and muted text belong to the same family as the
+   * paper. Never #000 on #fff — pure black on pure white reads as unfinished, and at these
+   * sizes it is genuinely harder to read.
+   */
+  --paper: #f6f6f3;
+  --surface: #ffffff;
+  --surface-sunk: #fbfbf9;
+  --ink: #15181a;
+  --ink-2: #565d62;
+  /*
+   * Measured, not chosen by eye: this carries every 12–13px label on the page — section
+   * headings, table headers, the second line in a cell, the account line — and at #858b90
+   * it reached 3.2:1 on the paper background, which fails AA for text this size. #6b7075
+   * clears 4.5:1 against all three surfaces and still reads as clearly secondary.
+   */
+  --ink-3: #6b7075;
+  --line: #e7e7e2;
+  --line-strong: #d8d8d1;
+
+  /*
+   * One accent and one alarm. Green carries links and the single primary action; rust
+   * carries "this is late" and "this is with you" and appears nowhere else, which is what
+   * keeps it meaning something.
+   */
   --accent: #1f5f4f;
-  --warn: #9a3412;
-  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --accent-deep: #17493c;
+  --accent-wash: #edf3f0;
+  --alert: #9a3412;
+  --alert-wash: #fbefe9;
+
+  /*
+   * Space on a 4px scale. Proximity is meaning: the gap inside a group is always smaller
+   * than the gap between groups, and every value below comes from this list rather than
+   * from the eye.
+   */
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 24px;
+  --s6: 32px;
+  --s7: 48px;
+  --s8: 72px;
+
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 14px;
+
+  /* Elevation is hairlines, everywhere. Nothing in this app floats, so nothing has a shadow. */
+  --ring: 0 0 0 3px rgb(31 95 79 / 18%);
+
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-size: 15px;
+  line-height: 1.55;
   color: var(--ink);
+  -webkit-font-smoothing: antialiased;
 }
 
-* { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); }
+* {
+  box-sizing: border-box;
+}
 
-.shell { max-width: 60rem; margin: 0 auto; padding: 0 1.25rem 4rem; }
+body {
+  margin: 0;
+  background: var(--paper);
+}
+
+/* Named properties only. `transition: all` animates things nobody chose, layout included. */
+a,
+button,
+input,
+textarea,
+select,
+.tag,
+tbody tr,
+ul.waiting li,
+ul.pages li {
+  transition:
+    background-color 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease,
+    box-shadow 140ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition-duration: 1ms !important;
+    animation-duration: 1ms !important;
+  }
+}
+
+/* One focus treatment for everything, and never `outline: none` without a replacement. */
+:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+  border-radius: var(--r-sm);
+}
+
+/* ── shell ─────────────────────────────────────────────────────────────── */
+
+.shell {
+  max-width: 68rem;
+  margin: 0 auto;
+  padding: 0 var(--s5) var(--s8);
+}
 
 /*
- * The staff banner, and the one place this stylesheet is deliberately loud.
+ * Employees looking at somebody else's portal, said loudly and kept on screen.
  *
- * It says the screen belongs to somebody else. Quiet would be worse than absent: a muted
- * line at the top of a page that otherwise looks exactly like a client's own portal is a
- * line that stops being read on the second visit.
+ * Quiet would be worse than absent: a muted line above a page that otherwise looks exactly
+ * like a client's own is a line that stops being read on the second visit.
  */
 .staff-bar {
-  margin: 0 -1.25rem 0;
-  padding: .6rem 1.25rem;
-  background: var(--warn);
+  margin: 0;
+  padding: var(--s3) var(--s5);
+  background: var(--alert);
   color: #fff;
-  font-size: .85rem;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: center;
+}
+
+/*
+ * The header is a band, not part of the page: white on the paper background with a
+ * hairline under it, so the content below has an edge to start from rather than floating.
+ */
+.bar-wrap {
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
 }
 
 header.bar {
-  display: flex; align-items: center; justify-content: space-between;
-  gap: 1rem; padding: 1.25rem 0; border-bottom: 1px solid var(--line);
-  margin-bottom: 1.5rem; flex-wrap: wrap;
+  max-width: 68rem;
+  margin: 0 auto;
+  padding: var(--s4) var(--s5) var(--s3);
 }
-header.bar h1 { font-size: 1.1rem; margin: 0; font-weight: 600; }
-nav.tabs { display: flex; gap: 1.25rem; }
-nav.tabs a { color: var(--muted); text-decoration: none; font-size: .92rem; padding: .25rem 0; }
-nav.tabs a.active { color: var(--ink); box-shadow: inset 0 -2px 0 var(--accent); }
+
+.bar-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s4);
+  margin-bottom: var(--s3);
+}
+
+.bar-top .account {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+  min-width: 0;
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+/* Only the address truncates. The way out has to survive whoever is signed in. */
+.bar-top .who {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bar-top .account button.link {
+  flex: none;
+  font-size: 13px;
+}
+
+header.bar h1 {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
+/* Their mark beside ours, boxed so a tall or wide logo cannot set the header's height. */
+img.client-logo {
+  height: 26px;
+  max-width: 108px;
+  object-fit: contain;
+  object-position: left center;
+}
+
+nav.tabs {
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+}
+
+nav.tabs a {
+  padding: var(--s2) var(--s3);
+  border-radius: var(--r-sm);
+  color: var(--ink-2);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+nav.tabs a:hover {
+  background: var(--surface);
+  color: var(--ink);
+  text-decoration: none;
+}
+
+/* The active tab is the one thing in the header allowed any weight. */
+nav.tabs a.active {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+/* ── page headings ─────────────────────────────────────────────────────── */
+
+.page-head {
+  padding: var(--s6) 0 var(--s5);
+}
+
+.page-head h2 {
+  margin: 0;
+  font-size: 26px;
+  line-height: 1.2;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.page-head p {
+  margin: var(--s2) 0 0;
+  max-width: 62ch;
+  color: var(--ink-2);
+  font-size: 15px;
+}
+
+/* Section labels: small, spaced and quiet, so a heading never competes with its content. */
+.shell section > h3 {
+  margin: 0 0 var(--s3);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.shell section {
+  margin-bottom: var(--s6);
+}
+
+/* Grouping headings — a project's name above its tasks — sit between the two. */
+.shell section:not(.greeting) > h2 {
+  margin: 0 0 var(--s3);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* ── surfaces ──────────────────────────────────────────────────────────── */
+
+/*
+ * One elevation language: a hairline border on a flat white surface. No shadow stacking,
+ * no background shift layered on top of a border.
+ */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  /*
+   * Scrolls itself rather than the page.
+   *
+   * A six-column financial table has a floor below which it cannot be squeezed without
+   * breaking dates across lines, and that floor is wider than a narrow window. Letting the
+   * card scroll keeps the rest of the page still; letting the page scroll sideways is how
+   * a layout starts feeling broken.
+   */
+  overflow-x: auto;
+}
+
+/* ── tables ────────────────────────────────────────────────────────────── */
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+thead th {
+  padding: var(--s3);
+  background: var(--surface-sunk);
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+tbody td {
+  padding: var(--s4) var(--s3);
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+
+tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+tbody tr:hover td {
+  background: var(--surface-sunk);
+}
+
+/* Money lines up on the decimal, which is the only reason a column of it can be read. */
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+td.num {
+  white-space: nowrap;
+}
+
+/*
+ * A second line inside a cell: a due date under an issue date, a validity under a title.
+ *
+ * Cheaper than a column. A date nobody reads down a column costs the description the width
+ * it needs, and the answer to that is not a narrower description — it is one column fewer.
+ */
+.meta {
+  display: block;
+  margin-top: 2px;
+  color: var(--ink-3);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+/*
+ * Columns that must never wrap: a reference, a date, an amount.
+ *
+ * A table squeezed by one long description column takes the space from everything else,
+ * and "30 sep 2026" broken over two lines is unreadable in a way a wrapped sentence is
+ * not. The description is the only thing on these rows that may reflow.
+ */
+.nowrap {
+  white-space: nowrap;
+}
+
+/*
+ * A quote's own lines, in a row of their own beneath it.
+ *
+ * Sunk and inset, so it reads as a breakdown of the row above rather than as a second
+ * table that happens to be nearby.
+ */
+tr.lines > td,
+tr.confirm > td {
+  padding: 0 var(--s3) var(--s4);
+  background: var(--surface-sunk);
+}
+
+/*
+ * The one commitment in the portal, given the width to be read before it is agreed to.
+ */
+tr.confirm > td > div {
+  padding: var(--s4);
+  background: var(--accent-wash);
+  border: 1px solid rgb(31 95 79 / 16%);
+  border-radius: var(--r-md);
+}
+
+tr.confirm p {
+  margin: 0 0 var(--s3);
+  font-size: 15px;
+  color: var(--ink);
+}
+
+tr.confirm strong {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+tr.confirm .row {
+  display: flex;
+  align-items: center;
+  gap: var(--s4);
+}
+
+tbody td table {
+  margin: 0;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+
+tbody td table thead th {
+  background: none;
+}
+
+/* A table inside a card gets room to breathe; the card scrolls if the window is narrower. */
+.card table {
+  min-width: 42rem;
+}
+
+/* …but a table nested inside a cell takes the width it is given. */
+.card table table {
+  min-width: 0;
+}
+
+/* ── links and buttons ─────────────────────────────────────────────────── */
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+a:hover {
+  color: var(--accent-deep);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
 
 button {
-  font: inherit; cursor: pointer; border: 1px solid var(--line);
-  background: #fff; border-radius: .375rem; padding: .4rem .75rem;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--ink);
+  border-radius: var(--r-md);
+  padding: var(--s2) var(--s4);
 }
-button.link { border: none; background: none; color: var(--accent); padding: 0; text-decoration: underline; }
 
-table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid var(--line); border-radius: .5rem; }
-th, td { text-align: left; padding: .7rem .85rem; border-bottom: 1px solid var(--line); font-size: .92rem; }
-th { font-weight: 600; color: var(--muted); font-size: .8rem; text-transform: uppercase; letter-spacing: .03em; }
-tr:last-child td { border-bottom: none; }
-td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+button:hover:not(:disabled) {
+  border-color: var(--ink-3);
+  background: var(--surface-sunk);
+}
 
-.empty { color: var(--muted); padding: 2.5rem 0; text-align: center; }
-.error { color: var(--warn); padding: .75rem 0; }
-.tag { font-size: .78rem; color: var(--muted); }
-.tag.overdue { color: var(--warn); font-weight: 600; }
+button:active:not(:disabled) {
+  background: var(--line);
+}
 
-.signin { max-width: 22rem; margin: 6rem auto; text-align: center; }
-.signin button { background: var(--accent); color: #fff; border-color: var(--accent); padding: .55rem 1.1rem; }
+/*
+ * Disabled is its own appearance, not a faded version of the enabled one.
+ *
+ * A half-transparent green button reads as "working on it" — the one meaning it must not
+ * have while it is refusing to be pressed.
+ */
+button:disabled {
+  background: var(--surface-sunk);
+  border-color: var(--line);
+  color: var(--ink-3);
+  cursor: not-allowed;
+}
 
-/* The reports list: a link and its address, because the address is the thing worth having. */
-ul.pages { list-style: none; padding: 0; margin: 0; }
+/* The primary action: one per screen, where something is actually being committed to. */
+button[type='submit'],
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+button[type='submit']:hover:not(:disabled),
+button.primary:hover:not(:disabled) {
+  background: var(--accent-deep);
+  border-color: var(--accent-deep);
+}
+
+/* Stated again for the primary, which is defined after the shared disabled rule and would
+   otherwise keep its green while refusing to be pressed. */
+button[type='submit']:disabled,
+button.primary:disabled {
+  background: var(--surface-sunk);
+  border-color: var(--line);
+  color: var(--ink-3);
+}
+
+/* A button that is really a link — expanding a row, opening a file. */
+button.link {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--accent);
+  font-weight: 500;
+  border-radius: var(--r-sm);
+}
+
+button.link:hover:not(:disabled) {
+  background: none;
+  color: var(--accent-deep);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* ── status ────────────────────────────────────────────────────────────── */
+
+/*
+ * Quiet by default, coloured only when something is actually wrong. A screen where every
+ * status is a coloured badge is a screen where none of them means anything.
+ */
+.tag {
+  display: inline-block;
+  padding: 3px var(--s2);
+  border-radius: 999px;
+  background: var(--surface-sunk);
+  box-shadow: inset 0 0 0 1px var(--line);
+  color: var(--ink-2);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.tag.overdue {
+  background: var(--alert-wash);
+  box-shadow: inset 0 0 0 1px rgb(154 52 18 / 18%);
+  color: var(--alert);
+}
+
+/* Inline asides borrow the muted type rather than the pill. */
+p.tag,
+.signin .tag {
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  color: var(--ink-3);
+  font-size: 13px;
+  font-weight: 400;
+}
+
+/* ── forms ─────────────────────────────────────────────────────────────── */
+
+input,
+textarea,
+select {
+  font: inherit;
+  font-size: 14px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  padding: var(--s2) var(--s3);
+  width: 100%;
+  max-width: 34rem;
+}
+
+textarea {
+  /* Without this a textarea inherits a monospace stack from the user agent, and every
+     message a client types looks like a terminal. */
+  font-family: inherit;
+  line-height: 1.55;
+  resize: vertical;
+}
+
+input:hover,
+textarea:hover,
+select:hover {
+  border-color: var(--ink-3);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--ink-3);
+}
+
+select {
+  max-width: 22rem;
+}
+
+form p {
+  margin: 0 0 var(--s3);
+}
+
+/*
+ * Asking a question, as a composition rather than three controls on the page.
+ *
+ * It sits on its own surface because it is the one thing on this screen a client *does*,
+ * and the list beneath it is what they read.
+ */
+form.ask {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s4);
+  max-width: 40rem;
+  margin: 0 0 var(--s6);
+  padding: var(--s5);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+}
+
+form.ask label {
+  display: block;
+  width: 100%;
+}
+
+form.ask label > span {
+  display: block;
+  margin-bottom: var(--s1);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-2);
+}
+
+form.ask input,
+form.ask textarea,
+form.ask select {
+  max-width: none;
+}
+
+form.ask .error {
+  width: 100%;
+  padding: var(--s3) var(--s4);
+  text-align: left;
+}
+
+/* ── loading, empty, error ─────────────────────────────────────────────── */
+
+/*
+ * The unhappy paths, designed rather than defaulted. Most screens here are empty most of
+ * the time — for a new client, all of them are — so these carry as much of the design as
+ * the full tables do.
+ */
+.empty,
+.error {
+  margin: 0;
+  padding: var(--s7) var(--s5);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  text-align: center;
+  font-size: 14px;
+  color: var(--ink-2);
+}
+
+.error {
+  border-color: rgb(154 52 18 / 25%);
+  background: var(--alert-wash);
+  color: var(--alert);
+}
+
+/* Inside a section, an empty state is a statement rather than a whole screen. */
+.shell section > .empty {
+  padding: var(--s5);
+  text-align: left;
+}
+
+/* ── sign in ───────────────────────────────────────────────────────────── */
+
+/*
+ * Four elements and a lot of quiet. It is the first thing a client sees of us, and there
+ * is nothing to fill it with — no fields, no sign-up, no reset — so the restraint is the
+ * design rather than a gap in it.
+ */
+.signin {
+  min-height: 76vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s2);
+  padding: var(--s5);
+  text-align: center;
+}
+
+.signin h1 {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.signin button {
+  margin-top: var(--s4);
+  padding: var(--s3) var(--s6);
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.signin button:hover:not(:disabled) {
+  background: var(--accent-deep);
+  border-color: var(--accent-deep);
+}
+
+.signin .error {
+  max-width: 32rem;
+  padding: var(--s3) var(--s4);
+}
+
+/* ── the front page ────────────────────────────────────────────────────── */
+
+/*
+ * The one screen allowed a large element. Everything else is 14–15px, so the greeting
+ * carries the hierarchy by itself: squint at this page and the welcome should arrive
+ * first and the sections second.
+ */
+.greeting {
+  padding: var(--s7) 0 var(--s6);
+}
+
+.shell section.greeting > h2 {
+  margin: 0;
+  font-size: 34px;
+  line-height: 1.15;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+}
+
+.greeting .welcome {
+  margin: var(--s3) 0 0;
+  max-width: 58ch;
+  font-size: 17px;
+  line-height: 1.6;
+  color: var(--ink-2);
+}
+
+/* Rows of things to act on, and of things that happened. */
+ul.waiting,
+ul.pages {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+}
+
+ul.waiting li,
 ul.pages li {
-  display: flex; align-items: baseline; gap: .75rem;
-  padding: .7rem 0; border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2) var(--s3);
+  flex-wrap: wrap;
+  padding: var(--s4);
+  border-bottom: 1px solid var(--line);
+  font-size: 14px;
+  color: var(--ink-2);
 }
-ul.pages a { color: var(--accent); font-weight: 500; }
 
-/* A thread: two voices, told apart by where the line sits rather than by colour alone. */
-.thread { margin: .75rem 0 1.25rem; padding-left: .75rem; border-left: 2px solid var(--line); }
-.thread .msg { margin: 0 0 .9rem; }
-.thread .msg.mine { padding-left: 1.5rem; }
-.thread .msg .body { margin: .15rem 0 0; white-space: pre-wrap; }
-.thread textarea { width: 100%; }
+ul.waiting li:last-child,
+ul.pages li:last-child {
+  border-bottom: 0;
+}
 
-/* The front page. Sections rather than tables: nothing here is a list of records. */
-.greeting h2 { margin: 0 0 .25rem; font-size: 1.35rem; }
-.greeting .welcome { margin: 0 0 .5rem; color: var(--muted); max-width: 42rem; }
-.shell section { margin-bottom: 1.75rem; }
-.shell section h3 { font-size: .95rem; margin: 0 0 .5rem; }
-ul.waiting { list-style: none; padding: 0; margin: 0; }
-ul.waiting li { padding: .55rem 0; border-bottom: 1px solid var(--line); }
+ul.waiting li:hover,
+ul.pages li:hover {
+  background: var(--surface-sunk);
+}
 
-/* Their mark beside ours, capped so a wide logo cannot push the navigation off the row. */
-img.client-logo {
-  height: 1.5rem; max-width: 8rem; object-fit: contain;
-  vertical-align: middle; margin-right: .6rem;
+ul.pages a {
+  font-size: 15px;
+}
+
+/* What the row is about, after what it is. Secondary by colour rather than by punctuation:
+   an em dash separating two halves of a line becomes a bullet when the line stacks. */
+ul.waiting .detail {
+  color: var(--ink-2);
+}
+
+ul.pages .tag {
+  margin-left: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+/* ── a conversation ────────────────────────────────────────────────────── */
+
+/*
+ * Two voices in one column, told apart by indentation and by which surface they sit on —
+ * not by facing bubbles, which would put more visual noise on a client's own words than
+ * they deserve.
+ */
+.thread {
+  margin: 0;
+  padding: var(--s4) 0 var(--s2) var(--s4);
+  border-left: 2px solid var(--line);
+}
+
+.thread .msg {
+  margin: 0 0 var(--s4);
+  max-width: 46rem;
+}
+
+.thread .msg.mine {
+  padding-left: var(--s5);
+}
+
+.thread .msg .tag {
+  padding: 0;
+  background: none;
+  box-shadow: none;
+  color: var(--ink-3);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.thread .msg .body {
+  margin: var(--s1) 0 0;
+  padding: var(--s3) var(--s4);
+  background: var(--surface-sunk);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  white-space: pre-wrap;
+  font-size: 14px;
+  color: var(--ink);
+}
+
+.thread .msg.mine .body {
+  background: var(--accent-wash);
+  border-color: rgb(31 95 79 / 14%);
+}
+
+.thread form {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s2);
+  max-width: 46rem;
+}
+
+.thread textarea {
+  max-width: none;
+}
+
+/* ── small screens ─────────────────────────────────────────────────────── */
+
+/*
+ * Phones.
+ *
+ * Two things break first and both are the same mistake — a row that was only ever going to
+ * be one row. The account line pushes its own way out, and every "link — detail" row folds
+ * into two ragged columns. Both become stacks.
+ */
+@media (max-width: 560px) {
+  nav.tabs a {
+    padding: var(--s1) var(--s2);
+    font-size: 13px;
+  }
+
+  ul.waiting li,
+  ul.pages li {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--s1);
+  }
+
+  ul.pages .tag {
+    margin-left: 0;
+  }
+
+  .greeting .welcome {
+    font-size: 16px;
+  }
+}
+
+@media (max-width: 720px) {
+  .shell,
+  header.bar {
+    padding-left: var(--s4);
+    padding-right: var(--s4);
+  }
+
+  .greeting {
+    padding-top: var(--s6);
+  }
+
+  .shell section.greeting > h2 {
+    font-size: 27px;
+  }
+
+  .page-head h2 {
+    font-size: 22px;
+  }
+
+  .card table {
+    min-width: 36rem;
+  }
 }

@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import type { Actor } from '@platform/contracts';
+import { AuditService } from '../audit/audit.service.js';
 import { users } from '../db/core.schema.js';
 import { resetDb, seedUser, testDb } from '../../test/db.js';
 import { UserService } from './user.service.js';
 
-const service = new UserService(testDb);
+const service = new UserService(testDb, new AuditService(testDb));
 
 let bossId: string;
 let boss: Actor;

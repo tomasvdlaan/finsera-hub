@@ -139,6 +139,9 @@ export class TimelineService {
         actor: r.actorId
           ? { id: r.actorId, displayName: actorNames.get(r.actorId) ?? 'Unknown' }
           : null,
+        // Only when there is no internal actor to name. An event carrying both would be
+        // one describing two different people, and the id is the one that can be checked.
+        actorLabel: r.actorId ? null : labelOf(r.payload),
         detail: (r.payload ?? {}) as Record<string, unknown>,
         createdAt: r.createdAt.toISOString(),
       }));
@@ -152,4 +155,17 @@ export class TimelineService {
       .where(inArray(users.id, ids));
     return new Map(rows.map((u) => [u.id, u.displayName]));
   }
+}
+
+/**
+ * The name an event gives for somebody the platform has no user row for.
+ *
+ * Read from the payload rather than from a column, because it is display text and not an
+ * identity: nothing joins on it, nothing checks a permission with it, and a module that
+ * publishes one is naming an outsider — a client signing in, a client accepting a quote.
+ * Anything that is not a plain, sensible string is treated as absent.
+ */
+function labelOf(payload: unknown): string | null {
+  const label = (payload as { actorLabel?: unknown } | null)?.actorLabel;
+  return typeof label === 'string' && label.length > 0 && label.length <= 200 ? label : null;
 }

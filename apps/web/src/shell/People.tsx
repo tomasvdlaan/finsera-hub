@@ -29,7 +29,16 @@ interface Person {
   weeklyHours: number | null;
   /** Absent entirely — not null — when the viewer is not an admin. */
   costRateCents?: number | null;
+  departmentIds: string[];
   createdAt: string;
+}
+
+export interface Department {
+  id: string;
+  key: string;
+  label: string;
+  /** Addressed by name from the insight rules, so it cannot be deleted — only emptied. */
+  isStandard: boolean;
 }
 
 /**
@@ -48,6 +57,7 @@ interface Person {
 export function People() {
   useDocumentTitle('People');
   const [people, setPeople] = useState<Person[]>();
+  const [departments, setDepartments] = useState<Department[]>([]);
   const [error, setError] = useState<string>();
   const [editing, setEditing] = useState<string | null>(null);
 
@@ -56,6 +66,10 @@ export function People() {
       .get<Person[]>('/core/people')
       .then(setPeople)
       .catch((e: Error) => setError(e.message));
+    api
+      .get<Department[]>('/core/departments')
+      .then(setDepartments)
+      .catch(() => setDepartments([]));
   }, []);
 
   useEffect(load, [load]);
@@ -83,6 +97,7 @@ export function People() {
               <tr>
                 <th scope="col">Name</th>
                 <th scope="col">Role</th>
+                <th scope="col">Departments</th>
                 <th scope="col">Title</th>
                 <th scope="col" data-align="num">Hours/week</th>
                 {seesMoney && <th scope="col" data-align="num">Cost rate</th>}
@@ -115,6 +130,21 @@ export function People() {
                       <option value="member">Member</option>
                       <option value="admin">Admin</option>
                     </select>
+                  </td>
+                  <td>
+                    {/*
+                      What reaches this person's inbox, not what they may open.
+
+                      Role and department sit side by side because they are constantly
+                      confused: the select to the left decides what somebody can do, and these
+                      decide what gets sent to them. Nothing here grants or removes access.
+                    */}
+                    <DepartmentPicker
+                      person={p}
+                      departments={departments}
+                      onSaved={load}
+                      onError={setError}
+                    />
                   </td>
                   <td>{p.jobTitle ?? <span className="muted">—</span>}</td>
                   <td data-align="num">
@@ -172,6 +202,8 @@ export function People() {
 
         {editing && <PersonForm person={people.find((p) => p.id === editing)!} seesMoney={seesMoney} onSaved={() => { setEditing(null); load(); }} />}
       </Card>
+
+      <Departments departments={departments} onChanged={load} onError={setError} />
 
       <Card span={12} title="Why there is no “add person” button">
         <p className="card-sub">
@@ -254,5 +286,159 @@ function PersonForm({
         Save
       </button>
     </form>
+  );
+}
+
+/**
+ * Which departments somebody is in.
+ *
+ * Checkboxes rather than a multi-select, because the whole set has to be readable at a glance
+ * on a row: a collapsed control that says "2 selected" makes you open every row to answer
+ * "who is in Finance", which is the question this column exists for.
+ *
+ * The set is sent whole. Add/remove calls would need this to know which of the two happened,
+ * and it does not — it knows what the row should say when it is done.
+ */
+function DepartmentPicker({
+  person,
+  departments,
+  onSaved,
+  onError,
+}: {
+  person: Person;
+  departments: Department[];
+  onSaved: () => void;
+  onError: (message: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const held = new Set(person.departmentIds);
+
+  const toggle = (id: string) => {
+    const next = held.has(id)
+      ? person.departmentIds.filter((d) => d !== id)
+      : [...person.departmentIds, id];
+    setBusy(true);
+    void api
+      .put(`/core/people/${person.id}/departments`, { departmentIds: next })
+      .then(onSaved)
+      .catch((e: Error) => onError(e.message))
+      .finally(() => setBusy(false));
+  };
+
+  const labels = departments.filter((d) => held.has(d.id)).map((d) => d.label);
+
+  return (
+    <div className="dept-cell">
+      <button
+        type="button"
+        className="dept-summary"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+      >
+        {labels.length === 0 ? (
+          <span className="muted">none</span>
+        ) : (
+          labels.map((l) => (
+            <span key={l} className="badge">
+              {l}
+            </span>
+          ))
+        )}
+      </button>
+      {open && (
+        <div className="dept-options" role="group" aria-label={`Departments for ${person.displayName}`}>
+          {departments.map((d) => (
+            <label key={d.id} className="dept-option">
+              <input
+                type="checkbox"
+                checked={held.has(d.id)}
+                disabled={busy}
+                onChange={() => toggle(d.id)}
+              />
+              <span>{d.label}</span>
+            </label>
+          ))}
+          {departments.length === 0 && <span className="muted">No departments yet.</span>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The departments themselves.
+ *
+ * Renaming is free; deleting a standard one is refused by the server because the insight rules
+ * address it by name, and that refusal is explained here rather than only in an error — a
+ * disabled button with no reason is the kind of thing people work around by trying twice.
+ */
+function Departments({
+  departments,
+  onChanged,
+  onError,
+}: {
+  departments: Department[];
+  onChanged: () => void;
+  onError: (message: string) => void;
+}) {
+  const [label, setLabel] = useState('');
+
+  const call = (p: Promise<unknown>) =>
+    p.then(onChanged).catch((e: Error) => onError(e.message));
+
+  return (
+    <Card span={12} title="Departments">
+      <p className="card-sub">
+        Departments decide who work is <em>sent</em> to — an overdue invoice goes to Finance, an
+        unanswered quote to Sales, a card to whoever holds it. They grant nothing: what somebody
+        may open is still their role. Anything addressed to a department nobody is in reaches the
+        administrators, so nothing goes unseen.
+      </p>
+
+      <ul className="dept-list">
+        {departments.map((d) => (
+          <li key={d.id}>
+            <input
+              aria-label={`Name of ${d.label}`}
+              defaultValue={d.label}
+              onBlur={(e) => {
+                const next = e.target.value.trim();
+                if (next && next !== d.label) void call(api.patch(`/core/departments/${d.id}`, { label: next }));
+              }}
+            />
+            <code className="muted">{d.key}</code>
+            {d.isStandard ? (
+              <span className="muted" title="The insight rules address this department by name">
+                built in
+              </span>
+            ) : (
+              <Act variant="danger" run={() => api.del(`/core/departments/${d.id}`)} onDone={onChanged}>
+                Remove
+              </Act>
+            )}
+          </li>
+        ))}
+      </ul>
+
+      <form
+        className="row"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!label.trim()) return;
+          void call(api.post('/core/departments', { label: label.trim() })).then(() => setLabel(''));
+        }}
+      >
+        <input
+          value={label}
+          placeholder="Add a department"
+          aria-label="New department"
+          onChange={(e) => setLabel(e.target.value)}
+        />
+        <button type="submit" className="act">
+          Add
+        </button>
+      </form>
+    </Card>
   );
 }

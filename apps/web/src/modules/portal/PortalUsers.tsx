@@ -2,6 +2,13 @@ import { useEffect, useState } from 'react';
 import { api } from '../../lib/api.js';
 import { Empty } from '../../shell/ui/primitives.js';
 
+interface InviteResult {
+  id?: string;
+  /** Null when Zitadel could not be reached or is not configured; `warning` says which. */
+  invite: { url: string } | null;
+  warning: string | null;
+}
+
 interface PortalUser {
   id: string;
   email: string;
@@ -85,9 +92,12 @@ function PortalLogo({ clientId }: { clientId: string }) {
 
 export function PortalUsers({
   clientId,
+  clientName,
   portalSlug,
 }: {
   clientId: string;
+  /** Named in the message that goes out, so it reads as ours rather than as a system mail. */
+  clientName: string;
   /** From the client row. Null means no portal address yet, and no invitations until there is. */
   portalSlug: string | null;
 }) {
@@ -95,6 +105,14 @@ export function PortalUsers({
   const [email, setEmail] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+  /*
+   * The link, held on screen and nowhere else.
+   *
+   * A registration code sets somebody's first password, so it is never stored, never
+   * re-fetched and gone on reload — if it is lost, a new one is issued, which is also the
+   * only honest thing to offer since issuing invalidates the last.
+   */
+  const [issued, setIssued] = useState<{ email: string; url: string } | null>(null);
 
   const load = () => {
     api
@@ -109,21 +127,43 @@ export function PortalUsers({
     e.preventDefault();
     setError(undefined);
     setBusy(true);
+    const address = email.trim();
     api
-      .post(`/portal-admin/clients/${clientId}/users`, { email: email.trim() })
-      .then(() => {
+      .post<InviteResult>(`/portal-admin/clients/${clientId}/users`, { email: address })
+      .then((result) => {
         setEmail('');
+        // The access exists either way. A missing link is a sentence about configuration,
+        // not a failed invitation, so it is a warning beside the row rather than an error
+        // that implies nothing happened.
+        if (result.invite) setIssued({ email: address, url: result.invite.url });
+        if (result.warning) setError(result.warning);
         load();
       })
       .catch((err: Error) => setError(err.message))
       .finally(() => setBusy(false));
   };
 
-  const revoke = (user: PortalUser) => {
+  /** A fresh link for somebody already invited — the old one stops working. */
+  const relink = (user: PortalUser) => {
     setError(undefined);
     setBusy(true);
     api
-      .post(`/portal-admin/users/${user.id}/revoke`, {})
+      .post<InviteResult>(`/portal-admin/users/${user.id}/invite-link`, {})
+      .then((result) => {
+        if (result.invite) setIssued({ email: user.email, url: result.invite.url });
+        if (result.warning) setError(result.warning);
+      })
+      .catch((err: Error) => setError(err.message))
+      .finally(() => setBusy(false));
+  };
+
+  // Revoking and restoring are the same gesture with a different verb, so they are the
+  // same function: the row already says which of the two is on offer.
+  const setAccess = (user: PortalUser, action: 'revoke' | 'reinstate') => {
+    setError(undefined);
+    setBusy(true);
+    api
+      .post(`/portal-admin/users/${user.id}/${action}`, {})
       .then(load)
       .catch((err: Error) => setError(err.message))
       .finally(() => setBusy(false));
@@ -155,6 +195,16 @@ export function PortalUsers({
 
       {error && <p className="error">{error}</p>}
 
+      {issued && portalSlug && (
+        <InviteMessage
+          email={issued.email}
+          url={issued.url}
+          clientName={clientName}
+          portalHost={portalHost(portalSlug)}
+          onDone={() => setIssued(null)}
+        />
+      )}
+
       <PortalLogo clientId={clientId} />
 
       {rows && rows.length > 0 && (
@@ -184,10 +234,26 @@ export function PortalUsers({
                 </td>
                 <td>{when(u.lastSeenAt)}</td>
                 <td>
-                  {!u.disabledAt && (
-                    <button disabled={busy} onClick={() => revoke(u)}>
-                      Revoke
+                  {u.disabledAt ? (
+                    // The only way back. Re-inviting the address cannot work — the row is
+                    // still here and the address is unique per client — so without this
+                    // button a revoked login is revoked for good.
+                    <button disabled={busy} onClick={() => setAccess(u, 'reinstate')}>
+                      Restore
                     </button>
+                  ) : (
+                    <>
+                      <button
+                        disabled={busy}
+                        title="Issues a new registration link. Any link sent earlier stops working."
+                        onClick={() => relink(u)}
+                      >
+                        {u.pending ? 'Link' : 'New link'}
+                      </button>
+                      <button disabled={busy} onClick={() => setAccess(u, 'revoke')}>
+                        Revoke
+                      </button>
+                    </>
                   )}
                 </td>
               </tr>
@@ -214,5 +280,100 @@ export function PortalUsers({
         </button>
       </form>
     </>
+  );
+}
+
+/**
+ * The link, and the message it goes in.
+ *
+ * Written in Dutch and in our own voice, because the whole reason the link comes back here
+ * rather than going out from Zitadel is that a client should receive a message from someone
+ * they have spoken to, at their own portal's address — not a system mail from an identity
+ * provider they have never heard of.
+ *
+ * Two copy buttons rather than one: the link alone is what somebody pastes into a message
+ * they are already writing, and the full text is for when they are not.
+ */
+function InviteMessage({
+  email,
+  url,
+  clientName,
+  portalHost,
+  onDone,
+}: {
+  email: string;
+  url: string;
+  clientName: string;
+  portalHost: string;
+  onDone: () => void;
+}) {
+  const [copied, setCopied] = useState<'link' | 'message' | null>(null);
+
+  const subject = `Toegang tot uw Finsera-portaal`;
+  const body = [
+    `Beste,`,
+    ``,
+    `Hierbij uw persoonlijke toegang tot het klantportaal van ${clientName}.`,
+    ``,
+    `Stel via onderstaande link uw wachtwoord in:`,
+    url,
+    ``,
+    `Daarna logt u in op ${portalHost} — daar vindt u uw projecten, offertes,`,
+    `facturen en gedeelde documenten.`,
+    ``,
+    `De link is persoonlijk en kan één keer worden gebruikt. Werkt hij niet meer,`,
+    `laat het ons weten; dan sturen wij een nieuwe.`,
+    ``,
+    `Met vriendelijke groet,`,
+    `Finsera`,
+  ].join('\n');
+
+  /*
+   * `navigator.clipboard` needs a secure context, which localhost is and a plain-http LAN
+   * address is not. The textarea below is the fallback that always works: it is selectable,
+   * so a failed copy leaves somebody able to select the text rather than stuck.
+   */
+  const copy = async (what: 'link' | 'message', text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(what);
+      setTimeout(() => setCopied(null), 2000);
+    } catch {
+      setCopied(null);
+    }
+  };
+
+  return (
+    <div className="invite-issued">
+      <div className="row">
+        <strong>Registratielink voor {email}</strong>
+        <button className="link-button" onClick={onDone}>
+          klaar
+        </button>
+      </div>
+      <p className="muted">
+        Deze link is eenmalig en wordt hier niet bewaard — sluit dit venster pas als de mail
+        verstuurd is. Een nieuwe link maken laat de vorige vervallen.
+      </p>
+
+      <div className="row">
+        <input readOnly value={url} aria-label="Registratielink" onFocus={(e) => e.target.select()} />
+        <button onClick={() => void copy('link', url)}>
+          {copied === 'link' ? 'Gekopieerd' : 'Kopieer link'}
+        </button>
+      </div>
+
+      <label className="field">
+        <span>Mail — onderwerp</span>
+        <input readOnly value={subject} onFocus={(e) => e.target.select()} />
+      </label>
+      <label className="field">
+        <span>Mail — bericht</span>
+        <textarea readOnly rows={14} value={body} onFocus={(e) => e.target.select()} />
+      </label>
+      <button onClick={() => void copy('message', `${subject}\n\n${body}`)}>
+        {copied === 'message' ? 'Gekopieerd' : 'Kopieer hele bericht'}
+      </button>
+    </div>
   );
 }

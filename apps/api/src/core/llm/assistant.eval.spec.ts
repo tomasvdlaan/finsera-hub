@@ -37,7 +37,7 @@ describe.skipIf(!LlmService.hasCredentials())('assistant evals [live]', () => {
 
     const registry = new RegistryService(testDb, manifests);
     const permissions = new PermissionService(testDb, manifests);
-    const audit = new AuditService();
+    const audit = new AuditService(testDb);
     const links = new LinkService(testDb, registry, permissions, audit, manifests);
     const bus = new EventBus(manifests);
     const crm = new CrmService(testDb, registry, permissions, audit, bus, links);

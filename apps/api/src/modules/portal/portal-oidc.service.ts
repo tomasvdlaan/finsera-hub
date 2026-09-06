@@ -204,6 +204,15 @@ export class PortalOidcService implements OnModuleInit {
     url.searchParams.set('nonce', nonce);
     url.searchParams.set('code_challenge', challenge);
     url.searchParams.set('code_challenge_method', 'S256');
+    /*
+     * In Dutch, because a client arriving from a Dutch report should not meet an English
+     * login screen — everything either side of this redirect is already in their language.
+     *
+     * Asked per request rather than configured on the instance: restricting the instance's
+     * languages is Admin API only and instance-wide, so it cannot say that the portal is
+     * Dutch while leaving anything else free to differ.
+     */
+    url.searchParams.set('ui_locales', 'nl');
 
     return { authorizeUrl: url.toString(), stateCookie };
   }

@@ -45,6 +45,29 @@ export const insightRows = insights.table(
     subjectId: uuid('subject_id'),
     subjectType: text('subject_type'),
 
+    /**
+     * Whose business this is. Null means everybody's.
+     *
+     * Most insights are about the company — an invoice nobody paid, a quote nobody
+     * answered — and every colleague seeing those is the point of them. Some are about one
+     * person: a clock left running is a fact about somebody's day, and the rest of the team
+     * reading it on their own dashboard is a small surveillance nobody asked for. So a rule
+     * may name a person, and then only that person and whoever may see everyone's sees it.
+     */
+    personId: uuid('person_id'),
+
+    /**
+     * The department this is addressed to — `core.departments.key`, not an id.
+     *
+     * A key rather than a foreign key because the rules address it from code: `finance` is
+     * written in `rules.ts`, and an insight has to keep saying who it is for even if somebody
+     * deletes the department. When nothing holds the key the admin fallback catches it, which
+     * is the whole reason routing is allowed to be wrong without being dangerous.
+     *
+     * Null means nobody in particular, which — like an unassigned card — means the admins.
+     */
+    audience: text('audience'),
+
     severity: text('severity').notNull().default('attention'),
     status: text('status').notNull().default('open'),
 
@@ -65,6 +88,8 @@ export const insightRows = insights.table(
     uniqueIndex('insights_key_unique').on(t.key),
     index('insights_status_idx').on(t.status),
     index('insights_subject_idx').on(t.subjectId),
+    index('insights_person_idx').on(t.personId),
+    index('insights_audience_idx').on(t.audience),
     check('insights_status_valid', sql`${t.status} IN ('open','dismissed','resolved')`),
     check('insights_severity_valid', sql`${t.severity} IN ('info','attention','urgent')`),
     // Dismissed implies a dismissal timestamp — but not the converse. An insight that was

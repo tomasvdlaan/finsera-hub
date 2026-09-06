@@ -4,6 +4,7 @@ import { Card } from '../../shell/ui/card.js';
 import { Badge } from '../../shell/ui/primitives.js';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api.js';
+import { useShared } from '../../lib/useShared.js';
 
 export interface Insight {
   id: string;
@@ -16,6 +17,10 @@ export interface Insight {
   detail: string | null;
   facts: Record<string, unknown>;
   magnitude: number;
+  /** Set when the item is one person's — theirs by name rather than by department. */
+  personId: string | null;
+  /** The department key it was addressed to, when it belongs to one. */
+  audience: string | null;
   firstSeenAt: string;
 }
 
@@ -59,6 +64,17 @@ const SEVERITY: Record<Insight['severity'], { edge?: 'danger' | 'warning'; tone:
   info: { tone: 'neutral' },
 };
 
+/**
+ * Department labels, for saying why an item arrived.
+ *
+ * `useShared` collapses this to one request however many rows ask, and the key is shown until
+ * the labels land — a row must never render blank waiting for a list of five words.
+ */
+function useDepartmentLabel(): (key: string) => string {
+  const { data } = useShared<Array<{ key: string; label: string }>>('/core/departments');
+  return (key: string) => data?.find((d) => d.key === key)?.label ?? key;
+}
+
 export function InsightRow({
   insight,
   onDismiss,
@@ -70,6 +86,7 @@ export function InsightRow({
 }) {
   const path = subjectPath(insight);
   const sev = SEVERITY[insight.severity];
+  const departmentLabel = useDepartmentLabel();
   return (
     <li className="insight" data-edge={sev.edge}>
       <div>
@@ -77,6 +94,16 @@ export function InsightRow({
         {insight.detail && <div className="muted">{insight.detail}</div>}
       </div>
       <div className="insight-actions">
+        {/*
+          Why this reached you.
+
+          Without it the routing is invisible and the page is back to being a list somebody
+          has to guess their way through — and an item that arrived because nobody staffs
+          Finance looks identical to one addressed to you personally.
+        */}
+        {insight.audience && !insight.personId && (
+          <Badge>{departmentLabel(insight.audience)}</Badge>
+        )}
         <Badge tone={sev.tone}>{insight.severity}</Badge>
         {onDismiss && (
           <button className="link-button" onClick={onDismiss}>

@@ -1,9 +1,20 @@
-import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+} from '@nestjs/common';
 import type { Actor } from '@platform/contracts';
 import { CurrentActor } from '../../core/auth/current-actor.decorator.js';
 import { pageSecretsAvailable } from './page-secrets.js';
 import { PortalPagesService, type PageInput } from './portal-pages.service.js';
 import { PortalUsersService } from './portal-users.service.js';
+import { ZitadelAdminService } from './zitadel-admin.service.js';
 
 /**
  * Giving a client access, and taking it away.
@@ -22,6 +33,7 @@ export class PortalAdminController {
   constructor(
     private readonly users: PortalUsersService,
     private readonly pages: PortalPagesService,
+    private readonly zitadel: ZitadelAdminService,
   ) {}
 
   @Get('clients/:clientId/users')
@@ -30,28 +42,77 @@ export class PortalAdminController {
   }
 
   /**
-   * Invite by email. The subject binds itself on first sign-in.
+   * Invite by email, and hand back a link to send them.
    *
-   * No email is sent from here — the client needs a Zitadel account either way, and a
-   * second invitation mail from us would be a second thing to keep true. What this creates
-   * is the permission; telling them about it is a conversation.
+   * The permission is written first and the Zitadel account second, in that order and not
+   * the other way round. The invitation is the thing this platform owns and the thing that
+   * survives: if the account cannot be created — no credential, Zitadel unreachable — the
+   * row is still there, still claimable by a verified address the old way, and the response
+   * says what did not happen instead of pretending the whole gesture failed.
+   *
+   * Still no mail from us. The link goes back to the screen, and a person sends it.
    */
   @Post('clients/:clientId/users')
-  invite(
+  async invite(
     @CurrentActor() actor: Actor,
     @Param('clientId', ParseUUIDPipe) clientId: string,
     @Body() body: { email?: string; displayName?: string },
   ) {
-    return this.users.invite(actor, {
-      clientId,
-      email: (body?.email ?? '').trim(),
-      displayName: body?.displayName?.trim() || undefined,
-    });
+    const email = (body?.email ?? '').trim();
+    const displayName = body?.displayName?.trim() || undefined;
+    const created = await this.users.invite(actor, { clientId, email, displayName });
+    return { ...created, ...(await this.provision(actor, created.id, email, displayName)) };
+  }
+
+  /**
+   * A fresh link for an invitation that already exists.
+   *
+   * Zitadel invalidates the previous code when it issues a new one, so this is "the link is
+   * lost or expired", never "send me a copy" — the screen says as much before it is pressed.
+   */
+  @Post('users/:id/invite-link')
+  async inviteLink(@CurrentActor() actor: Actor, @Param('id', ParseUUIDPipe) id: string) {
+    const row = await this.users.byId(actor, id);
+    if (row.disabledAt) {
+      throw new BadRequestException('That access was revoked — restore it before sending a link');
+    }
+    return this.provision(actor, row.id, row.email, row.displayName ?? undefined);
+  }
+
+  /**
+   * The Zitadel half: an account, the portal role, and a single-use link.
+   *
+   * Returns a `warning` rather than throwing, because everything the caller asked for that
+   * this platform controls has already happened. A colleague reading "invited, but no link:
+   * ZITADEL_ADMIN_TOKEN is not set" can act on it; a 503 over a completed invitation reads
+   * as "nothing worked" and invites them to press the button again.
+   */
+  private async provision(
+    actor: Actor,
+    portalUserId: string,
+    email: string,
+    displayName?: string,
+  ): Promise<{ invite: { url: string } | null; warning: string | null }> {
+    if (!this.zitadel.configured) {
+      return { invite: null, warning: this.zitadel.unconfiguredReason };
+    }
+    try {
+      const invite = await this.zitadel.inviteToPortal({ email, displayName });
+      await this.users.attachSubject(actor, portalUserId, invite.zitadelUserId);
+      return { invite: { url: invite.url }, warning: null };
+    } catch (err) {
+      return { invite: null, warning: (err as Error).message };
+    }
   }
 
   @Post('users/:id/revoke')
   revoke(@CurrentActor() actor: Actor, @Param('id', ParseUUIDPipe) id: string) {
     return this.users.revoke(actor, id);
+  }
+
+  @Post('users/:id/reinstate')
+  reinstate(@CurrentActor() actor: Actor, @Param('id', ParseUUIDPipe) id: string) {
+    return this.users.reinstate(actor, id);
   }
 
   // ── custom content (Phase 8, step 3) ──
