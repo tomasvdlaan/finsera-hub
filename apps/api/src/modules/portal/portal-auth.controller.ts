@@ -169,8 +169,8 @@ export class PortalAuthController {
       binding: null,
     });
 
-    const authRequestId = await this.oidc.authRequestIdFor(authorizeUrl);
-    if (!authRequestId) {
+    const request = await this.oidc.authRequestIdFor(authorizeUrl);
+    if (!request) {
       /*
        * Better a working link to the wrong place than a broken one.
        *
@@ -183,7 +183,7 @@ export class PortalAuthController {
     }
 
     setLoginCookie(req, res, stateCookie, LOGIN_STATE_MS);
-    res.redirect(302, this.zitadel.zitadelInviteUrl(userId, code, authRequestId));
+    res.redirect(302, this.zitadel.zitadelInviteUrl(userId, code, request));
   }
 
   /** Step 3, auth host only: Zitadel is back. */

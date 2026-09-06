@@ -1,5 +1,6 @@
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { PortalHostService } from './portal-host.service.js';
+import type { AuthRequestRef } from './portal-oidc.service.js';
 import { PORTAL_ROLE } from '../../core/auth/roles.js';
 
 /**
@@ -225,17 +226,30 @@ export class ZitadelAdminService {
    * `authRequestID` is appended rather than templated: it is not part of the address, it is
    * what turns the page from a dead end into a step in a login.
    */
-  zitadelInviteUrl(userId: string, code: string, authRequestId: string | null): string {
+  zitadelInviteUrl(userId: string, code: string, request: AuthRequestRef | null): string {
+    /*
+     * The v2 page, because that is what this Zitadel answers with.
+     *
+     * The default used to be v1's `/ui/login/user/invite`, which still returns 200 — both
+     * UIs are served — but the authorize endpoint hands out `V2_…` request ids destined for
+     * `/ui/v2/login`, and a v2 id posted into a v1 page is not a request that page can
+     * finish. Two live URLs, only one of which is part of the same conversation.
+     *
+     * `invite=true` is what makes it the activation page rather than an ordinary
+     * verification. Verified against the instance: it answers 200 and carries the request
+     * through, and its title is "Verify user".
+     */
     const template =
       process.env.ZITADEL_INVITE_URL ||
-      `${this.issuer}/ui/login/user/invite?userID={userId}&code={code}`;
+      `${this.issuer}/ui/v2/login/verify?userId={userId}&code={code}&invite=true`;
     const url = new URL(
       template
         .replace('{userId}', encodeURIComponent(userId))
         .replace('{code}', encodeURIComponent(code))
         .replace('{orgId}', encodeURIComponent(this.organisationId)),
     );
-    if (authRequestId) url.searchParams.set('authRequestID', authRequestId);
+    // Named by whatever Zitadel called it when it made the request — see `authRequestIdFor`.
+    if (request) url.searchParams.set(request.param, request.value);
     return url.toString();
   }
 

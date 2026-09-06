@@ -154,19 +154,32 @@ describe('ZitadelAdminService', () => {
     process.env.ZITADEL_INVITE_URL = 'https://id.finsera.nl/invite?u={userId}&c={code}';
     zitadel = new ZitadelAdminService({ authHost: 'portal.finsera.example' } as PortalHostService);
 
-    expect(zitadel.zitadelInviteUrl('zit-1', 'the-code', 'req-2')).toBe(
-      'https://id.finsera.nl/invite?u=zit-1&c=the-code&authRequestID=req-2',
-    );
+    expect(
+      zitadel.zitadelInviteUrl('zit-1', 'the-code', { param: 'authRequest', value: 'V2_9' }),
+    ).toBe('https://id.finsera.nl/invite?u=zit-1&c=the-code&authRequest=V2_9');
   });
 
-  it('appends the auth request without disturbing the rest of the address', () => {
-    // The id is not part of Zitadel's URL shape; it is what turns that page from a dead end
-    // into a step in a login, so it is appended rather than templated in.
-    expect(zitadel.zitadelInviteUrl('zit-1', 'the-code', 'req-2')).toBe(
-      'https://finsera.example/ui/login/user/invite?userID=zit-1&code=the-code&authRequestID=req-2',
+  it('appends the auth request under the name Zitadel gave it', () => {
+    /*
+     * The name travels with the value, and that is the whole point.
+     *
+     * v2 calls it `authRequest`, v1 calls it `authRequestID`, and which one an instance uses
+     * is Zitadel's choice made when it answers the authorize call. Assuming either name is
+     * how the first attempt at this shipped a link with no request on it at all — a silent
+     * fallback, and a client back on the console.
+     */
+    expect(
+      zitadel.zitadelInviteUrl('zit-1', 'the-code', { param: 'authRequest', value: 'V2_9' }),
+    ).toBe(
+      'https://finsera.example/ui/v2/login/verify?userId=zit-1&code=the-code&invite=true&authRequest=V2_9',
+    );
+    expect(
+      zitadel.zitadelInviteUrl('zit-1', 'the-code', { param: 'authRequestID', value: 'r1' }),
+    ).toBe(
+      'https://finsera.example/ui/v2/login/verify?userId=zit-1&code=the-code&invite=true&authRequestID=r1',
     );
     expect(zitadel.zitadelInviteUrl('zit-1', 'the-code', null)).toBe(
-      'https://finsera.example/ui/login/user/invite?userID=zit-1&code=the-code',
+      'https://finsera.example/ui/v2/login/verify?userId=zit-1&code=the-code&invite=true',
     );
   });
 
@@ -178,7 +191,7 @@ describe('ZitadelAdminService', () => {
     try {
       const invite = await zitadel.inviteToPortal({ email: 'anna@dochorse.nl' });
       expect(invite.url).toBe(
-        'https://finsera.example/ui/login/user/invite?userID=zit-1&code=the-code',
+        'https://finsera.example/ui/v2/login/verify?userId=zit-1&code=the-code&invite=true',
       );
     } finally {
       delete process.env.PORTAL_INVITE_VIA_HUB;

@@ -3,6 +3,12 @@ import { Injectable, Logger, type OnModuleInit, UnauthorizedException } from '@n
 import { SignJWT, createRemoteJWKSet, jwtVerify } from 'jose';
 
 /** How long a login may take between "Inloggen" and the callback. */
+/** The auth request Zitadel just made, and the query parameter it calls it by. */
+export interface AuthRequestRef {
+  param: 'authRequest' | 'authRequestID';
+  value: string;
+}
+
 export const LOGIN_STATE_MS = 10 * 60 * 1000;
 
 /** What `beginLogin` hands the controller: where to send the browser, and what to remember. */
@@ -183,7 +189,7 @@ export class PortalOidcService implements OnModuleInit {
    * that still lets the client create their account, which is worth more than being right
    * about where they land.
    */
-  async authRequestIdFor(authorizeUrl: string): Promise<string | null> {
+  async authRequestIdFor(authorizeUrl: string): Promise<AuthRequestRef | null> {
     try {
       const res = await fetch(authorizeUrl, {
         redirect: 'manual',
@@ -191,8 +197,24 @@ export class PortalOidcService implements OnModuleInit {
       });
       const location = res.headers.get('location');
       if (!location) return null;
-      // Relative on Zitadel v1 (`/ui/login/login?authRequestID=…`), so it needs a base.
-      return new URL(location, this.issuer).searchParams.get('authRequestID');
+      // Relative on some versions, absolute on others, so it needs a base either way.
+      const params = new URL(location, this.issuer).searchParams;
+
+      /*
+       * The two login UIs name this differently, and the name travels with the value.
+       *
+       * v2 answers `/ui/v2/login/login?authRequest=V2_…` and v1 answers
+       * `/ui/login/login?authRequestID=…`. Which one an instance uses is not ours to choose
+       * — Zitadel decides when it answers the authorize call — so the name is discovered
+       * here and carried to whoever builds the next URL, rather than assumed at either end.
+       * Assuming `authRequestID` is exactly how the first attempt at this silently fell back
+       * to a link with no request on it at all.
+       */
+      for (const param of ['authRequest', 'authRequestID'] as const) {
+        const value = params.get(param);
+        if (value) return { param, value };
+      }
+      return null;
     } catch (err) {
       this.logger.warn(`Could not mint an auth request: ${(err as Error).message}`);
       return null;
