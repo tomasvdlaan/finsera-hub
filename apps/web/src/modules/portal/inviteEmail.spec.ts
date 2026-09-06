@@ -55,11 +55,23 @@ describe('the invitation email', () => {
     expect(mail.text).toContain('Smit & Zn <script>alert(1)</script>');
   });
 
-  it('names the portal they will sign in at, not the one we log into', () => {
+  it('gives their own portal address a place of its own', () => {
     const mail = inviteEmail(base);
-    expect(mail.text).toContain('dochorse.finsera.nl');
-    expect(mail.html).toContain('dochorse.finsera.nl');
+    // The address is the thing they need again next month, long after the link is spent —
+    // so it is set apart and linkable rather than buried mid-sentence.
+    expect(mail.html).toContain('href="https://dochorse.finsera.nl"');
+    expect(mail.html).toMatch(/Uw eigen portaaladres/);
+    expect(mail.text).toContain('https://dochorse.finsera.nl');
+    // Never ours: hub.finsera.nl is where we work, not where a client signs in.
     expect(mail.text).not.toContain('hub.finsera.nl');
+    expect(mail.html).not.toContain('hub.finsera.nl');
+  });
+
+  it('ends without a sign-off, because Outlook adds one', () => {
+    const mail = inviteEmail(base);
+    // A mail that closes twice reads as a template somebody forgot to finish.
+    expect(mail.text).not.toMatch(/vriendelijke groet/i);
+    expect(mail.html).not.toMatch(/vriendelijke groet/i);
   });
 
   it('says the link is single use, in both renderings', () => {
@@ -74,7 +86,8 @@ describe('the invitation email', () => {
     const mail = inviteEmail(base);
     // Outlook renders with Word: a <style> block, a class, or a remote image is either
     // ignored or blocked, so everything has to be inline and self-contained.
-    expect(mail.html).not.toMatch(/<style|class=|<img|https?:\/\/(?!finsera-dashboard)/);
+    // Assets, not links: a remote image is blocked or slow, while an href is just an href.
+    expect(mail.html).not.toMatch(/<style|class=|<img|src=|url\(/);
     expect(mail.html).toContain('style="');
   });
 });

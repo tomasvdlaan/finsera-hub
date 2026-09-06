@@ -5,10 +5,14 @@
  * so the wording lives in one place and can be tested without a browser. The component's job
  * is to show it and put it on the clipboard; deciding what it says is this file's.
  *
- * Written in Dutch and signed by us on purpose. The whole reason the registration link comes
- * back to the hub instead of going out from Zitadel is that a client should receive it from
- * somebody they have spoken to, at an address they recognise — a system mail from an identity
- * provider they have never heard of is the thing this replaces.
+ * Written in Dutch on purpose. The whole reason the registration link comes back to the hub
+ * instead of going out from Zitadel is that a client should receive it from somebody they have
+ * spoken to, at an address they recognise — a system mail from an identity provider they have
+ * never heard of is the thing this replaces.
+ *
+ * It deliberately ends without a sign-off. This is pasted into Outlook, which appends the
+ * sender's own signature, and a mail that closes twice reads as a template somebody forgot to
+ * finish.
  */
 
 export interface InviteEmailInput {
@@ -32,7 +36,8 @@ const BRAND = '#1f5f4f';
 const BRAND_DEEP = '#143f34';
 const INK = '#1a1a1a';
 const MUTED = '#5c6b66';
-const LINE = '#dfe7e4';
+/* The block that carries their own address — the one thing they will need again. */
+const TINT = '#e8f1ee';
 
 /**
  * Everything interpolated into the HTML is escaped.
@@ -62,80 +67,60 @@ export function inviteEmail({ name, clientName, portalHost, url }: InviteEmailIn
   const text = [
     `${greeting},`,
     ``,
-    `Voor ${clientName} staat het Finsera-klantportaal klaar. Daarin vindt u uw projecten,`,
-    `offertes, facturen en gedeelde documenten — altijd de actuele versie.`,
+    `Het klantportaal van Finsera staat voor ${clientName} klaar: uw projecten, offertes,`,
+    `facturen en gedeelde documenten op één plek.`,
     ``,
-    `Stel eenmalig uw wachtwoord in via deze link:`,
+    `Stel eenmalig uw wachtwoord in:`,
     url,
     ``,
-    `Daarna logt u in op ${portalHost}.`,
+    `Uw eigen portaaladres, ook voor later:`,
+    `https://${portalHost}`,
     ``,
-    `De link is persoonlijk en kan één keer worden gebruikt. Werkt hij niet meer? Laat het`,
-    `ons weten, dan sturen wij u een nieuwe.`,
-    ``,
-    `Met vriendelijke groet,`,
-    ``,
-    `Finsera`,
+    `De link is persoonlijk en werkt één keer. Werkt hij niet meer? Laat het ons weten.`,
   ].join('\n');
 
   /*
-   * Tables and inline styles, deliberately.
+   * A letter, not a template.
    *
-   * Outlook renders with Word, which ignores most of a stylesheet and much of flexbox — so
-   * this is written the way email has to be written rather than the way the rest of the app
-   * is: one 600px table, inline styles, a button built from a padded table cell, and web-safe
-   * fonts. It is pasted into a compose window, so there is no <head> to hang CSS in either.
+   * The first version had a coloured header bar, a card on a grey page and a footer band —
+   * which reads as marketing, and marketing is what people skim past. This is a message
+   * somebody wrote: one column, plain white, ordinary paragraphs, with formatting used only
+   * where it carries meaning — the name of their company, the address they will sign in at,
+   * and the one thing to click.
+   *
+   * Still tables and inline styles, because Outlook renders with Word and ignores a
+   * stylesheet. Simplicity here is about what it looks like, not about how it is built.
    */
-  const html = `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#f4f7f6;padding:24px 0;font-family:-apple-system,'Segoe UI',Arial,sans-serif;">
+  const html = `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="font-family:-apple-system,'Segoe UI',Arial,sans-serif;">
   <tr>
-    <td align="center">
-      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="600" style="width:600px;max-width:100%;background:#ffffff;border:1px solid ${LINE};border-radius:12px;overflow:hidden;">
+    <td style="padding:8px 0;">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="560" style="width:560px;max-width:100%;">
         <tr>
-          <td style="background:${BRAND};padding:20px 32px;">
-            <span style="color:#ffffff;font-size:20px;font-weight:700;letter-spacing:0.02em;">Finsera</span>
-            <span style="color:#cfe3dc;font-size:13px;padding-left:10px;">Klantportaal</span>
-          </td>
-        </tr>
-        <tr>
-          <td style="padding:32px 32px 8px 32px;color:${INK};font-size:15px;line-height:1.6;">
+          <td style="color:${INK};font-size:15px;line-height:1.65;">
             <p style="margin:0 0 16px 0;">${escapeHtml(greeting)},</p>
             <p style="margin:0 0 16px 0;">
-              Voor <strong>${escapeHtml(clientName)}</strong> staat het Finsera-klantportaal klaar.
-              Daarin vindt u uw projecten, offertes, facturen en gedeelde documenten — altijd de
-              actuele versie.
+              Het klantportaal van Finsera staat voor <strong>${escapeHtml(clientName)}</strong>
+              klaar: uw projecten, offertes, facturen en gedeelde documenten op één plek.
             </p>
-            <p style="margin:0 0 24px 0;">Stel eenmalig uw wachtwoord in:</p>
-          </td>
-        </tr>
-        <tr>
-          <td style="padding:0 32px 24px 32px;">
-            <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+            <p style="margin:0 0 20px 0;">Stel eenmalig uw wachtwoord in:</p>
+            <p style="margin:0 0 20px 0;">
+              <a href="${escapeHtml(url)}" style="display:inline-block;padding:11px 22px;background:${BRAND};border-radius:6px;color:#ffffff;font-size:15px;font-weight:600;text-decoration:none;">Wachtwoord instellen</a>
+            </p>
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 20px 0;">
               <tr>
-                <td style="background:${BRAND};border-radius:8px;">
-                  <a href="${escapeHtml(url)}" style="display:inline-block;padding:13px 26px;color:#ffffff;font-size:15px;font-weight:600;text-decoration:none;font-family:-apple-system,'Segoe UI',Arial,sans-serif;">Wachtwoord instellen</a>
+                <td style="background:${TINT};border-left:3px solid ${BRAND};border-radius:0 6px 6px 0;padding:14px 18px;">
+                  <div style="color:${MUTED};font-size:12px;letter-spacing:0.04em;text-transform:uppercase;padding-bottom:4px;">Uw eigen portaaladres</div>
+                  <a href="https://${escapeHtml(portalHost)}" style="color:${BRAND_DEEP};font-size:17px;font-weight:700;text-decoration:none;">${escapeHtml(portalHost)}</a>
+                  <div style="color:${MUTED};font-size:13px;padding-top:4px;">Hier logt u voortaan in — de moeite van een bladwijzer waard.</div>
                 </td>
               </tr>
             </table>
-          </td>
-        </tr>
-        <tr>
-          <td style="padding:0 32px 24px 32px;color:${MUTED};font-size:13px;line-height:1.6;">
-            <p style="margin:0 0 6px 0;">Werkt de knop niet? Gebruik dan deze link:</p>
-            <p style="margin:0;word-break:break-all;"><a href="${escapeHtml(url)}" style="color:${BRAND_DEEP};">${escapeHtml(url)}</a></p>
-          </td>
-        </tr>
-        <tr>
-          <td style="padding:0 32px 28px 32px;color:${INK};font-size:15px;line-height:1.6;border-top:1px solid ${LINE};padding-top:20px;">
-            <p style="margin:0 0 16px 0;">Daarna logt u in op <strong>${escapeHtml(portalHost)}</strong>.</p>
-            <p style="margin:0;color:${MUTED};font-size:13px;">
-              De link is persoonlijk en kan één keer worden gebruikt. Werkt hij niet meer? Laat
-              het ons weten, dan sturen wij u een nieuwe.
+            <p style="margin:0 0 6px 0;color:${MUTED};font-size:13px;line-height:1.6;">
+              De link is persoonlijk en werkt één keer. Werkt hij niet meer? Laat het ons weten.
             </p>
-          </td>
-        </tr>
-        <tr>
-          <td style="padding:20px 32px;background:#f9fbfa;border-top:1px solid ${LINE};color:${MUTED};font-size:13px;line-height:1.5;">
-            Met vriendelijke groet,<br /><strong style="color:${INK};">Finsera</strong>
+            <p style="margin:0;color:${MUTED};font-size:13px;line-height:1.6;word-break:break-all;">
+              Werkt de knop niet? <a href="${escapeHtml(url)}" style="color:${BRAND_DEEP};">${escapeHtml(url)}</a>
+            </p>
           </td>
         </tr>
       </table>
