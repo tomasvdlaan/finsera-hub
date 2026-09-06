@@ -89,6 +89,10 @@ export function inviteEmail({ name, clientName, portalHost, url }: InviteEmailIn
     `   Hier logt u voortaan in — de moeite van een bladwijzer waard.`,
     ``,
     `De link uit stap 1 is persoonlijk en werkt één keer. Werkt hij niet meer? Laat het ons weten.`,
+    ``,
+    `Onze inlog loopt via Zitadel, onze identiteitsprovider. U kunt daarom ook berichten van`,
+    `Zitadel krijgen — bijvoorbeeld om uw e-mailadres te bevestigen of een wachtwoord te`,
+    `herstellen. Die horen erbij en zijn niet vals.`,
   ].join('\n');
 
   /*
@@ -146,6 +150,11 @@ export function inviteEmail({ name, clientName, portalHost, url }: InviteEmailIn
             </table>
             <p style="margin:0 0 6px 0;color:${MUTED};font-size:13px;line-height:1.6;">
               De link is persoonlijk en werkt één keer. Werkt hij niet meer? Laat het ons weten.
+            </p>
+            <p style="margin:0 0 6px 0;color:${MUTED};font-size:13px;line-height:1.6;">
+              Onze inlog loopt via Zitadel, onze identiteitsprovider. U kunt daarom ook berichten
+              van Zitadel krijgen — bijvoorbeeld om uw e-mailadres te bevestigen of een wachtwoord
+              te herstellen. Die horen erbij en zijn niet vals.
             </p>
             <p style="margin:0;color:${MUTED};font-size:13px;line-height:1.6;word-break:break-all;">
               Werkt de knop niet? <a href="${escapeHtml(url)}" style="color:${BRAND_DEEP};">${escapeHtml(url)}</a>

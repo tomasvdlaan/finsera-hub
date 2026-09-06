@@ -123,6 +123,21 @@ describe('the invitation email', () => {
     }
   });
 
+  it('warns that mail will also arrive from the identity provider', () => {
+    /*
+     * Otherwise it reads as phishing, which is the correct instinct.
+     *
+     * Zitadel sends its own messages — address confirmation, password recovery — under a
+     * name the client has never been given a reason to trust, about an account they only
+     * just made. Naming it here, in the one message they do expect from us, is what turns
+     * a suspicious mail into an expected one.
+     */
+    for (const body of [inviteEmail(base).text, inviteEmail(base).html]) {
+      expect(body).toMatch(/Zitadel/);
+      expect(body).toMatch(/identiteitsprovider/);
+    }
+  });
+
   it('carries no stylesheet or external asset an email client would drop', () => {
     const mail = inviteEmail(base);
     // Outlook renders with Word: a <style> block, a class, or a remote image is either
