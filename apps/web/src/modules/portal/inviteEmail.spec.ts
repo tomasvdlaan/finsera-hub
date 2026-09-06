@@ -102,10 +102,22 @@ describe('the invitation email', () => {
       const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
       return (hi! + 0.05) / (lo! + 0.05);
     };
+    /*
+     * The pair, not an assumed white.
+     *
+     * This used to look for `color:#ffffff` and assert the background behind it. Then the
+     * button's text went dark so the gold could be the brand's own — and the regex simply
+     * stopped matching, which a test reports as "no button found" and not as a failure. It
+     * now reads whichever two colours the button actually uses and checks those.
+     */
     const html = inviteEmail(base).html;
-    const button = /background:(#[0-9a-f]{6});[^"]*color:#ffffff/i.exec(html)?.[1];
-    expect(button).toBeDefined();
-    expect(contrast(button!, '#ffffff')).toBeGreaterThanOrEqual(4.5);
+    const button = /background:(#[0-9a-f]{6});[^"]*?color:(#[0-9a-f]{6})/i.exec(html);
+    expect(button, 'no button with an explicit background and colour was found').not.toBeNull();
+    expect(contrast(button![1]!, button![2]!)).toBeGreaterThanOrEqual(4.5);
+
+    // And the links, which are gold on white and have no such trick available.
+    const link = /color:(#[0-9a-f]{6});">[^<]*finsera/i.exec(html);
+    if (link) expect(contrast(link[1]!, '#ffffff')).toBeGreaterThanOrEqual(4.5);
   });
 
   it('ends without a sign-off, because Outlook adds one', () => {

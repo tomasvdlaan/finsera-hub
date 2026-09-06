@@ -40,12 +40,24 @@ export interface InviteEmail {
  * the button is legible and so is every link, including on the screens these are actually
  * read on — a phone held outdoors is the normal case for an email, not the exception.
  */
-const BRAND = '#8B6508';
-const BRAND_DEEP = '#6B4E0C';
+const BRAND = '#C2AB44';
+/*
+ * Dark type on the gold, not white.
+ *
+ * `BRAND` is the gold of the signature, and at that lightness white text on it is 2.3:1 —
+ * unreadable, and the reason the first version of this mail was darker than the wordmark.
+ * Turning the button's own text dark instead gives 6.9:1 on the same gold, so the brand
+ * colour can be the brand colour and the button is still legible (7.6:1). Which half moves
+ * is the whole choice: darkening the gold loses the brand, darkening the text does not.
+ */
+const ON_BRAND = '#1a1a1a';
+/* Links are gold on white, where there is no such trick — a light gold simply cannot be
+   read, so this one stays deep. 5.3:1. */
+const BRAND_DEEP = '#8B6508';
 const INK = '#1a1a1a';
 const MUTED = '#6b6350';
 /* The block that carries their own address — the one thing they will need again. */
-const TINT = '#fdf6e3';
+const TINT = '#fdf8ec';
 
 /**
  * Everything interpolated into the HTML is escaped.
@@ -126,7 +138,7 @@ export function inviteEmail({ name, clientName, portalHost, url }: InviteEmailIn
                 <td style="color:${INK};font-size:15px;line-height:1.65;">
                   <strong>Activeer eenmalig uw account.</strong> U kiest hierbij uw wachtwoord.
                   <div style="padding-top:12px;">
-                    <a href="${escapeHtml(url)}" style="display:inline-block;padding:11px 22px;background:${BRAND};border-radius:6px;color:#ffffff;font-size:15px;font-weight:600;text-decoration:none;">Account activeren</a>
+                    <a href="${escapeHtml(url)}" style="display:inline-block;padding:11px 22px;background:${BRAND};border-radius:6px;color:${ON_BRAND};font-size:15px;font-weight:600;text-decoration:none;">Account activeren</a>
                   </div>
                 </td>
               </tr>
