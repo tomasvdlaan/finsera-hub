@@ -18,7 +18,8 @@
     "routes": "node scripts/check-routes.mjs",
     "widgets": "node scripts/check-widgets.mjs",
     "migrations": "pnpm --filter @platform/api db:check",
-    "bundle": "node scripts/check-bundle.mjs"
+    "bundle": "node scripts/check-bundle.mjs",
+    "live": "node scripts/check-live.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

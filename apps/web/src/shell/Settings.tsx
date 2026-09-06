@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { PageHeader } from './ui/layout.js';
+import { BUILD, compare, label, type ServerBuild } from '../lib/build.js';
 import { api } from '../lib/api.js';
 import { Button, Field } from './ui/primitives.js';
 
@@ -112,6 +113,45 @@ export function Settings() {
         </div>
       </form>
       {error && <p className="error">{error}</p>}
+      <BuildLine />
     </>
+  );
+}
+
+/**
+ * Which build this is, and whether the tab is showing a stale one.
+ *
+ * At the foot of Settings because that is where somebody goes to answer a question about the
+ * installation rather than about the work. The number is the thing to read out — "we are on
+ * v128" — and the commit beside it is the thing that is actually true, because a rollback
+ * makes the number go down while the commit stays exact.
+ *
+ * The warning is the part that earns its place. After a deploy the server is new and an open
+ * tab is not, and every symptom of that looks like a broken feature: a button calling an
+ * endpoint the old bundle does not know, a field missing because the old code never drew it.
+ */
+function BuildLine() {
+  const [server, setServer] = useState<ServerBuild | null>(null);
+
+  useEffect(() => {
+    api.get<ServerBuild>('/core/health').then(setServer).catch(() => setServer(null));
+  }, []);
+
+  const state = compare(server);
+
+  return (
+    <p className="muted build-line">
+      Interface {label(BUILD)}
+      {server && <> · server {label(server)}</>}
+      {BUILD.builtAt && <> · built {BUILD.builtAt.slice(0, 16).replace('T', ' ')}</>}
+      {state === 'stale' && (
+        <>
+          {' '}
+          <span className="build-stale">
+            This tab is running an older build than the server — reload to catch up.
+          </span>
+        </>
+      )}
+    </p>
   );
 }

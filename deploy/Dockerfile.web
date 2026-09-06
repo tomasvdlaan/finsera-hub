@@ -23,6 +23,16 @@ ARG VITE_ZITADEL_CLIENT_ID
 ENV VITE_ZITADEL_ISSUER=$VITE_ZITADEL_ISSUER
 ENV VITE_ZITADEL_CLIENT_ID=$VITE_ZITADEL_CLIENT_ID
 
+# Which build this is. Declared after the dependency install and before the build, so a
+# new version number invalidates the build layer and nothing above it — a stamp change
+# must not cost a full `pnpm install`.
+ARG VITE_BUILD_VERSION=dev
+ARG VITE_BUILD_COMMIT=dev
+ARG VITE_BUILD_TIME=
+ENV VITE_BUILD_VERSION=$VITE_BUILD_VERSION
+ENV VITE_BUILD_COMMIT=$VITE_BUILD_COMMIT
+ENV VITE_BUILD_TIME=$VITE_BUILD_TIME
+
 # Every workspace package that publishes a build, rather than a hand-listed one:
 # note-doc was added after this file was written and silently went unbuilt.
 RUN pnpm -r --filter "./packages/*" run build && pnpm --filter @platform/web build

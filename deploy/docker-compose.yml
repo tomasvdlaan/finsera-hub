@@ -14,6 +14,11 @@ services:
       args:
         VITE_ZITADEL_ISSUER: ${ZITADEL_ISSUER}
         VITE_ZITADEL_CLIENT_ID: ${ZITADEL_CLIENT_ID}
+        # Build args, not environment: the SPA is static files by the time it is served, so
+        # anything it knows about itself has to be inlined while it is being built.
+        VITE_BUILD_VERSION: ${BUILD_VERSION:-dev}
+        VITE_BUILD_COMMIT: ${BUILD_COMMIT:-dev}
+        VITE_BUILD_TIME: ${BUILD_TIME:-}
     environment:
       # Blank locally → Caddy listens on :80 inside the container; a domain in
       # production → Caddy provisions TLS for it.
@@ -46,6 +51,11 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3001
+      # Runtime, unlike the SPA's: the API reads them when asked, so a restart is enough and
+      # the image layers do not have to be rebuilt to change a label.
+      BUILD_VERSION: ${BUILD_VERSION:-dev}
+      BUILD_COMMIT: ${BUILD_COMMIT:-dev}
+      BUILD_TIME: ${BUILD_TIME:-}
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       ZITADEL_ISSUER: ${ZITADEL_ISSUER}
       ZITADEL_CLIENT_ID: ${ZITADEL_CLIENT_ID}

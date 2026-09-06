@@ -9217,3 +9217,7 @@ a.btn { text-decoration: none; }
   overflow-wrap: anywhere;
 }
 .failure-meta { margin: var(--space-1) 0 0; font-size: var(--text-xs); }
+
+/* The build stamp at the foot of Settings. Small print until it has bad news. */
+.build-line { margin-top: var(--space-6); font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
+.build-stale { color: var(--warning); font-weight: 600; }

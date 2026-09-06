@@ -18,6 +18,7 @@ import {
 import type { Response } from 'express';
 import { decodeJwt } from 'jose';
 import { NAV_SECTIONS } from '@platform/contracts';
+import { buildInfo } from './build-info.js';
 import type { Actor, CreateLinkInput } from '@platform/contracts';
 import { AuditService } from '../core/audit/audit.service.js';
 import { CommentService } from '../core/comments/comment.service.js';
@@ -94,7 +95,15 @@ export class ShellController {
   @Public()
   @Get('health')
   health() {
-    return { status: 'ok' };
+    /*
+     * The build, on the endpoint the deploy already polls.
+     *
+     * Not a new route: this one is public, is hit by `update.sh` after every deploy, and is
+     * the first thing anybody curls when they want to know whether the site is alive. Making
+     * it also say *which* build is alive means one request answers both questions, and the
+     * deploy's own health check becomes a check that the new code is the code that answered.
+     */
+    return { status: 'ok', ...buildInfo() };
   }
 
   /** The signed-in user, resolved from the token (and provisioned on first login). */

@@ -43,7 +43,26 @@ healthy() {
   return 1
 }
 
+# ── which build this is ─────────────────────────────────────
+# Derived from the checkout, never from a file somebody edits: a version that is written
+# down has to be kept in step, and the one moment it is wrong is the moment somebody is
+# using it to decide whether a fix is live. `rev-list --count` rises by one per commit
+# and costs nothing to maintain.
+#
+# Exported rather than passed, because compose reads them for two services in two
+# different ways — a build arg for the SPA, whose values Vite inlines at build time, and
+# an environment variable for the API, which can read its own at runtime.
+stamp() {
+  export BUILD_VERSION="$(git rev-list --count HEAD)"
+  export BUILD_COMMIT="$(git rev-parse --short HEAD)"
+  export BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  echo "[deploy] build $BUILD_VERSION ($BUILD_COMMIT)"
+}
+
 build_and_start() {
+  # Stamped here rather than once at the top: the rollback path builds a second time from a
+  # different commit, and it must not label the old code with the new commit's number.
+  stamp
   "${COMPOSE[@]}" up -d --build
 }
 
