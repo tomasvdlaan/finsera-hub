@@ -53,8 +53,15 @@
 		# changed file is a different name and never the same URL. The entry point is
 		# revalidated on every load — `no-cache` permits storing it and forbids using it
 		# without asking, so an unchanged deploy still costs one 304 and not a download.
+		# Matched as "everything except the assets", not as a bare default.
+		#
+		# A `header` with no matcher matches every request, including the ones the line above
+		# it just handled — so the two ran in order and the second overwrote the first, and
+		# every immutable asset went out as `no-cache`. Harmless, and invisible except by
+		# reading the response: the rule was there, it simply never survived.
+		@entry not path /assets/*
+		header @entry Cache-Control "no-cache"
 		header /assets/* Cache-Control "public, max-age=31536000, immutable"
-		header Cache-Control "no-cache"
 
 		# SPA history fallback: unknown paths render index.html so /auth/callback and
 		# deep links work on a hard refresh.
