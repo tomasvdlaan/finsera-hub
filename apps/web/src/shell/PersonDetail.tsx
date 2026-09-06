@@ -121,6 +121,8 @@ export function PersonDetail() {
   const [activity, setActivity] = useState<ActivityRow[]>();
   const [signIns, setSignIns] = useState<SignIn[]>();
   const [failed, setFailed] = useState<Record<string, string>>({});
+  const [roleError, setRoleError] = useState<string>();
+  const [savingRole, setSavingRole] = useState(false);
 
   useDocumentTitle(person?.displayName ?? 'Person');
 
@@ -154,6 +156,32 @@ export function PersonDetail() {
       .then(setSignIns)
       .catch(fail('signIns'));
   }, [id, from, to]);
+
+  /**
+   * What this person may do, changed where their name is.
+   *
+   * It used to be a dropdown in a column of the directory table, which is a one-click
+   * privilege change on whichever row the pointer happened to be over, and the page named
+   * after the person showed the answer as static text. Here it is next to their name, their
+   * job title and their contract, which is where somebody goes when they think about what a
+   * colleague should be able to reach.
+   *
+   * The server refuses the two changes that would lock the platform: demoting yourself, and
+   * demoting the last administrator. Those come back as sentences, so they are shown as
+   * sentences rather than swallowed.
+   */
+  const setRole = async (role: Person['role']) => {
+    setRoleError(undefined);
+    setSavingRole(true);
+    try {
+      await api.patch(`/core/people/${id}`, { role });
+      setPerson(await api.get<Person>(`/core/people/${id}`));
+    } catch (e) {
+      setRoleError((e as Error).message);
+    } finally {
+      setSavingRole(false);
+    }
+  };
 
   const open = (tasks ?? []).filter((t) => t.flow !== 'done');
   const blocked = open.filter((t) => t.blockedReason);
@@ -224,6 +252,31 @@ export function PersonDetail() {
               </div>
             </div>
             <dl className="terms">
+              <dt>Role</dt>
+              <dd>
+                <select
+                  aria-label={`Role for ${person?.displayName ?? 'this person'}`}
+                  value={person?.role ?? 'member'}
+                  disabled={!person || savingRole}
+                  onChange={(e) => void setRole(e.target.value as Person['role'])}
+                >
+                  <option value="member">Member</option>
+                  <option value="admin">Administrator</option>
+                </select>
+                {/* An administrator can reach settings, cost rates and the people directory;
+                    everyone else can reach the work. Said here because the two words on
+                    their own do not say it. */}
+                <div className="card-meta">
+                  {person?.role === 'admin'
+                    ? 'Can manage people, settings and cost rates.'
+                    : 'Can reach the work, but not settings or cost rates.'}
+                </div>
+                {roleError && (
+                  <div className="card-meta" data-tone="danger">
+                    {roleError}
+                  </div>
+                )}
+              </dd>
               <dt>Contracted</dt>
               <dd>{person?.weeklyHours ? `${person.weeklyHours}h a week` : <span className="muted">not set</span>}</dd>
               <dt>Started</dt>

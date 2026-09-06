@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../lib/api.js';
 import { Empty } from '../../shell/ui/primitives.js';
+import { inviteEmail } from './inviteEmail.js';
 
 interface InviteResult {
   id?: string;
@@ -112,7 +113,9 @@ export function PortalUsers({
    * re-fetched and gone on reload — if it is lost, a new one is issued, which is also the
    * only honest thing to offer since issuing invalidates the last.
    */
-  const [issued, setIssued] = useState<{ email: string; url: string } | null>(null);
+  const [issued, setIssued] = useState<{ email: string; name?: string; url: string } | null>(null);
+  /** Optional, and only for the greeting and the Zitadel profile. */
+  const [name, setName] = useState('');
 
   const load = () => {
     api
@@ -128,14 +131,19 @@ export function PortalUsers({
     setError(undefined);
     setBusy(true);
     const address = email.trim();
+    const person = name.trim();
     api
-      .post<InviteResult>(`/portal-admin/clients/${clientId}/users`, { email: address })
+      .post<InviteResult>(`/portal-admin/clients/${clientId}/users`, {
+        email: address,
+        displayName: person || undefined,
+      })
       .then((result) => {
         setEmail('');
+        setName('');
         // The access exists either way. A missing link is a sentence about configuration,
         // not a failed invitation, so it is a warning beside the row rather than an error
         // that implies nothing happened.
-        if (result.invite) setIssued({ email: address, url: result.invite.url });
+        if (result.invite) setIssued({ email: address, name: person, url: result.invite.url });
         if (result.warning) setError(result.warning);
         load();
       })
@@ -150,7 +158,9 @@ export function PortalUsers({
     api
       .post<InviteResult>(`/portal-admin/users/${user.id}/invite-link`, {})
       .then((result) => {
-        if (result.invite) setIssued({ email: user.email, url: result.invite.url });
+        if (result.invite) {
+          setIssued({ email: user.email, name: user.displayName ?? undefined, url: result.invite.url });
+        }
         if (result.warning) setError(result.warning);
       })
       .catch((err: Error) => setError(err.message))
@@ -198,6 +208,7 @@ export function PortalUsers({
       {issued && portalSlug && (
         <InviteMessage
           email={issued.email}
+          name={issued.name}
           url={issued.url}
           clientName={clientName}
           portalHost={portalHost(portalSlug)}
@@ -275,6 +286,14 @@ export function PortalUsers({
           disabled={!portalSlug}
           required
         />
+        {/* Optional: it greets them by name in the mail and names them in Zitadel. */}
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Naam (optioneel)"
+          aria-label="Naam"
+          disabled={!portalSlug}
+        />
         <button type="submit" disabled={busy || !email.trim() || !portalSlug}>
           Give access
         </button>
@@ -286,60 +305,69 @@ export function PortalUsers({
 /**
  * The link, and the message it goes in.
  *
- * Written in Dutch and in our own voice, because the whole reason the link comes back here
- * rather than going out from Zitadel is that a client should receive a message from someone
- * they have spoken to, at their own portal's address — not a system mail from an identity
- * provider they have never heard of.
+ * Three ways to take it, because three things happen in practice: somebody pastes the styled
+ * mail into Outlook and sends it as it is, somebody is already writing a message and wants
+ * only the link, and somebody's mail client refuses rich paste and needs the plain text.
  *
- * Two copy buttons rather than one: the link alone is what somebody pastes into a message
- * they are already writing, and the full text is for when they are not.
+ * The preview is an iframe rather than a div. The email's HTML is written for Outlook — bare
+ * tables, inline styles, its own fonts — and rendering it inside the app would both inherit
+ * our stylesheet and leak into it, so what you would be checking is not what the client sees.
  */
 function InviteMessage({
   email,
+  name,
   url,
   clientName,
   portalHost,
   onDone,
 }: {
   email: string;
+  name?: string;
   url: string;
   clientName: string;
   portalHost: string;
   onDone: () => void;
 }) {
-  const [copied, setCopied] = useState<'link' | 'message' | null>(null);
+  const [copied, setCopied] = useState<'link' | 'mail' | 'text' | null>(null);
+  const [fallback, setFallback] = useState(false);
+  const mail = inviteEmail({ name, clientName, portalHost, url });
 
-  const subject = `Toegang tot uw Finsera-portaal`;
-  const body = [
-    `Beste,`,
-    ``,
-    `Hierbij uw persoonlijke toegang tot het klantportaal van ${clientName}.`,
-    ``,
-    `Stel via onderstaande link uw wachtwoord in:`,
-    url,
-    ``,
-    `Daarna logt u in op ${portalHost} — daar vindt u uw projecten, offertes,`,
-    `facturen en gedeelde documenten.`,
-    ``,
-    `De link is persoonlijk en kan één keer worden gebruikt. Werkt hij niet meer,`,
-    `laat het ons weten; dan sturen wij een nieuwe.`,
-    ``,
-    `Met vriendelijke groet,`,
-    `Finsera`,
-  ].join('\n');
+  const flash = (what: 'link' | 'mail' | 'text') => {
+    setCopied(what);
+    setTimeout(() => setCopied(null), 2000);
+  };
 
-  /*
-   * `navigator.clipboard` needs a secure context, which localhost is and a plain-http LAN
-   * address is not. The textarea below is the fallback that always works: it is selectable,
-   * so a failed copy leaves somebody able to select the text rather than stuck.
-   */
-  const copy = async (what: 'link' | 'message', text: string) => {
+  const copyText = async (what: 'link' | 'text', text: string) => {
     try {
       await navigator.clipboard.writeText(text);
-      setCopied(what);
-      setTimeout(() => setCopied(null), 2000);
+      flash(what);
     } catch {
-      setCopied(null);
+      // Clipboard access needs a secure context. The fields below are selectable, so a
+      // refused copy leaves somebody able to select the text rather than stuck.
+      setFallback(true);
+    }
+  };
+
+  /**
+   * Copy as formatted mail.
+   *
+   * `text/html` on the clipboard is what makes Outlook paste the styled version rather than
+   * a wall of markup; `text/plain` rides along for anywhere that will not take HTML. Older
+   * browsers have no `ClipboardItem`, and there the plain text is the honest answer — said
+   * out loud rather than silently pasting something that looks broken.
+   */
+  const copyMail = async () => {
+    try {
+      if (typeof ClipboardItem === 'undefined') throw new Error('no rich clipboard');
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          'text/html': new Blob([mail.html], { type: 'text/html' }),
+          'text/plain': new Blob([mail.text], { type: 'text/plain' }),
+        }),
+      ]);
+      flash('mail');
+    } catch {
+      await copyText('text', mail.text);
     }
   };
 
@@ -358,22 +386,45 @@ function InviteMessage({
 
       <div className="row">
         <input readOnly value={url} aria-label="Registratielink" onFocus={(e) => e.target.select()} />
-        <button onClick={() => void copy('link', url)}>
+        <button onClick={() => void copyText('link', url)}>
           {copied === 'link' ? 'Gekopieerd' : 'Kopieer link'}
         </button>
       </div>
 
       <label className="field">
-        <span>Mail — onderwerp</span>
-        <input readOnly value={subject} onFocus={(e) => e.target.select()} />
+        <span>Onderwerp</span>
+        <input readOnly value={mail.subject} onFocus={(e) => e.target.select()} />
       </label>
-      <label className="field">
-        <span>Mail — bericht</span>
-        <textarea readOnly rows={14} value={body} onFocus={(e) => e.target.select()} />
-      </label>
-      <button onClick={() => void copy('message', `${subject}\n\n${body}`)}>
-        {copied === 'message' ? 'Gekopieerd' : 'Kopieer hele bericht'}
-      </button>
+
+      <div className="invite-preview">
+        <iframe
+          title="Voorbeeld van de e-mail"
+          srcDoc={mail.html}
+          sandbox=""
+          scrolling="no"
+        />
+      </div>
+
+      <div className="row">
+        <button data-variant="primary" onClick={() => void copyMail()}>
+          {copied === 'mail' ? 'Gekopieerd — plak in Outlook' : 'Kopieer opgemaakte e-mail'}
+        </button>
+        <button onClick={() => void copyText('text', mail.text)}>
+          {copied === 'text' ? 'Gekopieerd' : 'Kopieer platte tekst'}
+        </button>
+      </div>
+      {fallback && (
+        <p className="muted">
+          Kopiëren via de knop lukt niet in deze browser — selecteer de tekst hierboven en
+          kopieer met Cmd+C.
+        </p>
+      )}
+      {fallback && (
+        <label className="field">
+          <span>Bericht als platte tekst</span>
+          <textarea readOnly rows={14} value={mail.text} onFocus={(e) => e.target.select()} />
+        </label>
+      )}
     </div>
   );
 }

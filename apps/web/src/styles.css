@@ -4770,6 +4770,27 @@ button.nav-me:hover { background: var(--surface); }
 }
 /* The message keeps its line breaks: it is copied into a mail, not re-flowed here. */
 .invite-issued textarea { white-space: pre; }
+
+/*
+ * The email preview.
+ *
+ * Fixed height with the frame scrolled off: the point is to see that it looks right, not to
+ * read it here — and an iframe that grows with its content would push the copy buttons, which
+ * are the thing somebody came to press, off the bottom of the card.
+ */
+.invite-preview {
+  max-height: 420px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: #f4f7f6;
+}
+.invite-preview iframe {
+  display: block;
+  width: 100%;
+  height: 640px;
+  border: 0;
+}
 /* Why the clock is asking for a duration, next to the field that asks. */
 .tracker-overrun {
   margin: var(--space-2) 0 0;

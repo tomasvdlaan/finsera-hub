@@ -118,25 +118,22 @@ export function People() {
                     <div className="card-meta">{p.email}</div>
                   </td>
                   <td>
-                    <select
-                      aria-label={`Role for ${p.displayName}`}
-                      value={p.role}
-                      onChange={(e) =>
-                        void patch(p.id, { role: e.target.value as Person['role'] })
-                          .then(load)
-                          .catch((err: Error) => setError(err.message))
-                      }
-                    >
-                      <option value="member">Member</option>
-                      <option value="admin">Admin</option>
-                    </select>
+                    {/*
+                      Shown here, changed on their own page.
+
+                      A privilege change does not belong in a dropdown in a dense row: one
+                      click, no name in front of you, and the row above is somebody else.
+                      It lives beside their job title and their contract now, where the
+                      question "what should this person be able to reach" is actually asked.
+                    */}
+                    {p.role === 'admin' ? 'Admin' : 'Member'}
                   </td>
                   <td>
                     {/*
                       What reaches this person's inbox, not what they may open.
 
                       Role and department sit side by side because they are constantly
-                      confused: the select to the left decides what somebody can do, and these
+                      confused: the column to the left is what somebody may do, and these
                       decide what gets sent to them. Nothing here grants or removes access.
                     */}
                     <DepartmentPicker
