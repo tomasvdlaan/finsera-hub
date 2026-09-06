@@ -173,7 +173,7 @@ export function portalProxy(deps: ProxyDeps) {
     }
 
     try {
-      await serve(req, res, target, page, slug, deps, logger);
+      await serve(req, res, target, page, slug, host.host, deps, logger);
     } catch (err) {
       if (res.headersSent) {
         // Mid-stream: the browser already has a status and some bytes, so there is no error
@@ -197,6 +197,7 @@ async function serve(
   target: string,
   page: { sourceUrl: string; bypassSecretEnc: string | null },
   slug: string,
+  hostname: string,
   deps: ProxyDeps,
   logger: Logger,
 ) {
@@ -250,20 +251,33 @@ async function serve(
    * their behalf. That is precisely the boundary `@CurrentVisitor()` exists to hold, and a
    * same-origin fetch walks around it.
    *
-   * `connect-src 'none'` is what closes it. `form-action 'none'` closes the same hole for a
-   * submitted form. The rest keeps the report self-contained: its own assets (which we
-   * proxy, so they are same-origin), inline script and style because report builds inline
-   * both, and data: images because charts are drawn that way.
+   * `connect-src` is what closes it — but not with `'none'`, which would also stop a report
+   * reading its own data files. It is scoped to the page's own subtree instead: a CSP source
+   * ending in `/` matches by path prefix, so `duce.finsera.nl/rapport-q3/` lets the report
+   * fetch `meta.json` or its own `api/state` (both proxied, both under the page) while
+   * `/api/portal/...` — the portal's API, the thing holding the session — stays unreachable.
+   * The scheme is left off so it matches https in production and http on localhost.
+   *
+   * `form-action 'none'` closes the same hole for a submitted form. The rest keeps the report
+   * self-contained: its own assets (which we proxy, so they are same-origin), inline script
+   * and style because report builds inline both, and data: images because charts are drawn
+   * that way.
+   *
+   * Google Fonts is the one exception, and only in `style-src`/`font-src`: report builds link
+   * IBM Plex from there, and without it the page falls back to the system font. A stylesheet
+   * and a font file cannot read the page or reach the API, so what this grants Google is the
+   * knowledge that somebody loaded a report — not its contents. `connect-src` is not widened
+   * to match, so a script cannot use the font origin as a channel back out.
    */
   res.setHeader(
     'Content-Security-Policy',
     [
       "default-src 'self'",
       "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
-      "style-src 'self' 'unsafe-inline'",
+      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
       "img-src 'self' data: blob:",
-      "font-src 'self' data:",
-      "connect-src 'none'",
+      "font-src 'self' data: https://fonts.gstatic.com",
+      `connect-src ${hostname}/${slug}/`,
       "form-action 'none'",
       "base-uri 'none'",
       "object-src 'none'",

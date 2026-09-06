@@ -259,9 +259,35 @@ describe('portalProxy', () => {
     const res = fakeRes();
     await portalProxy(deps())(fakeReq('/rapportage-q3/'), res, vi.fn() as NextFunction);
     // HttpOnly stops a script reading the cookie; it does not stop a script using it. This
-    // is what keeps a compromised report from POSTing to /api/portal/quotes/<id>/accept.
-    expect(res.headers['content-security-policy']).toContain("connect-src 'none'");
+    // is what keeps a compromised report from POSTing to /api/portal/quotes/<id>/accept:
+    // the portal's own API is outside the page's subtree, so it is not a connect-src match.
+    expect(res.headers['content-security-policy']).toContain(
+      'connect-src duce.finsera.nl/rapportage-q3/',
+    );
     expect(res.headers['content-security-policy']).toContain("form-action 'none'");
+  });
+
+  it('lets a report fetch its own data, on its own host', async () => {
+    // A CSP source ending in `/` matches by path prefix, so `meta.json` and `api/state` —
+    // both proxied, both under the page — load, and nothing above the page does. Scheme-less
+    // so it holds on https in production and on http at localhost.
+    const res = fakeRes();
+    await portalProxy(deps())(fakeReq('/rapportage-q3/'), res, vi.fn() as NextFunction);
+    const csp = String(res.headers['content-security-policy']);
+    expect(csp).not.toContain("connect-src 'self'");
+    expect(csp).not.toMatch(/connect-src [^;]*https?:/);
+  });
+
+  it('lets a report load its webfont, and only its webfont', async () => {
+    // Report builds link IBM Plex from Google Fonts; the stylesheet host and the font host
+    // are separate, so one without the other still falls back to the system font.
+    const res = fakeRes();
+    await portalProxy(deps())(fakeReq('/rapportage-q3/'), res, vi.fn() as NextFunction);
+    const csp = String(res.headers['content-security-policy']);
+    expect(csp).toContain("style-src 'self' 'unsafe-inline' https://fonts.googleapis.com");
+    expect(csp).toContain("font-src 'self' data: https://fonts.gstatic.com");
+    // Not in connect-src: a font origin is not a way back out of the page.
+    expect(csp).toContain('connect-src duce.finsera.nl/rapportage-q3/;');
   });
 
   it('serves a redirect page by sending the browser to the real address', async () => {
