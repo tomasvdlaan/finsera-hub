@@ -21,7 +21,7 @@
         "dev"
       ],
       "port": 3001,
-      "autoPort": false
+      "autoPort": true
     },
     {
       "name": "web",

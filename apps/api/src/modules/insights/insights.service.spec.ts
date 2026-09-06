@@ -27,6 +27,7 @@ import { ScrumService } from '../scrum/scrum.service.js';
 import { timeManifest } from '../time/time.manifest.js';
 import { TimeService } from '../time/time.service.js';
 import { insightsManifest } from './insights.manifest.js';
+import { DepartmentsService } from '../../core/auth/departments.service.js';
 import { InsightsService } from './insights.service.js';
 
 const actor: Actor = { userId: crypto.randomUUID(), role: 'admin' };
@@ -40,11 +41,13 @@ describe('InsightsService', () => {
   let sales: SalesService;
   let contracts: ContractsService;
   let insights: InsightsService;
+  let departments: DepartmentsService;
   let clientId: string;
   let projectId: string;
 
   beforeEach(async () => {
     await resetDb();
+    await truncate(sql`TRUNCATE core.departments, core.user_departments CASCADE`);
     await truncate(sql`TRUNCATE insights.insights, billing.invoice_lines, billing.invoices,
                    billing.invoice_counters, sales.quote_lines, sales.quotes,
                    sales.quote_counters, sales.rate_card_lines, sales.rate_cards,
@@ -63,7 +66,7 @@ describe('InsightsService', () => {
 
     const registry = new RegistryService(testDb, manifests);
     const permissions = new PermissionService(testDb, manifests);
-    const audit = new AuditService();
+    const audit = new AuditService(testDb);
     const links = new LinkService(testDb, registry, permissions, audit, manifests);
     const bus = new EventBus(manifests);
     crm = new CrmService(testDb, registry, permissions, audit, bus, links);
@@ -81,7 +84,9 @@ describe('InsightsService', () => {
     );
     contracts = new ContractsService(testDb, registry, permissions, audit, bus, links, crm);
     const scrum = new ScrumService(testDb, registry, permissions, audit, bus, links, crm, time);
-    insights = new InsightsService(testDb, registry, permissions, audit);
+    departments = new DepartmentsService(testDb, audit);
+    await departments.ensureStandard();
+    insights = new InsightsService(testDb, registry, permissions, audit, departments);
 
     await Promise.all([
       crm.ensureReportingViews(),
@@ -318,16 +323,133 @@ describe('InsightsService', () => {
     expect(insight!.title).toContain('90% of budget');
   });
 
-  it('notices a clock nobody stopped', async () => {
-    await time.createEntry(actor, {
-      projectId,
-      startedAt: new Date(Date.now() - 52 * 60 * 60_000).toISOString(),
+  /**
+   * A colleague's forgotten clock is not the team's business.
+   *
+   * Insights had no notion of whose they were, so a rule about one person's hours appeared
+   * on everybody's dashboard — publishing exactly what `time.entries.read_all` exists to
+   * keep private, one screen to the left of the endpoint that refuses it.
+   */
+  describe('insights raised about one person', () => {
+    const mate = crypto.randomUUID();
+    const member: Actor = { userId: mate, role: 'member' };
+
+    const clockRunningFor = async (who: Actor) => {
+      await time.createEntry(who, {
+        projectId,
+        personId: who.userId,
+        startedAt: new Date(Date.now() - 52 * 60 * 60_000).toISOString(),
+      });
+      await insights.refresh();
+    };
+
+    beforeEach(async () => {
+      await seedUser(mate, 'member');
     });
 
-    await insights.refresh();
-    const [insight] = await insights.list(actor, { rule: 'timer_left_running' });
-    expect(insight!.severity).toBe('urgent');
-    expect(insight!.title).toContain('52h');
+    it('is hidden from everybody else', async () => {
+      await clockRunningFor(actor);
+      expect(await insights.list(member, { rule: 'timer_left_running' })).toEqual([]);
+    });
+
+    it('reaches the person it is about', async () => {
+      await clockRunningFor(member);
+      const [mine] = await insights.list(member, { rule: 'timer_left_running' });
+      expect(mine?.title).toContain('52h');
+    });
+
+    it("reaches whoever may see everyone's", async () => {
+      await clockRunningFor(member);
+      const [theirs] = await insights.list(actor, { rule: 'timer_left_running' });
+      expect(theirs?.personId).toBe(mate);
+    });
+
+    it('cannot be dismissed by somebody it was never shown to', async () => {
+      await clockRunningFor(actor);
+      // `list` hides it, but an id is guessable and dismiss took one directly — silencing
+      // it would mean the person it was for never saw it at all.
+      const [hidden] = await insights.list(actor, { rule: 'timer_left_running' });
+      await expect(insights.dismiss(member, hidden!.id)).rejects.toThrow(/insights.read_all/);
+    });
+
+    it("leaves the company's own insights unowned, and routed instead", async () => {
+      await overdueInvoice(10);
+      await insights.refresh();
+      const [invoice] = await insights.list(actor, { rule: 'invoice_overdue' });
+      // Nobody's personally: an unpaid invoice is not a fact about a colleague. Who reads it
+      // is decided by its audience, which the routing tests below cover.
+      expect(invoice!.personId).toBeNull();
+      expect(invoice!.audience).toBe('finance');
+    });
+  });
+
+  /**
+   * Routing, which is what the inbox is for.
+   *
+   * "Needs you" listed every open insight to everybody, so it meant "needs somebody" — and a
+   * queue that includes what is not yours stops being read. Three addresses now: your name,
+   * your department, and the admin fallback for anything nobody was made responsible for.
+   */
+  describe('who an insight is addressed to', () => {
+    const mate = crypto.randomUUID();
+    const member: Actor = { userId: mate, role: 'member' };
+
+    const joins = async (key: string) => {
+      const dept = (await departments.list()).find((d) => d.key === key)!;
+      await departments.setForUser(actor, mate, [dept.id]);
+    };
+
+    beforeEach(async () => {
+      await seedUser(mate, 'member');
+    });
+
+    it('reaches the department it names, and nobody else', async () => {
+      await overdueInvoice(10);
+      await insights.refresh();
+
+      expect(await insights.list(member, { rule: 'invoice_overdue' })).toEqual([]);
+
+      await joins('finance');
+      const [seen] = await insights.list(member, { rule: 'invoice_overdue' });
+      expect(seen?.audience).toBe('finance');
+    });
+
+    it("keeps an item addressed to one person out of their department's list", async () => {
+      // A card assigned to somebody is theirs, not Delivery's — otherwise every task rule
+      // reappears on the whole team's inbox through the department, which is the noise this
+      // change exists to remove.
+      await joins('delivery');
+      await time.createEntry(actor, {
+        projectId,
+        personId: actor.userId,
+        startedAt: new Date(Date.now() - 52 * 60 * 60_000).toISOString(),
+      });
+      await insights.refresh();
+
+      expect(await insights.list(member, { rule: 'timer_left_running' })).toEqual([]);
+    });
+
+    it('leaves an unrouted item with the admins', async () => {
+      await joins('finance');
+      await joins('delivery');
+      const everything = await insights.list(actor);
+      const mine = await insights.list(member);
+      // The admin sees at least what the member does — the fallback cannot hide anything.
+      expect(everything.length).toBeGreaterThanOrEqual(mine.length);
+      expect(mine.every((i) => i.personId === mate || i.audience !== null)).toBe(true);
+    });
+
+    it('lets the department it was sent to dismiss it', async () => {
+      await overdueInvoice(10);
+      await insights.refresh();
+      const [item] = await insights.list(actor, { rule: 'invoice_overdue' });
+
+      // Not in Finance yet: saying "I know" on Finance's behalf is refused.
+      await expect(insights.dismiss(member, item!.id)).rejects.toThrow(/insights.read_all/);
+
+      await joins('finance');
+      expect((await insights.dismiss(member, item!.id)).status).toBe('dismissed');
+    });
   });
 
   // ── ordering ──

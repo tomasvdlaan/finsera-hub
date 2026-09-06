@@ -65,6 +65,13 @@ interface TimeDay {
   entries: Array<{ id: string; effectiveMinutes: number; billable: boolean }>;
 }
 
+/** One "was here" line: the platform itself, or a client's portal opened as staff. */
+interface SignIn {
+  at: string;
+  surface: 'platform' | 'portal';
+  clientName: string | null;
+}
+
 interface ActivityRow {
   eventId: string;
   eventName: string;
@@ -112,6 +119,7 @@ export function PersonDetail() {
   const [tasks, setTasks] = useState<Task[]>();
   const [time, setTime] = useState<{ days: TimeDay[] }>();
   const [activity, setActivity] = useState<ActivityRow[]>();
+  const [signIns, setSignIns] = useState<SignIn[]>();
   const [failed, setFailed] = useState<Record<string, string>>({});
 
   useDocumentTitle(person?.displayName ?? 'Person');
@@ -141,6 +149,10 @@ export function PersonDetail() {
       .get<ActivityRow[]>(`/core/activity?actorId=${id}&since=${from}T00:00:00Z&limit=60`)
       .then(setActivity)
       .catch(fail('activity'));
+    api
+      .get<SignIn[]>(`/core/sign-ins?userId=${id}&since=${from}T00:00:00Z&limit=60`)
+      .then(setSignIns)
+      .catch(fail('signIns'));
   }, [id, from, to]);
 
   const open = (tasks ?? []).filter((t) => t.flow !== 'done');
@@ -337,6 +349,39 @@ export function PersonDetail() {
                   },
                 ]}
               />
+            )}
+          </Card>
+
+          <Card
+            title="When they were here"
+            sub={`Sessions in the last ${window.days} days`}
+            loading={!signIns && !failed.signIns}
+            error={failed.signIns}
+          >
+            {signIns?.length === 0 ? (
+              <Empty>
+                Nothing in this window. A row appears the first time they do something after
+                half an hour away — the platform never sees a login, because the browser
+                renews its own token without asking.
+              </Empty>
+            ) : (
+              <ul className="person-activity">
+                {(signIns ?? []).map((row) => (
+                  <li key={row.at}>
+                    <span className="person-activity-when">{WHEN.format(new Date(row.at))}</span>
+                    <span>
+                      {row.surface === 'portal' ? (
+                        <>
+                          opened the client portal of{' '}
+                          <strong>{row.clientName ?? 'a client'}</strong>
+                        </>
+                      ) : (
+                        'was working in the platform'
+                      )}
+                    </span>
+                  </li>
+                ))}
+              </ul>
             )}
           </Card>
 

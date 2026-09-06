@@ -29,6 +29,16 @@ export const userManager = new UserManager({
   post_logout_redirect_uri: `${window.location.origin}/`,
   response_type: 'code',
   scope: `openid profile email ${ROLES_SCOPE}`,
+  /*
+   * The hosted login page, in Dutch.
+   *
+   * `ui_locales` is the OIDC request parameter for it, so the language travels with the
+   * request rather than being a property of the instance. The instance-wide alternative —
+   * restricting `allowedLanguages` — is Admin API only (the console has no page for it) and
+   * needs IAM_OWNER, which means the language of our own login screens would depend on a
+   * setting nobody can see and anybody with instance rights can change.
+   */
+  ui_locales: 'nl',
   automaticSilentRenew: true,
   userStore: new WebStorageStateStore({ store: window.sessionStorage }),
 });

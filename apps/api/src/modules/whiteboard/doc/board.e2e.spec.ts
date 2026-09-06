@@ -72,7 +72,7 @@ describe('a whiteboard, end to end', () => {
 
     const registry = new RegistryService(testDb, manifests);
     const permissions = new PermissionService(testDb, manifests);
-    const audit = new AuditService();
+    const audit = new AuditService(testDb);
     const links = new LinkService(testDb, registry, permissions, audit, manifests);
     const bus = new EventBus(manifests);
     whiteboards = new WhiteboardService(

@@ -250,6 +250,54 @@ export class PortalUsersService {
   }
 
   /**
+   * Bind an invitation to the account we just created for it.
+   *
+   * The subject is normally claimed on first sign-in, by an address Zitadel says is
+   * verified. When we made the account ourselves there is nothing to guess: writing the
+   * subject now closes the small window in which somebody else's verified address could
+   * have claimed the invitation, and makes the row say who it is for before they ever
+   * arrive.
+   */
+  async attachSubject(actor: Actor, id: string, oidcSubject: string): Promise<void> {
+    await this.require(actor, 'portal.admin');
+    await this.db.transaction(async (tx) => {
+      const [updated] = await tx
+        .update(portalUsers)
+        .set({ oidcSubject })
+        .where(and(eq(portalUsers.id, id), isNull(portalUsers.oidcSubject)))
+        .returning({ id: portalUsers.id, email: portalUsers.email });
+      // Already bound, to this account or another. Not an error — a re-issued link for
+      // somebody who has signed in once is the ordinary case — and nothing to write.
+      if (!updated) return;
+      await this.audit.record(tx, {
+        actorId: actor.userId,
+        action: 'portal.account_created',
+        entityType: 'portal_user',
+        entityId: id,
+        detail: { email: updated.email, oidcSubject },
+      });
+    });
+  }
+
+  /** One invitation, by id — for the routes that re-issue a link. */
+  async byId(actor: Actor, id: string) {
+    await this.require(actor, 'portal.admin');
+    const [row] = await this.db
+      .select({
+        id: portalUsers.id,
+        email: portalUsers.email,
+        displayName: portalUsers.displayName,
+        oidcSubject: portalUsers.oidcSubject,
+        disabledAt: portalUsers.disabledAt,
+      })
+      .from(portalUsers)
+      .where(eq(portalUsers.id, id))
+      .limit(1);
+    if (!row) throw new NotFoundException('No such portal user');
+    return row;
+  }
+
+  /**
    * Revoke access without deleting the row.
    *
    * A deletion would take the audit trail of what this login saw with it, and "who had

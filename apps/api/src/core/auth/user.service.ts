@@ -10,6 +10,7 @@ import type { Actor } from '@platform/contracts';
 import { and, eq, sql } from 'drizzle-orm';
 import { v7 as uuidv7 } from 'uuid';
 import { DB, type Database } from '../db/db.module.js';
+import { AuditService } from '../audit/audit.service.js';
 import { users } from '../db/core.schema.js';
 import { INTERNAL_ROLE, rolesFrom } from './roles.js';
 
@@ -31,6 +32,29 @@ interface OidcClaims {
  */
 const PROFILE_TTL_MS = 6 * 60 * 60 * 1000;
 
+/**
+ * How long somebody has to be away before coming back counts as signing in.
+ *
+ * The platform never sees a login. This app runs the OIDC exchange in the browser and
+ * renews its token silently, so a genuine sign-in happens rarely and invisibly — asking
+ * "when did Tomas log in" and answering with the last time a token was minted would report
+ * a month ago for somebody who has been here all week.
+ *
+ * What a colleague means by the question is the first thing they did after being away, so
+ * that is what is recorded, and the log says so in those words rather than claiming to know
+ * about a login it never witnessed. Thirty minutes is the ordinary session gap.
+ */
+const SESSION_GAP_MS = 30 * 60 * 1000;
+
+/**
+ * How often `last_seen_at` is actually written.
+ *
+ * This runs on every request, so writing each time would mean a row update per page load
+ * per person for a column nothing reads in real time. Five minutes bounds it to a dozen
+ * writes an hour and still measures a thirty-minute gap accurately.
+ */
+const TOUCH_EVERY_MS = 5 * 60 * 1000;
+
 @Injectable()
 export class UserService {
   private readonly logger = new Logger(UserService.name);
@@ -47,7 +71,10 @@ export class UserService {
    */
   private readonly profileCheckedAt = new Map<string, number>();
 
-  constructor(@Inject(DB) private readonly db: Database) {}
+  constructor(
+    @Inject(DB) private readonly db: Database,
+    private readonly audit: AuditService,
+  ) {}
 
   /**
    * Resolve the OIDC subject to a platform user, provisioning on first login (spec §6).
@@ -92,6 +119,7 @@ export class UserService {
 
       // Deliberately after the isActive gate: a refused account is refused without a call to
       // the issuer on its way out.
+      await this.noteActivity(existing);
       await this.refreshProfile(existing, accessToken);
 
       return { userId: existing.id, role: existing.role as Actor['role'] };
@@ -151,6 +179,47 @@ export class UserService {
       where: eq(users.oidcSubject, claims.sub),
     });
     return { userId: winner!.id, role: winner!.role as Actor['role'] };
+  }
+
+  /**
+   * Mark that this person is here, and record it as a sign-in when they have been away.
+   *
+   * Both facts come out of the row that was just read, so detecting the gap costs nothing
+   * extra. The write is skipped entirely for somebody who was here minutes ago, which is
+   * almost every request.
+   *
+   * Failures are logged and swallowed. An audit row is worth having and it is not worth a
+   * colleague's request failing over — unlike the portal, where a read that cannot be
+   * recorded is refused, because there the log is the reason an outsider may see anything
+   * at all.
+   */
+  private async noteActivity(existing: { id: string; email: string; lastSeenAt: Date | null }) {
+    const now = Date.now();
+    const last = existing.lastSeenAt?.getTime() ?? 0;
+    if (now - last < TOUCH_EVERY_MS) return;
+
+    // A first sign-in has no previous visit, and reads as one rather than as a gap.
+    const returning = now - last >= SESSION_GAP_MS;
+    try {
+      await this.db.transaction(async (tx) => {
+        await tx.update(users).set({ lastSeenAt: new Date(now) }).where(eq(users.id, existing.id));
+        if (!returning) return;
+        await this.audit.record(tx, {
+          actorId: existing.id,
+          action: 'core.signed_in',
+          entityType: 'user',
+          entityId: existing.id,
+          detail: {
+            email: existing.email,
+            // What "signed in" actually means here, carried with the row so a reader does
+            // not have to know the constant: nothing since this moment, or nothing ever.
+            since: existing.lastSeenAt?.toISOString() ?? null,
+          },
+        });
+      });
+    } catch (err) {
+      this.logger.warn(`Could not record activity for ${existing.email}: ${(err as Error).message}`);
+    }
   }
 
   /**

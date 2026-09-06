@@ -16,6 +16,17 @@ import { PermissionService } from '../permissions/permission.service.js';
 import { RegistryService } from '../registry/registry.service.js';
 import { LlmService, type GenerateResult, type TokenUsage } from './llm.service.js';
 import { AiToolRegistry, type ToolInvocation } from './tool-registry.service.js';
+import { captureFailure, failureMessage, type CapturedFailure } from './failure.js';
+
+/** One failed answer, with the question that provoked it. What the export downloads. */
+export interface FailureRecord {
+  id: string;
+  conversationId: string;
+  at: string;
+  question: string | null;
+  toolCalls: unknown[];
+  failure: CapturedFailure;
+}
 
 export interface AskInput {
   message: string;
@@ -142,6 +153,16 @@ export class OrchestratorService {
 
     const system = await this.systemPrompt(actor, input.context?.entityId);
 
+    /*
+     * One id for this attempt, minted before the call.
+     *
+     * It goes into the stored record, into the server log, and into the sentence the person
+     * is shown. Without it, "the assistant failed for me around four" and a row in the table
+     * are two facts that cannot be joined, which is most of why a reported failure was so
+     * hard to look into.
+     */
+    const requestId = uuidv7();
+
     let result: GenerateResult | undefined;
     try {
       for await (const event of this.llm.stream({
@@ -173,8 +194,34 @@ export class OrchestratorService {
        * stored as the assistant's turn, which keeps every question paired with a reply and
        * means the history assembly downstream does not have to learn about half-turns.
        */
-      const failure = error instanceof Error ? error.message : String(error);
-      await this.record(conversationId, question, `**That did not work.** ${failure}`, [], []);
+      /*
+       * Everything that is known about the failure, kept at the only moment it is in hand.
+       *
+       * This used to be `error.message` and nothing else, and `String(error)` on anything
+       * that was not an Error — which is how a structured provider response, the most
+       * informative failure there is, came to be recorded as `[object Object]`.
+       *
+       * `invocations` is passed rather than `[]`. The tools that ran before the failure are
+       * usually the most diagnostic part of it, and they were being thrown away with the
+       * rest: a failure on the seventh step looked identical to one that never started.
+       */
+      const captured = captureFailure(error, {
+        requestId,
+        model: await this.llm.specFor('strong').catch(() => undefined),
+        steps: invocations.length,
+      });
+      this.logger.error(
+        `ask failed [${requestId}] ${captured.name}: ${captured.message}` +
+          (captured.status ? ` (HTTP ${captured.status})` : ''),
+      );
+      await this.record(
+        conversationId,
+        question,
+        failureMessage(captured),
+        invocations,
+        [],
+        captured,
+      );
       throw error;
     }
 
@@ -1046,12 +1093,74 @@ export class OrchestratorService {
    * Shared by the success and the failure path so they cannot drift — the version that only
    * existed on the happy path is exactly why a failed question left no trace.
    */
+  /**
+   * The assistant's recent failures, newest first.
+   *
+   * Reads `messages.failure`, which is null on every ordinary turn — so this is a scan of the
+   * failures and not a scan of the conversation looking for them. Before the column existed
+   * the only way to find one was to match on the words the failure sentence happens to begin
+   * with, which stopped working the first time that sentence was reworded.
+   *
+   * The question is carried alongside, because a failure without the thing that provoked it
+   * is rarely reproducible.
+   */
+  async failures(limit = 100): Promise<FailureRecord[]> {
+    const rows = await this.db
+      .select({
+        id: messages.id,
+        conversationId: messages.conversationId,
+        createdAt: messages.createdAt,
+        failure: messages.failure,
+        toolCalls: messages.toolCalls,
+      })
+      .from(messages)
+      .where(isNotNull(messages.failure))
+      .orderBy(desc(messages.createdAt))
+      .limit(Math.min(Math.max(limit, 1), 1000));
+
+    if (rows.length === 0) return [];
+
+    /*
+     * The question that provoked each one.
+     *
+     * Ids are uuidv7, so the user turn of a pair sorts immediately before its assistant turn
+     * — the pair is written in one transaction in that order. Matching on "the latest user
+     * message at or before this one" is what the export needs and costs one extra query
+     * rather than one per failure.
+     */
+    const conversationIds = [...new Set(rows.map((r) => r.conversationId))];
+    const asked = await this.db
+      .select({
+        id: messages.id,
+        conversationId: messages.conversationId,
+        content: messages.content,
+      })
+      .from(messages)
+      .where(and(eq(messages.role, 'user'), inArray(messages.conversationId, conversationIds)));
+
+    const questionFor = (conversationId: string, failureId: string) =>
+      asked
+        .filter((q) => q.conversationId === conversationId && q.id < failureId)
+        .sort((a, b) => (a.id < b.id ? 1 : -1))[0]?.content ?? null;
+
+    return rows.map((r) => ({
+      id: r.id,
+      conversationId: r.conversationId,
+      at: r.createdAt.toISOString(),
+      question: questionFor(r.conversationId, r.id),
+      toolCalls: r.toolCalls as unknown[],
+      failure: r.failure as CapturedFailure,
+    }));
+  }
+
   private async record(
     conversationId: string,
     question: string,
     answer: string,
     invocations: ToolInvocation[],
     references: unknown[],
+    /** Present only on the failure path, and what makes failures findable by query. */
+    failure?: CapturedFailure,
   ): Promise<void> {
     await this.db.transaction(async (tx) => {
       await tx.insert(messages).values([
@@ -1061,6 +1170,7 @@ export class OrchestratorService {
           conversationId,
           role: 'assistant',
           content: answer,
+          failure: failure ?? null,
           toolCalls: invocations.map((i) => ({
             // `toolName`, matching what the live answer returns and what every reader
             // expects. It was written as `tool` and read as `toolName`, so a conversation

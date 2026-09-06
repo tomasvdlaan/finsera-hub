@@ -5,6 +5,24 @@ export interface Candidate {
   rule: string;
   subjectId: string | null;
   subjectType: string | null;
+  /**
+   * Whose business this is, when it is one person's.
+   *
+   * Omitted by every rule about the company — an unpaid invoice concerns the team, and
+   * hiding it from most of them would be worse than useless. Set it only where the fact is
+   * about a person, and the insight then reaches that person and whoever holds
+   * `insights.read_all`.
+   */
+  personId?: string | null;
+  /**
+   * The department this belongs to, as a `core.departments` key.
+   *
+   * Every rule that is somebody's job in particular says whose here — an overdue invoice is
+   * Finance's, an unanswered quote is Sales'. Left unset it reaches admins only, which is the
+   * deliberate fallback: an item nobody is responsible for is the owner's problem by
+   * definition, and silently showing it to everybody is how it became nobody's.
+   */
+  audience?: string | null;
   severity: 'info' | 'attention' | 'urgent';
   title: string;
   detail: string | null;
@@ -60,6 +78,7 @@ export const RULES: Rule[] = [
       return {
         key: `invoice_overdue:${String(r.id)}`,
         rule: 'invoice_overdue',
+        audience: 'finance',
         subjectId: String(r.id),
         subjectType: 'invoice',
         // A week late is a reminder; a month late is a problem.
@@ -93,6 +112,7 @@ export const RULES: Rule[] = [
       return {
         key: `quote_unanswered:${String(r.id)}`,
         rule: 'quote_unanswered',
+        audience: 'sales',
         subjectId: String(r.id),
         subjectType: 'quote',
         severity: expired ? 'urgent' : 'attention',
@@ -130,6 +150,7 @@ export const RULES: Rule[] = [
       return {
         key: `contract_notice_closing:${String(r.id)}`,
         rule: 'contract_notice_closing',
+        audience: 'sales',
         subjectId: String(r.id),
         subjectType: 'contract',
         severity: days <= 14 ? 'urgent' : 'attention',
@@ -172,6 +193,7 @@ export const RULES: Rule[] = [
       return {
         key: `budget_nearly_spent:${String(r.id)}`,
         rule: 'budget_nearly_spent',
+        audience: 'delivery',
         subjectId: String(r.id),
         subjectType: 'project',
         severity: pct >= 100 ? 'urgent' : 'attention',
@@ -204,6 +226,7 @@ export const RULES: Rule[] = [
     toCandidate: (r) => ({
       key: `unbilled_work_ageing:${String(r.id)}`,
       rule: 'unbilled_work_ageing',
+      audience: 'finance',
       subjectId: String(r.id),
       subjectType: 'project',
       severity: n(r.oldest_days) >= 60 ? 'urgent' : 'attention',
@@ -235,6 +258,7 @@ export const RULES: Rule[] = [
     description: 'A card has been in flight for a fortnight without finishing.',
     query: sql`
       SELECT f.task_id AS id, f.title, f.status, f.current_flow, f.has_history,
+             f.assignee_id,
              (f.age_minutes / 1440)::int AS days_in_flight,
              p.name AS project_name
         FROM scrum.v_task_flow f
@@ -245,6 +269,9 @@ export const RULES: Rule[] = [
     toCandidate: (r) => ({
       key: `task_aging_wip:${String(r.id)}`,
       rule: 'task_aging_wip',
+      // Addressed to whoever holds the card; unassigned, it falls to the department.
+      personId: s(r.assignee_id),
+      audience: 'delivery',
       subjectId: String(r.id),
       subjectType: 'task',
       // A fortnight is a nudge; a month is a decision about whether it is still happening.
@@ -274,7 +301,7 @@ export const RULES: Rule[] = [
     name: 'task_overdue',
     description: 'A task is past the date it was due.',
     query: sql`
-      SELECT t.id, t.title, t.status, t.due_on,
+      SELECT t.id, t.title, t.status, t.due_on, t.assignee_id,
              (CURRENT_DATE - t.due_on)::int AS days_over,
              p.name AS project_name
         FROM scrum.v_tasks t
@@ -286,6 +313,9 @@ export const RULES: Rule[] = [
     toCandidate: (r) => ({
       key: `task_overdue:${String(r.id)}`,
       rule: 'task_overdue',
+      // Addressed to whoever holds the card; unassigned, it falls to the department.
+      personId: s(r.assignee_id),
+      audience: 'delivery',
       subjectId: String(r.id),
       subjectType: 'task',
       severity: n(r.days_over) >= 7 ? 'urgent' : 'attention',
@@ -324,6 +354,7 @@ export const RULES: Rule[] = [
     toCandidate: (r) => ({
       key: `sprint_ending:${String(r.id)}`,
       rule: 'sprint_ending_soon_with_open_work',
+      audience: 'delivery',
       subjectId: String(r.id),
       subjectType: 'sprint',
       // On the last day it is not advice any more.
@@ -355,7 +386,7 @@ export const RULES: Rule[] = [
     name: 'waiting_on_client_too_long',
     description: 'Work has sat with a client for over a week.',
     query: sql`
-      SELECT f.task_id AS id, f.title,
+      SELECT f.task_id AS id, f.title, f.assignee_id,
              (f.age_minutes / 1440)::int AS days_waiting,
              p.name AS project_name, cl.name AS client_name
         FROM scrum.v_task_flow f
@@ -368,6 +399,9 @@ export const RULES: Rule[] = [
     toCandidate: (r) => ({
       key: `waiting_client:${String(r.id)}`,
       rule: 'waiting_on_client_too_long',
+      // Addressed to whoever holds the card; unassigned, it falls to the department.
+      personId: s(r.assignee_id),
+      audience: 'delivery',
       subjectId: String(r.id),
       subjectType: 'task',
       severity: n(r.days_waiting) >= 21 ? 'urgent' : 'attention',
@@ -386,7 +420,10 @@ export const RULES: Rule[] = [
     name: 'task_blocked',
     description: 'A task is blocked and nobody has cleared it.',
     query: sql`
-      SELECT t.id, t.title, t.status, t.days_blocked, p.name AS project_name
+      SELECT t.id, t.title, t.status, t.days_blocked, p.name AS project_name,
+             -- Whoever was named as the reason it stopped, else whoever owns the card. The
+             -- blocker is the person who can actually clear it, so they are asked first.
+             coalesce(t.blocked_on_user_id, t.assignee_id) AS assignee_id
         FROM scrum.v_tasks t
         LEFT JOIN crm.v_projects p ON p.id = t.project_id
        WHERE t.blocked
@@ -396,6 +433,9 @@ export const RULES: Rule[] = [
     toCandidate: (r) => ({
       key: `task_blocked:${String(r.id)}`,
       rule: 'task_blocked',
+      // Addressed to whoever holds the card; unassigned, it falls to the department.
+      personId: s(r.assignee_id),
+      audience: 'delivery',
       subjectId: String(r.id),
       subjectType: 'task',
       /*
@@ -436,6 +476,7 @@ export const RULES: Rule[] = [
       return {
         key: `quote_accepted_by_client:${String(r.id)}`,
         rule: 'quote_accepted_by_client',
+        audience: 'sales',
         subjectId: String(r.id),
         subjectType: 'quote',
         // A client agreeing to spend money and nobody noticing is the kind of quiet that
@@ -488,6 +529,7 @@ export const RULES: Rule[] = [
         // row rather than accumulate one per run.
         key: 'setup_incomplete',
         rule: 'setup_incomplete',
+        audience: 'it',
         subjectId: null,
         subjectType: null,
         severity: 'urgent',
@@ -533,6 +575,7 @@ export const RULES: Rule[] = [
       return {
         key: `action_item_undecided:${String(r.id)}`,
         rule: 'action_item_undecided',
+        audience: 'delivery',
         subjectId: String(r.id),
         subjectType: 'meeting',
         severity: days >= 14 ? 'urgent' : 'attention',
@@ -584,6 +627,10 @@ export const RULES: Rule[] = [
         rule: 'timer_left_running',
         subjectId: String(r.id),
         subjectType: 'time_entry',
+        // Whose clock it is. Hours are already private to the person who logged them and
+        // whoever may read everyone's; an insight about those hours has to draw the same
+        // line, or the rule leaks on the dashboard what the API refuses at the endpoint.
+        personId: s(r.person_id),
         severity: stuck ? 'urgent' : 'attention',
         title: `A clock has been running for ${hours}h`,
         detail: stuck

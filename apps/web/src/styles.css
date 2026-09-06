@@ -4705,6 +4705,71 @@ button.nav-me:hover { background: var(--surface); }
 .tracker-what { flex: 1; min-width: 8rem; }
 .tracker-running-what { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tracker-warn { border-color: var(--warning); background: var(--warning-bg); }
+
+/* ── Departments, on the People table and in their own card ─────────────── */
+/*
+ * The summary is a button rather than a div: opening the checkboxes is a real action on a
+ * table row, and it has to be reachable from the keyboard like every other cell control.
+ */
+.dept-cell { position: relative; }
+.dept-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  align-items: center;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.dept-summary:hover { border-color: var(--border); background: var(--surface-sunken); }
+.dept-options {
+  position: absolute;
+  z-index: 20;
+  margin-top: var(--space-1);
+  min-width: 12rem;
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: var(--plane-2-shadow);
+}
+.dept-option { display: flex; gap: var(--space-2); align-items: center; padding: 2px 0; }
+.dept-list { list-style: none; margin: 0 0 var(--space-3); padding: 0; }
+.dept-list li {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--border-subtle, var(--border));
+}
+.dept-list li:last-child { border-bottom: 0; }
+.dept-list input { flex: 1; min-width: 8rem; max-width: 20rem; }
+
+/* ── A registration link, on screen only for as long as it takes to send it ─── */
+.invite-issued {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: var(--space-3) 0;
+  padding: var(--space-4);
+  border: 1px solid var(--warning);
+  border-radius: var(--radius-lg);
+  background: var(--warning-bg);
+}
+.invite-issued .row { justify-content: space-between; align-items: center; gap: var(--space-2); }
+.invite-issued input[readonly],
+.invite-issued textarea[readonly] {
+  width: 100%;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-sm);
+}
+/* The message keeps its line breaks: it is copied into a mail, not re-flowed here. */
+.invite-issued textarea { white-space: pre; }
 /* Why the clock is asking for a duration, next to the field that asks. */
 .tracker-overrun {
   margin: var(--space-2) 0 0;
@@ -9106,3 +9171,28 @@ a.btn { text-decoration: none; }
   color: var(--dock-muted);
   font-style: italic;
 }
+
+/*
+ * The assistant's recent failures, on the costs page.
+ *
+ * Set as a log rather than as a table: the message is the part being read and it is a
+ * sentence of arbitrary length, so it gets the full width and everything else — the class,
+ * the status, the model, the question — is small print around it.
+ */
+.failure-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3); }
+.failure-list li {
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  /* A failure is not an alert here — this is a list of things already over. */
+  background: var(--surface-sunken, var(--surface));
+}
+.failure-head { margin: 0; font-size: var(--text-xs); }
+.failure-head code { font-size: inherit; }
+.failure-why {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-sm);
+  /* Provider messages arrive as one long line and must not push the page sideways. */
+  overflow-wrap: anywhere;
+}
+.failure-meta { margin: var(--space-1) 0 0; font-size: var(--text-xs); }

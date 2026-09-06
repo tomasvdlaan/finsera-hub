@@ -24,6 +24,16 @@ const someoneElse: Actor = { userId: crypto.randomUUID(), role: 'admin' };
  */
 describe('conversation organisation', () => {
   let orchestrator: OrchestratorService;
+  /*
+   * Shared with the tests, and declaring the fixture entity type.
+   *
+   * A test used to build a second registry of its own to register a subject with, which
+   * meant the orchestrator's permission service had never heard of that type. Nothing
+   * noticed while visibility was "does the row exist"; now that a reference is judged by
+   * its type's declared read capability, an undeclared type is invisible — as it should be,
+   * and as it can only happen in a fixture.
+   */
+  let registry: RegistryService;
 
   beforeEach(async () => {
     await resetDb();
@@ -35,9 +45,23 @@ describe('conversation organisation', () => {
     await seedUser(someoneElse.userId, 'admin');
 
     const m = new ManifestRegistry();
-    m.register(defineManifest({ name: 'fixture', version: '1.0.0' }));
+    m.register(
+      defineManifest({
+        name: 'fixture',
+        version: '1.0.0',
+        entities: [
+          {
+            type: 'fixture_thing',
+            displayTemplate: '{title}',
+            urlPattern: '/f/:id',
+            readPermission: 'fixture.read',
+          },
+        ],
+        permissions: [{ capability: 'fixture.read', description: 'Read.' }],
+      }),
+    );
     m.seal();
-    const registry = new RegistryService(testDb, m);
+    registry = new RegistryService(testDb, m);
     const permissions = new PermissionService(testDb, m);
     orchestrator = new OrchestratorService(
       testDb,
@@ -297,27 +321,6 @@ describe('conversation organisation', () => {
 
   it('suggests where a conversation belongs from what it cited', async () => {
     const id = await seedConversation('Untitled');
-    const registry = new RegistryService(testDb, (() => {
-      const m = new ManifestRegistry();
-      m.register(
-        defineManifest({
-          name: 'fixture',
-          version: '1.0.0',
-          entities: [
-            {
-              type: 'fixture_thing',
-              displayTemplate: '{title}',
-              urlPattern: '/f/:id',
-              readPermission: 'fixture.read',
-            },
-          ],
-          permissions: [{ capability: 'fixture.read', description: 'Read.' }],
-        }),
-      );
-      m.seal();
-      return m;
-    })());
-
     const subject = registry.newId();
     await testDb.transaction((tx) =>
       registry.register(tx, {

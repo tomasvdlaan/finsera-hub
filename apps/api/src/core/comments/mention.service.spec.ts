@@ -64,7 +64,7 @@ describe('mentions', () => {
       testDb,
       registry,
       new PermissionService(testDb, m),
-      new AuditService(),
+      new AuditService(testDb),
       mentions,
     );
 

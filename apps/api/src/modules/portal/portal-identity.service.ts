@@ -1,4 +1,4 @@
-import { Injectable, Logger, type OnModuleInit, UnauthorizedException } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger, type OnModuleInit, UnauthorizedException } from '@nestjs/common';
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from 'jose';
 import { INTERNAL_ROLE, PORTAL_ROLE, hasRole } from '../../core/auth/roles.js';
 import { UserService } from '../../core/auth/user.service.js';
@@ -171,7 +171,7 @@ export class PortalIdentityService implements OnModuleInit {
         this.logger.warn(
           `Portal sign-in refused: '${member.email}' has no '${INTERNAL_ROLE}' role`,
         );
-        throw new UnauthorizedException('Invalid token');
+        throw new ForbiddenException('No portal access');
       }
       return { kind: 'staff', staffUserId: member.id, email: member.email };
     }
@@ -179,11 +179,21 @@ export class PortalIdentityService implements OnModuleInit {
     // The audience above is necessary and not sufficient: Zitadel will issue a token
     // carrying an audience the holder has no grant for, so `aud` restates the request
     // rather than proving authorisation. The role comes from a grant, so it does.
+    /*
+     * A missing grant is a refusal, not a broken token — and the screen has to say so.
+     *
+     * This threw `Unauthorized`, which the callback reads as "the token could not be checked
+     * at all" and answers with *Portaal niet beschikbaar — het klantportaal is niet goed
+     * ingesteld*. So the single most likely thing to be wrong when somebody activates a new
+     * account, that nobody has granted them the role yet, told the client the platform was
+     * broken and told us nothing. It is an authorisation decision: the same answer as an
+     * invitation we never wrote.
+     */
     if (this.roleCheckEnabled && !hasRole(payload, PORTAL_ROLE)) {
       this.logger.warn(
         `Portal token rejected: subject '${subject}' has no '${PORTAL_ROLE}' role`,
       );
-      throw new UnauthorizedException('Invalid token');
+      throw new ForbiddenException('No portal access');
     }
 
     // Third gate, and the only one that says *whose* data this is: an invitation we wrote.

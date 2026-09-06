@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { eq, sql } from 'drizzle-orm';
+import { AuditService } from '../audit/audit.service.js';
 import { users } from '../db/core.schema.js';
 import { resetDb, testDb, truncate } from '../../test/db.js';
 import { UserService } from './user.service.js';
@@ -18,7 +19,7 @@ describe('UserService provisioning', () => {
   beforeEach(async () => {
     await resetDb();
     await truncate(sql`TRUNCATE core.users CASCADE`);
-    service = new UserService(testDb);
+    service = new UserService(testDb, new AuditService(testDb));
   });
 
   it('refuses to provision a subject without the internal role', async () => {
@@ -121,7 +122,7 @@ describe('UserService profile refresh', () => {
   beforeEach(async () => {
     await resetDb();
     await truncate(sql`TRUNCATE core.users CASCADE`);
-    service = new UserService(testDb);
+    service = new UserService(testDb, new AuditService(testDb));
     await testDb.insert(users).values({
       id: crypto.randomUUID(),
       oidcSubject: SUB,

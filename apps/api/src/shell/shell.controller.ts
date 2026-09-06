@@ -7,15 +7,19 @@ import {
   Get,
   Headers,
   NotFoundException,
+  Header,
   Param,
   Patch,
   Post,
   Put,
   Query,
+  Res,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { decodeJwt } from 'jose';
 import { NAV_SECTIONS } from '@platform/contracts';
 import type { Actor, CreateLinkInput } from '@platform/contracts';
+import { AuditService } from '../core/audit/audit.service.js';
 import { CommentService } from '../core/comments/comment.service.js';
 import { MentionService } from '../core/comments/mention.service.js';
 import { CurrentActor } from '../core/auth/current-actor.decorator.js';
@@ -24,6 +28,8 @@ import { UserService } from '../core/auth/user.service.js';
 import { UsageService } from '../core/usage/usage.service.js';
 import { ModelConfigService } from '../core/usage/model-config.service.js';
 import { OpenRouterService } from '../core/usage/openrouter.service.js';
+import { OrchestratorService } from '../core/llm/orchestrator.service.js';
+import { DepartmentsService } from '../core/auth/departments.service.js';
 import { PermissionService } from '../core/permissions/permission.service.js';
 import { DashboardService } from '../core/registry/dashboard.service.js';
 import { INTERNAL_ROLE, PORTAL_ROLE, roleClaims, rolesFrom } from '../core/auth/roles.js';
@@ -48,9 +54,12 @@ export class ShellController {
     private readonly settings: SettingsService,
     private readonly dashboards: DashboardService,
     private readonly permissions: PermissionService,
+    private readonly departments: DepartmentsService,
     private readonly usage: UsageService,
     private readonly models: ModelConfigService,
     private readonly openrouter: OpenRouterService,
+    private readonly assistant: OrchestratorService,
+    private readonly audit: AuditService,
   ) {}
 
   /** The organisation's own legal details — printed on every invoice and quote. */
@@ -242,6 +251,57 @@ export class ShellController {
     return { current: await this.models.current(), options: await this.models.options() };
   }
 
+  /**
+   * What the assistant has failed on lately.
+   *
+   * Alongside the costs and the model picker rather than on a page of its own, because the
+   * three answer one question between them: a run of failures is usually a model that has
+   * been retired, an account out of credit, or a choice somebody made here — and all three
+   * of those are settled on this screen.
+   *
+   * `core.costs.read` rather than a new capability. It is the same audience and the same
+   * kind of secret: a failure carries the question that provoked it, so this is a window
+   * onto what colleagues asked the assistant, which is a fact about how somebody works.
+   */
+  @Get('assistant/failures')
+  async assistantFailures(@CurrentActor() actor: Actor, @Query('limit') limit?: string) {
+    await this.permissions.require(actor, 'core.costs.read');
+    return this.assistant.failures(Number(limit) || 100);
+  }
+
+  /**
+   * The same thing as a file.
+   *
+   * The reason this exists is that the failures worth looking into are on the deployed
+   * server, and the person who can fix them is not on it. A browser download from the live
+   * instance is the whole transfer: no shell on the box, no database client, no copying rows
+   * out of a terminal by hand.
+   *
+   * `Content-Disposition` is what makes it a download rather than a wall of JSON in a tab.
+   * The filename carries the date, because the second thing anybody does with one of these is
+   * put it next to the last one.
+   */
+  @Get('assistant/failures/export')
+  @Header('Content-Type', 'application/json; charset=utf-8')
+  async exportAssistantFailures(
+    @CurrentActor() actor: Actor,
+    @Res({ passthrough: true }) res: Response,
+    @Query('limit') limit?: string,
+  ) {
+    await this.permissions.require(actor, 'core.costs.read');
+    const failures = await this.assistant.failures(Number(limit) || 1000);
+    const day = new Date().toISOString().slice(0, 10);
+    res.setHeader('Content-Disposition', `attachment; filename="assistant-failures-${day}.json"`);
+    return {
+      exportedAt: new Date().toISOString(),
+      // Which deployment this came from. Two files on one desk are otherwise indistinguishable.
+      site: process.env.PUBLIC_URL ?? null,
+      models: await this.models.current(),
+      count: failures.length,
+      failures,
+    };
+  }
+
   /** Choose a model for one slot, or send null to hand it back to the environment. */
   @Put('models/:role')
   async setModel(
@@ -256,10 +316,73 @@ export class ShellController {
     return this.models.set(role, body.model ?? null);
   }
 
+  /**
+   * The departments work can be addressed to.
+   *
+   * Readable by everyone, unlike the directory it sits next to: a member has to be able to
+   * see that an item on their own inbox came to them as Finance, and the list is five labels
+   * — it says nothing about any person.
+   */
+  @Get('departments')
+  departmentList() {
+    return this.departments.list();
+  }
+
+  @Post('departments')
+  async createDepartment(@CurrentActor() actor: Actor, @Body() body: { label: string }) {
+    await this.permissions.require(actor, 'core.people.manage');
+    return this.departments.create(actor, { label: body?.label });
+  }
+
+  @Patch('departments/:id')
+  async renameDepartment(
+    @CurrentActor() actor: Actor,
+    @Param('id') id: string,
+    @Body() body: { label: string },
+  ) {
+    await this.permissions.require(actor, 'core.people.manage');
+    return this.departments.rename(actor, id, body?.label);
+  }
+
+  @Delete('departments/:id')
+  async deleteDepartment(@CurrentActor() actor: Actor, @Param('id') id: string) {
+    await this.permissions.require(actor, 'core.people.manage');
+    await this.departments.remove(actor, id);
+    return { deleted: true };
+  }
+
+  /**
+   * Which departments somebody is in — the whole set, every time.
+   *
+   * A PUT rather than add/remove routes because the screen edits a set of checkboxes: two
+   * endpoints would make the UI reconstruct a diff it does not have, and get it wrong the
+   * first time two people were edited in two tabs.
+   */
+  @Put('people/:id/departments')
+  async setDepartments(
+    @CurrentActor() actor: Actor,
+    @Param('id') id: string,
+    @Body() body: { departmentIds?: string[] },
+  ) {
+    await this.permissions.require(actor, 'core.people.manage');
+    return {
+      departmentIds: await this.departments.setForUser(actor, id, body?.departmentIds ?? []),
+    };
+  }
+
   @Get('people')
   async people(@CurrentActor() actor: Actor) {
     await this.permissions.require(actor, 'core.people.manage');
-    return this.users.people(actor);
+    const people = await this.users.people(actor);
+    /*
+     * Departments are attached here rather than inside `people()`.
+     *
+     * UserService holds nothing but the database on purpose, and the directory projection is
+     * already the one place that decides which fields leave. One join for the whole page,
+     * rather than a query per row or a second call from the browser.
+     */
+    const byUser = await this.departments.byUser(people.map((p) => String(p.id)));
+    return people.map((p) => ({ ...p, departmentIds: byUser.get(String(p.id)) ?? [] }));
   }
 
   /**
@@ -275,7 +398,8 @@ export class ShellController {
     await this.permissions.require(actor, 'core.people.manage');
     const person = await this.users.person(actor, id);
     if (!person) throw new NotFoundException('No such person');
-    return person;
+    const byUser = await this.departments.byUser([id]);
+    return { ...person, departmentIds: byUser.get(id) ?? [] };
   }
 
   @Patch('people/:id')
@@ -480,6 +604,28 @@ export class ShellController {
       eventName,
       limit: limit ? Number(limit) : undefined,
     });
+  }
+
+  /**
+   * Who has been here, and when — the internal platform and the client portals together.
+   *
+   * Separate from `/core/activity` rather than mixed into it, because the two are different
+   * logs. Activity is assembled from `core.events`, and every row there is something that
+   * happened *to* a registry entity; a sign-in happened to nobody, and forcing one to name
+   * a subject it does not have is how a clean rule acquires its first exception.
+   *
+   * Behind `core.people.manage`, the same gate as the directory: this says when each named
+   * colleague was at their desk, which is a fact about a person rather than about the work.
+   */
+  @Get('sign-ins')
+  async signIns(
+    @CurrentActor() actor: Actor,
+    @Query('userId') userId?: string,
+    @Query('since') since?: string,
+    @Query('limit') limit?: string,
+  ) {
+    await this.permissions.require(actor, 'core.people.manage');
+    return this.audit.signIns({ userId, since, limit: limit ? Number(limit) : undefined });
   }
 
   /** Dead-lettered event deliveries — the only ops surface in Phase 0 (spec §9). */

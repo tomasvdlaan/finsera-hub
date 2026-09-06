@@ -100,7 +100,7 @@ describe('LiveGateway', () => {
 
     const registry = new RegistryService(testDb, manifests);
     const permissions = new PermissionService(testDb, manifests);
-    const audit = new AuditService();
+    const audit = new AuditService(testDb);
     const links = new LinkService(testDb, registry, permissions, audit, manifests);
     const bus = new EventBus(manifests);
     crm = new CrmService(testDb, registry, permissions, audit, bus, links);
@@ -109,7 +109,7 @@ describe('LiveGateway', () => {
     docs = new NoteDocService();
     meetings = new MeetingsService(
       testDb, registry, permissions, audit, bus, links,
-      new EmbeddingService(), crm, scrum, new UserService(testDb), docs,
+      new EmbeddingService(), crm, scrum, new UserService(testDb, new AuditService(testDb)), docs,
     );
     // The same wiring MeetingsModule does at boot: the authority reads and writes bodies
     // through the service, and the service edits documents through the authority.

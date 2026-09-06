@@ -41,6 +41,17 @@ export const users = core.table('users', {
    */
   isActive: boolean('is_active').notNull().default(true),
 
+  /**
+   * When this person was last doing something here.
+   *
+   * The platform never sees a login. The internal app runs the OIDC exchange in the browser
+   * and renews its token silently, so a real sign-in happens rarely and invisibly — what a
+   * colleague means by "logged in this morning" is the first request after a gap, and this
+   * column is what makes that gap measurable. Written at most every few minutes, and only
+   * ever from the request path.
+   */
+  lastSeenAt: timestamp('last_seen_at', { withTimezone: true }),
+
   /* ── What the business knows about a person, as opposed to what the identity provider does ──
    *
    * Zitadel owns who somebody is: their subject, their email, whether they may sign in at all.
@@ -346,6 +357,17 @@ export const messages = core.table(
      */
     references: jsonb('references').notNull().default([]),
     /** Kept out of the thread it lives in — often the unit you want is one answer. */
+    /**
+     * Why this answer failed, when it did.
+     *
+     * Null on every ordinary turn, which is what makes it a usable index of failures: the
+     * assistant's failures were already stored as prose in `content` and could only be found
+     * by matching on the words it happened to start with.
+     *
+     * jsonb because it is one opaque diagnostic blob, written whole and read whole by whoever
+     * is looking into it — nothing queries across its fields. Shape in `llm/failure.ts`.
+     */
+    failure: jsonb('failure'),
     starredAt: timestamp('starred_at', { withTimezone: true }),
     /** Held at the top of its own conversation, for the answer a long thread keeps returning to. */
     pinnedAt: timestamp('pinned_at', { withTimezone: true }),
@@ -605,3 +627,48 @@ export const platformSettings = core.table('platform_settings', {
   modelFast: text('model_fast'),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * Departments — who a piece of work is *addressed to*, as opposed to what anybody may do.
+ *
+ * Deliberately not a second permission axis. `users.role` still decides what a person may
+ * reach; a department decides whose inbox an item lands in. Conflating the two would mean
+ * adding Finance to somebody took access away from them somewhere else, which is how a
+ * routing change becomes a lockout.
+ *
+ * `key` is the address and does not change: insight rules name `finance` in code, so
+ * renaming the department to "Finance & Admin" must move nothing. `label` is what people
+ * read and is theirs to edit.
+ */
+export const departments = core.table('departments', {
+  id: uuid('id').primaryKey(),
+  key: text('key').notNull().unique(),
+  label: text('label').notNull(),
+  /**
+   * Seeded departments are the ones the rules already address.
+   *
+   * Marked so the UI can say why deleting one changes where things go, and so a fresh
+   * install has the set the code expects without a data migration.
+   */
+  isStandard: boolean('is_standard').notNull().default(false),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** Which departments somebody is in. A person may be in several, or none. */
+export const userDepartments = core.table(
+  'user_departments',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    departmentId: uuid('department_id')
+      .notNull()
+      .references(() => departments.id, { onDelete: 'cascade' }),
+    grantedAt: timestamp('granted_at', { withTimezone: true }).notNull().defaultNow(),
+    grantedBy: uuid('granted_by').references(() => users.id),
+  },
+  (t) => [
+    primaryKey({ columns: [t.userId, t.departmentId] }),
+    index('user_departments_department_idx').on(t.departmentId),
+  ],
+);

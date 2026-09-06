@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ForbiddenException } from '@nestjs/common';
 import { jwtVerify } from 'jose';
 import { PortalIdentityService } from './portal-identity.service.js';
 import type { UserService } from '../../core/auth/user.service.js';
@@ -114,7 +115,9 @@ describe('PortalIdentityService', () => {
       delete process.env.PORTAL_ROLE_CHECK;
       accepts({ sub: 'sub-1' });
 
-      await expect(guard.identify('a.b.c')).rejects.toThrow(/Invalid token/);
+      // A refusal, not an unverifiable token: the callback turns that difference into
+      // "you have no access" rather than "the portal is broken".
+      await expect(guard.identify('a.b.c')).rejects.toThrow(ForbiddenException);
       expect(resolveFromSubject).not.toHaveBeenCalled();
     });
 
@@ -127,7 +130,7 @@ describe('PortalIdentityService', () => {
 
       // Refused before anyone asks which client this is — the portal user lookup is not
       // what keeps employees out, and must never be the only thing that does.
-      await expect(guard.identify('a.b.c')).rejects.toThrow(/Invalid token/);
+      await expect(guard.identify('a.b.c')).rejects.toThrow(ForbiddenException);
       expect(resolveFromSubject).not.toHaveBeenCalled();
     });
 
@@ -143,7 +146,7 @@ describe('PortalIdentityService', () => {
         await expect(
           guard.identify('a.b.c'),
           `PORTAL_ROLE_CHECK=${String(value)} disabled the check`,
-        ).rejects.toThrow(/Invalid token/);
+        ).rejects.toThrow(ForbiddenException);
         expect(resolveFromSubject).not.toHaveBeenCalled();
       }
     });
@@ -187,6 +190,24 @@ describe('PortalIdentityService', () => {
       expect(resolveFromSubject).toHaveBeenCalledWith('sub-client');
     });
 
+    it('refuses a client whose portal role was never granted, as a refusal', async () => {
+      delete process.env.PORTAL_ROLE_CHECK;
+      accepts({ sub: 'sub-new-client' });
+      bySubject.mockResolvedValue(null);
+
+      /*
+       * The screen this decides.
+       *
+       * Unauthorized here means "we could not check the token", which the callback answers
+       * with "the portal is not set up" — the message a freshly activated client saw when
+       * the truth was that nobody had granted them the role yet. Forbidden is the honest
+       * answer, and it is the one that puts a log line in front of the person who can fix it
+       * instead of telling the client to try again later.
+       */
+      await expect(guard.identify('a.b.c')).rejects.toThrow(ForbiddenException);
+      expect(resolveFromSubject).not.toHaveBeenCalled();
+    });
+
     // ── one of us, at a client's portal (Phase 8, P5) ──
 
     it('recognises an employee by their core.users row, before asking about clients', async () => {
@@ -211,8 +232,9 @@ describe('PortalIdentityService', () => {
       bySubject.mockResolvedValue({ id: 'u-1', email: 'former@finsera.nl' });
 
       // The same gate the internal app applies, applied here — so revoking the grant
-      // closes both doors rather than one.
-      await expect(guard.identify('a.b.c')).rejects.toThrow(/Invalid token/);
+      // closes both doors rather than one. Refused, not unverifiable: the callback turns
+      // the difference into two very different screens.
+      await expect(guard.identify('a.b.c')).rejects.toThrow(ForbiddenException);
     });
 
     it('recognises an employee with the role gate off, on the row alone', async () => {

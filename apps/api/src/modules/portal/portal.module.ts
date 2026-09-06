@@ -15,6 +15,7 @@ import { PortalSessionsService } from './portal-sessions.service.js';
 import { PortalPreviewController } from './portal-preview.controller.js';
 import { PortalController } from './portal.controller.js';
 import { PortalUsersService } from './portal-users.service.js';
+import { ZitadelAdminService } from './zitadel-admin.service.js';
 import { portalManifest } from './portal.manifest.js';
 import { PortalProjection } from './portal.projection.js';
 import { PortalTicketsService } from './portal-tickets.service.js';
@@ -45,6 +46,7 @@ import { PortalTicketsService } from './portal-tickets.service.js';
     PortalAdminController,
   ],
   providers: [
+    ZitadelAdminService,
     PortalProjection,
     PortalUsersService,
     PortalAuthGuard,

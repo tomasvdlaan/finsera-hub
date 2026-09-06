@@ -43,7 +43,7 @@ describe('ScrumService sprints', () => {
 
     const registry = new RegistryService(testDb, manifests);
     const permissions = new PermissionService(testDb, manifests);
-    const audit = new AuditService();
+    const audit = new AuditService(testDb);
     const links = new LinkService(testDb, registry, permissions, audit, manifests);
     const bus = new EventBus(manifests);
     const crm = new CrmService(testDb, registry, permissions, audit, bus, links);
@@ -306,7 +306,7 @@ describe('ScrumService blockers', () => {
 
     const registry = new RegistryService(testDb, manifests);
     const permissions = new PermissionService(testDb, manifests);
-    const audit = new AuditService();
+    const audit = new AuditService(testDb);
     const links = new LinkService(testDb, registry, permissions, audit, manifests);
     const bus = new EventBus(manifests);
     const crm = new CrmService(testDb, registry, permissions, audit, bus, links);
@@ -480,7 +480,7 @@ describe('ScrumService card age, type and comment counts', () => {
 
     const registry = new RegistryService(testDb, manifests);
     const permissions = new PermissionService(testDb, manifests);
-    const audit = new AuditService();
+    const audit = new AuditService(testDb);
     const links = new LinkService(testDb, registry, permissions, audit, manifests);
     const bus = new EventBus(manifests);
     const crm = new CrmService(testDb, registry, permissions, audit, bus, links);
@@ -576,7 +576,7 @@ describe('ScrumService flow', () => {
 
     const registry = new RegistryService(testDb, manifests);
     const permissions = new PermissionService(testDb, manifests);
-    const audit = new AuditService();
+    const audit = new AuditService(testDb);
     const links = new LinkService(testDb, registry, permissions, audit, manifests);
     const bus = new EventBus(manifests);
     const crm = new CrmService(testDb, registry, permissions, audit, bus, links);
@@ -802,7 +802,7 @@ describe('ScrumService sprint registration', () => {
 
     registry = new RegistryService(testDb, manifests);
     const permissions = new PermissionService(testDb, manifests);
-    const audit = new AuditService();
+    const audit = new AuditService(testDb);
     const links = new LinkService(testDb, registry, permissions, audit, manifests);
     const bus = new EventBus(manifests);
     const crm = new CrmService(testDb, registry, permissions, audit, bus, links);
@@ -877,7 +877,7 @@ describe('ScrumService warnings', () => {
 
     const registry = new RegistryService(testDb, manifests);
     const permissions = new PermissionService(testDb, manifests);
-    const audit = new AuditService();
+    const audit = new AuditService(testDb);
     const links = new LinkService(testDb, registry, permissions, audit, manifests);
     const bus = new EventBus(manifests);
     const crm = new CrmService(testDb, registry, permissions, audit, bus, links);
@@ -998,7 +998,7 @@ describe('ScrumService sprint scope', () => {
 
     const registry = new RegistryService(testDb, manifests);
     const permissions = new PermissionService(testDb, manifests);
-    const audit = new AuditService();
+    const audit = new AuditService(testDb);
     const links = new LinkService(testDb, registry, permissions, audit, manifests);
     const bus = new EventBus(manifests);
     const crm = new CrmService(testDb, registry, permissions, audit, bus, links);
@@ -1111,7 +1111,7 @@ describe('ScrumService sprint editing', () => {
 
     registry = new RegistryService(testDb, manifests);
     const permissions = new PermissionService(testDb, manifests);
-    const audit = new AuditService();
+    const audit = new AuditService(testDb);
     const links = new LinkService(testDb, registry, permissions, audit, manifests);
     const bus = new EventBus(manifests);
     const crm = new CrmService(testDb, registry, permissions, audit, bus, links);
@@ -1198,7 +1198,7 @@ describe('ScrumService sprint load', () => {
 
     const registry = new RegistryService(testDb, manifests);
     const permissions = new PermissionService(testDb, manifests);
-    const audit = new AuditService();
+    const audit = new AuditService(testDb);
     const links = new LinkService(testDb, registry, permissions, audit, manifests);
     const bus = new EventBus(manifests);
     const crm = new CrmService(testDb, registry, permissions, audit, bus, links);
@@ -1294,7 +1294,7 @@ describe('ScrumService assistant task edits', () => {
 
     const registry = new RegistryService(testDb, manifests);
     const permissions = new PermissionService(testDb, manifests);
-    const audit = new AuditService();
+    const audit = new AuditService(testDb);
     const links = new LinkService(testDb, registry, permissions, audit, manifests);
     const bus = new EventBus(manifests);
     const crm = new CrmService(testDb, registry, permissions, audit, bus, links);

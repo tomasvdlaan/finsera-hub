@@ -61,7 +61,7 @@ function build(hidden = new Set<string>()) {
   const m = manifests();
   const registry = new RegistryService(testDb, m);
   const permissions = new RestrictedPermissions(hidden, m);
-  const links = new LinkService(testDb, registry, permissions, new AuditService(), m);
+  const links = new LinkService(testDb, registry, permissions, new AuditService(testDb), m);
   return { registry, links };
 }
 
