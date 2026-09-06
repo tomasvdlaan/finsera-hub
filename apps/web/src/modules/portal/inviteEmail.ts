@@ -31,13 +31,21 @@ export interface InviteEmail {
   html: string;
 }
 
-/** Finsera's green, inlined: an email cannot read our stylesheet. */
-const BRAND = '#1f5f4f';
-const BRAND_DEEP = '#143f34';
+/*
+ * Finsera's gold, inlined: an email cannot read our stylesheet.
+ *
+ * Darker than the mark, and deliberately. A logo sits on its own and can be as bright as it
+ * likes; these carry white button text and dark-on-white link text, and a gold light enough
+ * to look like the logo fails both. `#8B6508` is 5.3:1 on white and `#6B4E0C` is 7.7:1, so
+ * the button is legible and so is every link, including on the screens these are actually
+ * read on — a phone held outdoors is the normal case for an email, not the exception.
+ */
+const BRAND = '#8B6508';
+const BRAND_DEEP = '#6B4E0C';
 const INK = '#1a1a1a';
-const MUTED = '#5c6b66';
+const MUTED = '#6b6350';
 /* The block that carries their own address — the one thing they will need again. */
-const TINT = '#e8f1ee';
+const TINT = '#fdf6e3';
 
 /**
  * Everything interpolated into the HTML is escaped.
@@ -70,13 +78,17 @@ export function inviteEmail({ name, clientName, portalHost, url }: InviteEmailIn
     `Het klantportaal van Finsera staat voor ${clientName} klaar: uw projecten, offertes,`,
     `facturen en gedeelde documenten op één plek.`,
     ``,
-    `Stel eenmalig uw wachtwoord in:`,
-    url,
+    `Het gaat in twee stappen.`,
     ``,
-    `Uw eigen portaaladres, ook voor later:`,
-    `https://${portalHost}`,
+    `1. Activeer eenmalig uw account. U kiest hierbij uw wachtwoord:`,
+    `   ${url}`,
     ``,
-    `De link is persoonlijk en werkt één keer. Werkt hij niet meer? Laat het ons weten.`,
+    `2. Log daarna in op uw eigen portaaladres. Dat is een ander adres dan de pagina`,
+    `   waar u zojuist uw wachtwoord instelde:`,
+    `   https://${portalHost}`,
+    `   Hier logt u voortaan in — de moeite van een bladwijzer waard.`,
+    ``,
+    `De link uit stap 1 is persoonlijk en werkt één keer. Werkt hij niet meer? Laat het ons weten.`,
   ].join('\n');
 
   /*
@@ -102,16 +114,33 @@ export function inviteEmail({ name, clientName, portalHost, url }: InviteEmailIn
               Het klantportaal van Finsera staat voor <strong>${escapeHtml(clientName)}</strong>
               klaar: uw projecten, offertes, facturen en gedeelde documenten op één plek.
             </p>
-            <p style="margin:0 0 20px 0;">Stel eenmalig uw wachtwoord in:</p>
-            <p style="margin:0 0 20px 0;">
-              <a href="${escapeHtml(url)}" style="display:inline-block;padding:11px 22px;background:${BRAND};border-radius:6px;color:#ffffff;font-size:15px;font-weight:600;text-decoration:none;">Wachtwoord instellen</a>
-            </p>
-            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 20px 0;">
+            <p style="margin:0 0 18px 0;">Het gaat in twee stappen.</p>
+
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 22px 0;">
               <tr>
-                <td style="background:${TINT};border-left:3px solid ${BRAND};border-radius:0 6px 6px 0;padding:14px 18px;">
-                  <div style="color:${MUTED};font-size:12px;letter-spacing:0.04em;text-transform:uppercase;padding-bottom:4px;">Uw eigen portaaladres</div>
-                  <a href="https://${escapeHtml(portalHost)}" style="color:${BRAND_DEEP};font-size:17px;font-weight:700;text-decoration:none;">${escapeHtml(portalHost)}</a>
-                  <div style="color:${MUTED};font-size:13px;padding-top:4px;">Hier logt u voortaan in — de moeite van een bladwijzer waard.</div>
+                <td width="30" valign="top" style="color:${BRAND};font-size:15px;font-weight:700;line-height:1.65;">1.</td>
+                <td style="color:${INK};font-size:15px;line-height:1.65;">
+                  <strong>Activeer eenmalig uw account.</strong> U kiest hierbij uw wachtwoord.
+                  <div style="padding-top:12px;">
+                    <a href="${escapeHtml(url)}" style="display:inline-block;padding:11px 22px;background:${BRAND};border-radius:6px;color:#ffffff;font-size:15px;font-weight:600;text-decoration:none;">Account activeren</a>
+                  </div>
+                </td>
+              </tr>
+              <tr><td colspan="2" style="height:20px;line-height:20px;font-size:0;">&nbsp;</td></tr>
+              <tr>
+                <td width="30" valign="top" style="color:${BRAND};font-size:15px;font-weight:700;line-height:1.65;">2.</td>
+                <td style="color:${INK};font-size:15px;line-height:1.65;">
+                  <strong>Log daarna in op uw eigen portaaladres.</strong>
+                  Dat is een ander adres dan de pagina waar u zojuist uw wachtwoord instelde.
+                  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:12px 0 0 0;">
+                    <tr>
+                      <td style="background:${TINT};border-left:3px solid ${BRAND};border-radius:0 6px 6px 0;padding:14px 18px;">
+                        <div style="color:${MUTED};font-size:12px;letter-spacing:0.04em;text-transform:uppercase;padding-bottom:4px;">Uw eigen portaaladres</div>
+                        <a href="https://${escapeHtml(portalHost)}" style="color:${BRAND_DEEP};font-size:17px;font-weight:700;text-decoration:none;">${escapeHtml(portalHost)}</a>
+                        <div style="color:${MUTED};font-size:13px;padding-top:4px;">Hier logt u voortaan in — de moeite van een bladwijzer waard.</div>
+                      </td>
+                    </tr>
+                  </table>
                 </td>
               </tr>
             </table>

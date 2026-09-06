@@ -67,6 +67,47 @@ describe('the invitation email', () => {
     expect(mail.html).not.toContain('hub.finsera.nl');
   });
 
+  it('puts activation before signing in, and says they are different places', () => {
+    /*
+     * The confusion this wording exists to end. Setting a password happens on the identity
+     * provider's page; signing in happens at the client's own address — two hosts, and a
+     * client who does not know that reads the first as "I am in" and never reaches the
+     * second. So the order is numbered and the difference is stated rather than implied.
+     */
+    const mail = inviteEmail(base);
+    const activate = mail.text.indexOf('Activeer eenmalig uw account');
+    const signIn = mail.text.indexOf('Log daarna in op uw eigen portaaladres');
+    expect(activate).toBeGreaterThan(-1);
+    expect(signIn).toBeGreaterThan(activate);
+    expect(mail.text).toContain('een ander adres dan de pagina');
+
+    // And in the rendering most of them will actually see.
+    expect(mail.html.indexOf('Account activeren')).toBeLessThan(
+      mail.html.indexOf('Log daarna in op uw eigen portaaladres'),
+    );
+  });
+
+  it('is legible where an email is actually read', () => {
+    /*
+     * The button carries white text and the links are dark on white, so the brand gold has
+     * to clear 4.5:1 in both directions. The logo's own gold does not — it is a mark on its
+     * own and can be brighter than type ever can.
+     */
+    const luminance = (hex: string) => {
+      const parts = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+      const [r, g, b] = parts.map((v) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+      return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
+    };
+    const contrast = (a: string, b: string) => {
+      const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+      return (hi! + 0.05) / (lo! + 0.05);
+    };
+    const html = inviteEmail(base).html;
+    const button = /background:(#[0-9a-f]{6});[^"]*color:#ffffff/i.exec(html)?.[1];
+    expect(button).toBeDefined();
+    expect(contrast(button!, '#ffffff')).toBeGreaterThanOrEqual(4.5);
+  });
+
   it('ends without a sign-off, because Outlook adds one', () => {
     const mail = inviteEmail(base);
     // A mail that closes twice reads as a template somebody forgot to finish.
