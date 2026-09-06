@@ -29,6 +29,24 @@ const HOP_BY_HOP = new Set([
 /** What comes back to the browser, and nothing else — an allow-list, not a blocklist. */
 const PASS_THROUGH = ['content-type', 'content-length', 'etag', 'last-modified'];
 
+/** Reading the page. Audited, and the only methods that may be redirected. */
+const READ = new Set(['GET', 'HEAD']);
+/**
+ * Writing to it.
+ *
+ * A report that keeps shared state — one client's assumptions, saved so the next person to
+ * open the link sees them — has to be able to PUT it back to the deployment that holds it.
+ * Forwarding the write is not a wider hole than forwarding the read: it is the same session
+ * check, the same client, and the same confinement to the page's own path, and a report that
+ * may read a client's numbers may already do everything a leaked one could.
+ *
+ * Cross-site is closed by the session cookie's `SameSite=Lax`, which is not sent on a
+ * cross-site POST — so such a request arrives without a session and gets the login redirect
+ * rather than the client's data. `form-action 'none'` in the CSP keeps this to scripted
+ * writes from the report itself.
+ */
+const WRITE = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
 export interface ProxyDeps {
   hosts: PortalHostService;
   sessions: PortalSessionsService;
@@ -63,7 +81,8 @@ export function portalProxy(deps: ProxyDeps) {
 
   return async (req: Request, res: Response, next: NextFunction) => {
     if (req.path.startsWith('/api/') || req.path === '/api') return next();
-    if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+    const isRead = READ.has(req.method);
+    if (!isRead && !WRITE.has(req.method)) return next();
 
     let host;
     try {
@@ -114,17 +133,21 @@ export function portalProxy(deps: ProxyDeps) {
     }
 
     const isRoot = segments.length === 1;
-    if (isRoot && !req.path.endsWith('/')) {
+    if (isRoot && isRead && !req.path.endsWith('/')) {
       // The trailing slash is load-bearing: without it every relative URL inside the report
       // resolves one level too high, against the portal instead of against the page.
       //
       // Built from the parsed slug rather than from `req.path`, because `//rapport` also
       // arrives here — and echoing that back would be a protocol-relative Location, which
       // is a redirect to another host rather than to a path.
+      //
+      // Reads only. A browser turns a redirected POST into a GET and drops the body, so
+      // answering a write with 301 would lose it silently — better to serve it where it was
+      // sent, which for a write is a path under the page anyway rather than its root.
       return res.redirect(301, `/${slug}/${req.url.slice(req.path.length)}`);
     }
 
-    if (isRoot) {
+    if (isRoot && isRead) {
       // Audited like every other portal read. Assets under the page are not: one line per
       // report opened is a record somebody can read, one line per file is noise.
       try {
@@ -149,6 +172,37 @@ export function portalProxy(deps: ProxyDeps) {
         // content can live here at all, and "we served it but did not record it" is the one
         // outcome that must not be available.
         logger.error(`Refusing '${slug}': audit failed — ${(err as Error).message}`);
+        return res.status(503).type('text').send('Even niet beschikbaar. Probeer het zo opnieuw.');
+      }
+    }
+
+    if (!isRead) {
+      // A write is recorded whatever its depth, where a read is recorded only at the page's
+      // root. The asymmetry is deliberate: one line per asset fetched is noise, but one line
+      // per change to a client's saved state is the record itself. Same rule as a read on
+      // failure — content that cannot be audited is not served, and here that means the
+      // change is refused before it reaches the deployment rather than after.
+      try {
+        await deps.db.transaction(async (tx) => {
+          await deps.audit.record(tx, {
+            actorId: session.staffUserId,
+            action: 'portal.write',
+            entityType: 'client',
+            entityId: host.clientId,
+            detail: {
+              wrote: 'page',
+              subject: slug,
+              path: req.path,
+              method: req.method,
+              email: session.email,
+              ...(session.kind === 'staff'
+                ? { staff: true }
+                : { portalUserId: session.portalUserId }),
+            },
+          });
+        });
+      } catch (err) {
+        logger.error(`Refusing a write to '${slug}': audit failed — ${(err as Error).message}`);
         return res.status(503).type('text').send('Even niet beschikbaar. Probeer het zo opnieuw.');
       }
     }
@@ -202,8 +256,9 @@ async function serve(
   logger: Logger,
 ) {
   const secret = deps.pages.secretFor(page);
+  const body = READ.has(req.method) ? null : await requestBody(req);
   const upstream = await fetch(target, {
-    method: req.method === 'HEAD' ? 'HEAD' : 'GET',
+    method: req.method,
     // Never automatic. A followed redirect is a second request to an address nobody
     // checked, which is the shape of every SSRF that got past a URL allow-list.
     redirect: 'manual',
@@ -215,8 +270,10 @@ async function serve(
       ...(req.headers['accept-language']
         ? { 'accept-language': String(req.headers['accept-language']) }
         : {}),
+      ...(body ? { 'content-type': body.type } : {}),
       'user-agent': 'Finsera-Portal/1.0',
     },
+    ...(body ? { body: body.data } : {}),
     signal: AbortSignal.timeout(TIMEOUT_MS),
   });
 
@@ -310,6 +367,37 @@ async function serve(
     if (seen > MAX_BYTES) source.destroy(new Error(`over ${MAX_BYTES} bytes`));
   });
   await pipeline(source, res);
+}
+
+/**
+ * The body to send upstream, or null when there is none.
+ *
+ * Nest's JSON body parser is registered before this middleware (see `main.ts`), so for the
+ * one content type it handles the request stream is already at its end and the body lives on
+ * `req.body` as an object. Piping `req` upstream would therefore send a POST with nothing in
+ * it, and the deployment would answer as though the client had saved an empty document —
+ * which is the failure that looks like success. `_body` is body-parser's own record of
+ * having consumed the stream, and it is the only reliable way to ask: `req.body` is set to
+ * `{}` even for the requests it skipped.
+ *
+ * Anything it did not take is read from the stream and capped, like every other body here.
+ */
+async function requestBody(req: Request): Promise<{ type: string; data: string | Buffer } | null> {
+  const type = req.headers['content-type'];
+  if ((req as Request & { _body?: boolean })._body) {
+    return { type: type ?? 'application/json', data: JSON.stringify(req.body ?? null) };
+  }
+
+  const chunks: Buffer[] = [];
+  let seen = 0;
+  for await (const chunk of req) {
+    const buffer = chunk as Buffer;
+    seen += buffer.length;
+    if (seen > MAX_BYTES) throw new Error(`request body over ${MAX_BYTES} bytes`);
+    chunks.push(buffer);
+  }
+  if (chunks.length === 0) return null;
+  return { type: type ?? 'application/octet-stream', data: Buffer.concat(chunks) };
 }
 
 async function readCapped(body: ReadableStream<Uint8Array>, cap: number): Promise<Buffer> {

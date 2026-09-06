@@ -62,6 +62,19 @@ function fakeReq(path: string, cookie = 'psid=secret'): Request {
   } as unknown as Request;
 }
 
+/** A write, shaped the way Nest's JSON body parser leaves one: stream consumed, `_body` set. */
+function fakeWrite(path: string, body: unknown, method = 'POST'): Request {
+  return {
+    path,
+    originalUrl: path,
+    url: path,
+    method,
+    headers: { host: 'duce.finsera.nl', cookie: 'psid=secret', 'content-type': 'application/json' },
+    _body: true,
+    body,
+  } as unknown as Request;
+}
+
 function upstream(body: string, headers: Record<string, string>, status = 200) {
   return {
     status,
@@ -288,6 +301,67 @@ describe('portalProxy', () => {
     expect(csp).toContain("font-src 'self' data: https://fonts.gstatic.com");
     // Not in connect-src: a font origin is not a way back out of the page.
     expect(csp).toContain('connect-src duce.finsera.nl/rapportage-q3/;');
+  });
+
+  it('forwards a write to the page, body and all', async () => {
+    const res = fakeRes();
+    const d = deps();
+    await portalProxy(d)(
+      fakeWrite('/rapportage-q3/api/state', { aanname: 'A2' }),
+      res,
+      vi.fn() as NextFunction,
+    );
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://rapportage-q3-duce.vercel.app/api/state');
+    expect(init.method).toBe('POST');
+    // The parser already read the stream, so the body has to come off `req.body`. Piping the
+    // request would have sent an empty POST and the deployment would have saved nothing.
+    expect(init.body).toBe(JSON.stringify({ aanname: 'A2' }));
+    expect((init.headers as Record<string, string>)['content-type']).toBe('application/json');
+  });
+
+  it('records a write wherever in the page it lands', async () => {
+    // A read is audited at the page root only; a change to a client's saved state is the
+    // record itself, so depth is not a reason to skip it.
+    const d = deps();
+    await portalProxy(d)(
+      fakeWrite('/rapportage-q3/api/state', { aanname: 'A2' }),
+      fakeRes(),
+      vi.fn() as NextFunction,
+    );
+    expect(d.audit.record).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(d.audit.record).mock.calls[0]?.[1]).toMatchObject({
+      action: 'portal.write',
+      entityId: CLIENT,
+      detail: { subject: 'rapportage-q3', path: '/rapportage-q3/api/state', method: 'POST' },
+    });
+  });
+
+  it('refuses a write it cannot record, before the deployment sees it', async () => {
+    const d = deps({
+      db: { transaction: vi.fn().mockRejectedValue(new Error('down')) },
+      audit: { record: vi.fn() },
+    });
+    const res = fakeRes();
+    await portalProxy(d)(fakeWrite('/rapportage-q3/api/state', {}), res, vi.fn() as NextFunction);
+    expect(res.statusCode).toBe(503);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('never answers a write with a redirect to the trailing slash', async () => {
+    // A browser turns a redirected POST into a GET and drops the body, so the 301 that is
+    // right for a read would lose a save without saying so.
+    const res = fakeRes();
+    await portalProxy(deps())(fakeWrite('/rapportage-q3', {}), res, vi.fn() as NextFunction);
+    expect(res.redirected).toBeUndefined();
+    expect(fetchMock).toHaveBeenCalled();
+  });
+
+  it('still leaves a method nobody proxies to the SPA', async () => {
+    const next = vi.fn() as NextFunction;
+    await portalProxy(deps())(fakeWrite('/rapportage-q3/', {}, 'OPTIONS'), fakeRes(), next);
+    expect(next).toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('serves a redirect page by sending the browser to the real address', async () => {
