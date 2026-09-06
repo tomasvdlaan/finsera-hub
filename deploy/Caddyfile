@@ -35,6 +35,27 @@
 
 	handle {
 		root * /srv
+
+		# How long the browser may keep this.
+		#
+		# Nothing said, so nothing was cached deliberately — and a response with an ETag and
+		# no Cache-Control is not uncached, it is cached for a length of time the browser
+		# invents. Browsers guess from Last-Modified, so an older file earns a longer guess,
+		# and a returning visitor could hold index.html for hours after a deploy.
+		#
+		# That is fatal for this app specifically. Asset filenames carry a content hash, so a
+		# new build produces new names — which the browser only ever learns about by reading a
+		# fresh index.html. Cache the entry point and the deploy becomes invisible: the site
+		# keeps loading the previous build's files and looks like it was never updated.
+		#
+		# So the two halves get opposite instructions, which is the standard bargain for a
+		# hashed-asset build. The assets are immutable and may be kept for a year, because a
+		# changed file is a different name and never the same URL. The entry point is
+		# revalidated on every load — `no-cache` permits storing it and forbids using it
+		# without asking, so an unchanged deploy still costs one 304 and not a download.
+		header /assets/* Cache-Control "public, max-age=31536000, immutable"
+		header Cache-Control "no-cache"
+
 		# SPA history fallback: unknown paths render index.html so /auth/callback and
 		# deep links work on a hard refresh.
 		try_files {path} /index.html
