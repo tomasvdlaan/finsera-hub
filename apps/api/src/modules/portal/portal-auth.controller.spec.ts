@@ -23,7 +23,10 @@ describe('PortalAuthController wiring', () => {
 
   it('exposes exactly the login flow', () => {
     expect([...routeNames].sort()).toEqual([
-      'callback', 'complete', 'login', 'logout', 'signedOut', 'start',
+      // `welcome` is where Zitadel's Default Redirect URI lands somebody whose account has
+      // just been created. Public and stateless by design — it reads nothing and grants
+      // nothing, which is what makes it a safe target for a redirect we do not control.
+      'callback', 'complete', 'login', 'logout', 'signedOut', 'start', 'welcome',
     ]);
   });
 });

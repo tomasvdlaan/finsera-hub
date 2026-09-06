@@ -357,6 +357,36 @@ export class PortalAuthController {
     res.redirect(302, `${req.protocol}://${target.host}/`);
   }
 
+  /**
+   * Where somebody lands once their account exists.
+   *
+   * Zitadel's Default Redirect URI points here. It could point straight at `/login` and put
+   * the client in their portal in one hop — but three attempts at controlling the end of
+   * Zitadel's own flow each found another layer beneath the last (two login UIs, an auth
+   * request bound to the browser that asked for it, an org policy and an instance policy),
+   * and every one of them failed by dumping a client somewhere that looked broken.
+   *
+   * So this is the target that cannot fail. It is a static page on our own host: no session
+   * to read, no token to verify, nothing to resolve, correct whether the redirect arrives
+   * from an invitation, a password reset, or somebody opening the login page directly. The
+   * step it cannot do — working out whose portal this is — is left to a button, which starts
+   * the ordinary login the callback already knows how to finish.
+   *
+   * A click is a small price for a page that is never wrong about what just happened.
+   */
+  @Get('welcome')
+  async welcome(@Req() req: Request, @Res() res: Response) {
+    await this.requireAuthHost(req);
+    return this.page(
+      res,
+      200,
+      'Uw account is klaar',
+      'U bent aangemeld. Ga verder naar het portaal van uw organisatie — daar vindt u uw ' +
+        'projecten, offertes, facturen en gedeelde documenten.',
+      { portal: true },
+    );
+  }
+
   // ── helpers ──
 
   private async startSession(req: Request, res: Response, owner: SessionOwner, host: PortalHost) {
@@ -435,9 +465,14 @@ export class PortalAuthController {
     status: number,
     title: string,
     body: string,
-    actions: { login?: boolean; logout?: boolean; detail?: string } = {},
+    actions: { login?: boolean; logout?: boolean; portal?: boolean; detail?: string } = {},
   ) {
     const buttons = [
+      // Same endpoint as "log in again" and a different sentence, because the person reading
+      // it is in a different place: one has just been refused, the other has just arrived.
+      actions.portal
+        ? `<p><a href="/api/portal-auth/login" style="display:inline-block;padding:.6rem 1.1rem;background:#0f5132;border-radius:.375rem;color:#fff;text-decoration:none;font-weight:600">Naar uw portaal</a></p>`
+        : '',
       actions.login ? `<p><a href="/api/portal-auth/login">Opnieuw inloggen</a></p>` : '',
       actions.logout
         ? // Signing out here ends the session at the identity provider too, so the next
