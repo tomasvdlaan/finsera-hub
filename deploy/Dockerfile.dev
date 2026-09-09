@@ -1,0 +1,30 @@
+# syntax=docker/dockerfile:1
+#
+# The dev image, which contains no source at all.
+#
+# `Dockerfile.api` and `Dockerfile.web` copy the repo in and build it, which is right for a
+# deployment and useless for development: the whole point here is that the source stays on the
+# host, where the editor is, and the container watches it. So this image is only a toolchain —
+# node, pnpm, and an entrypoint that installs dependencies where the host cannot see them.
+#
+# Dependencies must be installed *inside* the container and never shared with the host: the
+# two platforms need different native binaries (esbuild in particular), and one install
+# overwriting the other's is a rebuild loop nobody enjoys diagnosing. The compose file mounts
+# a volume over every workspace package's `node_modules` for that reason — a bind mount of the
+# repo would otherwise expose the host's macOS install to a Linux `pnpm install`.
+FROM node:24-slim
+
+# git: some dependency resolution paths want it. tini: PID 1 that reaps children and passes
+# signals on, so `docker compose stop` is a clean stop rather than a ten-second timeout.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends git tini \
+  && rm -rf /var/lib/apt/lists/*
+
+RUN corepack enable pnpm
+
+WORKDIR /repo
+
+COPY deploy/dev-entrypoint.sh /usr/local/bin/dev-entrypoint
+RUN chmod +x /usr/local/bin/dev-entrypoint
+
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/dev-entrypoint"]

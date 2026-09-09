@@ -63,10 +63,33 @@ export default defineConfig({
     chunkSizeWarningLimit: 1200,
   },
   server: {
+    /*
+     * Both of these are unset when the dev server runs on this machine, which is how it has
+     * always run — Vite then binds loopback and proxies to `localhost:3001` as before.
+     *
+     * They exist for the dev containers (`docker compose --profile app`), where neither
+     * default can be right: loopback inside a container is unreachable from the browser, and
+     * `localhost:3001` is the web container rather than the API. The HMR socket needs no
+     * equivalent — the browser connects back to the address it loaded the page from, and the
+     * published port is the same number inside and out.
+     */
+    host: process.env.VITE_DEV_HOST,
     port: 5173,
+    /*
+     * Polling, and only where polling is needed.
+     *
+     * A bind-mounted macOS directory does not deliver inotify events into a Linux container,
+     * so the dev container starts, serves, and never notices a save — which looks like a
+     * broken build rather than a missing event. `CHOKIDAR_USEPOLLING` does not help: that is a
+     * webpack-dev-server convention, and chokidar itself reads no environment at all. Vite has
+     * to be told here.
+     *
+     * Unset on the host, where the watcher gets real events and polling would only cost CPU.
+     */
+    watch: process.env.VITE_DEV_POLL ? { usePolling: true, interval: 1000 } : undefined,
     proxy: {
       '/api': {
-        target: 'http://localhost:3001',
+        target: process.env.VITE_DEV_API ?? 'http://localhost:3001',
         // WebSocket upgrades are NOT proxied unless this is set, and the failure is
         // quiet: REST keeps working, so the page loads and shows data, while the live
         // socket silently never connects. That is exactly how the meeting transcript

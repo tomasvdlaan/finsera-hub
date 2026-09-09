@@ -60,6 +60,138 @@ services:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
+  # ── The app itself, with hot reloading ────────────────────────────────────
+  #
+  # Behind a profile, so `docker compose up -d` still starts only the database and its backup
+  # — which is what somebody running the app on the host wants. `--profile app` adds these.
+  #
+  #   docker compose --profile app up -d          # start (first run installs, few minutes)
+  #   docker compose --profile app logs -f web    # watch it
+  #   docker compose --profile app stop           # stop, and stay stopped
+  #
+  # These are an alternative to `deploy/docker-compose.yml`, not a companion: that one serves
+  # a *build* through Caddy, which is the right thing for checking a release and the wrong
+  # thing for writing code, and it wants port 5173 too. Two servers on one port do not
+  # conflict loudly — the more specific bind wins and the other is silently shadowed — so stop
+  # caddy before starting these.
+  #
+  # Source is bind-mounted from the host; dependencies are not. Every workspace package's
+  # `node_modules` has a volume over it so the container's Linux install and the host's macOS
+  # install cannot overwrite each other. `pnpm install` runs in the entrypoint, into those
+  # volumes.
+  # Dependencies, installed once, by one container.
+  #
+  # This was the entrypoint of both services, and they raced: two `pnpm install`s writing the
+  # same `node_modules` volume at the same moment tore each other's temporary directories out
+  # from under themselves (`ERR_PNPM_ENOENT ... copyfile ... zod_tmp_8_8`). One-shot, and the
+  # two servers wait for it to exit cleanly.
+  #
+  # The store is a volume of its own rather than pnpm's default. Left alone, pnpm puts it on
+  # the same device as the install target, and with `/repo` bind-mounted from macOS that means
+  # `/repo/.pnpm-store` — the host's filesystem, written through the slowest path available,
+  # by both containers.
+  deps:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.dev
+    command: ["pnpm", "install", "--store-dir", "/pnpm-store"]
+    volumes:
+      - .:/repo
+      - pnpm_store:/pnpm-store
+      - repo_modules:/repo/node_modules
+      - api_modules:/repo/apps/api/node_modules
+      - web_modules:/repo/apps/web/node_modules
+      - portal_modules:/repo/apps/portal/node_modules
+      - board_doc_modules:/repo/packages/board-doc/node_modules
+      - config_modules:/repo/packages/config/node_modules
+      - contracts_modules:/repo/packages/contracts/node_modules
+      - note_doc_modules:/repo/packages/note-doc/node_modules
+    restart: "no"
+
+  api:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.dev
+    command: ["pnpm", "--filter", "@platform/api", "dev"]
+    environment:
+      # Overrides the repo `.env`, which says `localhost` — correct on the host, and the
+      # container itself in here. @nestjs/config leaves an existing process variable alone,
+      # so this wins over the file without the file having to know it exists.
+      DATABASE_URL: postgres://platform:platform@postgres:5432/platform
+      # A bind mount from macOS does not deliver inotify events the way a native filesystem
+      # does, so both watchers poll. Without this the container starts, serves, and never
+      # notices a save — which looks like a broken build rather than a missing event.
+      CHOKIDAR_USEPOLLING: "true"
+      CHOKIDAR_INTERVAL: "1000"
+      TSC_WATCHFILE: DynamicPriorityPolling
+      TSC_WATCHDIRECTORY: DynamicPriorityPolling
+    ports:
+      - "3001:3001"
+    volumes:
+      - .:/repo
+      - repo_modules:/repo/node_modules
+      - api_modules:/repo/apps/api/node_modules
+      - web_modules:/repo/apps/web/node_modules
+      - portal_modules:/repo/apps/portal/node_modules
+      - board_doc_modules:/repo/packages/board-doc/node_modules
+      - config_modules:/repo/packages/config/node_modules
+      - contracts_modules:/repo/packages/contracts/node_modules
+      - note_doc_modules:/repo/packages/note-doc/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+      deps:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  web:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.dev
+    command: ["pnpm", "--filter", "@platform/web", "dev"]
+    environment:
+      # Vite binds loopback by default, which inside a container means nothing outside it can
+      # connect — the published port would answer with a closed connection.
+      VITE_DEV_HOST: 0.0.0.0
+      # `localhost:3001` is this container, not the API. The HMR socket needs no such help:
+      # the browser reaches it at the address it loaded the page from, and the published port
+      # is the same number inside and out.
+      VITE_DEV_API: http://api:3001
+      # Vite's watcher polls only when its own config says so; see vite.config.ts. The
+      # CHOKIDAR_* pair that was here is a webpack-dev-server convention — chokidar reads no
+      # environment of its own, so those two variables did nothing at all.
+      VITE_DEV_POLL: "true"
+    ports:
+      - "5173:5173"
+    volumes:
+      - .:/repo
+      - repo_modules:/repo/node_modules
+      - api_modules:/repo/apps/api/node_modules
+      - web_modules:/repo/apps/web/node_modules
+      - portal_modules:/repo/apps/portal/node_modules
+      - board_doc_modules:/repo/packages/board-doc/node_modules
+      - config_modules:/repo/packages/config/node_modules
+      - contracts_modules:/repo/packages/contracts/node_modules
+      - note_doc_modules:/repo/packages/note-doc/node_modules
+    depends_on:
+      api:
+        condition: service_started
+      deps:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
 volumes:
   pgdata:
   devbackups:
+  repo_modules:
+  api_modules:
+  web_modules:
+  portal_modules:
+  board_doc_modules:
+  config_modules:
+  contracts_modules:
+  note_doc_modules:
+  pnpm_store:
