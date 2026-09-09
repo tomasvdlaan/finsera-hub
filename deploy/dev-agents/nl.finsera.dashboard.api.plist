@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  The API dev server (nest start --watch), supervised by launchd.
+
+  A dev server started from a chat session or a terminal is a child of that session and dies
+  with it. launchd has no such parent: it starts this at login, restarts it if it exits, and
+  keeps it running when everything else closes.
+
+  See deploy/dev-agents/README.md for how to install it.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>nl.finsera.dashboard.api</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/tomasvanderlaan/.local/bin/pnpm</string>
+    <string>--filter</string>
+    <string>@platform/api</string>
+    <string>dev</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/tomasvanderlaan/WorkDir/Finsera/Dashboard</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <!-- launchd starts with almost no PATH, and pnpm has to be able to find node. -->
+    <key>PATH</key>
+    <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Users/tomasvanderlaan/.local/bin</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <!-- A crash loop should not spin the fan. -->
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+  <key>StandardOutPath</key>
+  <string>/Users/tomasvanderlaan/Library/Logs/finsera/api.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/tomasvanderlaan/Library/Logs/finsera/api.log</string>
+</dict>
+</plist>

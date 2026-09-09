@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { Block, PageHeader } from './ui/layout.js';
 import { Card } from './ui/card.js';
@@ -39,6 +39,24 @@ interface Person {
   weeklyHours: number | null;
   /** Absent entirely — not null — when the viewer is not an admin. */
   costRateCents?: number | null;
+  departmentIds: string[];
+}
+
+interface Department {
+  id: string;
+  key: string;
+  label: string;
+}
+
+/** What the identity provider knows. Null when it has never heard of the address. */
+interface Account {
+  userId: string;
+  active: boolean;
+  loginNames: string[];
+  emailVerified: boolean;
+  passwordChangedAt: string | null;
+  createdAt: string | null;
+  consoleUrl: string;
 }
 
 interface ProjectMembership {
@@ -80,16 +98,23 @@ interface ActivityRow {
 }
 
 /** How far back the page looks. A fortnight is the unit the rest of the platform reasons in. */
-const WINDOWS = [
-  { key: '14', label: 'Fortnight', days: 14 },
-  { key: '30', label: '30 days', days: 30 },
-  { key: '90', label: 'Quarter', days: 90 },
+/**
+ * Ranges worth one click, not a set of views.
+ *
+ * These were tabs, and a tab says "this is one of the few things this page shows". The page
+ * shows one thing — this person — over whatever stretch of time you are asking about, and
+ * the honest control for that is two dates. The presets remain because "the last 30 days" is
+ * two date-picker journeys otherwise; they write into the same two fields rather than
+ * switching anything, so nothing is hidden behind them.
+ */
+const PRESETS = [
+  { label: 'Fortnight', days: 14 },
+  { label: '30 days', days: 30 },
+  { label: 'Quarter', days: 90 },
+  { label: 'Year', days: 365 },
 ] as const;
 
 const hours = (minutes: number) => `${Math.round((minutes / 60) * 10) / 10}h`;
-
-const money = (cents: number) =>
-  new Intl.NumberFormat('nl-NL', { style: 'currency', currency: 'EUR' }).format(cents / 100);
 
 const WHEN = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short' });
 
@@ -112,7 +137,30 @@ const VERB: Record<string, string> = {
 export function PersonDetail() {
   const { id = '' } = useParams();
   const [params, setParams] = useSearchParams();
-  const window = WINDOWS.find((w) => w.key === params.get('window')) ?? WINDOWS[0];
+
+  /*
+   * The range lives in the URL, so a person and a period is one link.
+   *
+   * Defaulted rather than stored: a colleague sent "look at October" should see October, and
+   * anybody arriving without a range gets the fortnight the tabs used to open on.
+   */
+  const to = params.get('to') || todayIso();
+  const from = params.get('from') || shiftDay(to, -13);
+
+  const setRange = (next: { from: string; to: string }) => {
+    const q = new URLSearchParams(params);
+    q.set('from', next.from);
+    q.set('to', next.to);
+    setParams(q, { replace: true });
+  };
+  /* Said once. Two cards describing the same range in two ways is how a reader concludes
+     they are looking at two different things. */
+  const rangeLabel = from === to ? `on ${from}` : `from ${from} to ${to}`;
+
+  const preset = (days: number) => {
+    const end = todayIso();
+    setRange({ from: shiftDay(end, -(days - 1)), to: end });
+  };
 
   const [person, setPerson] = useState<Person>();
   const [projects, setProjects] = useState<ProjectMembership[]>();
@@ -121,13 +169,13 @@ export function PersonDetail() {
   const [activity, setActivity] = useState<ActivityRow[]>();
   const [signIns, setSignIns] = useState<SignIn[]>();
   const [failed, setFailed] = useState<Record<string, string>>({});
-  const [roleError, setRoleError] = useState<string>();
-  const [savingRole, setSavingRole] = useState(false);
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [account, setAccount] = useState<{ configured: boolean; account: Account | null }>();
+  const [settingsError, setSettingsError] = useState<string>();
+  const [saving, setSaving] = useState(false);
 
   useDocumentTitle(person?.displayName ?? 'Person');
 
-  const from = useMemo(() => shiftDay(todayIso(), -(window.days - 1)), [window.days]);
-  const to = todayIso();
 
   /*
    * Five reads, five independent failures.
@@ -157,29 +205,66 @@ export function PersonDetail() {
       .catch(fail('signIns'));
   }, [id, from, to]);
 
-  /**
-   * What this person may do, changed where their name is.
+  /*
+   * The department list and the account, which do not move when the dates do.
    *
-   * It used to be a dropdown in a column of the directory table, which is a one-click
-   * privilege change on whichever row the pointer happened to be over, and the page named
-   * after the person showed the answer as static text. Here it is next to their name, their
-   * job title and their contract, which is where somebody goes when they think about what a
-   * colleague should be able to reach.
-   *
-   * The server refuses the two changes that would lock the platform: demoting yourself, and
-   * demoting the last administrator. Those come back as sentences, so they are shown as
-   * sentences rather than swallowed.
+   * Their own effect, keyed on the person alone. Folding them into the load above would
+   * re-read the identity provider every time somebody nudged a date, which is a network call
+   * to somebody else's system in exchange for an answer that cannot have changed.
    */
-  const setRole = async (role: Person['role']) => {
-    setRoleError(undefined);
-    setSavingRole(true);
+  useEffect(() => {
+    api.get<Department[]>('/core/departments').then(setDepartments).catch(() => setDepartments([]));
+    api
+      .get<{ configured: boolean; account: Account | null }>(`/core/people/${id}/account`)
+      .then(setAccount)
+      .catch(() => setAccount({ configured: false, account: null }));
+  }, [id]);
+
+  /**
+   * What the business knows about this person, changed where their name is.
+   *
+   * Role used to be a dropdown in a column of the directory table — a one-click privilege
+   * change on whichever row the pointer happened to be over — while the page named after the
+   * person showed every other field as static text you could not edit at all. Both are now
+   * here, next to their name, which is where somebody goes when they think about a
+   * colleague's contract or what they should be able to reach.
+   *
+   * One saver for every field. Each is a `PATCH` of the single thing that changed, so a
+   * refused role does not silently take a job title down with it, and the server's own
+   * refusals — demoting yourself, demoting the last administrator — arrive as sentences and
+   * are shown as sentences rather than swallowed.
+   */
+  const save = async (patch: Partial<Person>) => {
+    setSettingsError(undefined);
+    setSaving(true);
     try {
-      await api.patch(`/core/people/${id}`, { role });
+      await api.patch(`/core/people/${id}`, patch);
       setPerson(await api.get<Person>(`/core/people/${id}`));
     } catch (e) {
-      setRoleError((e as Error).message);
+      setSettingsError((e as Error).message);
     } finally {
-      setSavingRole(false);
+      setSaving(false);
+    }
+  };
+
+  /**
+   * Which departments somebody is in — the whole set, every time.
+   *
+   * A department decides whose inbox work lands in, so this is not decoration: a person in
+   * none is a person nothing can be routed to. Sent as the complete list rather than as an
+   * add or a remove, because the server takes it that way and because two clicks racing each
+   * other cannot then leave a half-applied set.
+   */
+  const setDepartmentIds = async (ids: string[]) => {
+    setSettingsError(undefined);
+    setSaving(true);
+    try {
+      await api.put(`/core/people/${id}/departments`, { departmentIds: ids });
+      setPerson(await api.get<Person>(`/core/people/${id}`));
+    } catch (e) {
+      setSettingsError((e as Error).message);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -198,7 +283,10 @@ export function PersonDetail() {
    * entered — the same refusal `SprintDetail` makes about capacity, for the same reason: a
    * fabricated denominator looks authoritative and is fiction.
    */
-  const expected = person?.weeklyHours ? person.weeklyHours * (window.days / 7) : null;
+  /* Inclusive of both ends: 1 Sept to 1 Sept is one day of expected hours, not none. */
+  const rangeDays =
+    Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000) + 1;
+  const expected = person?.weeklyHours ? person.weeklyHours * (rangeDays / 7) : null;
   const utilisation = expected ? Math.round((minutes / 60 / expected) * 100) : null;
 
   if (failed.person) {
@@ -224,20 +312,35 @@ export function PersonDetail() {
             : undefined
         }
         back={{ to: '/settings/people', label: 'People' }}
-        tabs={WINDOWS.map((w) => (
-          <button
-            key={w.key}
-            type="button"
-            className={w.key === window.key ? 'page-tab active' : 'page-tab'}
-            onClick={() => {
-              const next = new URLSearchParams(params);
-              next.set('window', w.key);
-              setParams(next, { replace: true });
-            }}
-          >
-            {w.label}
-          </button>
-        ))}
+        tabs={
+          <div className="range-filter">
+            <label>
+              <span className="muted">Van</span>{' '}
+              <input
+                type="date"
+                value={from}
+                max={to}
+                aria-label="Van"
+                onChange={(e) => setRange({ from: e.target.value, to })}
+              />
+            </label>
+            <label>
+              <span className="muted">tot</span>{' '}
+              <input
+                type="date"
+                value={to}
+                min={from}
+                aria-label="Tot"
+                onChange={(e) => setRange({ from, to: e.target.value })}
+              />
+            </label>
+            {PRESETS.map((r) => (
+              <button key={r.days} type="button" className="range-preset" onClick={() => preset(r.days)}>
+                {r.label}
+              </button>
+            ))}
+          </div>
+        }
       />
 
       {/* ── Aside: who they are, and what they are on ── */}
@@ -248,17 +351,26 @@ export function PersonDetail() {
               {person && <Avatar id={person.id} name={person.displayName} size="md" />}
               <div>
                 <div className="person-name">{person?.displayName ?? '…'}</div>
-                <div className="muted">{person?.jobTitle ?? 'No job title set'}</div>
+                <div className="muted">{person?.email}</div>
               </div>
             </div>
-            <dl className="terms">
-              <dt>Role</dt>
-              <dd>
+            {/* Name and address are the identity provider's, and are read-only here on
+                purpose: they come back from Zitadel on every sign-in, so a value edited
+                here would be overwritten by the next one and look like a bug. */}
+            <p className="field-hint">
+              Naam en e-mailadres komen van de inlogprovider en worden hier niet bewerkt.
+            </p>
+          </Card>
+
+          <Card title="Settings">
+            <div className="person-settings">
+              <label>
+                <span>Role</span>
                 <select
                   aria-label={`Role for ${person?.displayName ?? 'this person'}`}
                   value={person?.role ?? 'member'}
-                  disabled={!person || savingRole}
-                  onChange={(e) => void setRole(e.target.value as Person['role'])}
+                  disabled={!person || saving}
+                  onChange={(e) => void save({ role: e.target.value as Person['role'] })}
                 >
                   <option value="member">Member</option>
                   <option value="admin">Administrator</option>
@@ -266,37 +378,177 @@ export function PersonDetail() {
                 {/* An administrator can reach settings, cost rates and the people directory;
                     everyone else can reach the work. Said here because the two words on
                     their own do not say it. */}
-                <div className="card-meta">
+                <span className="field-hint">
                   {person?.role === 'admin'
                     ? 'Can manage people, settings and cost rates.'
                     : 'Can reach the work, but not settings or cost rates.'}
-                </div>
-                {roleError && (
-                  <div className="card-meta" data-tone="danger">
-                    {roleError}
-                  </div>
-                )}
-              </dd>
-              <dt>Contracted</dt>
-              <dd>{person?.weeklyHours ? `${person.weeklyHours}h a week` : <span className="muted">not set</span>}</dd>
-              <dt>Started</dt>
-              <dd>{person?.startedOn ?? <span className="muted">not recorded</span>}</dd>
-              <dt>Status</dt>
-              <dd>{person?.isActive === false ? 'Deactivated' : 'Active'}</dd>
-              {/* Absent, not null, when the viewer is not an admin — so this row simply is not here. */}
+                </span>
+              </label>
+
+              <label>
+                <span>Job title</span>
+                <input
+                  type="text"
+                  defaultValue={person?.jobTitle ?? ''}
+                  disabled={!person || saving}
+                  placeholder="Data-analist"
+                  /* On blur, not on every keystroke: a PATCH per character would be a
+                     write per character, and the audit log records each one. */
+                  onBlur={(e) => {
+                    const next = e.target.value.trim() || null;
+                    if (next !== (person?.jobTitle ?? null)) void save({ jobTitle: next });
+                  }}
+                />
+              </label>
+
+              <label>
+                <span>Started</span>
+                <input
+                  type="date"
+                  defaultValue={person?.startedOn ?? ''}
+                  disabled={!person || saving}
+                  onChange={(e) => void save({ startedOn: e.target.value || null })}
+                />
+              </label>
+
+              <label>
+                <span>Contracted hours a week</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={60}
+                  step={1}
+                  defaultValue={person?.weeklyHours ?? ''}
+                  disabled={!person || saving}
+                  /* Left empty on purpose where it is unknown. It is the denominator of the
+                     utilisation figure above, and a default of forty would put a percentage
+                     on a colleague's page that nobody entered. */
+                  placeholder="niet ingesteld"
+                  onBlur={(e) => {
+                    const next = e.target.value === '' ? null : Number(e.target.value);
+                    if (next !== (person?.weeklyHours ?? null)) void save({ weeklyHours: next });
+                  }}
+                />
+              </label>
+
+              {/* Absent, not null, when the viewer is not an admin — so this simply is not here. */}
               {person && 'costRateCents' in person && (
-                <>
-                  <dt>Cost rate</dt>
-                  <dd>
-                    {person.costRateCents != null ? (
-                      `${money(person.costRateCents)}/h`
-                    ) : (
-                      <span className="muted">not set</span>
-                    )}
-                  </dd>
-                </>
+                <label>
+                  <span>Cost rate (€ per hour)</span>
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    defaultValue={person.costRateCents != null ? person.costRateCents / 100 : ''}
+                    disabled={saving}
+                    placeholder="niet ingesteld"
+                    onBlur={(e) => {
+                      const next = e.target.value === '' ? null : Math.round(Number(e.target.value) * 100);
+                      if (next !== (person.costRateCents ?? null)) void save({ costRateCents: next });
+                    }}
+                  />
+                </label>
               )}
-            </dl>
+
+              <label>
+                <span>Status</span>
+                <select
+                  value={person?.isActive === false ? 'inactive' : 'active'}
+                  disabled={!person || saving}
+                  onChange={(e) => void save({ isActive: e.target.value === 'active' })}
+                >
+                  <option value="active">Active</option>
+                  <option value="inactive">Deactivated</option>
+                </select>
+                <span className="field-hint">
+                  A deactivated colleague keeps the hours and cards they already own; they
+                  get no new work and cannot sign in.
+                </span>
+              </label>
+            </div>
+
+            {settingsError && (
+              <p className="field-hint field-error" role="alert">
+                {settingsError}
+              </p>
+            )}
+          </Card>
+
+          <Card title="Departments">
+            {/* Not a role and not a permission: a department decides whose inbox an item
+                lands in. Somebody in none is somebody nothing can be routed to, which is
+                why the empty state says so rather than sitting blank. */}
+            {departments.length === 0 ? (
+              <Empty>No departments yet. Add them under Settings.</Empty>
+            ) : (
+              <div className="chip-set">
+                {departments.map((d) => {
+                  const on = person?.departmentIds?.includes(d.id) ?? false;
+                  return (
+                    <label key={d.id} className={on ? 'chip chip-on' : 'chip'}>
+                      <input
+                        type="checkbox"
+                        checked={on}
+                        disabled={!person || saving}
+                        onChange={() =>
+                          void setDepartmentIds(
+                            on
+                              ? (person?.departmentIds ?? []).filter((x) => x !== d.id)
+                              : [...(person?.departmentIds ?? []), d.id],
+                          )
+                        }
+                      />
+                      {d.label}
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+            {person?.departmentIds?.length === 0 && departments.length > 0 && (
+              <p className="field-hint">
+                In geen enkele afdeling — er wordt niets naar deze persoon gerouteerd.
+              </p>
+            )}
+          </Card>
+
+          <Card title="Login account">
+            {/* The hub knows what somebody may do; the provider knows whether they can get in
+                at all. Those were two applications and a search, so "why can this person not
+                sign in" now has both halves in one place — read-only, with the link out for
+                anything that changes it. */}
+            {!account ? (
+              <p className="muted">Loading…</p>
+            ) : !account.configured ? (
+              <Empty>The identity provider is not configured for this deployment.</Empty>
+            ) : !account.account ? (
+              <Empty>
+                No account at the identity provider for {person?.email}. They cannot sign in yet.
+              </Empty>
+            ) : (
+              <>
+                <dl className="terms">
+                  <dt>Status</dt>
+                  <dd>{account.account.active ? 'Active' : 'Deactivated at the provider'}</dd>
+                  <dt>Email verified</dt>
+                  <dd>{account.account.emailVerified ? 'Yes' : 'No'}</dd>
+                  <dt>Password set</dt>
+                  {/* Never set means the invitation is still outstanding, which is the single
+                      most common reason somebody cannot get in. */}
+                  <dd>
+                    {account.account.passwordChangedAt
+                      ? account.account.passwordChangedAt.slice(0, 10)
+                      : 'Never — invitation still open'}
+                  </dd>
+                  <dt>Sign-in name</dt>
+                  <dd>{account.account.loginNames.join(', ') || '—'}</dd>
+                </dl>
+                <p className="field-hint">
+                  <a href={account.account.consoleUrl} target="_blank" rel="noreferrer noopener">
+                    Manage this account at the provider
+                  </a>
+                </p>
+              </>
+            )}
           </Card>
 
           <Card
@@ -331,7 +583,7 @@ export function PersonDetail() {
       <Block span={8}>
         <div style={{ display: 'grid', gap: 'var(--space-4)' }}>
           <Card
-            title={`Hours · last ${window.days} days`}
+            title={`Hours · ${rangeLabel}`}
             loading={!time && !failed.time}
             error={failed.time}
           >
@@ -407,7 +659,7 @@ export function PersonDetail() {
 
           <Card
             title="When they were here"
-            sub={`Sessions in the last ${window.days} days`}
+            sub={`Sessions ${rangeLabel}`}
             loading={!signIns && !failed.signIns}
             error={failed.signIns}
           >
@@ -440,7 +692,7 @@ export function PersonDetail() {
 
           <Card
             title="What they did"
-            sub={`Every change they made in the last ${window.days} days`}
+            sub={`Every change they made ${rangeLabel}`}
             loading={!activity && !failed.activity}
             error={failed.activity}
           >

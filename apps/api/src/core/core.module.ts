@@ -2,6 +2,7 @@ import { Global, Module } from '@nestjs/common';
 import { AuditService } from './audit/audit.service.js';
 import { AuthModule } from './auth/auth.module.js';
 import { DepartmentsService } from './auth/departments.service.js';
+import { IdentityDirectory, ZitadelClient } from './auth/zitadel.client.js';
 import { CommentService } from './comments/comment.service.js';
 import { MentionService } from './comments/mention.service.js';
 import { DbModule } from './db/db.module.js';
@@ -50,6 +51,8 @@ const services = [
   FileTypeRegistry,
   SettingsService,
   DepartmentsService,
+  ZitadelClient,
+  IdentityDirectory,
   DbIntegrityService,
   TtsService,
   UsageService,

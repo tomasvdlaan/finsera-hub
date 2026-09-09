@@ -54,3 +54,7 @@ apps/web/public/excalidraw-assets/
 
 # Scratch output that is not source: design exports and the local storage driver's uploads.
 .design/
+
+# pnpm's local content-addressable store. Half a gigabyte of package tarballs that
+# `pnpm install` rebuilds from the lockfile — it is a cache, not a source.
+.pnpm-store/

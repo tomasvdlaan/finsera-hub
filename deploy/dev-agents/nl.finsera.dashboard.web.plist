@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  The web dev server (vite, with hot module replacement), supervised by launchd.
+
+  Vite proxies /api to localhost:3001, so this needs the API agent — or any API on 3001 — to
+  be up for anything but the shell to load.
+
+  See deploy/dev-agents/README.md for how to install it.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>nl.finsera.dashboard.web</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/tomasvanderlaan/.local/bin/pnpm</string>
+    <string>--filter</string>
+    <string>@platform/web</string>
+    <string>dev</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/tomasvanderlaan/WorkDir/Finsera/Dashboard</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Users/tomasvanderlaan/.local/bin</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+  <key>StandardOutPath</key>
+  <string>/Users/tomasvanderlaan/Library/Logs/finsera/web.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/tomasvanderlaan/Library/Logs/finsera/web.log</string>
+</dict>
+</plist>

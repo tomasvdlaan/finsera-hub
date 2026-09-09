@@ -31,6 +31,7 @@ import { ModelConfigService } from '../core/usage/model-config.service.js';
 import { OpenRouterService } from '../core/usage/openrouter.service.js';
 import { OrchestratorService } from '../core/llm/orchestrator.service.js';
 import { DepartmentsService } from '../core/auth/departments.service.js';
+import { IdentityDirectory } from '../core/auth/zitadel.client.js';
 import { PermissionService } from '../core/permissions/permission.service.js';
 import { DashboardService } from '../core/registry/dashboard.service.js';
 import { INTERNAL_ROLE, PORTAL_ROLE, roleClaims, rolesFrom } from '../core/auth/roles.js';
@@ -56,6 +57,7 @@ export class ShellController {
     private readonly dashboards: DashboardService,
     private readonly permissions: PermissionService,
     private readonly departments: DepartmentsService,
+    private readonly identity: IdentityDirectory,
     private readonly usage: UsageService,
     private readonly models: ModelConfigService,
     private readonly openrouter: OpenRouterService,
@@ -409,6 +411,32 @@ export class ShellController {
     if (!person) throw new NotFoundException('No such person');
     const byUser = await this.departments.byUser([id]);
     return { ...person, departmentIds: byUser.get(id) ?? [] };
+  }
+
+  /**
+   * A colleague's account at the identity provider.
+   *
+   * On their own page, because "why can this person not sign in" was two applications and a
+   * search: the hub knows what somebody may do, and the provider knows whether they can get
+   * in at all. Both halves of that answer now sit together.
+   *
+   * Read only. Everything that changes an account is a write into the identity provider with
+   * its own blast radius, and a link to the console is the honest answer until each of those
+   * has been decided on its own terms.
+   *
+   * `null` for both the unconfigured provider and the address it has never heard of — the
+   * screen distinguishes them, and neither is an error worth a 500.
+   */
+  @Get('people/:id/account')
+  async personAccount(@CurrentActor() actor: Actor, @Param('id') id: string) {
+    await this.permissions.require(actor, 'core.people.manage');
+    const person = await this.users.person(actor, id);
+    if (!person) throw new NotFoundException('No such person');
+    if (!this.identity.configured) return { configured: false, account: null };
+    // `person` is a row of unknowns — the directory is assembled from a view, not a model —
+    // so the one field this needs is narrowed here rather than asserted.
+    const email = typeof person.email === 'string' ? person.email : '';
+    return { configured: true, account: await this.identity.accountFor(email) };
   }
 
   @Patch('people/:id')
