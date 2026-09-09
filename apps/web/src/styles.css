@@ -4495,23 +4495,6 @@ a.badge:hover {
   margin-bottom: var(--space-4);
 }
 .panel-head h2 { margin: 0; }
-/*
- * A heading for one part of a panel that holds several.
- *
- * The client page's portal region is three of them — the address, who may sign in, what they
- * can see — and they were three separate panels with h2s, which said they were three subjects
- * rather than one. Set apart by space and a rule rather than by size: an h3 a shade smaller
- * than the h2 above it reads as a mistake, not as a level.
- */
-.panel-part {
-  margin: var(--space-6) 0 var(--space-2);
-  padding-top: var(--space-4);
-  border-top: 1px solid var(--border);
-  font-size: var(--text-base);
-  font-weight: 600;
-}
-.panel-part:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
-
 .panel-sub {
   margin: var(--space-1) 0 0;
   font-size: var(--text-sm);
@@ -4625,6 +4608,37 @@ a.badge:hover {
 .kv-edit-body input,
 .kv-edit-body textarea { width: 100%; }
 .kv-edit-actions { display: flex; gap: var(--space-2); align-items: center; }
+
+/* ── People, as people ──────────────────────────────────────────────────────
+ *
+ * The contacts on a client were `<li><strong>name</strong> · role · email · phone</li>` — one
+ * grey run-on line per person, in a list that looked identical to the list of projects above
+ * it. A face and two lines is what makes four people scannable as four people, and the colour
+ * is derived from the id, so the same contact is the same colour on every screen.
+ */
+.people-list { list-style: none; margin: 0; padding: 0; }
+.people-list li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--border);
+}
+.people-list li:last-child { border-bottom: 0; }
+.people-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.people-name { display: flex; align-items: center; gap: var(--space-2); font-weight: 600; }
+/* Truncated rather than wrapped: a role, an address and a phone number on one line is a
+   caption, and a caption that wraps to three lines makes every row a different height. */
+.people-text small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Same bargain as the edit link on a field: one destructive verb per row, repeated down the
+   column, is the loudest thing in a panel that is supposed to be a list of names. */
+.people-remove { opacity: 0; transition: opacity var(--dur-1, 120ms) ease; }
+.people-list li:hover .people-remove,
+.people-list li:focus-within .people-remove { opacity: 1; }
+@media (hover: none) {
+  .people-remove { opacity: 1; }
+}
 
 /*
  * Empty states, given room.
@@ -9345,3 +9359,63 @@ a.btn { text-decoration: none; }
 /* The build stamp at the foot of Settings. Small print until it has bad news. */
 .build-line { margin-top: var(--space-6); font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
 .build-stale { color: var(--warning); font-weight: 600; }
+
+/* ── The person page: a range, settings, departments ────────────────────────── */
+
+/*
+ * The date range, where three tabs used to be.
+ *
+ * The presets are buttons that write into the two fields rather than a set of views, so they
+ * are styled as quiet links and not as the tabs they replaced — a pressed-looking preset
+ * would reintroduce exactly the "which one am I on" reading the tabs had.
+ */
+.range-filter {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  font-size: var(--text-xs);
+}
+.range-filter input[type='date'] { font-size: var(--text-xs); }
+.range-preset {
+  border: 0;
+  background: none;
+  padding: 0.15rem 0.35rem;
+  color: var(--muted);
+  font-size: var(--text-xs);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+.range-preset:hover { color: var(--text); background: var(--surface-sunken, var(--surface)); }
+
+/* One field per row, label above control: these are read far more often than edited, and a
+   two-column form makes a list of facts look like a form that must be filled in. */
+.person-settings { display: grid; gap: var(--space-4); }
+.person-settings > label { display: grid; gap: 0.25rem; }
+.person-settings > label > span:first-child {
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.person-settings input,
+.person-settings select { width: 100%; }
+
+.chip-set { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+/*
+ * The checkbox is hidden, not removed.
+ *
+ * `.chip-on` carries the state visually, and a native box inside a pill reads as two
+ * controls. Clipped rather than `display:none` so it keeps its place in the tab order and
+ * still announces itself — the label is the hit area either way.
+ */
+.chip-set input[type='checkbox'] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+.chip-set input[type='checkbox']:focus-visible + * ,
+.chip-set label:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }

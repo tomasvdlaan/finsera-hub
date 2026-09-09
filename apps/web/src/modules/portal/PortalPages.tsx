@@ -1,8 +1,9 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { api } from '../../lib/api.js';
-import { Empty } from '../../shell/ui/primitives.js';
+import { Empty, Panel } from '../../shell/ui/primitives.js';
 import { useDialog } from '../../shell/ui/Dialog.js';
 import { useToast } from '../../shell/ui/Toast.js';
+import { ArtefactVisibility } from './ArtefactVisibility.js';
 import { portalHost } from './PortalUsers.js';
 
 interface Page {
@@ -120,8 +121,7 @@ export function PortalPages({
   if (!portalSlug) return null;
 
   return (
-    <>
-      <h3 className="panel-part">Custom content</h3>
+    <Panel title="Custom content">
       <p className="muted">
         Reports we host elsewhere, served from this client&rsquo;s own address. We fetch them
         server-side, so the hosting URL never reaches their browser and the deployment can keep
@@ -136,6 +136,7 @@ export function PortalPages({
             <tr>
               <th>Link</th>
               <th>Title</th>
+              <th>Visible to</th>
               <th>Source</th>
               <th />
             </tr>
@@ -151,6 +152,12 @@ export function PortalPages({
                   {!p.enabled && <span className="muted"> · off</span>}
                 </td>
                 <td>{p.title}</td>
+                {/* A report is the artefact most likely to be for some of a client's people
+                    and not others — a margin analysis for the director, an operational
+                    dashboard for everyone — so the choice sits on the report. */}
+                <td style={{ verticalAlign: 'top' }}>
+                  <ArtefactVisibility clientId={clientId} kind="page" artefactId={p.id} />
+                </td>
                 <td className="muted" style={{ maxWidth: '22rem', overflowWrap: 'anywhere' }}>
                   {p.sourceUrl}
                   {p.hasSecret && <span> · secret set</span>}
@@ -245,6 +252,6 @@ export function PortalPages({
           Add custom content
         </button>
       )}
-    </>
+    </Panel>
   );
 }

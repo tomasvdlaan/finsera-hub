@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../../lib/api.js';
-import { Empty } from '../../shell/ui/primitives.js';
+import { Empty, Panel } from '../../shell/ui/primitives.js';
 import { inviteEmail } from './inviteEmail.js';
 
 interface InviteResult {
@@ -203,10 +204,7 @@ export function PortalUsers({
   };
 
   return (
-    <>
-      {/* A heading inside the client page's portal panel, which supplies the h2 — the
-          address, who may sign in, and what they can see are one subject in three parts. */}
-      <h3 className="panel-part">Who can sign in</h3>
+    <Panel title="Who can sign in">
       <p className="muted">
         Anyone here can sign in to the client portal and see this client&rsquo;s projects,
         quotes, invoices and shared documents. They still need an account in Zitadel; the
@@ -243,7 +241,7 @@ export function PortalUsers({
         <table>
           <thead>
             <tr>
-              <th>Email</th>
+              <th>Person</th>
               <th>Status</th>
               <th>Last seen</th>
               <th />
@@ -252,7 +250,18 @@ export function PortalUsers({
           <tbody>
             {rows.map((u) => (
               <tr key={u.id}>
-                <td>{u.email}</td>
+                {/* The name is the way in to the person: what they may see beyond the client's
+                    own data, and every sign-in they have made. Revoking stays on this row,
+                    beside everyone else's, because it is asked while looking at the list. */}
+                <td>
+                  <Link to={`/portal/users/${u.id}`}>{u.displayName || u.email}</Link>
+                  {/* Only when it says something the line above does not: an invitation with
+                      no name given stores the address as the display name, and printing it
+                      twice reads as a rendering bug. */}
+                  {u.displayName && u.displayName !== u.email && (
+                    <div className="muted">{u.email}</div>
+                  )}
+                </td>
                 <td>
                   {u.disabledAt ? (
                     <span className="muted">revoked {when(u.disabledAt)}</span>
@@ -333,7 +342,7 @@ export function PortalUsers({
           Give access
         </button>
       </form>
-    </>
+    </Panel>
   );
 }
 
