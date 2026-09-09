@@ -121,7 +121,7 @@ export function PortalPages({
 
   return (
     <>
-      <h2>Custom content</h2>
+      <h3 className="panel-part">Custom content</h3>
       <p className="muted">
         Reports we host elsewhere, served from this client&rsquo;s own address. We fetch them
         server-side, so the hosting URL never reaches their browser and the deployment can keep

@@ -20,7 +20,7 @@ import {
   type Contact,
   type Project,
 } from './types.js';
-import { Empty } from '../../shell/ui/primitives.js';
+import { Badge, Empty, Panel, Status } from '../../shell/ui/primitives.js';
 
 interface Overview {
   client: Client;
@@ -115,150 +115,153 @@ export function ClientDetail() {
     <>
       <PageHeader
         title={client.name}
-        back={{ to: "/crm/clients", label: 'Clients' }}
+        back={{ to: '/crm/clients', label: 'Clients' }}
+        subtitle={
+          client.portalSlug ? (
+            <>
+              Their portal is at{' '}
+              <a href={portalUrl(client.portalSlug)} target="_blank" rel="noreferrer">
+                {portalHost(client.portalSlug)}
+              </a>
+            </>
+          ) : (
+            'No portal address yet — set one under Client portal.'
+          )
+        }
+        meta={
+          <>
+            <Status value={client.status} />
+            {client.website && (
+              <a href={client.website} target="_blank" rel="noreferrer">
+                {client.website.replace(/^https?:\/\//, '')}
+              </a>
+            )}
+            <span className="muted">
+              {contacts.length} contact{contacts.length === 1 ? '' : 's'} · {projects.length}{' '}
+              project{projects.length === 1 ? '' : 's'}
+            </span>
+          </>
+        }
+        actions={
+          <>
+            {/* Read-only, audited, and served by the same projection the portal uses — so
+                what it shows is what this client actually gets, not an approximation. */}
+            <Link className="act" to={`/clients/${client.id}/portal`}>
+              View their portal
+            </Link>
+            <button className="act" data-variant="danger" onClick={() => void archive()}>
+              Archive
+            </button>
+          </>
+        }
       />
-
-      <p className="muted">
-        {/* Read-only, audited, and served by the same projection the portal uses — so what
-            it shows is what this client actually gets, not an approximation of it. */}
-        <Link to={`/clients/${client.id}/portal`}>View their client portal →</Link>
-      </p>
-
-      <div className="row">
-        <select value={client.status} onChange={(e) => void setStatus(e.target.value)}>
-          {CLIENT_STATUSES.map((s) => (
-            <option key={s} value={s}>
-              {humanise(s)}
-            </option>
-          ))}
-        </select>
-        {client.website && (
-          <a href={client.website} target="_blank" rel="noreferrer">
-            visit site
-          </a>
-        )}
-        <button className="link-button destructive" onClick={() => void archive()}>
-          archive client
-        </button>
-      </div>
-      <EditableField
-        label="Name"
-        value={client.name}
-        onSave={(v) => patch({ name: v })}
-      />
-      <EditableField
-        label="Website"
-        value={client.website}
-        placeholder="https://…"
-        onSave={(v) => patch({ website: v })}
-      />
-      <EditableField
-        label="Notes"
-        value={client.notes}
-        placeholder="What you need to remember about this client"
-        multiline
-        onSave={(v) => patch({ notes: v })}
-      />
-      <EditableField
-        label="Portal address"
-        value={client.portalSlug}
-        placeholder="duce  →  duce.finsera.nl"
-        onSave={(v) => patch({ portalSlug: v })}
-      />
-      {client.portalSlug && (
-        <EditableField
-          label="Portal welcome"
-          value={client.portalWelcome}
-          placeholder="A line they see when they open their portal"
-          multiline
-          onSave={(v) => patch({ portalWelcome: v })}
-        />
-      )}
-      {client.portalSlug && (
-        <p className="muted" style={{ marginTop: '-.5rem' }}>
-          Their portal is at{' '}
-          <a href={portalUrl(client.portalSlug)} target="_blank" rel="noreferrer">
-            {portalHost(client.portalSlug)}
-          </a>
-          . Changing the address breaks links they already have.
-        </p>
-      )}
 
       {error && <p className="error">{error}</p>}
 
-      <section>
-        <h2>Billing details</h2>
-        <p className="muted">
-          What an invoice legally needs. Reverse charge additionally requires the VAT number.
-        </p>
-        <EditableField
-          label="Legal name"
-          value={client.legalName}
-          placeholder="As registered at the KvK"
-          onSave={(v) => patch({ legalName: v })}
-        />
-        <EditableField
-          label="Invoice address"
-          value={client.invoiceAddress}
-          multiline
-          onSave={(v) => patch({ invoiceAddress: v })}
-        />
-        <EditableField label="KvK" value={client.kvkNumber} onSave={(v) => patch({ kvkNumber: v })} />
-        <EditableField
-          label="VAT number"
-          value={client.vatNumber}
-          placeholder="NL…B01 / DE…"
-          onSave={(v) => patch({ vatNumber: v })}
-        />
-        <EditableField
-          label="Country"
-          value={client.countryCode}
-          placeholder="NL"
-          onSave={(v) => patch({ countryCode: v ?? 'NL' })}
-        />
-        <EditableField
-          label="Payment terms (days)"
-          value={String(client.paymentTermsDays)}
-          onSave={(v) => patch({ paymentTermsDays: v ? Number(v) : 30 })}
-        />
-        <EditableField
-          label="Invoice email"
-          value={client.invoiceEmail}
-          onSave={(v) => patch({ invoiceEmail: v })}
-        />
-        <div className="row">
-          <span className="muted">VAT treatment:</span>
-          <select
-            value={client.vatTreatment}
-            onChange={(e) => void patch({ vatTreatment: e.target.value })}
-            aria-label="VAT treatment"
-          >
-            <option value="domestic_21">Dutch client — 21% BTW</option>
-            <option value="reverse_charge">EU client — BTW verlegd</option>
-            <option value="outside_eu">Outside EU — out of scope</option>
-          </select>
-        </div>
-      </section>
-
       {/*
-        Whatever the installed modules have to say about this client.
+        Two columns of facts, because they are read for different reasons.
 
-        Five widget components used to be imported by name here, which meant CRM had to know
-        that billing, sales, docs and meetings exist — the exact coupling every manifest in
-        this codebase is arranged to avoid, sitting in one of the two pages people open most.
+        Everything here used to be one stack: thirteen fields, the status control, two portal
+        notes and an archive button, in the order they were written rather than in any order
+        anybody reads them. Who this client is and what an invoice to them needs are separate
+        questions, and separating them is most of what makes the page shorter than a screen
+        and a half.
       */}
-      <EntityWidgets entityId={id} entityType="client" />
+      <Panel span={6} title="Details">
+        <div className="kv-list">
+          <div className="kv">
+            <span className="kv-label">Status</span>
+            <span className="kv-value">
+              <select
+                value={client.status}
+                onChange={(e) => void setStatus(e.target.value)}
+                aria-label="Client status"
+              >
+                {CLIENT_STATUSES.map((s) => (
+                  <option key={s} value={s}>
+                    {humanise(s)}
+                  </option>
+                ))}
+              </select>
+            </span>
+          </div>
+          <EditableField label="Name" value={client.name} onSave={(v) => patch({ name: v })} />
+          <EditableField
+            label="Website"
+            value={client.website}
+            placeholder="https://…"
+            onSave={(v) => patch({ website: v })}
+          />
+          <EditableField
+            label="Notes"
+            value={client.notes}
+            placeholder="What you need to remember about this client"
+            multiline
+            onSave={(v) => patch({ notes: v })}
+          />
+        </div>
+      </Panel>
 
-      <section>
-        <PortalUsers clientId={client.id} clientName={client.name} portalSlug={client.portalSlug} />
-      </section>
+      <Panel
+        span={6}
+        title="Billing details"
+        sub="What an invoice legally needs. Reverse charge additionally requires the VAT number."
+      >
+        <div className="kv-list">
+          <EditableField
+            label="Legal name"
+            value={client.legalName}
+            placeholder="As registered at the KvK"
+            onSave={(v) => patch({ legalName: v })}
+          />
+          <EditableField
+            label="Invoice address"
+            value={client.invoiceAddress}
+            multiline
+            onSave={(v) => patch({ invoiceAddress: v })}
+          />
+          <EditableField
+            label="Invoice email"
+            value={client.invoiceEmail}
+            onSave={(v) => patch({ invoiceEmail: v })}
+          />
+          <EditableField label="KvK" value={client.kvkNumber} onSave={(v) => patch({ kvkNumber: v })} />
+          <EditableField
+            label="VAT number"
+            value={client.vatNumber}
+            placeholder="NL…B01 / DE…"
+            onSave={(v) => patch({ vatNumber: v })}
+          />
+          <EditableField
+            label="Country"
+            value={client.countryCode}
+            placeholder="NL"
+            onSave={(v) => patch({ countryCode: v ?? 'NL' })}
+          />
+          <EditableField
+            label="Payment terms"
+            value={client.paymentTermsDays ? `${client.paymentTermsDays} days` : null}
+            placeholder="30"
+            onSave={(v) => patch({ paymentTermsDays: v ? Number(v.replace(/\D/g, '')) : 30 })}
+          />
+          <div className="kv">
+            <span className="kv-label">VAT treatment</span>
+            <span className="kv-value">
+              <select
+                value={client.vatTreatment}
+                onChange={(e) => void patch({ vatTreatment: e.target.value })}
+                aria-label="VAT treatment"
+              >
+                <option value="domestic_21">Dutch client — 21% BTW</option>
+                <option value="reverse_charge">EU client — BTW verlegd</option>
+                <option value="outside_eu">Outside EU — out of scope</option>
+              </select>
+            </span>
+          </div>
+        </div>
+      </Panel>
 
-      <section>
-        <PortalPages clientId={client.id} portalSlug={client.portalSlug} />
-      </section>
-
-      <section data-span={6}>
-        <h2>Contacts</h2>
+      <Panel span={6} title="Contacts">
         {contacts.length === 0 ? (
           <Empty>No contacts yet.</Empty>
         ) : (
@@ -266,7 +269,7 @@ export function ClientDetail() {
             {contacts.map((c) => (
               <li key={c.id}>
                 <strong>{c.name}</strong>
-                {c.isPrimary && <span className="badge">primary</span>}{' '}
+                {c.isPrimary && <Badge>primary</Badge>}{' '}
                 <span className="muted">
                   {[c.role, c.email, c.phone].filter(Boolean).join(' · ')}
                 </span>
@@ -291,10 +294,9 @@ export function ClientDetail() {
             Add contact
           </button>
         </form>
-      </section>
+      </Panel>
 
-      <section data-span={6}>
-        <h2>Projects</h2>
+      <Panel span={6} title="Projects">
         {projects.length === 0 ? (
           <Empty>No projects yet.</Empty>
         ) : (
@@ -302,7 +304,7 @@ export function ClientDetail() {
             {projects.map((p) => (
               <li key={p.id}>
                 <Link to={`/projects/${p.id}`}>{p.name}</Link>{' '}
-                <span className="badge">{humanise(p.billingModel)}</span>{' '}
+                <Badge>{humanise(p.billingModel)}</Badge>{' '}
                 <span className="muted">
                   {humanise(p.status)}
                   {p.budgetAmountCents != null &&
@@ -312,26 +314,69 @@ export function ClientDetail() {
             ))}
           </ul>
         )}
-      </section>
+      </Panel>
 
-      <section>
-        <h2>Discussion</h2>
+      {/*
+        Whatever the installed modules have to say about this client.
+
+        Five widget components used to be imported by name here, which meant CRM had to know
+        that billing, sales, docs and meetings exist — the exact coupling every manifest in
+        this codebase is arranged to avoid, sitting in one of the two pages people open most.
+      */}
+      <EntityWidgets entityId={id} entityType="client" />
+
+      {/*
+        One region for the portal, because it was three.
+
+        The address and the welcome line sat at the top of the page among the CRM fields, who
+        may sign in sat two thirds down, and what they can see sat below that — three places
+        to look for one subject, and the portal address printed twice on the way. Together
+        they answer one question in order: where it is, who gets in, what is in there.
+      */}
+      <Panel
+        title="Client portal"
+        sub="Their own address, who may sign in to it, and what they find when they do."
+      >
+        <div className="kv-list">
+          <EditableField
+            label="Portal address"
+            value={client.portalSlug}
+            placeholder="duce  →  duce.finsera.nl"
+            onSave={(v) => patch({ portalSlug: v })}
+          />
+          {client.portalSlug && (
+            <EditableField
+              label="Welcome line"
+              value={client.portalWelcome}
+              placeholder="A line they see when they open their portal"
+              multiline
+              onSave={(v) => patch({ portalWelcome: v })}
+            />
+          )}
+        </div>
+        {client.portalSlug && (
+          <p className="muted">Changing the address breaks links they already have.</p>
+        )}
+
+        <PortalUsers clientId={client.id} clientName={client.name} portalSlug={client.portalSlug} />
+        <PortalPages clientId={client.id} portalSlug={client.portalSlug} />
+      </Panel>
+
+      <Panel title="Discussion">
         <Comments entityId={id} />
-      </section>
+      </Panel>
 
-      <section data-span={6}>
-        <h2>Links</h2>
+      <Panel span={6} title="Links">
         <Links entityId={id} candidates={candidates} onChange={() => setRefreshKey((k) => k + 1)} />
-      </section>
+      </Panel>
 
-      <section data-span={6}>
-        <h2>Timeline</h2>
-        <p className="muted">
-          Assembled by the core from registry entries, links, and events — including activity on
-          linked entities.
-        </p>
+      <Panel
+        span={6}
+        title="Timeline"
+        sub="Assembled by the core from registry entries, links, and events — including activity on linked entities."
+      >
         <Timeline entityId={id} refreshKey={refreshKey} />
-      </section>
+      </Panel>
     </>
   );
 }

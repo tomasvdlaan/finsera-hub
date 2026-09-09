@@ -204,20 +204,18 @@ export function PortalUsers({
 
   return (
     <>
-      <h2>Portal access</h2>
+      {/* A heading inside the client page's portal panel, which supplies the h2 — the
+          address, who may sign in, and what they can see are one subject in three parts. */}
+      <h3 className="panel-part">Who can sign in</h3>
       <p className="muted">
         Anyone here can sign in to the client portal and see this client&rsquo;s projects,
         quotes, invoices and shared documents. They still need an account in Zitadel; the
         invitation binds to them the first time they sign in with this address.
       </p>
-      {portalSlug ? (
-        <p className="muted">
-          Their portal:{' '}
-          <a href={portalUrl(portalSlug)} target="_blank" rel="noreferrer">
-            {portalHost(portalSlug)}
-          </a>
-        </p>
-      ) : (
+      {/* The address itself is printed twice above — in the page's subtitle and as the field
+          that sets it — so it is not printed a third time here. What is worth saying is what
+          is missing when there is none. */}
+      {!portalSlug && (
         // The invite form below is disabled for the same reason the API refuses it: a login
         // with nowhere to go is a support ticket. The address field is on this page.
         <p className="muted">

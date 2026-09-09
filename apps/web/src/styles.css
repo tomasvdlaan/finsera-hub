@@ -4495,12 +4495,136 @@ a.badge:hover {
   margin-bottom: var(--space-4);
 }
 .panel-head h2 { margin: 0; }
+/*
+ * A heading for one part of a panel that holds several.
+ *
+ * The client page's portal region is three of them — the address, who may sign in, what they
+ * can see — and they were three separate panels with h2s, which said they were three subjects
+ * rather than one. Set apart by space and a rule rather than by size: an h3 a shade smaller
+ * than the h2 above it reads as a mistake, not as a level.
+ */
+.panel-part {
+  margin: var(--space-6) 0 var(--space-2);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border);
+  font-size: var(--text-base);
+  font-weight: 600;
+}
+.panel-part:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+
+.panel-sub {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-sm);
+  color: var(--muted);
+  max-width: 72ch;
+}
 
 .field { display: flex; flex-direction: column; gap: var(--space-1); margin-bottom: var(--space-4); }
 .field > label { font-size: var(--text-sm); font-weight: 600; }
 .field-hint { margin: 0; font-size: var(--text-xs); color: var(--muted); }
 .field-error { margin: 0; font-size: var(--text-xs); }
 .field input[aria-invalid='true'] { border-color: var(--danger); }
+
+/* ── A record's own facts ───────────────────────────────────────────────────
+ *
+ * `.field` is for entering something; this is for a fact that is already there, with the way
+ * to change it attached. Detail pages are mostly these — thirteen on a client, nine on a
+ * contract — and they were rendering as paragraphs of "Label: value edit", which is a form
+ * read aloud rather than a record laid out. Nothing lined up, so nothing could be scanned.
+ *
+ * A grid rather than a flex row, so every label in a panel shares one column and the values
+ * share another. `subgrid` is what makes that true across separate `.kv` elements: without
+ * it each row measures its own label and the column edge wanders by a few pixels per row,
+ * which is more distracting than no column at all.
+ */
+.kv-list {
+  display: grid;
+  grid-template-columns: minmax(7rem, max-content) minmax(0, 1fr) max-content;
+  align-items: baseline;
+  gap: 0;
+  /* Capped, because the edit control is right-aligned and a full-width panel puts it half a
+     screen from the value it edits — the client portal panel is twelve columns and the link
+     ended up 600px from the address it changes, which reads as belonging to nothing. */
+  max-width: 48rem;
+}
+.kv {
+  display: grid;
+  /*
+   * The same three columns the list declares, because a `.kv` is not always in one: five
+   * other detail pages render these fields as a bare run with no wrapper, and `subgrid`
+   * against a parent that is not a grid computes to `none` — which would have collapsed
+   * every field on the contract, quote, project, sprint and task pages into one column.
+   * The 7rem minimum means rows still line up with each other without the shared track.
+   */
+  grid-template-columns: minmax(7rem, max-content) minmax(0, 1fr) max-content;
+  align-items: baseline;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--border);
+}
+/* In a list they share one set of tracks, so the column edge is identical rather than merely
+   similar — a label longer than the minimum otherwise moves its own row's value. */
+.kv-list > .kv {
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+}
+/* The last row's rule would draw a line along the bottom of the panel's content, parallel to
+   the panel's own edge a few pixels below it. */
+.kv:last-child { border-bottom: 0; }
+
+.kv-label {
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+.kv-value {
+  /* A note or an invoice address is typed with newlines in it and was rendering as one run-on
+     line, which is how a three-line address becomes unreadable without being wrong. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.kv-value[data-empty] { color: var(--muted); }
+
+/*
+ * The edit affordance, quiet until wanted.
+ *
+ * The same word on every row, and a column of thirteen identical "edit" links competes with
+ * the values for attention while carrying none of the information. Hidden by opacity rather
+ * than by `display`, so the row does not resize when it appears and the column does not jump
+ * under the pointer.
+ */
+.kv-edit {
+  justify-self: end;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--dur-1, 120ms) ease;
+}
+.kv:hover .kv-edit,
+.kv:focus-within .kv-edit,
+.kv-edit:focus-visible {
+  opacity: 1;
+}
+/* Touch has no hover to reveal it with, and a control nobody can reach is worse than a busy
+   column. */
+@media (hover: none) {
+  .kv-edit { opacity: 1; }
+}
+
+.kv[data-editing] { align-items: start; }
+.kv-edit-body {
+  grid-column: 2 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  align-items: flex-start;
+}
+.kv-edit-body input,
+.kv-edit-body textarea { width: 100%; }
+.kv-edit-actions { display: flex; gap: var(--space-2); align-items: center; }
 
 /*
  * Empty states, given room.

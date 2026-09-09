@@ -95,21 +95,41 @@ export function Count({ value, tone = 'neutral' }: { value: number; tone?: 'neut
  */
 export function Panel({
   title,
+  sub,
+  span,
   action,
   children,
   className,
 }: {
   title?: ReactNode;
+  /**
+   * One line under the title, for what this panel is or what it is for.
+   *
+   * Pages were putting that sentence inside the body as the first paragraph, where it reads
+   * as content rather than as a caption and pushes the actual content down a line.
+   */
+  sub?: ReactNode;
+  /**
+   * Columns on the twelve-column page grid, when this panel is a block of a page.
+   *
+   * Only a direct child of `.page` gets a span, so a panel that wants one has to be that
+   * child — wrapping it in a `Block` to carry the span puts a plain section in between and
+   * the panel goes full width whatever it asked for. Same prop as `Card` for that reason.
+   */
+  span?: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 12;
   /** Usually one button, aligned with the title rather than floating above the content. */
   action?: ReactNode;
   children: ReactNode;
   className?: string;
 }) {
   return (
-    <section className={['panel', className].filter(Boolean).join(' ')}>
+    <section className={['panel', className].filter(Boolean).join(' ')} data-span={span}>
       {(title || action) && (
         <header className="panel-head">
-          {typeof title === 'string' ? <h2>{title}</h2> : title}
+          <div>
+            {typeof title === 'string' ? <h2>{title}</h2> : title}
+            {sub && <p className="panel-sub">{sub}</p>}
+          </div>
           {action}
         </header>
       )}
