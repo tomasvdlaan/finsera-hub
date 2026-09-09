@@ -2,6 +2,7 @@ import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common'
 import { sql } from 'drizzle-orm';
 import { DB, type Database } from '../../core/db/db.module.js';
 import { ManifestRegistry } from '../../core/manifest/manifest.registry.js';
+import { PortalAccessService } from './portal-access.service.js';
 
 /**
  * A signed-in client, resolved from an invitation.
@@ -18,6 +19,16 @@ export interface PortalVisitor extends PortalAudience {
   displayName?: string | null;
   /** When they were last here, *before* this visit. Null on a first sign-in. */
   previousSeenAt?: Date | null;
+  /**
+   * Whether the money sections are theirs to see.
+   *
+   * Required rather than optional, so that every place a visitor is constructed has to say
+   * what this person may see. An optional flag defaulting to `true` would mean a caller that
+   * forgot it hands out a visitor who sees the invoices, and "forgot" is the failure mode
+   * this pair of columns exists to survive.
+   */
+  seesInvoices: boolean;
+  seesQuotes: boolean;
 }
 
 /**
@@ -44,6 +55,18 @@ export type PortalViewer = PortalVisitor | PortalStaff;
 /** Narrow a viewer. `'staffUserId' in v` rather than a flag, so the union stays honest. */
 export function isStaff(viewer: PortalViewer): viewer is PortalStaff {
   return 'staffUserId' in viewer;
+}
+
+/**
+ * May this viewer see a whole section — the invoices, the quotes?
+ *
+ * Staff always may: one of us looking at a client's portal is checking what the client has,
+ * and a preview that hid half of it would be answering a different question. Which of *their*
+ * people can see it is set per person and shown on the internal side.
+ */
+export function maySeeSection(viewer: PortalViewer, section: 'invoices' | 'quotes'): boolean {
+  if (isStaff(viewer)) return true;
+  return section === 'invoices' ? viewer.seesInvoices : viewer.seesQuotes;
 }
 
 /**
@@ -102,7 +125,44 @@ export class PortalProjection {
   constructor(
     @Inject(DB) private readonly db: Database,
     private readonly manifests: ManifestRegistry,
+    private readonly access: PortalAccessService,
   ) {}
+
+  /**
+   * Whether this audience may see a whole section.
+   *
+   * The per-person rules live here rather than in the controller, and that is the same
+   * argument the projection is built on: one place that decides what is shown beats six
+   * routes that each remember to ask. Every path into the money — the tabs, the front page,
+   * the list, the PDF — goes through `invoices()` or `quotes()`, so gating those two gates
+   * all of it.
+   *
+   * An audience with no flags at all is the internal preview, which asks a different
+   * question: what does *this client* see, not what does one person at it see. It sees the
+   * section.
+   */
+  private sees(audience: PortalAudience, section: 'invoices' | 'quotes'): boolean {
+    if (!('seesInvoices' in audience)) return true;
+    const viewer = audience as PortalVisitor;
+    return section === 'invoices' ? viewer.seesInvoices : viewer.seesQuotes;
+  }
+
+  /**
+   * The artefacts of this kind this audience must not be shown, as a SQL fragment.
+   *
+   * An empty list becomes `TRUE` rather than `id NOT IN ()`, which is a syntax error in
+   * Postgres and would take the ordinary case — nothing restricted anywhere — down with it.
+   */
+  private async hidden(
+    audience: PortalAudience,
+    kind: 'page' | 'document',
+    column = sql`d.id`,
+  ) {
+    if (!('portalUserId' in audience)) return sql`TRUE`;
+    const ids = await this.access.hiddenIds(kind, audience as PortalVisitor);
+    if (ids.length === 0) return sql`TRUE`;
+    return sql`${column} NOT IN (${sql.join(ids.map((id) => sql`${id}::uuid`), sql`, `)})`;
+  }
 
   /** Quiet to the caller, loud in the log: a malformed id is a bug somewhere upstream. */
   private plausibleId(id: string, what: string): boolean {
@@ -299,6 +359,10 @@ export class PortalProjection {
 
   async invoices(audience: PortalAudience) {
     this.assertExposed('invoice');
+    // Not their section: an empty list, not an error. Everything that composes invoices —
+    // the tab, the front page's "overdue", the list — reads this, and each of them wants
+    // "there is nothing here for you" rather than an exception to handle.
+    if (!this.sees(audience, 'invoices')) return [];
     const result = await this.db.execute(sql`
       SELECT i.id, i.number, i.status, i.issue_date, i.due_on,
              i.subtotal_cents, i.vat_cents, i.total_cents, i.overdue, i.currency
@@ -314,6 +378,7 @@ export class PortalProjection {
 
   async quotes(audience: PortalAudience) {
     this.assertExposed('quote');
+    if (!this.sees(audience, 'quotes')) return [];
     const result = await this.db.execute(sql`
       SELECT q.id, q.number, q.title, q.status, q.issue_date, q.valid_until,
              q.subtotal_cents, q.vat_cents, q.total_cents, q.expired
@@ -327,6 +392,7 @@ export class PortalProjection {
 
   async quoteLines(audience: PortalAudience, quoteId: string) {
     this.assertExposed('quote');
+    if (!this.sees(audience, 'quotes')) return [];
     if (!this.plausibleId(quoteId, 'quote')) return [];
     // The quote id comes from the client, so ownership is re-checked here rather than
     // assumed from the list they were shown.
@@ -352,12 +418,18 @@ export class PortalProjection {
    */
   async documents(audience: PortalAudience) {
     this.assertExposed('document');
+    // Two conditions, and they are not the same kind of thing. The link is what makes a
+    // document the client's at all; the second clause is which of the client's people this
+    // one is for. Losing the first would show another client's file, losing the second
+    // shows a colleague's — so both are here, in the query, rather than filtered after.
+    const mine = await this.hidden(audience, 'document');
     const result = await this.db.execute(sql`
       SELECT d.id, d.title, d.category, d.created_at
         FROM docs.v_documents d
         JOIN core.links l ON l.from_id = d.id
        WHERE l.to_id = ${audience.clientId}
          AND l.link_kind = 'shared_with_client'
+         AND ${mine}
        ORDER BY d.created_at DESC
     `);
     return result.rows;
@@ -374,6 +446,9 @@ export class PortalProjection {
    */
   async invoiceFile(audience: PortalAudience, invoiceId: string) {
     this.assertExposed('invoice');
+    // The list is not what protects a PDF: a link to one may have been mailed on months
+    // before anybody's access to the section was narrowed.
+    if (!this.sees(audience, 'invoices')) return null;
     if (!this.plausibleId(invoiceId, 'invoice')) return null;
     const result = await this.db.execute(sql`
       SELECT d.filename, d.mime_type, d.storage_key
@@ -391,6 +466,7 @@ export class PortalProjection {
   async documentFile(audience: PortalAudience, documentId: string) {
     this.assertExposed('document');
     if (!this.plausibleId(documentId, 'document')) return null;
+    const mine = await this.hidden(audience, 'document');
     const result = await this.db.execute(sql`
       SELECT d.filename, d.mime_type, d.storage_key
         FROM docs.v_documents d
@@ -398,6 +474,7 @@ export class PortalProjection {
        WHERE d.id = ${documentId}
          AND l.to_id = ${audience.clientId}
          AND l.link_kind = 'shared_with_client'
+         AND ${mine}
        LIMIT 1
     `);
     return (result.rows[0] as FileRef | undefined) ?? null;
@@ -406,12 +483,14 @@ export class PortalProjection {
   /** Whether one document is shared with this client — checked before serving bytes. */
   async mayReadDocument(audience: PortalAudience, documentId: string): Promise<boolean> {
     if (!this.plausibleId(documentId, 'document')) return false;
+    const mine = await this.hidden(audience, 'document', sql`l.from_id`);
     const result = await this.db.execute(sql`
       SELECT 1
         FROM core.links l
        WHERE l.from_id = ${documentId}
          AND l.to_id = ${audience.clientId}
          AND l.link_kind = 'shared_with_client'
+         AND ${mine}
        LIMIT 1
     `);
     return result.rows.length > 0;

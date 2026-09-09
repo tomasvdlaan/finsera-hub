@@ -3,6 +3,7 @@ import { ForbiddenException } from '@nestjs/common';
 import { jwtVerify } from 'jose';
 import { PortalIdentityService } from './portal-identity.service.js';
 import type { UserService } from '../../core/auth/user.service.js';
+import { ZitadelTokens } from '../../core/auth/zitadel.tokens.js';
 import type { PortalUsersService } from './portal-users.service.js';
 
 /**
@@ -44,6 +45,9 @@ describe('PortalIdentityService', () => {
     guard = new PortalIdentityService(
       { resolveFromSubject } as unknown as PortalUsersService,
       { bySubject, memberWithEmail } as unknown as UserService,
+      // The real verifier, against a mocked `jose` — the signature check is stubbed above,
+      // the configuration handling around it is what these tests are about.
+      new ZitadelTokens(),
     );
     process.env.ZITADEL_ISSUER = 'https://example.zitadel.cloud';
   });

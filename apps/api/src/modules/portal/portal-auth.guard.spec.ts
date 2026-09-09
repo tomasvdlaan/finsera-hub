@@ -14,10 +14,12 @@ const DOCHORSE: PortalHost = {
 const clientSession: ResolvedSession = {
   id: 's-1', kind: 'client', portalUserId: 'pu-1', staffUserId: null,
   clientId: 'c-duce', email: 'finance@duce.nl', displayName: 'Finance', previousSeenAt: null,
+  seesInvoices: true, seesQuotes: true,
 };
 const staffSession: ResolvedSession = {
   id: 's-2', kind: 'staff', portalUserId: null, staffUserId: 'u-1',
   clientId: 'c-duce', email: 'tomas@finsera.nl', displayName: null, previousSeenAt: null,
+  seesInvoices: true, seesQuotes: true,
 };
 
 function build(host: PortalHost | null, session: ResolvedSession | null) {
@@ -45,7 +47,7 @@ describe('PortalAuthGuard', () => {
     expect(await guard.canActivate(c)).toBe(true);
     expect(c.switchToHttp().getRequest<{ viewer: unknown }>().viewer).toEqual({
       portalUserId: 'pu-1', clientId: 'c-duce', email: 'finance@duce.nl',
-      displayName: 'Finance', previousSeenAt: null,
+      displayName: 'Finance', previousSeenAt: null, seesInvoices: true, seesQuotes: true,
     });
   });
 

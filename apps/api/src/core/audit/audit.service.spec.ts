@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { eq, sql } from 'drizzle-orm';
+import { ZitadelTokens } from '../../core/auth/zitadel.tokens.js';
 import { AuditService } from './audit.service.js';
 import { UserService } from '../auth/user.service.js';
 import { entities, users } from '../db/core.schema.js';
@@ -36,7 +37,7 @@ describe('Sign-ins', () => {
     await resetDb();
     await truncate(sql`TRUNCATE core.users CASCADE`);
     audit = new AuditService(testDb);
-    service = new UserService(testDb, audit);
+    service = new UserService(testDb, audit, new ZitadelTokens());
     // The issuer is not called in these tests; the decision under test is about our own row.
     service.fetchUserInfo = async () => null;
 

@@ -11,6 +11,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import { v7 as uuidv7 } from 'uuid';
 import { DB, type Database } from '../db/db.module.js';
 import { AuditService } from '../audit/audit.service.js';
+import { ZitadelTokens } from './zitadel.tokens.js';
 import { users } from '../db/core.schema.js';
 import { INTERNAL_ROLE, rolesFrom } from './roles.js';
 
@@ -74,6 +75,7 @@ export class UserService {
   constructor(
     @Inject(DB) private readonly db: Database,
     private readonly audit: AuditService,
+    private readonly tokens: ZitadelTokens,
   ) {}
 
   /**
@@ -273,23 +275,17 @@ export class UserService {
     );
   }
 
-  /** Public for the diagnostics route, which needs to show what the issuer reports. */
+  /**
+   * Public for the diagnostics route, which needs to show what the issuer reports.
+   *
+   * The call itself is `ZitadelTokens`, shared with the portal's invitation claim. What is not
+   * shared is what may be done with the answer: here it is a profile and a set of roles, and a
+   * failure means carrying on with what the token said; there it decides whether somebody may
+   * claim a client's invitation, and only a verified address will do. Same request, two rules,
+   * and each rule stays in the file that depends on it.
+   */
   async fetchUserInfo(accessToken: string): Promise<OidcClaims | null> {
-    const issuer = process.env.ZITADEL_ISSUER;
-    if (!issuer) return null;
-    try {
-      const res = await fetch(`${issuer}/oidc/v1/userinfo`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      if (!res.ok) {
-        this.logger.warn(`userinfo returned ${res.status}; provisioning with token claims only`);
-        return null;
-      }
-      return (await res.json()) as OidcClaims;
-    } catch (err) {
-      this.logger.warn(`userinfo unreachable (${(err as Error).message}); using token claims`);
-      return null;
-    }
+    return (await this.tokens.userInfo(accessToken)) as OidcClaims | null;
   }
 
   /**

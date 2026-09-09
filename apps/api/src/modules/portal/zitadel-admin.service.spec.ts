@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ZitadelAdminService } from './zitadel-admin.service.js';
+import { ZitadelClient } from '../../core/auth/zitadel.client.js';
 
 /**
  * The three calls that turn an email address into a client login.
@@ -48,7 +49,7 @@ describe('ZitadelAdminService', () => {
     process.env.ZITADEL_PROJECT_ID = 'proj-1';
     delete process.env.ZITADEL_ORG_ID;
     delete process.env.ZITADEL_INVITE_URL;
-    zitadel = new ZitadelAdminService();
+    zitadel = new ZitadelAdminService(new ZitadelClient());
     respond();
   });
 
@@ -102,7 +103,7 @@ describe('ZitadelAdminService', () => {
 
   it('says what to fix when the credential is missing, and does not call out', async () => {
     delete process.env.ZITADEL_ADMIN_TOKEN;
-    zitadel = new ZitadelAdminService();
+    zitadel = new ZitadelAdminService(new ZitadelClient());
 
     expect(zitadel.configured).toBe(false);
     expect(zitadel.unconfiguredReason).toMatch(/ZITADEL_ADMIN_TOKEN/);
@@ -112,7 +113,7 @@ describe('ZitadelAdminService', () => {
 
   it('refuses to invite when no project is configured, rather than granting nothing', async () => {
     delete process.env.ZITADEL_PROJECT_ID;
-    zitadel = new ZitadelAdminService();
+    zitadel = new ZitadelAdminService(new ZitadelClient());
 
     // An account with no grant signs in successfully and is refused at the portal with
     // "Geen toegang" — the failure that looks like the platform being broken.
@@ -141,7 +142,7 @@ describe('ZitadelAdminService', () => {
     // The URL belongs to Zitadel's login UI and has changed across versions. A link that
     // 404s is the one failure a client cannot work around, so it is configuration.
     process.env.ZITADEL_INVITE_URL = 'https://id.finsera.nl/invite?u={userId}&c={code}';
-    zitadel = new ZitadelAdminService();
+    zitadel = new ZitadelAdminService(new ZitadelClient());
 
     const invite = await zitadel.inviteToPortal({ email: 'anna@dochorse.nl' });
     expect(invite.url).toBe('https://id.finsera.nl/invite?u=zit-1&c=the-code');

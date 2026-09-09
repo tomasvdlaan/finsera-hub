@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Actor } from '@platform/contracts';
 import { sql } from 'drizzle-orm';
+import { ZitadelTokens } from '../../../core/auth/zitadel.tokens.js';
 import { AuditService } from '../../../core/audit/audit.service.js';
 import { EventBus } from '../../../core/events/event-bus.service.js';
 import { LinkService } from '../../../core/links/link.service.js';
@@ -99,7 +100,7 @@ describe('LiveRunner', () => {
     docs = new NoteDocService();
     meetings = new MeetingsService(
       testDb, registry, permissions, audit, bus, links,
-      new EmbeddingService(), crm, scrum, new UserService(testDb, new AuditService(testDb)), docs,
+      new EmbeddingService(), crm, scrum, new UserService(testDb, new AuditService(testDb), new ZitadelTokens()), docs,
     );
     // The same wiring MeetingsModule does at boot: the authority reads and writes bodies
     // through the service, and the service edits documents through the authority.

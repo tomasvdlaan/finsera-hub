@@ -112,7 +112,7 @@ export class PortalController {
     const [branding, tabs, pages] = await Promise.all([
       this.portalPages.branding(viewer.clientId),
       this.projection.availability(viewer),
-      this.portalPages.forClient(viewer.clientId),
+      this.portalPages.forClient(viewer),
     ]);
 
     return {
@@ -135,7 +135,7 @@ export class PortalController {
     const since = isStaff(viewer) ? null : (viewer.previousSeenAt ?? null);
     const [overview, pages, tickets] = await Promise.all([
       this.projection.overview(viewer, since),
-      this.portalPages.forClient(viewer.clientId),
+      this.portalPages.forClient(viewer),
       this.tickets.forClient(viewer),
     ]);
     return {
@@ -280,7 +280,7 @@ export class PortalController {
   @Get('pages')
   async pages(@CurrentViewer() viewer: PortalViewer) {
     await this.recordRead(viewer, 'pages');
-    return this.portalPages.forClient(viewer.clientId);
+    return this.portalPages.forClient(viewer);
   }
 
   /**

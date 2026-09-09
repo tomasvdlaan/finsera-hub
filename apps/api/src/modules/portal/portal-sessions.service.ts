@@ -40,6 +40,15 @@ export interface ResolvedSession {
   /** For a client session: what to call them, and when they were last here before this visit. */
   displayName: string | null;
   previousSeenAt: Date | null;
+  /**
+   * Which sections this login may see, re-read on every request for the same reason the
+   * email is: taking somebody's access to the invoices should apply to the browser they
+   * already have open, not to the one they open next week.
+   *
+   * True for a staff session, which sees whatever the client has.
+   */
+  seesInvoices: boolean;
+  seesQuotes: boolean;
 }
 
 /**
@@ -101,6 +110,8 @@ export class PortalSessionsService {
         email: portalUsers.email,
         displayName: portalUsers.displayName,
         previousSeenAt: portalUsers.previousSeenAt,
+        seesInvoices: portalUsers.seesInvoices,
+        seesQuotes: portalUsers.seesQuotes,
         userDisabledAt: portalUsers.disabledAt,
         userClientId: portalUsers.clientId,
         staffEmail: staffUser.email,
@@ -151,6 +162,8 @@ export class PortalSessionsService {
       email: row.kind === 'staff' ? row.staffEmail : row.email,
       displayName: row.kind === 'staff' ? null : row.displayName,
       previousSeenAt: row.kind === 'staff' ? null : row.previousSeenAt,
+      seesInvoices: row.kind === 'staff' ? true : (row.seesInvoices ?? true),
+      seesQuotes: row.kind === 'staff' ? true : (row.seesQuotes ?? true),
     };
   }
 

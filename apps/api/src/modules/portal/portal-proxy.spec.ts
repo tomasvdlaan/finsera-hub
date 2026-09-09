@@ -105,6 +105,8 @@ function deps(overrides: Record<string, unknown> = {}) {
       find: vi.fn().mockResolvedValue(PAGE),
       secretFor: vi.fn().mockReturnValue('bypass-secret'),
     },
+    // Everyone at this client may open it; the restriction path has its own test.
+    access: { maySeeAs: vi.fn().mockResolvedValue(true) },
     audit: { record: vi.fn() },
     db: { transaction: vi.fn(async (fn: (tx: unknown) => Promise<void>) => fn({})) },
     ...overrides,
@@ -129,6 +131,18 @@ describe('portalProxy', () => {
     const next = vi.fn() as NextFunction;
     const d = deps({ pages: { find: vi.fn().mockResolvedValue(null), secretFor: vi.fn() } });
     await portalProxy(d)(fakeReq('/facturen'), fakeRes(), next);
+    expect(next).toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('gives a report this person may not open the same answer as one that does not exist', async () => {
+    const next = vi.fn() as NextFunction;
+    const d = deps({ access: { maySeeAs: vi.fn().mockResolvedValue(false) } });
+
+    await portalProxy(d)(fakeReq('/rapportage-q3/'), fakeRes(), next);
+
+    // `next()`, not 403. A restriction added after the link went out has to bite on the next
+    // request, and it should teach the person nothing about what their colleagues can see.
     expect(next).toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -339,7 +353,6 @@ describe('portalProxy', () => {
   it('refuses a write it cannot record, before the deployment sees it', async () => {
     const d = deps({
       db: { transaction: vi.fn().mockRejectedValue(new Error('down')) },
-      audit: { record: vi.fn() },
     });
     const res = fakeRes();
     await portalProxy(d)(fakeWrite('/rapportage-q3/api/state', {}), res, vi.fn() as NextFunction);

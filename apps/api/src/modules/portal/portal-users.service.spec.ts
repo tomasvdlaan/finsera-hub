@@ -1,11 +1,13 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { Actor } from '@platform/contracts';
 import { eq, sql } from 'drizzle-orm';
+import { ZitadelTokens } from '../../core/auth/zitadel.tokens.js';
 import { AuditService } from '../../core/audit/audit.service.js';
 import { EventBus } from '../../core/events/event-bus.service.js';
 import { LinkService } from '../../core/links/link.service.js';
 import { ManifestRegistry } from '../../core/manifest/manifest.registry.js';
 import { PermissionService } from '../../core/permissions/permission.service.js';
+import { entities } from '../../core/db/core.schema.js';
 import { RegistryService } from '../../core/registry/registry.service.js';
 import { resetDb, seedUser, testDb, truncate } from '../../test/db.js';
 import { crmManifest } from '../crm/crm.manifest.js';
@@ -26,7 +28,7 @@ describe('PortalUsersService', () => {
 
   beforeEach(async () => {
     await resetDb();
-    await truncate(sql`TRUNCATE portal.sessions, portal.users, crm.projects, crm.clients CASCADE`);
+    await truncate(sql`TRUNCATE portal.artefact_grants, portal.artefact_visibility, portal.sessions, portal.users, crm.projects, crm.clients CASCADE`);
     await seedUser(admin.userId, 'admin');
     await seedUser(member.userId, 'member');
 
@@ -42,7 +44,7 @@ describe('PortalUsersService', () => {
       testDb, registry, permissions, audit,
       new EventBus(manifests), new LinkService(testDb, registry, permissions, audit, manifests),
     );
-    service = new PortalUsersService(testDb, permissions, audit, new UserService(testDb, audit));
+    service = new PortalUsersService(testDb, permissions, audit, new UserService(testDb, audit, new ZitadelTokens()), registry);
 
     clientId = (await crm.createClient(admin, { name: 'A client', status: 'active' })).id;
     // Phase 8: a login needs somewhere to go, so a client without a portal address cannot
@@ -113,6 +115,110 @@ describe('PortalUsersService', () => {
     expect(await sessions.resolve(secret)).toBeNull();
     const [row] = await testDb.select().from(portalSessions).where(eq(portalSessions.portalUserId, id));
     expect(row?.revokedAt).not.toBeNull();
+  });
+
+  // ── a person, not a permission row ──
+
+  it('registers a login as an entity, so it can be linked, found and opened', async () => {
+    const { id } = await service.invite(admin, {
+      clientId, email: 'bob@aclient.nl', displayName: 'Bob de Vries',
+    });
+
+    // `portal_user` was a declared entity type that nothing ever wrote, which is why a client
+    // login could not be linked to anything, did not appear in search, and had no page.
+    const [entity] = await testDb
+      .select()
+      .from(entities)
+      .where(eq(entities.id, id));
+    expect(entity).toMatchObject({
+      entityType: 'portal_user',
+      owningModule: 'portal',
+      displayName: 'Bob de Vries',
+      urlPath: `/portal/users/${id}`,
+    });
+  });
+
+  it('renames them in both places, because search reads only one of them', async () => {
+    const { id } = await service.invite(admin, { clientId, email: 'bob@aclient.nl' });
+
+    await service.update(admin, id, { displayName: 'Bob de Vries' });
+
+    expect((await service.byId(admin, id)).displayName).toBe('Bob de Vries');
+    const [entity] = await testDb.select().from(entities).where(eq(entities.id, id));
+    // A rename that stopped at the module's own table would leave the old name in every
+    // mention of this person.
+    expect(entity?.displayName).toBe('Bob de Vries');
+  });
+
+  it('turns a section off, and records what it was before', async () => {
+    const { id } = await service.invite(admin, { clientId, email: 'ops@aclient.nl' });
+    // Everyone invited before this existed had both, so both default on.
+    expect(await service.byId(admin, id)).toMatchObject({ seesInvoices: true, seesQuotes: true });
+
+    await service.update(admin, id, { seesInvoices: false });
+
+    expect(await service.byId(admin, id)).toMatchObject({ seesInvoices: false, seesQuotes: true });
+    const { rows } = await testDb.execute(sql`
+      SELECT detail FROM core.audit_log
+       WHERE entity_id = ${id}::uuid AND action = 'portal_user.update'
+    `);
+    // Before and after: "when did they lose the invoices" cannot be answered by an entry
+    // that only says what the value is now.
+    expect((rows[0] as { detail: Record<string, unknown> }).detail).toMatchObject({
+      seesInvoices: { from: true, to: false },
+    });
+  });
+
+  it('is admin-only to change, like every other portal grant', async () => {
+    const { id } = await service.invite(admin, { clientId, email: 'ops@aclient.nl' });
+    await expect(service.update(member, id, { seesInvoices: false })).rejects.toThrow(
+      /portal.admin/,
+    );
+  });
+
+  // ── who has been signing in ──
+
+  it('lists sign-ins with what they were made from, and what is still open', async () => {
+    const { id } = await service.invite(admin, {
+      clientId, email: 'bob@aclient.nl', oidcSubject: 'sub-bob',
+    });
+    const sessions = new PortalSessionsService(testDb);
+    await sessions.create(
+      { kind: 'client', portalUserId: id, clientId },
+      { ip: '81.4.1.2', userAgent: 'Chrome/darwin' },
+    );
+
+    const history = await service.history(admin, id);
+    expect(history).toHaveLength(1);
+    expect(history[0]).toMatchObject({ ip: '81.4.1.2', userAgent: 'Chrome/darwin', status: 'active' });
+  });
+
+  it('ends one browser without taking away the login', async () => {
+    const { id } = await service.invite(admin, {
+      clientId, email: 'bob@aclient.nl', oidcSubject: 'sub-bob',
+    });
+    const sessions = new PortalSessionsService(testDb);
+    const { secret } = await sessions.create({ kind: 'client', portalUserId: id, clientId });
+    const [open] = await service.history(admin, id);
+
+    await service.endSession(admin, id, open!.id);
+
+    expect(await sessions.resolve(secret)).toBeNull();
+    // The narrow gesture: a laptop left at a client's office, not a person leaving.
+    expect((await service.byId(admin, id)).disabledAt).toBeNull();
+    expect((await service.history(admin, id))[0]?.status).toBe('ended');
+  });
+
+  it('will not end a session belonging to somebody else', async () => {
+    const mine = await service.invite(admin, { clientId, email: 'bob@aclient.nl' });
+    const theirs = await service.invite(admin, { clientId, email: 'carla@aclient.nl' });
+    const sessions = new PortalSessionsService(testDb);
+    await sessions.create({ kind: 'client', portalUserId: theirs.id, clientId });
+    const [session] = await service.history(admin, theirs.id);
+
+    // The session id arrives in a URL. "End this session" must not become "end any session"
+    // because the wrong id was pasted.
+    await expect(service.endSession(admin, mine.id, session!.id)).rejects.toThrow(/No such open/);
   });
 
   // ── the rule that separates this from internal auth ──

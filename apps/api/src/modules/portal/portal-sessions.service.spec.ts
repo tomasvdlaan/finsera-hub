@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Actor } from '@platform/contracts';
 import { eq, sql } from 'drizzle-orm';
+import { ZitadelTokens } from '../../core/auth/zitadel.tokens.js';
 import { AuditService } from '../../core/audit/audit.service.js';
 import { users as coreUsers } from '../../core/db/core.schema.js';
 import { EventBus } from '../../core/events/event-bus.service.js';
@@ -53,7 +54,7 @@ describe('PortalSessionsService', () => {
       testDb, registry, permissions, audit,
       new EventBus(manifests), new LinkService(testDb, registry, permissions, audit, manifests),
     );
-    users = new PortalUsersService(testDb, permissions, audit, new UserService(testDb, audit));
+    users = new PortalUsersService(testDb, permissions, audit, new UserService(testDb, audit, new ZitadelTokens()), registry);
     sessions = new PortalSessionsService(testDb);
 
     clientId = (await crm.createClient(admin, { name: 'Duce', status: 'active' })).id;

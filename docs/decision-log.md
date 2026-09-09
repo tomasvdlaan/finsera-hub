@@ -537,6 +537,134 @@ logout did not log out.
 
 ---
 
+## One Zitadel seam for colleagues and clients (2026-09-09) · **Built**
+
+Both populations now go through the same identity provider, and the shared parts had grown
+three copies. The transport moved to `core/auth/zitadel.client.ts` earlier the same day; this
+finishes the job.
+
+**One key set.** `createRemoteJWKSet` was instantiated in the internal guard, the portal's
+identity check and the portal's OIDC exchange — three caches of one issuer's keys, three
+refetches on rotation. `ZitadelTokens` in core owns the key set, the opaque-token diagnostic
+and `verify(token, { audience, application })`. `AuthModule` already kept `AuthGuard` a single
+instance for exactly this reason; the guarantee now lives where tokens are actually checked.
+
+**The audience is refused in three places.** `jwtVerify` with `audience: undefined` skips the
+check entirely, so an unset variable would accept every token the instance has ever issued — a
+client's portal token included. Refused at boot internally, per request in the portal, and now
+by the verifier itself, so a fourth caller cannot reintroduce it.
+
+**What was deliberately NOT merged.** `AuthGuard` and `PortalIdentityService` look like one
+function and are not: one provisions a colleague just-in-time and returns an `Actor`, the other
+provisions nobody and returns a client or a staff viewer. Different types are what make handing
+the wrong one to a projection a compile error rather than a data leak. Only the cryptography is
+shared; every authorisation decision stayed where it was. Likewise `userInfo` is one call with
+two rules — the portal will claim an invitation only on an address Zitadel says is verified —
+and each rule stayed in the file that depends on it.
+
+**Also deduplicated:** the `/v2/users` email search, which existed identically for the
+colleague account panel and the portal invite, is now `ZitadelClient.searchByEmail`.
+
+---
+
+## Who may see it, from either end (2026-09-09) · **Built**
+
+Two surfaces for one decision, because it is genuinely asked from two directions: from the
+artefact ("this report is not for everyone") on the client page, and from the person ("what
+can they open?") on their own page when somebody joins or leaves a client.
+
+**The mode stays in the row; the names moved to a dialog.** Whether something is for everyone
+is a property of the artefact and belongs in the column, read at a glance down the table. Which
+people is a list that grows with the client, and inline it pushed four checkboxes into a cell
+beside a URL and moved every row underneath it on open. The dialog is the shell's native
+`<dialog>` pattern but not `useDialog`: that API offers confirmations and small typed forms,
+and adding a "checkbox list fetched from a URL" field type would put a fetch inside the
+primitive every confirmation in the app depends on.
+
+**Nothing is written until Save.** Choosing to restrict something and choosing to whom are one
+decision, and the inline version made them two — the first already stored while the second was
+still being made. Cancelling now leaves the artefact exactly as it was, including the select
+that was moved and never confirmed.
+
+**From a person's page, "restrict to some people" starts with them ticked.** Doing it there and
+leaving them off would take away access they have, which is the opposite of what the action
+reads as. "Change who" on something already restricted shows the truth, because there the list
+is the thing being edited.
+
+**A tick cannot mean "everybody except them".** On an artefact shared with everyone the
+checkbox is disabled: a restriction names who may, never who may not, and unticking would ask
+for a state this model cannot express. Removing the last person is refused as a sentence naming
+the next move, rather than as a failed request.
+
+`clients/:clientId/artefacts` answers the person-page question in one call — the reports and the
+shared documents with their mode and grants — because two endpoints would mean two loading
+states and two ways to be half-answered. `PortalAccessService.forUser` was retired with it: it
+listed only what was restricted to somebody, which stopped being the question this screen asks.
+
+---
+
+## Restricting a report had no first move (2026-09-09) · **Fixed**
+
+The per-artefact visibility control shipped unusable. "Only these people" was disabled until
+somebody was ticked, and ticking somebody while the artefact was still shared with everyone
+saved a grant that changed nothing anybody could see — so neither half was a way in.
+
+The rule that an artefact may not be *stored* restricted to nobody had been applied to what may
+be *chosen*. Those are different: "restricted to nobody" is a legitimate thing to have on
+screen — between choosing to restrict and choosing to whom — and an illegitimate thing to save.
+The choice is now a draft, the save happens at the first moment the draft is acceptable, and
+the decision lives in `visibility.ts` as three pure functions with a spec, because getting it
+wrong is invisible from the outside: both broken halves looked like they worked.
+
+---
+
+## Portal logins become people, with their own artefacts and history (2026-09-09) · **Built**
+
+A portal login was a row saying an address may sign in for a client. Everyone at that client
+saw the same thing, nothing recorded who had actually been in, and `portal_user` — a declared
+entity type since Phase 7 — had never had a single row written to `core.entities`.
+
+**A login is registered as an entity, in the same transaction that creates it.** The type was
+declared and unused, which is why a client contact could not be linked to anything, did not
+appear in search, and had no page to open. Its `urlPattern` pointed at `/clients/:id` — the
+client, not the person — and now points at `/portal/users/:id`, which is a real page. Existing
+logins are backfilled by the migration; `ON CONFLICT DO NOTHING`, because migrations run at
+boot on every deployment.
+
+**Two grains of visibility, because they are asked in two different ways.** A report or a
+document is given to named people — "this report and not that one" is exactly the request.
+Invoices and quotes are all or nothing per person: a client shown half their invoices has a
+total that does not add up, which is worse than not seeing the section. So artefacts carry a
+mode (`portal.artefact_visibility`) and a list (`portal.artefact_grants`); people carry
+`sees_invoices` and `sees_quotes`.
+
+**The absence of a row means "everyone".** Nothing needed backfilling and no existing portal
+changed on the day this shipped. `restricted` with no grants means nobody and is refused at the
+point of saving — an empty list quietly meaning "everyone again" would turn removing the last
+person from a report into the opposite of what was asked, at the moment nobody is looking.
+
+**Enforced in the projection, not in the controller.** Same argument the projection was built
+on: every path into the money goes through `invoices()` or `quotes()`, and every path into a
+document through `documents()`/`documentFile()`/`mayReadDocument()`, so gating those gates all
+of it — tabs, front page, list and PDF alike. The proxy checks separately, because a report is
+reached by a link that may have been mailed months before the restriction existed, and answers
+`next()` rather than 403 so a page somebody may not open is indistinguishable from one that
+does not exist. The client boundary is untouched: a grant names a `portal.users` row, and that
+row names one client, so a cross-client grant cannot be written down.
+
+**A staff viewer sees everything.** That view exists to check what has been shared, and hiding
+a restricted report from it would mean the person who restricted it cannot see that they did.
+
+**Login history was already being captured and read by nothing.** `portal.sessions` has held
+every sign-in with IP, user agent and last use since Phase 8. The person's page lists them, with
+a status recomputed against the idle rule (a session can be dead with no column saying so) and a
+button to end one browser without touching the login. Zitadel supplies the half we cannot: the
+attempts that never became a session, password changes, second factors — read from
+`/admin/v1/events/_search`, best-effort, returning `{ ok: false, reason }` rather than taking the
+page down when the token lacks the permission or the instance is slow.
+
+---
+
 ## The portal gets a front page, and it is not a dashboard (2026-09-04) · **Decided**
 
 Signing in used to land on Projecten, which was first for no reason, and nothing told a

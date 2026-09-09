@@ -463,6 +463,13 @@
       "when": 1788699058016,
       "tag": "0065_user_last_seen",
       "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1788967794327,
+      "tag": "0066_workable_steel_serpent",
+      "breakpoints": true
     }
   ]
 }

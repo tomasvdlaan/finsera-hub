@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { Injectable, Logger, type OnModuleInit, UnauthorizedException } from '@nestjs/common';
-import { SignJWT, createRemoteJWKSet, jwtVerify } from 'jose';
+import { SignJWT, jwtVerify } from 'jose';
+import { ZitadelTokens } from '../../core/auth/zitadel.tokens.js';
 
 /** How long a login may take between "Inloggen" and the callback. */
 export const LOGIN_STATE_MS = 10 * 60 * 1000;
@@ -40,11 +41,12 @@ export interface LoginResult {
 @Injectable()
 export class PortalOidcService implements OnModuleInit {
   private readonly logger = new Logger(PortalOidcService.name);
-  private jwks?: ReturnType<typeof createRemoteJWKSet>;
   /** undefined = not looked up yet; null = the issuer offers none. */
   private endSession?: string | null;
   /** Random per boot when unset outside production — a login then survives until restart. */
   private ephemeralSecret?: Uint8Array;
+
+  constructor(private readonly tokens: ZitadelTokens) {}
 
   private get issuer() {
     return process.env.ZITADEL_ISSUER ?? '';
@@ -285,11 +287,15 @@ export class PortalOidcService implements OnModuleInit {
     }
 
     try {
-      this.jwks ??= createRemoteJWKSet(new URL(`${this.issuer}/oauth/v2/keys`));
-      const { payload } = await jwtVerify(tokens.id_token, this.jwks, {
-        issuer: this.issuer,
+      // The same key set the access token is checked against a moment later, in
+      // `PortalIdentityService`. It used to be a second one built here, which meant this
+      // instance kept two caches of the same issuer's keys and refetched both on rotation.
+      const payload = await this.tokens.verify(tokens.id_token, {
         audience: this.clientId,
+        application: 'the portal application',
       });
+      // The nonce is this file's own: it binds the answer to the login this server started,
+      // and nothing outside the code exchange knows to look for it.
       if (payload.nonce !== claims.nonce) throw new Error('nonce mismatch');
     } catch (err) {
       this.logger.warn(`ID token rejected: ${(err as Error).message}`);

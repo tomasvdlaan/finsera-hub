@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
+import { ArtefactVisibility } from './ArtefactVisibility.js';
 import { PageHeader } from '../../shell/ui/layout.js';
 import { api } from '../../lib/api.js';
 
@@ -206,6 +207,7 @@ export function PortalPreview() {
               <tr>
                 <th>Document</th>
                 <th>Shared</th>
+                <th>Visible to</th>
               </tr>
             </thead>
             <tbody>
@@ -213,6 +215,20 @@ export function PortalPreview() {
                 <tr key={d.id}>
                   <td>{d.title}</td>
                   <td>{day(d.created_at)}</td>
+                  {/* Sharing a document with a client and choosing which of their people see
+                      it are two steps, and this is the screen where the first one is already
+                      visible — so the second belongs beside it rather than on a page you have
+                      to remember exists. */}
+                  <td style={{ verticalAlign: 'top' }}>
+                    {clientId && (
+                      <ArtefactVisibility
+                        clientId={clientId}
+                        kind="document"
+                        artefactId={d.id}
+                        title={d.title}
+                      />
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>

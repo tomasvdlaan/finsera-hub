@@ -10,6 +10,7 @@ import { AuditService } from './core/audit/audit.service.js';
 import { DB, type Database } from './core/db/db.module.js';
 import { PortalHostService } from './modules/portal/portal-host.service.js';
 import { PortalPagesService } from './modules/portal/portal-pages.service.js';
+import { PortalAccessService } from './modules/portal/portal-access.service.js';
 import { portalProxy } from './modules/portal/portal-proxy.js';
 import { PortalSessionsService } from './modules/portal/portal-sessions.service.js';
 import { portalStatic } from './modules/portal/portal-static.js';
@@ -59,6 +60,7 @@ async function bootstrap() {
       hosts: app.get(PortalHostService),
       sessions: app.get(PortalSessionsService),
       pages: app.get(PortalPagesService),
+      access: app.get(PortalAccessService),
       audit: app.get(AuditService),
       db: app.get<Database>(DB),
     }),

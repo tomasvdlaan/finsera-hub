@@ -15,6 +15,7 @@ import { ScrumService } from '../scrum/scrum.service.js';
 import { tasks } from '../scrum/scrum.schema.js';
 import { timeManifest } from '../time/time.manifest.js';
 import { TimeService } from '../time/time.service.js';
+import { PortalAccessService } from './portal-access.service.js';
 import { PortalProjection } from './portal.projection.js';
 
 const actor: Actor = { userId: crypto.randomUUID(), role: 'admin' };
@@ -53,7 +54,7 @@ describe('PortalProjection.tasks', () => {
     crm = new CrmService(testDb, registry, permissions, audit, bus, links);
     const time = new TimeService(testDb, registry, permissions, audit, bus, links, crm);
     scrum = new ScrumService(testDb, registry, permissions, audit, bus, links, crm, time);
-    projection = new PortalProjection(testDb, manifests);
+    projection = new PortalProjection(testDb, manifests, new PortalAccessService(testDb, new PermissionService(testDb, manifests), new AuditService(testDb)));
 
     mine = (await crm.createClient(actor, { name: 'Duce', status: 'active' })).id;
     theirs = (await crm.createClient(actor, { name: 'DocHorse', status: 'active' })).id;
@@ -166,7 +167,7 @@ describe('PortalProjection.tasks', () => {
     const bare = new ManifestRegistry();
     for (const m of [crmManifest, timeManifest]) bare.register(m);
     bare.seal();
-    const withoutScrum = new PortalProjection(testDb, bare);
+    const withoutScrum = new PortalProjection(testDb, bare, new PortalAccessService(testDb, new PermissionService(testDb, bare), new AuditService(testDb)));
     await expect(withoutScrum.tasks({ clientId: mine })).rejects.toThrow();
   });
 });

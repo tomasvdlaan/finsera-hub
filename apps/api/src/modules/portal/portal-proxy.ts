@@ -7,6 +7,7 @@ import type { Database } from '../../core/db/db.module.js';
 import { SESSION_COOKIE, readCookie } from './cookies.js';
 import type { PortalHostService } from './portal-host.service.js';
 import type { PortalPagesService } from './portal-pages.service.js';
+import type { PortalAccessService } from './portal-access.service.js';
 import type { PortalSessionsService } from './portal-sessions.service.js';
 
 /** Long enough for a cold serverless start, short enough that a hung origin is not our problem. */
@@ -51,6 +52,7 @@ export interface ProxyDeps {
   hosts: PortalHostService;
   sessions: PortalSessionsService;
   pages: PortalPagesService;
+  access: PortalAccessService;
   audit: AuditService;
   db: Database;
 }
@@ -130,6 +132,22 @@ export function portalProxy(deps: ProxyDeps) {
     if (!session || session.clientId !== host.clientId) {
       const next_ = encodeURIComponent(req.originalUrl);
       return res.redirect(302, `/api/portal-auth/login?next=${next_}`);
+    }
+
+    /*
+     * The report may be for some of this client's people and not others.
+     *
+     * Checked here and not only in the list, because a report is reached by a link — mailed,
+     * bookmarked, pasted into a chat — and the list is not what a browser consults on the way
+     * in. A restriction added after the link went out has to bite on the next request, and
+     * this is that request.
+     *
+     * `next()` rather than 403, so that a page somebody may not open is indistinguishable
+     * from one that does not exist: they land on the portal's own 404 and learn nothing about
+     * what their colleagues can see.
+     */
+    if (!(await deps.access.maySeeAs('page', page.id, session.portalUserId))) {
+      return next();
     }
 
     const isRoot = segments.length === 1;

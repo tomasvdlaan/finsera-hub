@@ -26,6 +26,8 @@ function deps(sourceUrl: string) {
       }),
       secretFor: vi.fn().mockReturnValue(null),
     },
+    // Everyone at this client may open it; the restriction path has its own test.
+    access: { maySeeAs: vi.fn().mockResolvedValue(true) },
     audit: { record: vi.fn() },
     db: { transaction: vi.fn(async (fn: (tx: unknown) => Promise<void>) => fn({})) },
   } as unknown as Parameters<typeof portalProxy>[0];

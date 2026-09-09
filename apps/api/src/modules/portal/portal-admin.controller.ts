@@ -12,6 +12,7 @@ import {
 import type { Actor } from '@platform/contracts';
 import { CurrentActor } from '../../core/auth/current-actor.decorator.js';
 import { pageSecretsAvailable } from './page-secrets.js';
+import { PortalAccessService, type ArtefactKind } from './portal-access.service.js';
 import { PortalPagesService, type PageInput } from './portal-pages.service.js';
 import { PortalUsersService } from './portal-users.service.js';
 import { ZitadelAdminService } from './zitadel-admin.service.js';
@@ -33,6 +34,7 @@ export class PortalAdminController {
   constructor(
     private readonly users: PortalUsersService,
     private readonly pages: PortalPagesService,
+    private readonly access: PortalAccessService,
     private readonly zitadel: ZitadelAdminService,
   ) {}
 
@@ -103,6 +105,121 @@ export class PortalAdminController {
     } catch (err) {
       return { invite: null, warning: (err as Error).message };
     }
+  }
+
+  /**
+   * One person: who they are, and every sign-in they have made.
+   *
+   * What they may *open* is not here. That is a property of the client's artefacts rather than
+   * of the person — the same rows answer it for each of their colleagues — so the screen reads
+   * it from `clients/:clientId/artefacts` and this stays about them.
+   */
+  @Get('users/:id')
+  async detail(@CurrentActor() actor: Actor, @Param('id', ParseUUIDPipe) id: string) {
+    const user = await this.users.byId(actor, id);
+    return { user, sessions: await this.users.history(actor, id) };
+  }
+
+  /** Their name, and which sections they see. The address is not editable — see the service. */
+  @Patch('users/:id')
+  async updateUser(
+    @CurrentActor() actor: Actor,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: { displayName?: string; seesInvoices?: boolean; seesQuotes?: boolean },
+  ) {
+    await this.users.update(actor, id, {
+      displayName: typeof body?.displayName === 'string' ? body.displayName : undefined,
+      seesInvoices: typeof body?.seesInvoices === 'boolean' ? body.seesInvoices : undefined,
+      seesQuotes: typeof body?.seesQuotes === 'boolean' ? body.seesQuotes : undefined,
+    });
+    return this.users.byId(actor, id);
+  }
+
+  /**
+   * What the identity provider knows: failed attempts, password changes, second factors.
+   *
+   * A separate call from the detail above, because it is a request to somebody else's server
+   * and the rest of the page should not wait on it — or disappear when it is down. It answers
+   * `{ ok: false, reason }` rather than an error status for the same reason.
+   */
+  @Get('users/:id/identity-events')
+  async identityEvents(@CurrentActor() actor: Actor, @Param('id', ParseUUIDPipe) id: string) {
+    const row = await this.users.byId(actor, id);
+    return this.zitadel.eventsFor(row.oidcSubject ?? '');
+  }
+
+  /** End one browser's session without touching their access. */
+  @Post('users/:id/sessions/:sessionId/end')
+  endSession(
+    @CurrentActor() actor: Actor,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('sessionId', ParseUUIDPipe) sessionId: string,
+  ) {
+    return this.users.endSession(actor, id, sessionId);
+  }
+
+  // ── who may see which artefact ──
+
+  /**
+   * How one report or document is shared, and by whom it may be seen.
+   *
+   * `kind` is a path segment rather than a query parameter because it decides which table the
+   * id is looked up in — it is part of what is being addressed, not a filter on it.
+   */
+  @Get('visibility/:kind/:artefactId')
+  visibility(
+    @CurrentActor() actor: Actor,
+    @Param('kind') kind: string,
+    @Param('artefactId', ParseUUIDPipe) artefactId: string,
+  ) {
+    return this.access.get(actor, this.artefactKind(kind), artefactId);
+  }
+
+  @Patch('visibility/:kind/:artefactId')
+  setVisibility(
+    @CurrentActor() actor: Actor,
+    @Param('kind') kind: string,
+    @Param('artefactId', ParseUUIDPipe) artefactId: string,
+    @Body() body: { mode?: string; userIds?: string[] },
+  ) {
+    const mode = body?.mode === 'restricted' ? 'restricted' : 'everyone';
+    const userIds = Array.isArray(body?.userIds) ? body.userIds.filter((v) => typeof v === 'string') : [];
+    return this.access.set(actor, this.artefactKind(kind), artefactId, { mode, userIds });
+  }
+
+  /**
+   * The visibility of a page full of artefacts at once, for a list screen.
+   *
+   * A POST that reads, because the ids are a list and a list belongs in a body — a screen
+   * showing twenty documents would otherwise send a query string the length of this file.
+   */
+  @Post('visibility/:kind')
+  visibilityMany(
+    @CurrentActor() actor: Actor,
+    @Param('kind') kind: string,
+    @Body() body: { artefactIds?: string[] },
+  ) {
+    const ids = Array.isArray(body?.artefactIds)
+      ? body.artefactIds.filter((v) => typeof v === 'string')
+      : [];
+    return this.access.getMany(actor, this.artefactKind(kind), ids);
+  }
+
+  /**
+   * Every divisible artefact this client has, with who may see each.
+   *
+   * One call rather than "the pages" plus "the documents" plus a visibility lookup, because
+   * the screen that needs it — one person's page — asks a single question of the three.
+   */
+  @Get('clients/:clientId/artefacts')
+  artefacts(@CurrentActor() actor: Actor, @Param('clientId', ParseUUIDPipe) clientId: string) {
+    return this.access.artefactsFor(actor, clientId);
+  }
+
+  /** A path segment is not a type. Rejected here so the service never sees an unknown kind. */
+  private artefactKind(raw: string): ArtefactKind {
+    if (raw === 'page' || raw === 'document') return raw;
+    throw new BadRequestException('Unknown artefact kind');
   }
 
   @Post('users/:id/revoke')

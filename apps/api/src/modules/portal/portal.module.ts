@@ -3,6 +3,7 @@ import { AuthModule } from '../../core/auth/auth.module.js';
 import { ManifestRegistry } from '../../core/manifest/manifest.registry.js';
 import { SalesModule } from '../sales/sales.module.js';
 import { ScrumModule } from '../scrum/scrum.module.js';
+import { PortalAccessService } from './portal-access.service.js';
 import { PortalAuthController } from './portal-auth.controller.js';
 import { PortalAuthGuard } from './portal-auth.guard.js';
 import { PortalAdminController } from './portal-admin.controller.js';
@@ -47,6 +48,7 @@ import { PortalTicketsService } from './portal-tickets.service.js';
   ],
   providers: [
     ZitadelAdminService,
+    PortalAccessService,
     PortalProjection,
     PortalUsersService,
     PortalAuthGuard,
@@ -58,6 +60,7 @@ import { PortalTicketsService } from './portal-tickets.service.js';
     PortalPagesService,
   ],
   exports: [
+    PortalAccessService,
     PortalProjection,
     PortalUsersService,
     PortalTicketsService,

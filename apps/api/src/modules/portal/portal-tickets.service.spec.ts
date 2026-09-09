@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { Actor } from '@platform/contracts';
 import { eq, sql } from 'drizzle-orm';
+import { ZitadelTokens } from '../../core/auth/zitadel.tokens.js';
 import { AuditService } from '../../core/audit/audit.service.js';
 import { EventBus } from '../../core/events/event-bus.service.js';
 import { LinkService } from '../../core/links/link.service.js';
@@ -53,7 +54,7 @@ describe('PortalTicketsService', () => {
     const scrum = new ScrumService(
       testDb, registry, permissions, audit, events, links, crm, time,
     );
-    const users = new PortalUsersService(testDb, permissions, audit, new UserService(testDb, audit));
+    const users = new PortalUsersService(testDb, permissions, audit, new UserService(testDb, audit, new ZitadelTokens()), registry);
     tickets = new PortalTicketsService(testDb, audit, scrum);
 
     clientId = (await crm.createClient(actor, { name: 'Duce', status: 'active' })).id;
@@ -66,7 +67,7 @@ describe('PortalTicketsService', () => {
     const pu = await users.invite(actor, {
       clientId, email: 'finance@duce.nl', oidcSubject: 'sub-duce',
     });
-    visitor = { portalUserId: pu.id, clientId, email: 'finance@duce.nl' };
+    visitor = { portalUserId: pu.id, clientId, email: 'finance@duce.nl', seesInvoices: true, seesQuotes: true };
 
     const otherClient = (await crm.createClient(actor, { name: 'DocHorse', status: 'active' })).id;
     await crm.updateClient(actor, otherClient, { portalSlug: 'dochorse' });
@@ -75,7 +76,7 @@ describe('PortalTicketsService', () => {
     });
     other = {
       clientId: otherClient,
-      visitor: { portalUserId: otherPu.id, clientId: otherClient, email: 'them@dochorse.nl' },
+      visitor: { portalUserId: otherPu.id, clientId: otherClient, email: 'them@dochorse.nl', seesInvoices: true, seesQuotes: true },
     };
   });
 

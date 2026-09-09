@@ -1,7 +1,7 @@
 import { ForbiddenException, Injectable, Logger, type OnModuleInit, UnauthorizedException } from '@nestjs/common';
-import { createRemoteJWKSet, jwtVerify, type JWTPayload } from 'jose';
 import { INTERNAL_ROLE, PORTAL_ROLE, hasRole } from '../../core/auth/roles.js';
 import { UserService } from '../../core/auth/user.service.js';
+import { ZitadelTokens } from '../../core/auth/zitadel.tokens.js';
 import { PortalUsersService } from './portal-users.service.js';
 import type { PortalVisitor } from './portal.projection.js';
 
@@ -47,19 +47,25 @@ export type PortalIdentity =
  * when they were hired, not a claim in a token. When role grants work, `internal` becomes
  * the matching second gate on that path.
  *
- * `audience` is still required rather than optional. The internal guard tolerates an empty
- * one (`audience || undefined`), defensible for a single trusted tenant and indefensible
- * here: an unset variable would silently turn a check off, which is the failure that looks
- * like everything working.
+ * The signature and audience check itself is `ZitadelTokens`, shared with the internal guard:
+ * one key set for the issuer, one rejection path, and an audience per application. What is not
+ * shared is everything after it — this returns a client or a staff viewer and provisions
+ * nobody, where the internal guard returns an `Actor` and will create a colleague on first
+ * sign-in. Those are different authorisation decisions and they stay in different files.
+ *
+ * `audience` is required rather than optional, in three places now: refused at boot on the
+ * internal side, refused per request here, and refused by the verifier itself. An unset
+ * variable must never silently turn a check off — that is the failure that looks exactly like
+ * everything working.
  */
 @Injectable()
 export class PortalIdentityService implements OnModuleInit {
   private readonly logger = new Logger(PortalIdentityService.name);
-  private jwks?: ReturnType<typeof createRemoteJWKSet>;
 
   constructor(
     private readonly portalUsers: PortalUsersService,
     private readonly users: UserService,
+    private readonly tokens: ZitadelTokens,
   ) {}
 
   private get issuer() {
@@ -134,25 +140,12 @@ export class PortalIdentityService implements OnModuleInit {
       throw new UnauthorizedException('Portal is not configured');
     }
 
-    if (token.split('.').length !== 3) {
-      this.logger.error(
-        'Received an opaque access token. Set the portal application’s Auth Token Type ' +
-          'to "JWT" (Token Settings) so it can be validated via JWKS.',
-      );
-      throw new UnauthorizedException('Opaque access token — expected a JWT');
-    }
-
-    let payload: JWTPayload;
-    try {
-      this.jwks ??= createRemoteJWKSet(new URL(`${this.issuer}/oauth/v2/keys`));
-      ({ payload } = await jwtVerify(token, this.jwks, {
-        issuer: this.issuer,
-        audience: this.audience,
-      }));
-    } catch (err) {
-      this.logger.warn(`Portal token rejected: ${(err as Error).message}`);
-      throw new UnauthorizedException('Invalid token');
-    }
+    // Gate one, shared with the internal guard: the same key set, the same rejection, a
+    // different audience. Only the audience differs, and it is the whole separation.
+    const payload = await this.tokens.verify(token, {
+      audience: this.audience,
+      application: 'the portal application',
+    });
 
     const subject = payload.sub!;
 
@@ -220,12 +213,12 @@ export class PortalIdentityService implements OnModuleInit {
    */
   private async claimByEmail(token: string, subject: string): Promise<PortalVisitor | null> {
     try {
-      const res = await fetch(`${this.issuer}/oidc/v1/userinfo`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) return null;
+      const info = (await this.tokens.userInfo(token)) as {
+        email?: string;
+        email_verified?: boolean;
+      } | null;
+      if (!info) return null;
 
-      const info = (await res.json()) as { email?: string; email_verified?: boolean };
       if (!info.email || info.email_verified !== true) {
         this.logger.warn(`Portal sign-in by '${subject}' has no verified email to claim with`);
         return null;

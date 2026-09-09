@@ -6,13 +6,15 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { and, eq, isNotNull, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, isNotNull, isNull, sql } from 'drizzle-orm';
 import { v7 as uuidv7 } from 'uuid';
 import type { Actor } from '@platform/contracts';
 import { AuditService } from '../../core/audit/audit.service.js';
 import { UserService } from '../../core/auth/user.service.js';
 import { DB, type Database } from '../../core/db/db.module.js';
 import { PermissionService } from '../../core/permissions/permission.service.js';
+import { RegistryService } from '../../core/registry/registry.service.js';
+import { SESSION_IDLE_MS } from './portal-sessions.service.js';
 import { portalSessions, portalUsers } from './portal.schema.js';
 import type { PortalVisitor } from './portal.projection.js';
 
@@ -37,6 +39,7 @@ export class PortalUsersService {
     private readonly permissions: PermissionService,
     private readonly audit: AuditService,
     private readonly users: UserService,
+    private readonly registry: RegistryService,
   ) {}
 
   /**
@@ -89,6 +92,8 @@ export class PortalUsersService {
       email: row.email,
       displayName: row.displayName,
       previousSeenAt: row.previousSeenAt ?? null,
+      seesInvoices: row.seesInvoices,
+      seesQuotes: row.seesQuotes,
     };
   }
 
@@ -153,6 +158,8 @@ export class PortalUsersService {
         id: portalUsers.id,
         clientId: portalUsers.clientId,
         email: portalUsers.email,
+        seesInvoices: portalUsers.seesInvoices,
+        seesQuotes: portalUsers.seesQuotes,
       });
 
     if (!claimed) return null;
@@ -174,6 +181,8 @@ export class PortalUsersService {
       email: claimed.email,
       displayName: null,
       previousSeenAt: null,
+      seesInvoices: claimed.seesInvoices,
+      seesQuotes: claimed.seesQuotes,
     };
   }
 
@@ -247,6 +256,22 @@ export class PortalUsersService {
 
     const id = uuidv7();
     await this.db.transaction(async (tx) => {
+      /*
+       * A person, not a permission row.
+       *
+       * `portal_user` has been a declared entity type since Phase 7 and nothing ever wrote
+       * one, so the type existed and the rows did not: a client login could not be linked to
+       * the contact it belongs to, could not be mentioned in a comment, did not appear in
+       * search, and had no page of its own to be found on. Registering here — in the same
+       * transaction as the login itself, so there is never one without the other — is what
+       * makes "who is this person and what have they been given" a page rather than a query.
+       */
+      await this.registry.register(tx, {
+        id,
+        entityType: 'portal_user',
+        displayName: input.displayName?.trim() || email,
+        urlPath: `/portal/users/${id}`,
+      });
       await tx.insert(portalUsers).values({
         id,
         clientId: input.clientId,
@@ -350,10 +375,16 @@ export class PortalUsersService {
     const [row] = await this.db
       .select({
         id: portalUsers.id,
+        clientId: portalUsers.clientId,
         email: portalUsers.email,
         displayName: portalUsers.displayName,
         oidcSubject: portalUsers.oidcSubject,
         disabledAt: portalUsers.disabledAt,
+        seesInvoices: portalUsers.seesInvoices,
+        seesQuotes: portalUsers.seesQuotes,
+        invitedBy: portalUsers.invitedBy,
+        lastSeenAt: portalUsers.lastSeenAt,
+        createdAt: portalUsers.createdAt,
       })
       .from(portalUsers)
       .where(eq(portalUsers.id, id))
@@ -448,6 +479,173 @@ export class PortalUsersService {
     return { id, status: 'active' };
   }
 
+  /**
+   * Change what we call somebody, and which sections they see.
+   *
+   * One method for both because they are one screen and one audit line: "Bob is now
+   * operations and no longer sees the invoices" is a single decision somebody made. Splitting
+   * it would give two half-records of it.
+   *
+   * The email is deliberately not editable. It is what an invitation binds to and what a
+   * verified address is matched against, so changing it would either strand the person on the
+   * old address or hand their access to whoever holds the new one. Revoke and invite instead.
+   */
+  async update(
+    actor: Actor,
+    id: string,
+    input: { displayName?: string; seesInvoices?: boolean; seesQuotes?: boolean },
+  ): Promise<void> {
+    await this.require(actor, 'portal.admin');
+
+    const [before] = await this.db
+      .select({
+        id: portalUsers.id,
+        email: portalUsers.email,
+        displayName: portalUsers.displayName,
+        seesInvoices: portalUsers.seesInvoices,
+        seesQuotes: portalUsers.seesQuotes,
+      })
+      .from(portalUsers)
+      .where(eq(portalUsers.id, id))
+      .limit(1);
+    if (!before) throw new NotFoundException('No such portal login');
+
+    const displayName =
+      input.displayName === undefined ? before.displayName : input.displayName.trim() || null;
+    const seesInvoices = input.seesInvoices ?? before.seesInvoices;
+    const seesQuotes = input.seesQuotes ?? before.seesQuotes;
+
+    await this.db.transaction(async (tx) => {
+      await tx
+        .update(portalUsers)
+        .set({ displayName, seesInvoices, seesQuotes })
+        .where(eq(portalUsers.id, id));
+
+      // The registry holds its own copy of the name, because search and the link picker read
+      // one table rather than every module's. A rename that stopped here would leave the old
+      // name in every mention of this person.
+      if (displayName !== before.displayName) {
+        await this.registry.updateDisplay(tx, id, { displayName: displayName ?? before.email });
+      }
+
+      await this.audit.record(tx, {
+        actorId: actor.userId,
+        action: 'portal_user.update',
+        entityType: 'portal_user',
+        entityId: id,
+        // Before and after, not just after: "when did Bob lose the invoices" is the question,
+        // and an entry saying `seesInvoices: false` cannot answer it if it was already false.
+        detail: {
+          email: before.email,
+          ...(displayName !== before.displayName
+            ? { displayName: { from: before.displayName, to: displayName } }
+            : {}),
+          ...(seesInvoices !== before.seesInvoices
+            ? { seesInvoices: { from: before.seesInvoices, to: seesInvoices } }
+            : {}),
+          ...(seesQuotes !== before.seesQuotes
+            ? { seesQuotes: { from: before.seesQuotes, to: seesQuotes } }
+            : {}),
+        },
+      });
+    });
+  }
+
+  /**
+   * Every sign-in this person has made, and what is still open.
+   *
+   * Read from `portal.sessions` rather than from the audit log, though both record a login.
+   * A session row is the thing itself — it says when it started, from where, when it was last
+   * used, and whether it is still live — where the audit entry is a note that it happened.
+   * And because a session can be ended, this list is also the place to end one.
+   *
+   * Nothing here is new capture. These rows have been written since Phase 8 and never read,
+   * which is the ordinary way a system ends up unable to answer "who has been in".
+   */
+  async history(
+    actor: Actor,
+    id: string,
+    limit = 50,
+  ): Promise<
+    Array<{
+      id: string;
+      createdAt: Date;
+      lastSeenAt: Date;
+      expiresAt: Date;
+      revokedAt: Date | null;
+      ip: string | null;
+      userAgent: string | null;
+      status: 'active' | 'ended' | 'expired';
+    }>
+  > {
+    await this.require(actor, 'portal.admin');
+
+    const rows = await this.db
+      .select({
+        id: portalSessions.id,
+        createdAt: portalSessions.createdAt,
+        lastSeenAt: portalSessions.lastSeenAt,
+        expiresAt: portalSessions.expiresAt,
+        revokedAt: portalSessions.revokedAt,
+        ip: portalSessions.ip,
+        userAgent: portalSessions.userAgent,
+      })
+      .from(portalSessions)
+      .where(eq(portalSessions.portalUserId, id))
+      .orderBy(desc(portalSessions.createdAt))
+      .limit(Math.min(limit, 200));
+
+    const now = Date.now();
+    return rows.map((r) => ({
+      ...r,
+      // Idle expiry is a rule in `PortalSessionsService`, not a column, so a session can be
+      // dead without any row saying so. Recomputing it here rather than reporting `revokedAt`
+      // alone is what stops this list showing a fortnight-old session as "active".
+      status: r.revokedAt
+        ? ('ended' as const)
+        : r.expiresAt.getTime() < now || r.lastSeenAt.getTime() + SESSION_IDLE_MS < now
+          ? ('expired' as const)
+          : ('active' as const),
+    }));
+  }
+
+  /**
+   * End one session without touching the login.
+   *
+   * The narrow version of revoking: a laptop left at a client's office, a browser on a shared
+   * machine. Revoking the person ends every session and their access with it; this ends one
+   * browser and they can sign in again.
+   */
+  async endSession(actor: Actor, id: string, sessionId: string): Promise<{ id: string }> {
+    await this.require(actor, 'portal.admin');
+
+    await this.db.transaction(async (tx) => {
+      // Bound to the person as well as the session: the session id comes from a URL, and
+      // "end this session" must not become "end any session" because the wrong id was pasted.
+      const [ended] = await tx
+        .update(portalSessions)
+        .set({ revokedAt: new Date() })
+        .where(
+          and(
+            eq(portalSessions.id, sessionId),
+            eq(portalSessions.portalUserId, id),
+            isNull(portalSessions.revokedAt),
+          ),
+        )
+        .returning({ id: portalSessions.id });
+      if (!ended) throw new NotFoundException('No such open session');
+
+      await this.audit.record(tx, {
+        actorId: actor.userId,
+        action: 'portal_user.session_ended',
+        entityType: 'portal_user',
+        entityId: id,
+        detail: { sessionId },
+      });
+    });
+    return { id: sessionId };
+  }
+
   private async require(actor: Actor, capability: string): Promise<void> {
     if (!(await this.permissions.can(actor, capability))) {
       throw new ForbiddenException(`Missing capability '${capability}'`);
@@ -463,6 +661,8 @@ export class PortalUsersService {
         displayName: portalUsers.displayName,
         disabledAt: portalUsers.disabledAt,
         lastSeenAt: portalUsers.lastSeenAt,
+        seesInvoices: portalUsers.seesInvoices,
+        seesQuotes: portalUsers.seesQuotes,
         // Whether they have ever actually signed in, which is the question asked when
         // someone says "I never got access".
         pending: sql<boolean>`${portalUsers.oidcSubject} IS NULL`,

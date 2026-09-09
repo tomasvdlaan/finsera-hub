@@ -1,5 +1,6 @@
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { PORTAL_ROLE } from '../../core/auth/roles.js';
+import { ZitadelClient } from '../../core/auth/zitadel.client.js';
 
 /**
  * What an invitation is once it exists: a link, and when it stops working.
@@ -31,11 +32,17 @@ export interface PortalInvite {
 export class ZitadelAdminService {
   private readonly logger = new Logger(ZitadelAdminService.name);
 
+  /*
+   * The transport moved to core and the Zitadel-shaped operations stayed here.
+   *
+   * The shell needs to read a colleague's account for their own page and may not import a
+   * module, so the credentialled HTTP client had to be reachable from both sides — and two
+   * copies of one is how the halves drift until only one of them still logs what went wrong.
+   */
+  constructor(private readonly zitadel: ZitadelClient) {}
+
   private get issuer(): string {
-    return (process.env.ZITADEL_ISSUER ?? '').replace(/\/$/, '');
-  }
-  private get token(): string {
-    return process.env.ZITADEL_ADMIN_TOKEN ?? '';
+    return this.zitadel.issuer;
   }
   private get projectId(): string {
     return process.env.ZITADEL_PROJECT_ID ?? '';
@@ -51,17 +58,12 @@ export class ZitadelAdminService {
    * than offering it and failing on the click.
    */
   get configured(): boolean {
-    return Boolean(this.issuer && this.token);
+    return this.zitadel.configured;
   }
 
   /** Why it is not configured, in the words of whoever has to fix it. */
   get unconfiguredReason(): string | null {
-    if (!this.issuer) return 'ZITADEL_ISSUER is not set';
-    if (!this.token) {
-      return 'ZITADEL_ADMIN_TOKEN is not set — create a service user with rights to manage ' +
-        'users and grants, give it a personal access token, and put it in deploy/.env';
-    }
-    return null;
+    return this.zitadel.unconfiguredReason;
   }
 
   /**
@@ -106,17 +108,14 @@ export class ZitadelAdminService {
     return { url: this.inviteUrl(zitadelUserId, code), zitadelUserId };
   }
 
-  /** The account with this address, or null. */
+  /** The account with this address, or null. The search itself is the shared client's. */
   async findByEmail(email: string): Promise<string | null> {
-    const body = await this.call<{ result?: Array<{ userId: string }> }>('POST', '/v2/users', {
-      queries: [{ emailQuery: { emailAddress: email, method: 'TEXT_QUERY_METHOD_EQUALS_IGNORE_CASE' } }],
-    });
-    return body.result?.[0]?.userId ?? null;
+    return (await this.zitadel.searchByEmail(email))?.userId ?? null;
   }
 
   private async createUser(input: { email: string; displayName?: string }): Promise<string> {
     const [given, ...rest] = (input.displayName ?? input.email.split('@')[0] ?? 'Client').split(' ');
-    const body = await this.call<{ userId: string }>('POST', '/v2/users/human', {
+    const body = await this.zitadel.call<{ userId: string }>('POST', '/v2/users/human', {
       username: input.email,
       profile: {
         givenName: given || input.email,
@@ -158,7 +157,7 @@ export class ZitadelAdminService {
       );
     }
     try {
-      await this.call('POST', `/management/v1/users/${userId}/grants`, {
+      await this.zitadel.call('POST', `/management/v1/users/${userId}/grants`, {
         projectId: this.projectId,
         roleKeys: [PORTAL_ROLE],
       });
@@ -170,7 +169,7 @@ export class ZitadelAdminService {
   }
 
   private async createInviteCode(userId: string): Promise<string> {
-    const body = await this.call<{ inviteCode: string }>(
+    const body = await this.zitadel.call<{ inviteCode: string }>(
       'POST',
       `/v2/users/${userId}/invite_code`,
       // `returnCode` rather than `sendCode`: the whole point is that the link comes back
@@ -221,6 +220,85 @@ export class ZitadelAdminService {
       .replace('{orgId}', encodeURIComponent(this.organisationId));
   }
 
+  /**
+   * What the identity provider knows about this account that we do not.
+   *
+   * Our own tables can only record sign-ins that worked: a session row exists because a
+   * session was created. Everything before that point happens entirely inside Zitadel — the
+   * password that was wrong four times, the account that locked, the second factor that was
+   * set up last week — and it is exactly the part somebody asks about when they ring to say
+   * they cannot get in.
+   *
+   * Read from the admin events API, filtered to this account as an aggregate. It is a
+   * best-effort read and says so in its return type: the token may lack the permission
+   * (events need more than user management), the instance may be slow, and neither is a
+   * reason for a page about a person to fail. The caller renders what it gets.
+   */
+  async eventsFor(
+    zitadelUserId: string,
+    limit = 25,
+  ): Promise<
+    | { ok: true; events: Array<{ type: string; at: string; editor: string | null }> }
+    | { ok: false; reason: string }
+  > {
+    if (!this.configured) {
+      return { ok: false, reason: this.unconfiguredReason ?? 'Zitadel is not configured' };
+    }
+    if (!zitadelUserId) {
+      return { ok: false, reason: 'This login has never signed in, so Zitadel has no account for it yet' };
+    }
+
+    try {
+      const body = await this.zitadel.call<{
+        events?: Array<{
+          type?: { type?: string } | string;
+          creationDate?: string;
+          editor?: { displayName?: string; userName?: string };
+        }>;
+      }>('POST', '/admin/v1/events/_search', {
+        limit: Math.min(limit, 100),
+        asc: false,
+        aggregateTypes: ['user'],
+        aggregateId: zitadelUserId,
+      });
+
+      return {
+        ok: true,
+        events: (body.events ?? []).map((e) => ({
+          // The shape moved between versions — a bare string in some, an object with `type`
+          // in others — and this is a display string either way, so both are accepted rather
+          // than pinning the code to one instance's answer.
+          type: typeof e.type === 'string' ? e.type : (e.type?.type ?? 'unknown'),
+          at: e.creationDate ?? '',
+          editor: e.editor?.displayName ?? e.editor?.userName ?? null,
+        })),
+      };
+    } catch (err) {
+      // Never rethrown. This is one panel on a page whose other panels come from our own
+      // database, and a colleague looking up who has been signing in should still get that
+      // when somebody else's server is having a bad afternoon.
+      const raw = (err as Error).message;
+      this.logger.warn(`Could not read Zitadel events for ${zitadelUserId}: ${raw}`);
+      /*
+       * The expected failure, said in words somebody can act on.
+       *
+       * The service user behind `ZITADEL_ADMIN_TOKEN` is created to manage users and grants,
+       * and reading the instance event stream is a different, larger permission — so a
+       * correctly configured platform lands here, and the raw answer ("No matching permissions
+       * found (AUTH-5mWD2)") reads as a bug rather than as a setting nobody has turned on.
+       */
+      const denied = /403|No matching permissions|PermissionDenied/i.test(raw);
+      return {
+        ok: false,
+        reason: denied
+          ? 'The Zitadel service user may manage accounts but not read the event log. ' +
+            'Give it an instance-level manager role that includes events (IAM Owner Viewer ' +
+            'or IAM Owner) in the Zitadel console to see failed sign-ins and password changes here.'
+          : raw,
+      };
+    }
+  }
+
   private assertConfigured(): void {
     if (!this.configured) {
       throw new ServiceUnavailableException(this.unconfiguredReason ?? 'Zitadel is not configured');
@@ -235,31 +313,4 @@ export class ZitadelAdminService {
    * "request failed" here would mean reading somebody else's server logs to learn that a
    * family name was missing.
    */
-  private async call<T>(method: 'GET' | 'POST', path: string, body?: unknown): Promise<T> {
-    let res: Response;
-    try {
-      res = await fetch(`${this.issuer}${path}`, {
-        method,
-        headers: {
-          Authorization: `Bearer ${this.token}`,
-          'Content-Type': 'application/json',
-        },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-      });
-    } catch (err) {
-      throw new ServiceUnavailableException(
-        `Could not reach Zitadel (${path}): ${(err as Error).message}`,
-      );
-    }
-
-    const text = await res.text();
-    if (!res.ok) {
-      // Truncated: a Zitadel error body is small, but this ends up in an audit log and on a
-      // screen, and an unbounded remote string does not belong in either.
-      const detail = text.slice(0, 400);
-      this.logger.warn(`Zitadel ${method} ${path} → ${res.status}: ${detail}`);
-      throw new ServiceUnavailableException(`Zitadel refused ${path} (${res.status}): ${detail}`);
-    }
-    return (text ? JSON.parse(text) : {}) as T;
-  }
 }

@@ -15,6 +15,8 @@ import { AuditService } from '../../core/audit/audit.service.js';
 import { DB, type Database } from '../../core/db/db.module.js';
 import { PermissionService } from '../../core/permissions/permission.service.js';
 import { StorageService } from '../../core/storage/storage.service.js';
+import { PortalAccessService } from './portal-access.service.js';
+import type { PortalViewer } from './portal.projection.js';
 import {
   PageSecretKeyMissing,
   decryptPageSecret,
@@ -92,6 +94,7 @@ export class PortalPagesService {
     private readonly permissions: PermissionService,
     private readonly audit: AuditService,
     private readonly storage: StorageService,
+    private readonly access: PortalAccessService,
   ) {}
 
   /** The page a path's first segment names, if this client has one and it is on. */
@@ -106,13 +109,31 @@ export class PortalPagesService {
     return row;
   }
 
-  /** What the client sees in their Rapporten tab: a title and a link, nothing about where. */
-  async forClient(clientId: string): Promise<Array<{ slug: string; title: string; kind: string }>> {
-    return this.db
-      .select({ slug: portalPages.slug, title: portalPages.title, kind: portalPages.kind })
+  /**
+   * What this viewer sees in their Rapporten tab: a title and a link, nothing about where.
+   *
+   * Takes the viewer rather than a client id, because a report is the one artefact most
+   * likely to be for some of a client's people and not others — a margin analysis for the
+   * director, an operational dashboard for everybody. The client is still taken from the
+   * viewer, so the outer boundary has not moved.
+   */
+  async forClient(viewer: PortalViewer): Promise<Array<{ slug: string; title: string; kind: string }>> {
+    const hidden = await this.access.hiddenIds('page', viewer);
+    const rows = await this.db
+      .select({
+        id: portalPages.id,
+        slug: portalPages.slug,
+        title: portalPages.title,
+        kind: portalPages.kind,
+      })
       .from(portalPages)
-      .where(and(eq(portalPages.clientId, clientId), eq(portalPages.enabled, true)))
+      .where(and(eq(portalPages.clientId, viewer.clientId), eq(portalPages.enabled, true)))
       .orderBy(asc(portalPages.title));
+    // Filtered here rather than in the query: the list is a handful of rows per client, and
+    // the id never reaches the browser — a page is addressed by its slug on the client's own
+    // host, which is the whole point of the subdomains.
+    const deny = new Set(hidden);
+    return rows.filter((r) => !deny.has(r.id)).map(({ id: _id, ...rest }) => rest);
   }
 
   /**
@@ -339,6 +360,10 @@ export class PortalPagesService {
 
     await this.db.transaction(async (tx) => {
       await tx.delete(portalPages).where(eq(portalPages.id, id));
+      // Who could see it goes with it. Nothing cascades — the rules live in the portal's own
+      // tables and the page has just left them — and a `restricted` row for a dead id would
+      // come back to life the day that id were reused.
+      await this.access.forget(tx, 'page', id);
       await this.audit.record(tx, {
         actorId: actor.userId,
         action: 'portal.page.delete',

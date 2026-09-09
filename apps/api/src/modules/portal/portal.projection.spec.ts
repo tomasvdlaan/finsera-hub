@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { Actor } from '@platform/contracts';
 import { sql } from 'drizzle-orm';
+import { ZitadelTokens } from '../../core/auth/zitadel.tokens.js';
 import { AuditService } from '../../core/audit/audit.service.js';
 import { EventBus } from '../../core/events/event-bus.service.js';
 import { FileTypeRegistry } from '../../core/files/file-type.registry.js';
@@ -24,6 +25,10 @@ import { salesManifest } from '../sales/sales.manifest.js';
 import { SalesService } from '../sales/sales.service.js';
 import { timeManifest } from '../time/time.manifest.js';
 import { TimeService } from '../time/time.service.js';
+import { UserService } from '../../core/auth/user.service.js';
+import { PortalAccessService } from './portal-access.service.js';
+import { portalManifest } from './portal.manifest.js';
+import { PortalUsersService } from './portal-users.service.js';
 import { PortalProjection, type PortalVisitor } from './portal.projection.js';
 
 const actor: Actor = { userId: crypto.randomUUID(), role: 'admin' };
@@ -59,10 +64,13 @@ describe('PortalProjection', () => {
   let ours: string;
   let theirs: string;
   let visitor: PortalVisitor;
+  let access: PortalAccessService;
+  let users: PortalUsersService;
+  let director: string;
 
   beforeEach(async () => {
     await resetDb();
-    await truncate(sql`TRUNCATE portal.users, billing.invoice_lines, billing.invoices,
+    await truncate(sql`TRUNCATE portal.artefact_grants, portal.artefact_visibility, portal.users, billing.invoice_lines, billing.invoices,
                    billing.invoice_counters, sales.quote_lines, sales.quotes,
                    sales.quote_counters, docs.chunks, docs.versions, docs.documents,
                    time.entries, crm.projects, crm.contacts, crm.clients CASCADE`);
@@ -70,6 +78,11 @@ describe('PortalProjection', () => {
 
     manifests = new ManifestRegistry();
     for (const m of allManifests) manifests.register(m);
+    // Registered apart from `allManifests`, which is the list these tests withdraw
+    // declarations from to prove the projection obeys the manifest. The portal's own
+    // manifest is not one of those — it declares no exposure, only the `portal.admin`
+    // capability and the `portal_user` entity that inviting a login needs.
+    manifests.register(portalManifest);
     manifests.seal();
 
     const registry = new RegistryService(testDb, manifests);
@@ -105,11 +118,22 @@ describe('PortalProjection', () => {
       vatNumber: 'NL123456789B01', iban: 'NL00BANK0123456789',
     });
 
-    projection = new PortalProjection(testDb, manifests);
+    access = new PortalAccessService(testDb, permissions, audit);
+    projection = new PortalProjection(testDb, manifests, access);
+    users = new PortalUsersService(
+      testDb, permissions, audit, new UserService(testDb, audit, new ZitadelTokens()), registry,
+    );
 
-    ours = (await crm.createClient(actor, { name: 'Our client', status: 'active' })).id;
+    // A portal address, because inviting a login to a client without one is refused — the
+    // portal lives at the client's own host.
+    ours = (
+      await crm.createClient(actor, { name: 'Our client', status: 'active', portalSlug: 'ours' })
+    ).id;
     theirs = (await crm.createClient(actor, { name: 'Someone else', status: 'active' })).id;
-    visitor = { portalUserId: crypto.randomUUID(), clientId: ours, email: 'them@ourclient.nl' };
+    visitor = { portalUserId: crypto.randomUUID(), clientId: ours, email: 'them@ourclient.nl', seesInvoices: true, seesQuotes: true };
+    // A second person at the same client, so "who at this client" can be asked at all. A
+    // real row, because a grant references `portal.users`.
+    director = (await users.invite(actor, { clientId: ours, email: 'director@ourclient.nl' })).id;
   });
 
   /**
@@ -265,6 +289,54 @@ describe('PortalProjection', () => {
     expect(await projection.mayReadDocument(visitor, doc.id)).toBe(true);
   });
 
+  it('hides a shared document from a colleague it was not meant for', async () => {
+    const doc = await docs.upload(actor, {
+      filename: 'marge.md',
+      mimeType: 'text/markdown',
+      data: Buffer.from('The numbers only the director sees.'),
+      title: 'Marge-analyse',
+      clientId: ours,
+    });
+    await testDb.transaction(async (tx) => {
+      await links.createWithin(tx, actor, {
+        fromId: doc.id, toId: ours, kind: 'shared_with_client',
+      });
+    });
+
+    // Shared with the client, then narrowed to one of their people.
+    await access.set(actor, 'document', doc.id, { mode: 'restricted', userIds: [director] });
+
+    const asDirector = { ...visitor, portalUserId: director };
+    expect(await projection.documents(asDirector)).toHaveLength(1);
+    expect(await projection.mayReadDocument(asDirector, doc.id)).toBe(true);
+    expect(await projection.documentFile(asDirector, doc.id)).not.toBeNull();
+
+    // Same client, same link, different person. The document is theirs and not his.
+    expect(await projection.documents(visitor)).toHaveLength(0);
+    expect(await projection.mayReadDocument(visitor, doc.id)).toBe(false);
+    // The list is not what protects the bytes: a link to this may have been forwarded.
+    expect(await projection.documentFile(visitor, doc.id)).toBeNull();
+  });
+
+  it('shows no money at all to somebody whose sections are off', async () => {
+    const noMoney = { ...visitor, seesInvoices: false, seesQuotes: false };
+
+    // Coarser than the per-document rule on purpose: an invoice list a client sees half of
+    // stops adding up, and a partial total is worse than no total.
+    expect(await projection.invoices(noMoney)).toEqual([]);
+    expect(await projection.quotes(noMoney)).toEqual([]);
+    expect(await projection.invoiceFile(noMoney, crypto.randomUUID())).toBeNull();
+
+    // Which is also what the tabs and the front page read, so nothing offers a section
+    // that would open empty.
+    const tabs = await projection.availability(noMoney);
+    expect(tabs.invoices).toBe(false);
+    expect(tabs.quotes).toBe(false);
+    const front = await projection.overview(noMoney, null);
+    expect(front.awaiting.quotes).toEqual([]);
+    expect(front.awaiting.invoices).toEqual([]);
+  });
+
   it('refuses bytes for a document shared with a different client', async () => {
     const doc = await docs.upload(actor, {
       filename: 'theirs.md', mimeType: 'text/markdown',
@@ -373,6 +445,8 @@ describe('PortalProjection', () => {
       portalUserId: crypto.randomUUID(),
       clientId: crypto.randomUUID(), // a client id that matches nothing
       email: 'nobody@example.com',
+      seesInvoices: true,
+      seesQuotes: true,
     };
 
     expect(await projection.projects(stranger)).toHaveLength(0);

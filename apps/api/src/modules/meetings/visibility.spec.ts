@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { Actor } from '@platform/contracts';
 import { sql } from 'drizzle-orm';
+import { ZitadelTokens } from '../../core/auth/zitadel.tokens.js';
 import { AuditService } from '../../core/audit/audit.service.js';
 import { EventBus } from '../../core/events/event-bus.service.js';
 import { LinkService } from '../../core/links/link.service.js';
@@ -74,7 +75,7 @@ describe('meeting note visibility', () => {
     const docs = new NoteDocService();
     meetings = new MeetingsService(
       testDb, registry, permissions, audit, bus, links,
-      new EmbeddingService(), crm, scrum, new UserService(testDb, new AuditService(testDb)), docs,
+      new EmbeddingService(), crm, scrum, new UserService(testDb, new AuditService(testDb), new ZitadelTokens()), docs,
     );
 
     const client = await crm.createClient(admin, { name: 'Vandenberg' });

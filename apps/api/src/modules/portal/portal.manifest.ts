@@ -25,7 +25,10 @@ export const portalManifest = defineManifest({
     {
       type: 'portal_user',
       displayTemplate: '{email}',
-      urlPattern: '/clients/:id',
+      // Their own page, which is new. This used to point at the client, from the days when a
+      // portal login was a row on somebody else's screen rather than a person with an
+      // account, artefacts of their own and a sign-in history.
+      urlPattern: '/portal/users/:id',
       // Granting a client a login is the one capability members do not hold by default, so
       // the list of who has one is admin-only to see as well.
       readPermission: 'portal.admin',

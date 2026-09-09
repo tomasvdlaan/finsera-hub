@@ -23,6 +23,7 @@ import { salesManifest } from '../sales/sales.manifest.js';
 import { SalesService } from '../sales/sales.service.js';
 import { timeManifest } from '../time/time.manifest.js';
 import { TimeService } from '../time/time.service.js';
+import { PortalAccessService } from './portal-access.service.js';
 import { PortalProjection, type PortalVisitor } from './portal.projection.js';
 
 const actor: Actor = { userId: crypto.randomUUID(), role: 'admin' };
@@ -96,11 +97,11 @@ describe('Portal isolation, adversarially', () => {
       vatNumber: 'NL123456789B01', iban: 'NL00BANK0123456789',
     });
 
-    projection = new PortalProjection(testDb, manifests);
+    projection = new PortalProjection(testDb, manifests, new PortalAccessService(testDb, permissions, audit));
 
     mine = (await crm.createClient(actor, { name: 'My client', status: 'active' })).id;
     theirs = (await crm.createClient(actor, { name: 'Another client', status: 'active' })).id;
-    visitor = { portalUserId: crypto.randomUUID(), clientId: mine, email: 'me@myclient.nl' };
+    visitor = { portalUserId: crypto.randomUUID(), clientId: mine, email: 'me@myclient.nl', seesInvoices: true, seesQuotes: true };
 
     // The other client, with everything a portal can show.
     const project = await crm.createProject(actor, {

@@ -14,6 +14,7 @@ import { StorageService } from '../../core/storage/storage.service.js';
 import { resetDb, seedUser, testDb, truncate } from '../../test/db.js';
 import { crmManifest } from '../crm/crm.manifest.js';
 import { CrmService } from '../crm/crm.service.js';
+import { PortalAccessService } from './portal-access.service.js';
 import { PortalPreviewController } from './portal-preview.controller.js';
 import type { PortalTicketsService } from './portal-tickets.service.js';
 import { portalManifest } from './portal.manifest.js';
@@ -115,7 +116,7 @@ describe('PortalPreviewController behaviour', () => {
       new EventBus(manifests), new LinkService(testDb, registry, permissions, audit, manifests),
     );
     controller = new PortalPreviewController(
-      new PortalProjection(testDb, manifests),
+      new PortalProjection(testDb, manifests, new PortalAccessService(testDb, new PermissionService(testDb, manifests), new AuditService(testDb))),
       permissions,
       new StorageService(),
       audit,
@@ -173,7 +174,7 @@ describe('PortalPreviewController behaviour', () => {
     });
 
     const previewed = await controller.projects(admin, clientId);
-    const asClient = await new PortalProjection(testDb, manifestsWith()).projects({ clientId });
+    const asClient = await new PortalProjection(testDb, manifestsWith(), new PortalAccessService(testDb, new PermissionService(testDb, manifestsWith()), new AuditService(testDb))).projects({ clientId });
     // Same projection, so a preview cannot drift from reality — which matters more than
     // it sounds, because a preview that is wrong is worse than none: it gets believed.
     expect(previewed).toEqual(asClient);

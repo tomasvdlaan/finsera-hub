@@ -46,6 +46,21 @@ export const portalUsers = portal.table(
     displayName: text('display_name'),
 
     /**
+     * Whether this person sees the money at all.
+     *
+     * A section, not a list: "which invoices may Bob see" is a question with one sensible
+     * answer per person, because an invoice a client is shown half of is worse than one they
+     * are not shown at all — the total stops adding up and somebody rings to ask why. So the
+     * grain here is the whole section, deliberately coarser than the per-artefact grants on
+     * reports and documents, where "this report and not that one" is exactly the request.
+     *
+     * Default true, which is what everybody invited before this column existed already had.
+     * Turning it off is a decision somebody makes and the audit log records.
+     */
+    seesInvoices: boolean('sees_invoices').notNull().default(true),
+    seesQuotes: boolean('sees_quotes').notNull().default(true),
+
+    /**
      * Revoking access is a column rather than a deletion, so the audit trail of what this
      * login saw survives the person leaving the client.
      */
@@ -327,5 +342,79 @@ export const portalPages = portal.table(
     check('portal_pages_kind', sql`${t.kind} IN ('proxy', 'redirect')`),
     check('portal_pages_slug_shape', sql`${t.slug} ~ '^[a-z0-9][a-z0-9-]{0,58}[a-z0-9]$'`),
     check('portal_pages_source_https', sql`${t.sourceUrl} LIKE 'https://%'`),
+  ],
+);
+
+/**
+ * Which artefacts are for everyone at a client, and which are for named people.
+ *
+ * The portal's second security question. The first — "whose data is this?" — is answered by
+ * `client_id` on every projection query, and that one is absolute: nothing here can widen
+ * it, and a grant to somebody at another client is not expressible, because a grant names a
+ * `portal.users` row and that row names a client.
+ *
+ * Inside a client, the default stays what it has always been: an artefact nobody has
+ * restricted is visible to everyone with a login there. That is why the mode is a row rather
+ * than a column with a default — the *absence* of a row means "everyone", so nothing needed
+ * backfilling and no existing portal changed the day this shipped.
+ *
+ * `restricted` with no grants means nobody, and that is on purpose. The alternative — an
+ * empty grant list quietly meaning "everyone again" — turns removing the last person from a
+ * report into the opposite of what was asked for, at the moment nobody is looking.
+ *
+ * `kind` says which table `artefact_id` points into, so there is no foreign key: a page lives
+ * in `portal.pages` and a document in `docs.documents`, and a column referencing both would
+ * reference neither. The service resolves the id against the client before writing, which is
+ * what stops a grant naming an artefact belonging to somebody else.
+ */
+export const portalArtefactVisibility = portal.table(
+  'artefact_visibility',
+  {
+    id: uuid('id').primaryKey(),
+    /** Denormalised from the artefact, so "what is restricted here" is one indexed read. */
+    clientId: uuid('client_id').notNull(),
+    /** 'page' — `portal.pages`. 'document' — `docs.documents`. */
+    kind: text('kind').notNull(),
+    artefactId: uuid('artefact_id').notNull(),
+    /** 'everyone' at this client, or 'restricted' to whoever holds a grant below. */
+    mode: text('mode').notNull().default('everyone'),
+    updatedBy: uuid('updated_by').notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('portal_visibility_artefact').on(t.kind, t.artefactId),
+    index('portal_visibility_client_idx').on(t.clientId),
+    check('portal_visibility_kind', sql`${t.kind} IN ('page', 'document')`),
+    check('portal_visibility_mode', sql`${t.mode} IN ('everyone', 'restricted')`),
+  ],
+);
+
+/**
+ * One person, one artefact they may open.
+ *
+ * Only consulted when the artefact is `restricted`; a grant on an artefact that is visible
+ * to everyone is harmless and is kept, so that turning the restriction back on restores the
+ * list somebody built rather than emptying it.
+ *
+ * Cascades from the login, because a grant to a deleted person is not a grant to anybody.
+ * Nothing cascades from the artefact — a page and a document are in other schemas — so the
+ * service deletes grants alongside the thing they name.
+ */
+export const portalArtefactGrants = portal.table(
+  'artefact_grants',
+  {
+    id: uuid('id').primaryKey(),
+    kind: text('kind').notNull(),
+    artefactId: uuid('artefact_id').notNull(),
+    portalUserId: uuid('portal_user_id')
+      .notNull()
+      .references(() => portalUsers.id, { onDelete: 'cascade' }),
+    grantedBy: uuid('granted_by').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('portal_grants_unique').on(t.kind, t.artefactId, t.portalUserId),
+    index('portal_grants_user_idx').on(t.portalUserId),
+    check('portal_grants_kind', sql`${t.kind} IN ('page', 'document')`),
   ],
 );

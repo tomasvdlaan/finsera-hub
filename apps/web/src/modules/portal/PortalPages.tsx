@@ -156,7 +156,7 @@ export function PortalPages({
                     and not others — a margin analysis for the director, an operational
                     dashboard for everyone — so the choice sits on the report. */}
                 <td style={{ verticalAlign: 'top' }}>
-                  <ArtefactVisibility clientId={clientId} kind="page" artefactId={p.id} />
+                  <ArtefactVisibility clientId={clientId} kind="page" artefactId={p.id} title={p.title} />
                 </td>
                 <td className="muted" style={{ maxWidth: '22rem', overflowWrap: 'anywhere' }}>
                   {p.sourceUrl}

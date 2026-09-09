@@ -12,6 +12,7 @@ import { resetDb, seedUser, testDb, truncate } from '../../test/db.js';
 import { crmManifest } from '../crm/crm.manifest.js';
 import { CrmService } from '../crm/crm.service.js';
 import { decryptPageSecret } from './page-secrets.js';
+import { PortalAccessService } from './portal-access.service.js';
 import { PortalPagesService } from './portal-pages.service.js';
 import { portalManifest } from './portal.manifest.js';
 import { portalPages } from './portal.schema.js';
@@ -44,12 +45,21 @@ describe('PortalPagesService', () => {
       testDb, registry, permissions, audit,
       new EventBus(manifests), new LinkService(testDb, registry, permissions, audit, manifests),
     );
-    pages = new PortalPagesService(testDb, permissions, audit, new StorageService());
+    pages = new PortalPagesService(testDb, permissions, audit, new StorageService(), new PortalAccessService(testDb, permissions, audit));
     clientId = (await crm.createClient(admin, { name: 'Duce', status: 'active' })).id;
   });
 
   afterEach(() => {
     process.env = { ...env };
+  });
+
+  /** A signed-in client with no restrictions on them — the ordinary case these tests are about. */
+  const viewer = () => ({
+    portalUserId: crypto.randomUUID(),
+    clientId,
+    email: 'them@duce.nl',
+    seesInvoices: true,
+    seesQuotes: true,
   });
 
   const valid = {
@@ -60,7 +70,7 @@ describe('PortalPagesService', () => {
 
   it('creates a page and shows the client a title and a link, never the source', async () => {
     await pages.create(admin, clientId, valid);
-    const forClient = await pages.forClient(clientId);
+    const forClient = await pages.forClient(viewer());
     expect(forClient).toEqual([{ slug: 'rapportage-q3', title: 'Rapportage Q3', kind: 'proxy' }]);
     // The source URL is the thing the whole proxy exists to keep out of the browser.
     expect(JSON.stringify(forClient)).not.toContain('vercel');
@@ -88,7 +98,7 @@ describe('PortalPagesService', () => {
       );
     }
     await pages.create(admin, clientId, { ...valid, slug: 'RAPPORT-Q3' });
-    expect((await pages.forClient(clientId))[0]?.slug).toBe('rapport-q3');
+    expect((await pages.forClient(viewer()))[0]?.slug).toBe('rapport-q3');
   });
 
   it('gives the same slug to two clients, because the hostname separates them', async () => {
@@ -180,7 +190,7 @@ describe('PortalPagesService', () => {
 
     await pages.update(admin, id, { enabled: false });
     expect(await pages.find(clientId, 'rapportage-q3')).toBeNull();
-    expect(await pages.forClient(clientId)).toEqual([]);
+    expect(await pages.forClient(viewer())).toEqual([]);
   });
 
   it('never finds another client’s page', async () => {

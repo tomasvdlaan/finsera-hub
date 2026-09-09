@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { ZitadelTokens } from '../../core/auth/zitadel.tokens.js';
 import { PortalOidcService } from './portal-oidc.service.js';
 
 /**
@@ -22,7 +23,7 @@ describe('PortalOidcService.beginLogin', () => {
   });
 
   const authorize = async () => {
-    const { authorizeUrl } = await new PortalOidcService().beginLogin({
+    const { authorizeUrl } = await new PortalOidcService(new ZitadelTokens()).beginLogin({
       redirectUri: 'https://portal.finsera.nl/api/portal-auth/callback',
       targetHost: 'portal.finsera.nl',
       next: '/rapporten',
