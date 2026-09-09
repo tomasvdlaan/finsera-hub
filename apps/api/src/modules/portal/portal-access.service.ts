@@ -12,7 +12,7 @@ import { AuditService } from '../../core/audit/audit.service.js';
 import { DB, type Database, type Tx } from '../../core/db/db.module.js';
 import { PermissionService } from '../../core/permissions/permission.service.js';
 import { portalArtefactGrants, portalArtefactVisibility, portalUsers } from './portal.schema.js';
-import type { PortalStaff, PortalViewer } from './portal.projection.js';
+import type { PortalStaff, PortalViewer } from './portal-viewer.js';
 
 /**
  * A staff viewer, decided here rather than by importing the shared guard.
