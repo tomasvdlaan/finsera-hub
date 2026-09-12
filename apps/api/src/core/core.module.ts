@@ -10,6 +10,8 @@ import { EventBus } from './events/event-bus.service.js';
 import { EventDispatcher } from './events/event-dispatcher.service.js';
 import { EventHandlerRegistry } from './events/event-handler.registry.js';
 import { FileTypeRegistry } from './files/file-type.registry.js';
+import { GraphDriveService } from './graph/graph-drive.service.js';
+import { GraphClient } from './graph/graph.client.js';
 import { LinkService } from './links/link.service.js';
 import { EmbeddingService } from './llm/embedding.service.js';
 import { LlmService } from './llm/llm.service.js';
@@ -25,6 +27,8 @@ import { UsageService } from './usage/usage.service.js';
 import { ModelConfigService } from './usage/model-config.service.js';
 import { OpenRouterService } from './usage/openrouter.service.js';
 import { StorageService } from './storage/storage.service.js';
+import { DocumentStore } from './storage/document-store.js';
+import { documentStoreProvider } from './storage/document-store.provider.js';
 
 /**
  * Layer 1 — the platform core. Owns identity and relationships; has no business logic.
@@ -49,6 +53,8 @@ const services = [
   OrchestratorService,
   StorageService,
   FileTypeRegistry,
+  GraphClient,
+  GraphDriveService,
   SettingsService,
   DepartmentsService,
   ZitadelClient,
@@ -63,7 +69,7 @@ const services = [
 @Global()
 @Module({
   imports: [DbModule, AuthModule],
-  providers: services,
-  exports: [DbModule, AuthModule, ...services],
+  providers: [...services, documentStoreProvider],
+  exports: [DbModule, AuthModule, ...services, DocumentStore],
 })
 export class CoreModule {}

@@ -12,6 +12,7 @@ import { PermissionService } from '../../core/permissions/permission.service.js'
 import { RegistryService } from '../../core/registry/registry.service.js';
 import { SettingsService } from '../../core/settings/settings.service.js';
 import { StorageService } from '../../core/storage/storage.service.js';
+import { LocalDocumentStore } from '../../core/storage/local-document-store.js';
 import { resetDb, seedUser, testDb, truncate } from '../../test/db.js';
 import { billingManifest } from '../billing/billing.manifest.js';
 import { BillingService } from '../billing/billing.service.js';
@@ -73,7 +74,7 @@ describe('InsightsService', () => {
     time = new TimeService(testDb, registry, permissions, audit, bus, links, crm);
     const docs = new DocsService(
       testDb, registry, permissions, audit, bus, links,
-      new StorageService(), new EmbeddingService(), new FileTypeRegistry(), crm, new LlmService(),
+      new LocalDocumentStore(new StorageService()), new EmbeddingService(), new FileTypeRegistry(), crm, new LlmService(),
     );
     const settings = new SettingsService(testDb);
     billing = new BillingService(

@@ -9,6 +9,7 @@ import { PermissionService } from '../../core/permissions/permission.service.js'
 import { RegistryService } from '../../core/registry/registry.service.js';
 import { SettingsService } from '../../core/settings/settings.service.js';
 import { StorageService } from '../../core/storage/storage.service.js';
+import { LocalDocumentStore } from '../../core/storage/local-document-store.js';
 import { FileTypeRegistry } from '../../core/files/file-type.registry.js';
 import { LlmService } from '../../core/llm/llm.service.js';
 import { EmbeddingService } from '../../core/llm/embedding.service.js';
@@ -48,7 +49,7 @@ describe('BillingService', () => {
     const bus = new EventBus(manifests);
     crm = new CrmService(testDb, registry, permissions, audit, bus, links);
     time = new TimeService(testDb, registry, permissions, audit, bus, links, crm);
-    const storage = new StorageService();
+    const storage = new LocalDocumentStore(new StorageService());
     const docs = new DocsService(
       testDb,
       registry,

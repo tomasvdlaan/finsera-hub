@@ -47,6 +47,17 @@ export const documents = docs.table(
     category: text('category'), // free text — taxonomies calcify
     currentVersionId: uuid('current_version_id'),
 
+    /**
+     * A home that is not a client or a project.
+     *
+     * 'org' covers the two things that genuinely belong to nobody: the templates (a
+     * raamovereenkomst, the algemene voorwaarden) and a quote written for a prospect, who
+     * is by definition not yet a client. Both were unfileable while every document had to
+     * name one — and the workaround, inventing a placeholder client, is how a CRM fills
+     * with rows that are not companies.
+     */
+    scope: text('scope'),
+
     /* ── What a model read, as opposed to what somebody typed ──────────────────────────
      *
      * Kept apart from the descriptive columns above on purpose. `title` and `category` are
@@ -82,7 +93,7 @@ export const documents = docs.table(
     index('documents_project_idx').on(t.projectId),
     check(
       'documents_has_a_home',
-      sql`${t.clientId} IS NOT NULL OR ${t.projectId} IS NOT NULL`,
+      sql`${t.clientId} IS NOT NULL OR ${t.projectId} IS NOT NULL OR ${t.scope} = 'org'`,
     ),
   ],
 );
@@ -91,6 +102,13 @@ export const documents = docs.table(
  * Every upload creates a version; nothing is overwritten.
  *
  * Overwriting is how the wrong contract gets sent with no way to prove what changed.
+ *
+ * Since D8 a row is no longer only "an upload". When the bytes live in SharePoint this
+ * table stops being where they are and becomes THE SUBSET OF SHAREPOINT'S OWN HISTORY THE
+ * PLATFORM HAS READ: SharePoint holds the live file and every version of it, and a row here
+ * records what was read, when, and what can therefore be answered about it. The distance
+ * between the two is exactly the staleness a screen has to show, because indexing is manual
+ * and nobody is watching the file on our behalf.
  */
 export const versions = docs.table(
   'versions',
@@ -100,19 +118,98 @@ export const versions = docs.table(
       .notNull()
       .references(() => documents.id, { onDelete: 'cascade' }),
     version: integer('version').notNull(),
-    storageKey: text('storage_key').notNull(),
+
+    /* ── where the bytes are ────────────────────────────────────────────────────────── */
+
+    /** 'local' or 'sharepoint'. Existing rows are local and stay local, forever if need be. */
+    storageBackend: text('storage_backend').notNull().default('local'),
+    /** Set for local rows only. Nullable since D8; the CHECK below keeps it honest. */
+    storageKey: text('storage_key'),
+    driveId: text('drive_id'),
+    /**
+     * The pointer.
+     *
+     * An item id survives a rename and a move inside the library, which is why nothing here
+     * reads a file by path — a person reorganising folders in SharePoint must not be able to
+     * break a document by tidying up.
+     */
+    driveItemId: text('drive_item_id'),
+    /** Which of SharePoint's versions this row describes, so old bytes stay fetchable. */
+    sharepointVersionId: text('sharepoint_version_id'),
+    /**
+     * The CONTENT tag, and the only thing staleness is judged on.
+     *
+     * eTag also moves when metadata moves, so comparing it would mark a document out of date
+     * because somebody set a column — and under manual indexing it would stay that way until
+     * a person re-read a file whose contents had not changed.
+     */
+    ctag: text('ctag'),
+    etag: text('etag'),
+    /** Snapshot of where it lives, for telling a person. Never used to find anything. */
+    sharepointPath: text('sharepoint_path'),
+    /** The "Open in Word" target. Never exposed to the portal — see docs.manifest. */
+    webUrl: text('web_url'),
+
+    /**
+     * How this row came to exist: an upload here, a sync that noticed SharePoint had moved
+     * on, or a file somebody put in the library that was later filed through the platform.
+     * Worth distinguishing on screen: "v3, uploaded 4 Aug" and "v3, which is what SharePoint
+     * already said on 4 Aug" are different claims.
+     */
+    origin: text('origin').notNull().default('upload'),
+
     filename: text('filename').notNull(),
     mimeType: text('mime_type').notNull(),
     sizeBytes: bigint('size_bytes', { mode: 'number' }).notNull(),
     checksum: text('checksum').notNull(), // sha256 — an identical re-upload is detectable
     /** Extracted text, when the format allows it. Null means "stored but not indexed". */
     extractedText: text('extracted_text'),
+
+    /* ── what we know, and when we last knew it ──────────────────────────────────────── */
+
+    /** When the text was last extracted, chunked and embedded. Null means never. */
+    indexedAt: timestamp('indexed_at', { withTimezone: true }),
+    /** driveItem.lastModifiedDateTime as of the last check. */
+    remoteModifiedAt: timestamp('remote_modified_at', { withTimezone: true }),
+    /**
+     * Who changed it there.
+     *
+     * The app identity for anything we filed — honest, we did write it — but a real person
+     * for a Word Online edit, because that edit went through their session and not ours. So
+     * this is worth showing, and worth showing as a different fact from uploadedBy.
+     */
+    remoteModifiedBy: text('remote_modified_by'),
+    /** When we last asked. Distinct from indexedAt: asking is cheap, reading is not. */
+    remoteCheckedAt: timestamp('remote_checked_at', { withTimezone: true }),
+    /**
+     * When the file stopped being there.
+     *
+     * The row is never deleted for this. The record, its extracted text and its chunks are
+     * still true and still answer questions; it is the file that is gone, and a screen can
+     * say so far more usefully than a document that silently vanishes.
+     */
+    missingAt: timestamp('missing_at', { withTimezone: true }),
+
     uploadedBy: uuid('uploaded_by').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     uniqueIndex('versions_document_version').on(t.documentId, t.version),
     index('versions_document_idx').on(t.documentId),
+    index('versions_drive_item_idx').on(t.driveItemId),
+    /**
+     * A row must actually say where its bytes are.
+     *
+     * Without this the nullable storage_key is an invitation: one code path that forgets to
+     * set the pointer produces a version that looks fine in every list and cannot be
+     * downloaded, and the day you find out is the day somebody needs the file.
+     */
+    check(
+      'versions_knows_where_the_bytes_are',
+      sql`(${t.storageBackend} = 'local' AND ${t.storageKey} IS NOT NULL)
+          OR (${t.storageBackend} = 'sharepoint'
+              AND ${t.driveId} IS NOT NULL AND ${t.driveItemId} IS NOT NULL)`,
+    ),
   ],
 );
 

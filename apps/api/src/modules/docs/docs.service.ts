@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import {
   BadRequestException,
   ForbiddenException,
@@ -19,7 +20,13 @@ import { LlmService } from '../../core/llm/llm.service.js';
 import { z } from 'zod';
 import { PermissionService } from '../../core/permissions/permission.service.js';
 import { RegistryService } from '../../core/registry/registry.service.js';
-import { StorageService } from '../../core/storage/storage.service.js';
+import { mimeFromKey } from '../../core/storage/storage-key.js';
+import {
+  DocumentStore,
+  refFromRow,
+  type FolderSpec,
+  type PutResult,
+} from '../../core/storage/document-store.js';
 import { CrmService } from '../crm/crm.service.js';
 import { chunks, documents, versions } from './docs.schema.js';
 import { chunkText } from '../../core/text/chunk.js';
@@ -32,6 +39,14 @@ export interface UploadInput {
   clientId?: string;
   projectId?: string;
   category?: string;
+  /**
+   * Which subfolder of the client's this belongs in.
+   *
+   * Only billing and sales pass it, for the invoice and quote PDFs they archive. Without it
+   * a client folder fills with factuur-2026-0114.pdf and stops being somewhere a person can
+   * usefully look — the same instinct that produced Administratie/03. Maart/Kosten.
+   */
+  bucket?: 'documents' | 'outgoing';
 }
 
 export interface SearchHit {
@@ -40,6 +55,14 @@ export interface SearchHit {
   snippet: string;
   score: number;
   via: 'text' | 'semantic';
+  /**
+   * Whether the file has changed since this text was read.
+   *
+   * On the HIT, not only on the detail page. This is the failure mode manual indexing
+   * creates and the reason it is survivable: somebody searches, finds the old clause, and
+   * without this has no reason at all to doubt it.
+   */
+  stale: boolean;
 }
 
 @Injectable()
@@ -53,7 +76,7 @@ export class DocsService {
     private readonly audit: AuditService,
     private readonly events: EventBus,
     private readonly links: LinkService,
-    private readonly storage: StorageService,
+    private readonly store: DocumentStore,
     private readonly embeddings: EmbeddingService,
     private readonly fileTypes: FileTypeRegistry,
     private readonly crm: CrmService,
@@ -69,11 +92,18 @@ export class DocsService {
     }
     if (!input.data?.length) throw new BadRequestException('Empty file');
 
-    // Both are cross-module reads through CRM's service, never its schema.
-    if (input.clientId) await this.crm.getClient(actor, input.clientId);
-    if (input.projectId) await this.crm.getProject(actor, input.projectId);
+    // Both are cross-module reads through CRM's service, never its schema. Their names are
+    // also what the file is filed under, so this read is no longer only a permission check.
+    const client = input.clientId ? await this.crm.getClient(actor, input.clientId) : null;
+    const project = input.projectId ? await this.crm.getProject(actor, input.projectId) : null;
 
-    const stored = await this.storage.put(input.data, input.filename);
+    // Bytes land in the store BEFORE the transaction opens, so a failure there throws before
+    // any row exists. There is never a version row pointing at a file that was never written.
+    const stored = await this.store.put({
+      data: input.data,
+      filename: input.filename,
+      folder: folderFor(client, project, input.bucket),
+    });
     // Parsing a docx or pdf is real work; do it before opening the transaction.
     const extracted = await this.fileTypes.extract(input.data, input.mimeType, input.filename);
     const documentId = this.registry.newId();
@@ -102,12 +132,15 @@ export class DocsService {
         id: versionId,
         documentId,
         version: 1,
-        storageKey: stored.key,
-        filename: input.filename,
+        ...pointerColumns(stored),
+        // stored.filename, not input.filename: SharePoint resolves a name collision by
+        // renaming, and the record and the library must not disagree from the first row.
+        filename: stored.filename,
         mimeType: input.mimeType,
         sizeBytes: stored.sizeBytes,
         checksum: stored.checksum,
         extractedText: extracted,
+        origin: 'upload',
         uploadedBy: actor.userId,
       });
 
@@ -125,7 +158,11 @@ export class DocsService {
         action: 'document.upload',
         entityType: 'document',
         entityId: documentId,
-        detail: { filename: input.filename, sizeBytes: stored.sizeBytes },
+        detail: {
+          filename: stored.filename,
+          sizeBytes: stored.sizeBytes,
+          backend: stored.ref.backend,
+        },
       });
 
       await this.events.publish(tx, {
@@ -158,7 +195,22 @@ export class DocsService {
       .orderBy(desc(versions.version))
       .limit(1);
 
-    const stored = await this.storage.put(input.data, input.filename);
+    // Replace the content of the SAME remote file rather than adding another one: that is
+    // what makes a SharePoint version, and what keeps a link somebody pinned in Teams
+    // pointing at the current document instead of quietly at an old one.
+    const current = await this.currentRefOf(documentId);
+    const client = doc.clientId ? await this.crm.getClient(actor, doc.clientId) : null;
+    const project = doc.projectId ? await this.crm.getProject(actor, doc.projectId) : null;
+    const folder = folderFor(client, project);
+
+    const stored = current
+      ? await this.store.putNewVersion(current, {
+          data: input.data,
+          filename: input.filename,
+          folder,
+        })
+      : await this.store.put({ data: input.data, filename: input.filename, folder });
+
     const extracted = await this.fileTypes.extract(input.data, input.mimeType, input.filename);
     const versionId = this.registry.newId();
     const nextVersion = (latest?.version ?? 0) + 1;
@@ -168,12 +220,13 @@ export class DocsService {
         id: versionId,
         documentId,
         version: nextVersion,
-        storageKey: stored.key,
-        filename: input.filename,
+        ...pointerColumns(stored),
+        filename: stored.filename,
         mimeType: input.mimeType,
         sizeBytes: stored.sizeBytes,
         checksum: stored.checksum,
         extractedText: extracted,
+        origin: 'upload',
         uploadedBy: actor.userId,
       });
 
@@ -187,7 +240,7 @@ export class DocsService {
         action: 'document.version_added',
         entityType: 'document',
         entityId: documentId,
-        detail: { version: nextVersion, filename: input.filename },
+        detail: { version: nextVersion, filename: stored.filename },
       });
 
       await this.events.publish(tx, {
@@ -231,6 +284,10 @@ export class DocsService {
         sizeBytes: versions.sizeBytes,
         version: versions.version,
         indexed: sql<boolean>`${versions.extractedText} IS NOT NULL`,
+        // Both stamps, from stored columns only. The list must never call Graph per row:
+        // two hundred documents would be two hundred requests and a throttle.
+        indexedAt: versions.indexedAt,
+        remoteModifiedAt: versions.remoteModifiedAt,
         // On the list as well as the detail: a folder of forty files called `scan_004.pdf` is
         // the case the summary exists for, and it cannot help there if you have to open each
         // one to see it.
@@ -258,7 +315,36 @@ export class DocsService {
       .where(eq(versions.documentId, id))
       .orderBy(desc(versions.version));
 
-    return { ...doc, versions: history };
+    // Whether the client can see it, on the document rather than behind another request:
+    // "shared" is a fact about a document, and a screen that has to ask separately is a
+    // screen where the toggle and the truth can disagree for a moment.
+    return {
+      ...doc,
+      versions: history,
+      sharedWithClient: await this.sharedWithClient(id, doc.clientId),
+    };
+  }
+
+  /**
+   * Where the current version's bytes live, or null if there is no current version.
+   *
+   * Used when adding a version, to replace the content of the same remote file rather than
+   * filing a second one beside it.
+   */
+  private async currentRefOf(documentId: string) {
+    const [doc] = await this.db
+      .select({ currentVersionId: documents.currentVersionId })
+      .from(documents)
+      .where(eq(documents.id, documentId))
+      .limit(1);
+    if (!doc?.currentVersionId) return null;
+
+    const [version] = await this.db
+      .select()
+      .from(versions)
+      .where(eq(versions.id, doc.currentVersionId))
+      .limit(1);
+    return version ? refFromRow(version) : null;
   }
 
   /** Bytes for download. Defaults to the current version. */
@@ -274,7 +360,9 @@ export class DocsService {
       .limit(1);
     if (!version) throw new NotFoundException('Version not found');
 
-    return { version, data: await this.storage.get(version.storageKey) };
+    // refFromRow rather than version.storageKey: the row may point at SharePoint, and the
+    // one thing that must not happen is a second spelling of "where are the bytes".
+    return { version, data: await this.store.read(refFromRow(version)) };
   }
 
   async archive(actor: Actor, id: string) {
@@ -290,6 +378,409 @@ export class DocsService {
         entityId: id,
       });
     });
+  }
+
+
+  // ── living with a file somebody else can change ────────────
+
+  /**
+   * Ask SharePoint whether the file has moved on. One metadata call, no bytes.
+   *
+   * This is what makes manual indexing honest. Nothing watches the file on our behalf — no
+   * webhook, no delta poll, by decision — so the only way a screen can say "what you are
+   * reading is out of date" is if somebody, at some point, asked. Asking is cheap; reading
+   * and re-embedding is not, and this deliberately does neither.
+   */
+  async checkRemote(actor: Actor, documentId: string) {
+    await this.require(actor, 'docs.read');
+    const version = await this.currentVersionRow(documentId);
+
+    if (version.storageBackend !== 'sharepoint') {
+      // A local file cannot be stale against anything: nobody else can reach it.
+      return { changed: false, missing: false, checkedAt: new Date(), supported: false };
+    }
+
+    const remote = await this.store.head(refFromRow(version));
+    const now = new Date();
+
+    if (!remote) {
+      await this.db
+        .update(versions)
+        .set({ missingAt: version.missingAt ?? now, remoteCheckedAt: now })
+        .where(eq(versions.id, version.id));
+      return { changed: false, missing: true, checkedAt: now, supported: true };
+    }
+
+    await this.db
+      .update(versions)
+      .set({
+        remoteModifiedAt: remote.lastModifiedAt,
+        remoteModifiedBy: remote.lastModifiedBy,
+        remoteCheckedAt: now,
+        // Clear it: the file is back, or was never really gone.
+        missingAt: null,
+      })
+      .where(eq(versions.id, version.id));
+
+    return {
+      // cTag, never eTag. eTag moves when a column changes, which would leave a document
+      // permanently out of date because somebody tagged it.
+      changed: remote.cTag !== version.ctag,
+      missing: false,
+      checkedAt: now,
+      supported: true,
+      remoteModifiedAt: remote.lastModifiedAt,
+      remoteModifiedBy: remote.lastModifiedBy,
+    };
+  }
+
+  /**
+   * Re-read the file and catch the index up with it.
+   *
+   * When the content has genuinely changed this writes a new version row with origin
+   * 'sync' — because it IS a new version, just one nobody uploaded here. The distinction
+   * matters on screen: "v3, uploaded 4 Aug" and "v3, which is what SharePoint already said
+   * on 4 Aug" are different claims about who did what.
+   */
+  async sync(actor: Actor, documentId: string) {
+    await this.require(actor, 'docs.write');
+    const doc = await this.rawDocument(documentId);
+    const version = await this.currentVersionRow(documentId);
+    const now = new Date();
+
+    if (version.storageBackend !== 'sharepoint') {
+      const chunkCount = await this.indexVersion(version.id);
+      return { changed: false, missing: false, versionId: version.id, chunks: chunkCount };
+    }
+
+    const ref = refFromRow(version);
+    const remote = await this.store.head(ref);
+
+    if (!remote) {
+      // The row survives, with its text and its chunks. Search keeps working from what we
+      // already read, and the screen can say what happened — which is far more useful than
+      // a document that silently stops existing.
+      await this.db
+        .update(versions)
+        .set({ missingAt: version.missingAt ?? now, remoteCheckedAt: now })
+        .where(eq(versions.id, version.id));
+      return { changed: false, missing: true, versionId: version.id, chunks: 0 };
+    }
+
+    if (remote.cTag === version.ctag) {
+      await this.db
+        .update(versions)
+        .set({
+          remoteModifiedAt: remote.lastModifiedAt,
+          remoteModifiedBy: remote.lastModifiedBy,
+          remoteCheckedAt: now,
+          missingAt: null,
+        })
+        .where(eq(versions.id, version.id));
+      // Unchanged, but possibly never indexed — a file that failed to embed on upload gets
+      // its second chance here rather than needing a different button.
+      const chunkCount = version.indexedAt ? 0 : await this.indexVersion(version.id);
+      return { changed: false, missing: false, versionId: version.id, chunks: chunkCount };
+    }
+
+    const data = await this.store.read(ref);
+    const extracted = await this.fileTypes.extract(data, version.mimeType, remote.name);
+    const versionId = this.registry.newId();
+
+    await this.db.transaction(async (tx) => {
+      await tx.insert(versions).values({
+        id: versionId,
+        documentId,
+        version: version.version + 1,
+        storageBackend: 'sharepoint',
+        driveId: version.driveId,
+        driveItemId: version.driveItemId,
+        ctag: remote.cTag,
+        etag: remote.eTag,
+        sharepointPath: remote.path,
+        webUrl: remote.webUrl,
+        filename: remote.name,
+        mimeType: version.mimeType,
+        sizeBytes: remote.size,
+        checksum: createHash('sha256').update(data).digest('hex'),
+        extractedText: extracted,
+        origin: 'sync',
+        remoteModifiedAt: remote.lastModifiedAt,
+        remoteModifiedBy: remote.lastModifiedBy,
+        remoteCheckedAt: now,
+        uploadedBy: actor.userId,
+      });
+
+      await tx
+        .update(documents)
+        .set({ currentVersionId: versionId, updatedAt: now })
+        .where(eq(documents.id, documentId));
+
+      await this.audit.record(tx, {
+        actorId: actor.userId,
+        action: 'document.synced',
+        entityType: 'document',
+        entityId: documentId,
+        detail: { version: version.version + 1, changedBy: remote.lastModifiedBy },
+      });
+
+      await this.events.publish(tx, {
+        name: 'document.synced',
+        entityType: 'document',
+        entityId: documentId,
+        actorId: actor.userId,
+        payload: { versionId, changedBy: remote.lastModifiedBy },
+      });
+    });
+
+    const chunkCount = await this.indexVersion(versionId);
+    this.logger.log(`${doc.title}: picked up SharePoint version ${version.version + 1}`);
+    return { changed: true, missing: false, versionId, chunks: chunkCount };
+  }
+
+  /**
+   * Where a person opens this to edit it.
+   *
+   * Gated on docs.write rather than docs.read, because this hands out an editing door — and
+   * returned as JSON rather than a redirect, so the screen can explain that the door only
+   * opens for somebody with their own SharePoint access. A redirect to a third-party URL is
+   * also open-redirect-shaped, which is not a shape worth having.
+   */
+  async editUrl(actor: Actor, documentId: string) {
+    await this.require(actor, 'docs.write');
+    const version = await this.currentVersionRow(documentId);
+
+    if (version.storageBackend !== 'sharepoint') {
+      return {
+        available: false,
+        webUrl: null,
+        reason: 'This document is stored on the platform, not in SharePoint.',
+      };
+    }
+
+    const webUrl = await this.store.editUrl(refFromRow(version));
+    if (!webUrl) {
+      return { available: false, webUrl: null, reason: 'The file is no longer in SharePoint.' };
+    }
+
+    await this.db.transaction(async (tx) => {
+      await this.audit.record(tx, {
+        actorId: actor.userId,
+        action: 'document.edit_url_issued',
+        entityType: 'document',
+        entityId: documentId,
+      });
+    });
+
+    return { available: true, webUrl, reason: null };
+  }
+
+  // ── files somebody put in the library by hand ──────────────
+
+  /**
+   * Everything in the library with no document row here.
+   *
+   * The way files moved in by hand become documents, and the way a file dropped in from
+   * Explorer or Teams gets noticed later. Walks the whole library, so it is one screen on
+   * demand and never anything per row.
+   */
+  async listUnfiled(actor: Actor) {
+    await this.require(actor, 'docs.write');
+    const rows = await this.db
+      .select({ driveItemId: versions.driveItemId })
+      .from(versions)
+      .where(eq(versions.storageBackend, 'sharepoint'));
+
+    const known = new Set(rows.map((r) => r.driveItemId).filter(Boolean) as string[]);
+    return this.store.listUnfiled(known);
+  }
+
+  /**
+   * Adopt one of them as a document.
+   *
+   * No bytes move: the file stays exactly where the person put it and the platform starts
+   * pointing at it. That is the whole reason this exists rather than an import — a copy
+   * would leave two files that drift, and the curation pass would have to be undone.
+   */
+  async fileUnfiled(
+    actor: Actor,
+    driveItemId: string,
+    input: { title?: string; clientId?: string; projectId?: string; scope?: 'org'; mimeType?: string },
+  ) {
+    await this.require(actor, 'docs.write');
+    if (!input.clientId && !input.projectId && input.scope !== 'org') {
+      throw new BadRequestException('A document needs a client, a project, or org scope');
+    }
+    if (input.clientId) await this.crm.getClient(actor, input.clientId);
+    if (input.projectId) await this.crm.getProject(actor, input.projectId);
+
+    const candidates = await this.listUnfiled(actor);
+    const item = candidates.find((c) => c.itemId === driveItemId);
+    if (!item) throw new NotFoundException('No unfiled file with that id');
+
+    const ref = { backend: 'sharepoint' as const, driveId: item.driveId, itemId: item.itemId };
+    const data = await this.store.read(ref);
+    const remote = await this.store.head(ref);
+    const mimeType = input.mimeType ?? mimeFromKey(item.filename);
+    const extracted = await this.fileTypes.extract(data, mimeType, item.filename);
+
+    const documentId = this.registry.newId();
+    const versionId = this.registry.newId();
+    const title = (input.title ?? item.filename).trim();
+
+    await this.db.transaction(async (tx) => {
+      await this.registry.register(tx, {
+        id: documentId,
+        entityType: 'document',
+        displayName: title,
+        urlPath: `/docs/documents/${documentId}`,
+      });
+
+      await tx.insert(documents).values({
+        id: documentId,
+        title,
+        clientId: input.clientId ?? null,
+        projectId: input.projectId ?? null,
+        scope: input.scope ?? null,
+        currentVersionId: versionId,
+        uploadedBy: actor.userId,
+      });
+
+      await tx.insert(versions).values({
+        id: versionId,
+        documentId,
+        version: 1,
+        storageBackend: 'sharepoint',
+        driveId: item.driveId,
+        driveItemId: item.itemId,
+        ctag: remote?.cTag ?? null,
+        etag: remote?.eTag ?? null,
+        sharepointPath: item.path,
+        webUrl: item.webUrl,
+        filename: item.filename,
+        mimeType,
+        sizeBytes: item.sizeBytes,
+        checksum: createHash('sha256').update(data).digest('hex'),
+        extractedText: extracted,
+        origin: 'adopted',
+        remoteModifiedAt: item.lastModifiedAt,
+        remoteModifiedBy: item.lastModifiedBy,
+        remoteCheckedAt: new Date(),
+        uploadedBy: actor.userId,
+      });
+
+      for (const target of [input.clientId, input.projectId].filter(Boolean) as string[]) {
+        await this.links.createWithin(tx, actor, {
+          fromId: documentId,
+          toId: target,
+          kind: 'filed_under',
+        });
+      }
+
+      await this.audit.record(tx, {
+        actorId: actor.userId,
+        action: 'document.filed',
+        entityType: 'document',
+        entityId: documentId,
+        detail: { filename: item.filename, path: item.path },
+      });
+
+      await this.events.publish(tx, {
+        name: 'document.uploaded',
+        entityType: 'document',
+        entityId: documentId,
+        actorId: actor.userId,
+        payload: { clientId: input.clientId, projectId: input.projectId },
+      });
+    });
+
+    await this.indexVersion(versionId).catch((e) =>
+      this.logger.warn(`Indexing failed for ${versionId}: ${(e as Error).message}`),
+    );
+    return this.getDocument(actor, documentId);
+  }
+
+  // ── letting a client see it ────────────────────────────────
+
+  /**
+   * Share this document with its client, or stop.
+   *
+   * The portal has enforced this since Phase 7 — a `shared_with_client` link, checked in SQL
+   * — but nothing ever created one, so the feature was reachable only from a test. This is
+   * that missing half.
+   *
+   * Deliberately NOT a SharePoint sharing link. A client holding a sharepoint.com URL would
+   * bypass the per-person visibility grants entirely and hold a door into a library
+   * containing every other client's documents. The bytes keep going through the portal, as
+   * they always did.
+   */
+  async setSharedWithClient(actor: Actor, documentId: string, shared: boolean) {
+    await this.require(actor, 'docs.write');
+    const doc = await this.rawDocument(documentId);
+    if (!doc.clientId) {
+      throw new BadRequestException('This document is not filed under a client');
+    }
+
+    const existing = await this.shareLink(documentId, doc.clientId);
+
+    if (shared && !existing) {
+      await this.links.create(actor, {
+        fromId: documentId,
+        toId: doc.clientId,
+        kind: 'shared_with_client',
+      });
+    } else if (!shared && existing) {
+      await this.links.remove(actor, existing.id);
+    }
+
+    await this.db.transaction(async (tx) => {
+      await this.audit.record(tx, {
+        actorId: actor.userId,
+        // Audited both ways: this is the action that makes a file leave the building.
+        action: shared ? 'document.shared_with_client' : 'document.unshared_with_client',
+        entityType: 'document',
+        entityId: documentId,
+        detail: { clientId: doc.clientId },
+      });
+    });
+
+    return { shared };
+  }
+
+  /** Whether the client can currently see it. */
+  async sharedWithClient(documentId: string, clientId: string | null): Promise<boolean> {
+    if (!clientId) return false;
+    return Boolean(await this.shareLink(documentId, clientId));
+  }
+
+  /**
+   * The link that makes a document visible to its client, if it exists.
+   *
+   * Read through core's own link service rather than by querying core.links here — a module
+   * touches only its own schema, and this is exactly the shortcut the ground rules name.
+   */
+  private async shareLink(documentId: string, clientId: string) {
+    const all = await this.links.rawLinksFor([documentId]);
+    return (
+      all.find(
+        (l) =>
+          l.linkKind === 'shared_with_client' && l.fromId === documentId && l.toId === clientId,
+      ) ?? null
+    );
+  }
+
+  /** The current version row, or a clear failure. Every method above needs exactly this. */
+  private async currentVersionRow(documentId: string) {
+    const doc = await this.rawDocument(documentId);
+    if (!doc.currentVersionId) throw new NotFoundException('Document has no version');
+
+    const [version] = await this.db
+      .select()
+      .from(versions)
+      .where(eq(versions.id, doc.currentVersionId))
+      .limit(1);
+    if (!version) throw new NotFoundException('Version not found');
+    return version;
   }
 
   // ── search ─────────────────────────────────────────────────
@@ -310,7 +801,9 @@ export class DocsService {
       SELECT d.id AS document_id, d.title,
              ts_headline('english', v.extracted_text, plainto_tsquery('english', ${q}),
                          'MaxFragments=1,MaxWords=40,MinWords=15') AS snippet,
-             ts_rank(to_tsvector('english', v.extracted_text), plainto_tsquery('english', ${q})) AS score
+             ts_rank(to_tsvector('english', v.extracted_text), plainto_tsquery('english', ${q})) AS score,
+             (v.remote_modified_at IS NOT NULL AND v.indexed_at IS NOT NULL
+              AND v.remote_modified_at > v.indexed_at) AS stale
         FROM docs.documents d
         JOIN docs.versions v ON v.id = d.current_version_id
        WHERE d.archived_at IS NULL
@@ -326,6 +819,7 @@ export class DocsService {
       snippet: String(r.snippet ?? '').replace(/\s+/g, ' ').trim(),
       score: Number(r.score),
       via: 'text' as const,
+      stale: r.stale === true,
     }));
 
     if (EmbeddingService.isConfigured()) {
@@ -350,7 +844,9 @@ export class DocsService {
 
     const result = await this.db.execute(sql`
       SELECT c.document_id, d.title, c.content,
-             1 - (c.embedding <=> ${literal}::vector) AS score
+             1 - (c.embedding <=> ${literal}::vector) AS score,
+             (v.remote_modified_at IS NOT NULL AND v.indexed_at IS NOT NULL
+              AND v.remote_modified_at > v.indexed_at) AS stale
         FROM docs.chunks c
         JOIN docs.documents d ON d.id = c.document_id
         JOIN docs.versions v ON v.id = d.current_version_id AND v.id = c.version_id
@@ -365,6 +861,7 @@ export class DocsService {
       snippet: String(r.content).slice(0, 300),
       score: Number(r.score),
       via: 'semantic' as const,
+      stale: r.stale === true,
     }));
   }
 
@@ -563,6 +1060,14 @@ export class DocsService {
       })),
     );
 
+    // The stamp staleness is measured against. Without it "indexed" is a boolean and the
+    // only question a screen can answer is whether we ever read the file, not whether what
+    // we read is still what is there.
+    await this.db
+      .update(versions)
+      .set({ indexedAt: new Date() })
+      .where(eq(versions.id, versionId));
+
     this.logger.log(`Indexed ${pieces.length} chunk(s) for version ${version.version}`);
     return pieces.length;
   }
@@ -618,8 +1123,10 @@ export class DocsService {
     await this.db.execute(sql`DROP VIEW IF EXISTS docs.v_documents CASCADE`);
     await this.db.execute(sql`
       CREATE VIEW docs.v_documents AS
-      SELECT d.id, d.title, d.category, d.client_id, d.project_id,
-             v.version, v.filename, v.mime_type, v.size_bytes, v.storage_key,
+      SELECT d.id, d.title, d.category, d.client_id, d.project_id, d.scope,
+             v.version, v.filename, v.mime_type, v.size_bytes,
+             v.storage_backend, v.storage_key, v.drive_id, v.drive_item_id,
+             v.indexed_at, v.remote_modified_at, v.missing_at,
              (v.extracted_text IS NOT NULL) AS indexed,
              d.uploaded_by, d.created_at, d.updated_at
         FROM docs.documents d
@@ -645,4 +1152,48 @@ export class DocsService {
     const { version, data } = await this.download(actor, documentId, versionId);
     return this.fileTypes.preview(data, version.mimeType, version.filename);
   }
+}
+
+/**
+ * The columns that say where a version's bytes are.
+ *
+ * One function, because three insert sites write them and a fourth spelling is how a row
+ * ends up looking fine in every list and refusing to download.
+ */
+function pointerColumns(stored: PutResult) {
+  const ref = stored.ref;
+  if (ref.backend === 'local') {
+    return { storageBackend: 'local' as const, storageKey: ref.storageKey };
+  }
+  return {
+    storageBackend: 'sharepoint' as const,
+    driveId: ref.driveId,
+    driveItemId: ref.itemId,
+    ctag: stored.remote?.cTag ?? null,
+    etag: stored.remote?.eTag ?? null,
+    sharepointPath: stored.remote?.path ?? null,
+    webUrl: stored.remote?.webUrl ?? null,
+    remoteModifiedAt: stored.remote?.lastModifiedAt ?? null,
+    remoteModifiedBy: stored.remote?.lastModifiedBy ?? null,
+    remoteCheckedAt: new Date(),
+  };
+}
+
+/**
+ * Where a document belongs, in the store's terms.
+ *
+ * A document with neither a client nor a project is org-level — a template, or a quote for
+ * somebody who is not a client yet — and those were unfileable before D8.
+ */
+function folderFor(
+  client: { name?: string | null } | null,
+  project: { name?: string | null } | null,
+  bucket?: 'documents' | 'outgoing',
+): FolderSpec {
+  if (!client && !project) return { orgScope: true };
+  return {
+    clientName: client?.name ?? null,
+    projectName: project?.name ?? null,
+    ...(bucket ? { bucket } : {}),
+  };
 }

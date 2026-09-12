@@ -83,11 +83,22 @@ export interface PortalAudience {
   clientId: string;
 }
 
-/** Enough to serve bytes, resolved only for files this client is entitled to. */
+/**
+ * Enough to serve bytes, resolved only for files this client is entitled to.
+ *
+ * Since D8 a document's bytes may be in SharePoint, so this carries a pointer rather than a
+ * key. What it must NEVER carry is web_url: that is a link into a library holding every
+ * other client's documents, and a client who received one would hold a door the portal's
+ * whole visibility model exists to keep shut. The view it is selected from does not publish
+ * that column, and a spec asserts no portal response body ever contains one.
+ */
 export interface FileRef {
   filename: string;
   mime_type: string;
-  storage_key: string;
+  storage_backend: string;
+  storage_key: string | null;
+  drive_id: string | null;
+  drive_item_id: string | null;
 }
 
 /**
@@ -451,7 +462,8 @@ export class PortalProjection {
     if (!this.sees(audience, 'invoices')) return null;
     if (!this.plausibleId(invoiceId, 'invoice')) return null;
     const result = await this.db.execute(sql`
-      SELECT d.filename, d.mime_type, d.storage_key
+      SELECT d.filename, d.mime_type,
+             d.storage_backend, d.storage_key, d.drive_id, d.drive_item_id
         FROM billing.v_invoices i
         JOIN docs.v_documents d ON d.id = i.pdf_document_id
        WHERE i.id = ${invoiceId}
@@ -468,7 +480,8 @@ export class PortalProjection {
     if (!this.plausibleId(documentId, 'document')) return null;
     const mine = await this.hidden(audience, 'document');
     const result = await this.db.execute(sql`
-      SELECT d.filename, d.mime_type, d.storage_key
+      SELECT d.filename, d.mime_type,
+             d.storage_backend, d.storage_key, d.drive_id, d.drive_item_id
         FROM docs.v_documents d
         JOIN core.links l ON l.from_id = d.id
        WHERE d.id = ${documentId}

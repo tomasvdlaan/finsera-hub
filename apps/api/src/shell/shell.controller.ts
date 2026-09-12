@@ -32,6 +32,8 @@ import { OpenRouterService } from '../core/usage/openrouter.service.js';
 import { OrchestratorService } from '../core/llm/orchestrator.service.js';
 import { DepartmentsService } from '../core/auth/departments.service.js';
 import { IdentityDirectory } from '../core/auth/zitadel.client.js';
+import { GraphClient } from '../core/graph/graph.client.js';
+import { GraphDriveService } from '../core/graph/graph-drive.service.js';
 import { PermissionService } from '../core/permissions/permission.service.js';
 import { DashboardService } from '../core/registry/dashboard.service.js';
 import { INTERNAL_ROLE, PORTAL_ROLE, roleClaims, rolesFrom } from '../core/auth/roles.js';
@@ -63,6 +65,8 @@ export class ShellController {
     private readonly openrouter: OpenRouterService,
     private readonly assistant: OrchestratorService,
     private readonly audit: AuditService,
+    private readonly graph: GraphClient,
+    private readonly drive: GraphDriveService,
   ) {}
 
   /** The organisation's own legal details — printed on every invoice and quote. */
@@ -91,6 +95,50 @@ export class ShellController {
   ) {
     if (actor.role !== 'admin') throw new ForbiddenException();
     return this.settings.update(body);
+  }
+
+  /**
+   * Whether documents can reach SharePoint, and if not, why (decision D8).
+   *
+   * The same shape as `auth/diagnostics` and for the same reason: the failures here are
+   * configuration failures — a secret that expired, a `Sites.Selected` grant nobody made,
+   * a site id copied from the wrong site — and each of them presents as "it does not work".
+   *
+   * Reaching the site is the only real check. `configured` says the variables are present,
+   * which is not the same as the credential being accepted or the grant existing, and those
+   * are exactly the two things that go wrong on the day of the deploy.
+   *
+   * Admin-only, because it describes how a credential is wired. No token, no secret.
+   */
+  @Get('health/graph')
+  async graphHealth(@CurrentActor() actor: Actor) {
+    if (actor.role !== 'admin') throw new ForbiddenException();
+
+    const base = {
+      configured: this.graph.configured,
+      reason: this.graph.unconfiguredReason,
+      tenantId: this.graph.tenantId || null,
+      clientId: this.graph.clientId || null,
+      siteId: this.graph.siteId || null,
+      rootFolder: process.env.GRAPH_ROOT_FOLDER ?? null,
+      store: process.env.DOCS_STORE ?? 'local',
+    };
+
+    if (!this.graph.configured) {
+      return { ...base, siteReachable: false, driveId: null, lastError: null };
+    }
+
+    try {
+      const driveId = await this.drive.driveId();
+      return { ...base, siteReachable: true, driveId, lastError: null };
+    } catch (err) {
+      return {
+        ...base,
+        siteReachable: false,
+        driveId: null,
+        lastError: (err as Error).message,
+      };
+    }
   }
 
   /** Liveness — used by the deploy healthcheck. */

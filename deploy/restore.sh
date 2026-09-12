@@ -76,14 +76,35 @@ HAS_DOCS=$("${COMPOSE[@]}" exec -T postgres psql -U "$PGUSER_DEFAULT" -d "$TARGE
   -c "SELECT to_regclass('docs.versions') IS NOT NULL;" | tr -d '\r')
 
 if [[ "$HAS_DOCS" == "t" ]]; then
+  # Only local-backed versions. Since D8 a version's bytes may live in SharePoint, and
+  # asserting those exist in a tar of /storage would fail every drill from now on.
   KEYS=$("${COMPOSE[@]}" exec -T postgres psql -U "$PGUSER_DEFAULT" -d "$TARGET_DB" -tA \
-    -c "SELECT storage_key FROM docs.versions;" | tr -d '\r')
+    -c "SELECT storage_key FROM docs.versions
+         WHERE storage_backend = 'local' AND storage_key IS NOT NULL;" | tr -d '\r')
+  REMOTE=$("${COMPOSE[@]}" exec -T postgres psql -U "$PGUSER_DEFAULT" -d "$TARGET_DB" -tA \
+    -c "SELECT count(*) FROM docs.versions WHERE storage_backend = 'sharepoint';" \
+    | tr -d '\r')
 else
   KEYS=""
+  REMOTE=0
+fi
+
+# Said out loud, every time, before the drill can be called a pass.
+#
+# This is the honest cost of D8: the database restores and those bytes are Microsoft's
+# problem, so this script can no longer prove the whole system. A drill that quietly
+# passed while half the documents were unreachable would be worse than one that failed.
+if [[ "${REMOTE:-0}" != "0" ]]; then
+  echo
+  echo "  NOTE: $REMOTE document version(s) live in SharePoint."
+  echo "        Those bytes are NOT in this backup and are not verified here."
+  echo "        They are covered by the library's version history and recycle bin."
+  echo "        Verify them separately against the tenant — see docs/deploy-runbook.md."
+  echo
 fi
 
 if [[ -z "$KEYS" ]]; then
-  echo "  no documents in this backup — nothing to verify"
+  echo "  no locally stored documents in this backup — nothing to verify on disk"
   echo
   echo "Restore drill passed."
   exit 0

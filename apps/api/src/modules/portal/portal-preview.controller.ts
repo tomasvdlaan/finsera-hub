@@ -19,6 +19,7 @@ import { CurrentActor } from '../../core/auth/current-actor.decorator.js';
 import { DB, type Database } from '../../core/db/db.module.js';
 import { PermissionService } from '../../core/permissions/permission.service.js';
 import { StorageService } from '../../core/storage/storage.service.js';
+import { DocumentStore, refFromRow } from '../../core/storage/document-store.js';
 import { PortalTicketsService } from './portal-tickets.service.js';
 import { PortalProjection } from './portal.projection.js';
 
@@ -57,6 +58,7 @@ export class PortalPreviewController {
     private readonly projection: PortalProjection,
     private readonly permissions: PermissionService,
     private readonly storage: StorageService,
+    private readonly docStore: DocumentStore,
     private readonly audit: AuditService,
     private readonly tickets: PortalTicketsService,
     @Inject(DB) private readonly db: Database,
@@ -184,7 +186,7 @@ export class PortalPreviewController {
     await this.allow(actor, clientId, 'invoice_pdf');
     const file = await this.projection.invoiceFile({ clientId }, invoiceId);
     if (!file) throw new NotFoundException('Not found');
-    const data = await this.storage.get(file.storage_key);
+    const data = await this.docStore.read(refFromRow(file));
     res.setHeader('Content-Type', file.mime_type);
     res.setHeader('Content-Disposition', `inline; filename="${file.filename.replace(/"/g, '')}"`);
     res.setHeader('Cache-Control', 'private, no-store');

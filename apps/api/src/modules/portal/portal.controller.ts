@@ -17,6 +17,7 @@ import { AuditService } from '../../core/audit/audit.service.js';
 import { Public } from '../../core/auth/public.decorator.js';
 import { DB, type Database } from '../../core/db/db.module.js';
 import { StorageService } from '../../core/storage/storage.service.js';
+import { DocumentStore, refFromRow } from '../../core/storage/document-store.js';
 import { SalesService } from '../sales/sales.service.js';
 import { PortalTicketsService } from './portal-tickets.service.js';
 import { CurrentViewer, CurrentVisitor } from './current-visitor.decorator.js';
@@ -50,6 +51,7 @@ export class PortalController {
   constructor(
     private readonly projection: PortalProjection,
     private readonly storage: StorageService,
+    private readonly docStore: DocumentStore,
     private readonly audit: AuditService,
     private readonly sales: SalesService,
     private readonly tickets: PortalTicketsService,
@@ -336,10 +338,13 @@ export class PortalController {
 
   private async send(
     res: Response,
-    file: { filename: string; mime_type: string; storage_key: string },
+    file: Parameters<typeof refFromRow>[0] & { filename: string; mime_type: string },
     disposition: 'inline' | 'attachment',
   ) {
-    const data = await this.storage.get(file.storage_key);
+    // Through the document store, so a SharePoint-backed document downloads here exactly
+    // as a local one does. The client never learns which, and never sees a sharepoint.com
+    // URL: the pre-authenticated one Graph hands back is followed server-side and dropped.
+    const data = await this.docStore.read(refFromRow(file));
     res.setHeader('Content-Type', file.mime_type);
     res.setHeader(
       'Content-Disposition',

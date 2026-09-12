@@ -16,6 +16,15 @@ import { closeDb } from './db.js';
 const TEST_STORAGE = join(tmpdir(), `platform-test-storage-${process.pid}`);
 process.env.STORAGE_PATH = TEST_STORAGE;
 
+/**
+ * Documents stay on disk in tests, always.
+ *
+ * Belt and braces beside the DriveApi seam: a test that reached Microsoft would need a
+ * credential, but it would also be a test whose result depends on somebody's tenant. A
+ * spec that wants SharePoint behaviour injects FakeGraphDrive on purpose.
+ */
+process.env.DOCS_STORE = 'local';
+
 // Manifest registration logs on every construction; useful at boot, noise in tests.
 Logger.overrideLogger(false);
 

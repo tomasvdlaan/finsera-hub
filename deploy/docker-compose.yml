@@ -115,6 +115,19 @@ services:
       RECALL_API_KEY: ${RECALL_API_KEY:-}
       RECALL_REGION_URL: ${RECALL_REGION_URL:-https://eu-central-1.recall.ai}
       RECALL_WEBHOOK_BASE: ${RECALL_WEBHOOK_BASE:-}
+      # Documents in SharePoint (D8). Every one of these has to be named here as well as
+      # in deploy/.env — a value the compose file does not enumerate reaches the host and
+      # stops, which is exactly how PORTAL_PAGE_KEY never reached the container.
+      #
+      # DOCS_STORE fails closed: unset leaves documents on the local disk and the storage
+      # volume below still carrying them.
+      GRAPH_TENANT_ID: ${GRAPH_TENANT_ID:-}
+      GRAPH_CLIENT_ID: ${GRAPH_CLIENT_ID:-}
+      GRAPH_CLIENT_SECRET: ${GRAPH_CLIENT_SECRET:-}
+      GRAPH_SITE_ID: ${GRAPH_SITE_ID:-}
+      GRAPH_DRIVE_ID: ${GRAPH_DRIVE_ID:-}
+      GRAPH_ROOT_FOLDER: ${GRAPH_ROOT_FOLDER:-Clients}
+      DOCS_STORE: ${DOCS_STORE:-local}
     volumes:
       # Uploaded files live outside the database, so they need durable storage of their
       # own — and the backup job needs to see them.

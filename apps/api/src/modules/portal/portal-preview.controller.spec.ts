@@ -11,6 +11,7 @@ import { ManifestRegistry } from '../../core/manifest/manifest.registry.js';
 import { PermissionService } from '../../core/permissions/permission.service.js';
 import { RegistryService } from '../../core/registry/registry.service.js';
 import { StorageService } from '../../core/storage/storage.service.js';
+import { LocalDocumentStore } from '../../core/storage/local-document-store.js';
 import { resetDb, seedUser, testDb, truncate } from '../../test/db.js';
 import { crmManifest } from '../crm/crm.manifest.js';
 import { CrmService } from '../crm/crm.service.js';
@@ -119,6 +120,7 @@ describe('PortalPreviewController behaviour', () => {
       new PortalProjection(testDb, manifests, new PortalAccessService(testDb, new PermissionService(testDb, manifests), new AuditService(testDb))),
       permissions,
       new StorageService(),
+      new LocalDocumentStore(new StorageService()),
       audit,
       // Ticket triage is exercised by its own spec; these tests are about previewing.
       {} as unknown as PortalTicketsService,

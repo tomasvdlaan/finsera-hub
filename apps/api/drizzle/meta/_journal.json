@@ -470,6 +470,13 @@
       "when": 1788967794327,
       "tag": "0066_workable_steel_serpent",
       "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1788989182861,
+      "tag": "0067_lyrical_vertigo",
+      "breakpoints": true
     }
   ]
 }

@@ -129,6 +129,63 @@ export class DocsController {
     res.send(data);
   }
 
+  // ── living with a file somebody else can change (D8) ───────
+
+  /** One metadata call. Deliberately cheap, so asking "is this current?" always can be. */
+  @Post('documents/:id/check')
+  check(@CurrentActor() actor: Actor, @Param('id') id: string) {
+    return this.docs.checkRemote(actor, id);
+  }
+
+  /** Re-read the file and catch the index up. The expensive half, on purpose separate. */
+  @Post('documents/:id/sync')
+  sync(@CurrentActor() actor: Actor, @Param('id') id: string) {
+    return this.docs.sync(actor, id);
+  }
+
+  /**
+   * JSON, not a redirect.
+   *
+   * The screen has to be able to say "this opens in SharePoint, and only if you have access
+   * there" before a tab opens — and an endpoint that 302s to a third-party URL is
+   * open-redirect-shaped whatever it is used for.
+   */
+  @Get('documents/:id/edit-url')
+  editUrl(@CurrentActor() actor: Actor, @Param('id') id: string) {
+    return this.docs.editUrl(actor, id);
+  }
+
+  /** Files in the library the platform has never heard of. */
+  @Get('unfiled')
+  unfiled(@CurrentActor() actor: Actor) {
+    return this.docs.listUnfiled(actor);
+  }
+
+  /** Adopt one as a document. No bytes move; the file stays where the person put it. */
+  @Post('unfiled/:driveItemId/file')
+  fileUnfiled(
+    @CurrentActor() actor: Actor,
+    @Param('driveItemId') driveItemId: string,
+    @Body() body: { title?: string; clientId?: string; projectId?: string; scope?: 'org' },
+  ) {
+    return this.docs.fileUnfiled(actor, driveItemId, body);
+  }
+
+  /**
+   * Let this document's client see it, or stop.
+   *
+   * The portal has enforced this link since Phase 7; nothing ever created one, so the
+   * feature existed only in a test. Never a SharePoint sharing link — see the service.
+   */
+  @Post('documents/:id/share')
+  share(
+    @CurrentActor() actor: Actor,
+    @Param('id') id: string,
+    @Body() body: { shared: boolean },
+  ) {
+    return this.docs.setSharedWithClient(actor, id, body.shared === true);
+  }
+
   @Delete('documents/:id')
   async archive(@CurrentActor() actor: Actor, @Param('id') id: string) {
     await this.docs.archive(actor, id);

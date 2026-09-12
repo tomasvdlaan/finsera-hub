@@ -12,6 +12,7 @@ import { PermissionService } from '../../core/permissions/permission.service.js'
 import { RegistryService } from '../../core/registry/registry.service.js';
 import { SettingsService } from '../../core/settings/settings.service.js';
 import { StorageService } from '../../core/storage/storage.service.js';
+import { LocalDocumentStore } from '../../core/storage/local-document-store.js';
 import { resetDb, seedUser, testDb, truncate } from '../../test/db.js';
 import { billingManifest } from '../billing/billing.manifest.js';
 import { BillingService } from '../billing/billing.service.js';
@@ -78,7 +79,7 @@ describe('Portal isolation, adversarially', () => {
     const time = new TimeService(testDb, registry, permissions, audit, bus, links, crm);
     const docs = new DocsService(
       testDb, registry, permissions, audit, bus, links,
-      new StorageService(), new EmbeddingService(), new FileTypeRegistry(), crm, new LlmService(),
+      new LocalDocumentStore(new StorageService()), new EmbeddingService(), new FileTypeRegistry(), crm, new LlmService(),
     );
     const settings = new SettingsService(testDb);
     const billing = new BillingService(
@@ -134,6 +135,32 @@ describe('Portal isolation, adversarially', () => {
         fromId: doc.id, toId: theirs, kind: 'shared_with_client',
       });
     });
+  });
+
+  /**
+   * The rule D8 turns on: a client must never receive a link into the library.
+   *
+   * A sharepoint.com URL would bypass the per-person visibility grants entirely and hand its
+   * holder a door into a library containing every other client's documents. Asserted on the
+   * SERIALIZED body of everything the portal can answer, rather than on a field list — the
+   * leak that matters is the one somebody adds to a projection later without reading this.
+   */
+  it('never puts a SharePoint pointer in anything a client can read', async () => {
+    // As the client the document IS shared with, so this reads the permitted path rather
+    // than the refusal — a refusal leaks nothing and would prove nothing.
+    const entitled: PortalVisitor = { ...visitor, clientId: theirs };
+    const everything = await Promise.all([
+      projection.projects(entitled),
+      projection.invoices(entitled),
+      projection.quotes(entitled),
+      projection.documents(entitled),
+      projection.documentFile(entitled, theirDocId),
+    ]);
+
+    const body = JSON.stringify(everything);
+    for (const forbidden of ['sharepoint.com', 'webUrl', 'web_url', 'sharepoint_path']) {
+      expect(body).not.toContain(forbidden);
+    }
   });
 
   it('cannot list another client’s anything', async () => {

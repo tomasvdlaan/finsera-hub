@@ -23,6 +23,10 @@ export const docsManifest = defineManifest({
     { name: 'document.uploaded', description: 'A document was uploaded.' },
     { name: 'document.version_added', description: 'A new version of a document was added.' },
     { name: 'document.archived', description: 'A document was archived.' },
+    {
+      name: 'document.synced',
+      description: 'A document was re-read from SharePoint after changing there.',
+    },
   ],
 
   subscribes: [],

@@ -12,6 +12,7 @@ import { PermissionService } from '../../core/permissions/permission.service.js'
 import { RegistryService } from '../../core/registry/registry.service.js';
 import { SettingsService } from '../../core/settings/settings.service.js';
 import { StorageService } from '../../core/storage/storage.service.js';
+import { LocalDocumentStore } from '../../core/storage/local-document-store.js';
 import { resetDb, seedUser, testDb, truncate } from '../../test/db.js';
 import { crmManifest } from '../crm/crm.manifest.js';
 import { CrmService } from '../crm/crm.service.js';
@@ -66,7 +67,7 @@ describe('SalesService', () => {
       audit,
       bus,
       links,
-      new StorageService(),
+      new LocalDocumentStore(new StorageService()),
       new EmbeddingService(),
       new FileTypeRegistry(),
       crm,
