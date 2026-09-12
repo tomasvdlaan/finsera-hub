@@ -186,6 +186,23 @@ describe('the monthly hours ledger', () => {
     expect(await store.listUnfiled(new Set())).toEqual([]);
   });
 
+  /**
+   * A deploy in the middle of somebody's debounce window must not lose their afternoon.
+   *
+   * The dirty set is in memory and the next flush only writes months it has been told about,
+   * so a dropped window is a gap nothing afterwards would know to go looking for.
+   */
+  it('writes what is pending when the process shuts down', async () => {
+    await log('2026-09-03', 90, 'Net voor de deploy');
+    expect(await drive.listAll()).toHaveLength(0);
+
+    await exporter.onModuleDestroy();
+
+    const files = await drive.listAll();
+    expect(files).toHaveLength(1);
+    expect(await csvOf(files[0]!.id)).toContain('Net voor de deploy');
+  });
+
   it('does nothing at all when documents are not in SharePoint', async () => {
     await build(new LocalDocumentStore(new StorageService()));
     await log('2026-09-03', 90);

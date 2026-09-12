@@ -7,8 +7,14 @@ import { DocumentStore, refFromRow } from '../../core/storage/document-store.js'
 import { entries, exports_ } from './time.schema.js';
 import { csvHours, csvYesNo, toCsv } from './csv.js';
 
-/** How long a change waits before it reaches SharePoint. One env var, in minutes. */
-const DEFAULT_INTERVAL_MINUTES = 15;
+/**
+ * How long the first change of a burst waits for company before the month is written.
+ *
+ * A trailing debounce, not a poll: nothing is scheduled while nobody is logging hours, and
+ * a Friday afternoon of entering the week produces one write rather than one per entry.
+ * Zero means write as soon as the current call finishes.
+ */
+const DEFAULT_DEBOUNCE_MINUTES = 5;
 
 const HEADER = [
   'datum',
@@ -52,6 +58,7 @@ export class TimeExportService implements OnModuleInit, OnModuleDestroy {
 
   /** Months with unexported changes, as 'YYYY-MM'. */
   private readonly dirty = new Set<string>();
+  /** The armed debounce, or null when nothing is pending. */
   private timer: NodeJS.Timeout | null = null;
   private running = false;
 
@@ -61,22 +68,65 @@ export class TimeExportService implements OnModuleInit, OnModuleDestroy {
     private readonly store: DocumentStore,
   ) {}
 
+  /**
+   * Nothing is scheduled at boot, with one exception.
+   *
+   * The dirty set lives in memory, so a change made just before a restart would otherwise
+   * wait for the next unrelated change to be noticed. Arming the current and previous month
+   * once closes that gap for the cost of two CSV builds — and because a write only happens
+   * when the content differs from the stored checksum, the usual outcome is no write at all.
+   */
   onModuleInit(): void {
     if (!this.enabled) {
       this.logger.log('Hours export: off (documents are not in SharePoint)');
       return;
     }
-    const ms = this.intervalMinutes * 60_000;
-    this.timer = setInterval(() => void this.flush(), ms);
-    // Do not hold the process open for this. It is a background convenience, and a test or a
-    // CLI that finishes its work should exit rather than wait for a timer nobody is watching.
-    this.timer.unref?.();
-    this.logger.log(`Hours export: every ${this.intervalMinutes} min to SharePoint`);
+    this.logger.log(
+      `Hours export: on the first change, coalesced for ${this.debounceMinutes} min`,
+    );
+
+    const now = new Date();
+    const previous = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    this.dirty.add(now.toISOString().slice(0, 7));
+    this.dirty.add(previous.toISOString().slice(0, 7));
+    this.arm();
   }
 
-  onModuleDestroy(): void {
-    if (this.timer) clearInterval(this.timer);
+  /**
+   * A stop writes what is pending rather than dropping it.
+   *
+   * The dirty set is in memory, so without this a deploy in the middle of somebody's
+   * debounce window would silently discard their afternoon from the ledger — and nothing
+   * afterwards would know to go looking, because the next flush only writes months it has
+   * been told about.
+   */
+  async onModuleDestroy(): Promise<void> {
+    if (this.timer) clearTimeout(this.timer);
     this.timer = null;
+    if (this.dirty.size === 0) return;
+    await this.flush().catch((e) =>
+      this.logger.warn(`Hours export on shutdown failed: ${(e as Error).message}`),
+    );
+  }
+
+  /**
+   * Start the clock, or leave the running one alone.
+   *
+   * Leaving it alone is the coalescing: the window belongs to the first change of a burst,
+   * so a hundred entries in five minutes share one write rather than each pushing the
+   * deadline further out and starving the ledger while somebody keeps typing.
+   */
+  private arm(): void {
+    if (this.timer || !this.enabled) return;
+    this.timer = setTimeout(() => {
+      this.timer = null;
+      void this.flush().then(() => {
+        // Anything that arrived during the flush, or a month that failed and went back in.
+        if (this.dirty.size > 0) this.arm();
+      });
+    }, this.debounceMinutes * 60_000);
+    // Never hold the process open: a CLI or a test that has finished should exit.
+    this.timer.unref?.();
   }
 
   /**
@@ -90,9 +140,10 @@ export class TimeExportService implements OnModuleInit, OnModuleDestroy {
     return this.store.backend === 'sharepoint' && this.store.available;
   }
 
-  private get intervalMinutes(): number {
-    const raw = Number(process.env.TIME_EXPORT_INTERVAL_MINUTES);
-    return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_INTERVAL_MINUTES;
+  /** Zero is meaningful here — it means "write as soon as this call returns". */
+  private get debounceMinutes(): number {
+    const raw = Number(process.env.TIME_EXPORT_DEBOUNCE_MINUTES);
+    return Number.isFinite(raw) && raw >= 0 ? raw : DEFAULT_DEBOUNCE_MINUTES;
   }
 
   /**
@@ -106,6 +157,7 @@ export class TimeExportService implements OnModuleInit, OnModuleDestroy {
     const iso = typeof workedOn === 'string' ? workedOn : workedOn.toISOString().slice(0, 10);
     if (!/^\d{4}-\d{2}/.test(iso)) return;
     this.dirty.add(iso.slice(0, 7));
+    this.arm();
   }
 
   /**
