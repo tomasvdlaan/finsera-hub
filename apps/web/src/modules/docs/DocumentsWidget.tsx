@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { UploadForm } from './UploadForm.js';
-import { formatBytes, type DocumentSummary } from './types.js';
+import { formatBytes, isStale, type DocumentSummary } from './types.js';
 import { Empty } from '../../shell/ui/primitives.js';
 
 /**
@@ -46,6 +46,8 @@ export function DocumentsWidget({
               {d.category && <span className="badge">{d.category}</span>}{' '}
               <span className="muted">
                 v{d.version ?? 1} · {formatBytes(d.sizeBytes)}
+                {/* Nobody should have to open a document to learn it is out of date. */}
+                {isStale(d) && ' · out of date'}
               </span>
             </li>
           ))}

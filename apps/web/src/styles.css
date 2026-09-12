@@ -7511,6 +7511,40 @@ main table:not(.grid) [data-align='action'] {
   color: var(--muted);
 }
 .doc-via[data-via='text'] { background: var(--brand-tint); color: var(--accent); }
+/*
+ * A hit from a document whose file has moved on since we read it.
+ *
+ * Warning-coloured rather than muted on purpose: this is the failure mode manual indexing
+ * creates, and a reader who does not notice it will quote the old clause with confidence.
+ */
+.doc-via[data-stale] { background: var(--warning-tint, var(--surface-sunken)); color: var(--warning); }
+
+/* Whether the client can see this, and the one control that changes it. */
+.doc-share {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--line);
+}
+
+/* One file somebody put in the library, and the single decision it needs. */
+.doc-unfiled { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
+.doc-unfiled li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 14rem) minmax(0, 12rem) auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+}
+.doc-unfiled-text { display: grid; gap: 2px; min-width: 0; }
+.doc-unfiled-text b { word-break: break-all; }
+@media (max-width: 900px) {
+  .doc-unfiled li { grid-template-columns: minmax(0, 1fr); }
+}
 
 /*
  * The comparison slot under a figure.

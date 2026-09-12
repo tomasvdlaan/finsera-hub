@@ -7,7 +7,7 @@ import { Skeleton } from '../../shell/ui/data.js';
 import { api } from '../../lib/api.js';
 import type { Client, Project } from '../crm/types.js';
 import { UploadForm } from './UploadForm.js';
-import { formatBytes, type DocumentSummary, type SearchHit } from './types.js';
+import { formatBytes, type DocumentSummary, type SearchHit, isStale } from './types.js';
 
 const euro = (cents: number) =>
   new Intl.NumberFormat('nl-NL', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(
@@ -89,6 +89,31 @@ export function DocumentList() {
 
   const unread = (documents ?? []).filter((d) => !d.indexed).length;
 
+  /*
+   * Computed from stored stamps only — never a request per row.
+   *
+   * Two hundred documents would be two hundred Graph calls and a throttle, so this is as of
+   * the last time anybody pressed Check on each one, and the wording below says so rather
+   * than implying the list just looked.
+   */
+  const outOfDate = (documents ?? []).filter(isStale).length;
+
+  /*
+   * How many files sit in the library with no record here.
+   *
+   * Fetched once alongside the list rather than on a schedule: it walks the whole library,
+   * and it is only interesting when somebody has just moved files in.
+   */
+  const [unfiled, setUnfiled] = useState(0);
+  useEffect(() => {
+    api
+      .get<unknown[]>('/docs/unfiled')
+      .then((f) => setUnfiled(f.length))
+      // Not in SharePoint, or no permission: an ordinary state, and the link simply
+      // does not appear.
+      .catch(() => setUnfiled(0));
+  }, [documents]);
+
   return (
     <>
       <PageHeader
@@ -123,6 +148,13 @@ export function DocumentList() {
                 Clear
               </button>
             )}
+            {/* Only when there is something to file: a permanent link to an empty screen is
+                a permanent invitation to check an empty screen. */}
+            {unfiled > 0 && (
+              <Link className="act" to="/docs/unfiled">
+                {unfiled} unfiled
+              </Link>
+            )}
           </form>
         }
       />
@@ -143,6 +175,14 @@ export function DocumentList() {
                   <span className="doc-via" data-via={h.via}>
                     {h.via === 'text' ? 'words' : 'meaning'}
                   </span>
+                  {/*
+                    The marker that makes manual indexing honest.
+
+                    Without it somebody searches, finds the old clause, and has nothing at
+                    all telling them the file moved on — which would make search less
+                    trustworthy than it was before any of this.
+                  */}
+                  {h.stale && <span className="doc-via" data-stale="true">out of date</span>}
                   <p>{h.snippet}</p>
                 </li>
               ))}
@@ -174,6 +214,7 @@ export function DocumentList() {
                 {/* Named rather than hidden: a file nobody could read is invisible to search,
                     and that is worth knowing before somebody concludes it is not filed. */}
                 {unread > 0 && ` · ${unread} with no readable text`}
+                {outOfDate > 0 && ` · ${outOfDate} out of date at last check`}
               </span>
             </div>
           </Card>
@@ -220,6 +261,7 @@ export function DocumentList() {
                       projects.find((p) => p.id === d.projectId)?.name,
                       formatBytes(d.sizeBytes),
                       when(d.updatedAt),
+                      isStale(d) ? 'out of date' : null,
                     ]
                       .filter(Boolean)
                       .join(' · ')}

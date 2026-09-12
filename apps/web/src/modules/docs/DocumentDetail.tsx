@@ -7,13 +7,22 @@ import { Skeleton } from '../../shell/ui/data.js';
 import { useDocumentTitle } from '../../shell/useDocumentTitle.js';
 import { DocumentPreview } from './DocumentPreview.js';
 import { UploadForm } from './UploadForm.js';
-import { formatBytes, type DocumentDetail as Doc } from './types.js';
+import { formatBytes, isStale, type DocumentDetail as Doc } from './types.js';
 
 const euro = (cents: number) =>
   new Intl.NumberFormat('nl-NL', { style: 'currency', currency: 'EUR' }).format(cents / 100);
 
 const when = (iso: string | null) =>
   iso ? new Intl.DateTimeFormat('nl-NL', { dateStyle: 'medium' }).format(new Date(iso)) : '—';
+
+/** Office formats open in Word or Excel Online; everything else has nowhere to go. */
+const OFFICE = /\.(docx?|xlsx?|pptx?)$/i;
+const officeApp = (filename: string | undefined) => {
+  if (!filename) return null;
+  if (/\.xlsx?$/i.test(filename)) return 'Excel';
+  if (/\.pptx?$/i.test(filename)) return 'PowerPoint';
+  return OFFICE.test(filename) ? 'Word' : null;
+};
 
 type Tab = 'details' | 'versions' | 'ask' | 'activity';
 
@@ -85,6 +94,19 @@ export function DocumentDetail() {
   const termsAreStale =
     doc.extractedVersionId !== null && doc.extractedVersionId !== doc.currentVersionId;
 
+  /*
+   * The same idea one level down: the terms can be stale against the version, and the
+   * version can be stale against the file itself.
+   *
+   * Nothing watches the file for us — indexing is manual, by decision — so this is only
+   * ever as fresh as the last time somebody pressed Check. Which is exactly why it has to
+   * be on screen: search answers from the older text either way, and silently.
+   */
+  const inSharePoint = current?.storageBackend === 'sharepoint';
+  const indexStale = current ? isStale(current) : false;
+  const missing = Boolean(current?.missingAt);
+  const app = officeApp(current?.filename);
+
   return (
     <div className="doc-page">
       <header className="doc-head">
@@ -109,6 +131,37 @@ export function DocumentDetail() {
           </div>
         </div>
         <div className="doc-head-actions">
+          {inSharePoint && app && !missing && (
+            <Act
+              variant="quiet"
+              run={async () => {
+                const r = await api.get<{ available: boolean; webUrl: string | null; reason: string | null }>(
+                  `/docs/documents/${id}/edit-url`,
+                );
+                // Told, rather than a tab that opens onto Microsoft's refusal. Opening the
+                // file needs the person's own SharePoint access, which the platform's
+                // permissions say nothing about.
+                if (!r.available || !r.webUrl) throw new Error(r.reason ?? 'Not available');
+                window.open(r.webUrl, '_blank', 'noopener,noreferrer');
+              }}
+            >
+              Open in {app}
+            </Act>
+          )}
+          {inSharePoint && (
+            <Act variant="quiet" run={() => api.post(`/docs/documents/${id}/check`, {})} onDone={load}>
+              Check SharePoint
+            </Act>
+          )}
+          {inSharePoint && (
+            <Act
+              variant={indexStale ? undefined : 'quiet'}
+              run={() => api.post(`/docs/documents/${id}/sync`, {})}
+              onDone={load}
+            >
+              Re-index
+            </Act>
+          )}
           <a className="act" href={`/api/docs/documents/${id}/download`}>
             Download
           </a>
@@ -195,16 +248,42 @@ export function DocumentDetail() {
                   <dt>File</dt>
                   <dd className="doc-filename">{current?.filename ?? '—'}</dd>
                 </div>
+                {/*
+                  Two facts, not one.
+
+                  "Indexed: Yes" answered the wrong question once a file could change without
+                  us: what matters is when we last read it, and when it last changed there.
+                  The gap between those two is the entire cost of manual indexing.
+                */}
                 <div>
                   <dt>Indexed</dt>
                   <dd>
                     {current?.extractedText ? (
-                      <span className="ok">Yes</span>
+                      <span className={indexStale ? undefined : 'ok'}>
+                        {current.indexedAt ? when(current.indexedAt) : 'Yes'}
+                      </span>
                     ) : (
                       <span className="muted">No text could be read</span>
                     )}
                   </dd>
                 </div>
+                {inSharePoint && (
+                  <div>
+                    <dt>In SharePoint</dt>
+                    <dd data-stale={indexStale || undefined}>
+                      {missing ? (
+                        <span className="muted">no longer there</span>
+                      ) : current?.remoteModifiedAt ? (
+                        <>
+                          {when(current.remoteModifiedAt)}
+                          {current.remoteModifiedBy && ` · ${current.remoteModifiedBy}`}
+                        </>
+                      ) : (
+                        <span className="muted">not checked yet</span>
+                      )}
+                    </dd>
+                  </div>
+                )}
                 {doc.terms?.paymentTermDays != null && (
                   <div>
                     <dt>Payment</dt>
@@ -224,6 +303,47 @@ export function DocumentDetail() {
                   These terms were read from an earlier version. Extract again to read the one on
                   screen.
                 </p>
+              )}
+
+              {indexStale && !missing && (
+                <p className="doc-stale">
+                  This file has changed in SharePoint since it was last read. Search and Ask
+                  still answer from the older text — re-index to catch up.
+                </p>
+              )}
+
+              {missing && (
+                <p className="doc-stale">
+                  This file is no longer in SharePoint. Nothing here has been deleted — the
+                  record, its text and its history are intact; the file itself is gone or was
+                  moved out of the library.
+                </p>
+              )}
+
+              {/*
+                The half of portal sharing that never existed.
+
+                The portal has enforced a shared_with_client link since Phase 7 and nothing
+                ever created one, so a document could be filed under a client and still be
+                unreachable by them with no way to change that from any screen.
+              */}
+              {doc.clientId && (
+                <div className="doc-share">
+                  <span className="card-meta">
+                    {doc.sharedWithClient
+                      ? `${client?.name ?? 'The client'} can see this in the portal`
+                      : 'Not shared with the client'}
+                  </span>
+                  <Act
+                    variant="quiet"
+                    run={() =>
+                      api.post(`/docs/documents/${id}/share`, { shared: !doc.sharedWithClient })
+                    }
+                    onDone={load}
+                  >
+                    {doc.sharedWithClient ? 'Stop sharing' : 'Share with client'}
+                  </Act>
+                </div>
               )}
             </>
           )}
@@ -266,6 +386,10 @@ function Versions({
                 <b>{v.filename}</b>
                 <small className="card-meta">
                   {formatBytes(v.sizeBytes)} · {when(v.createdAt)}
+                  {/* "Uploaded 4 Aug" and "what SharePoint already said on 4 Aug" are
+                      different claims about who did what. */}
+                  {v.origin === 'sync' && ' · picked up from SharePoint'}
+                  {v.origin === 'adopted' && ' · filed from the library'}
                   {isShowing && ' · showing'}
                 </small>
               </span>
