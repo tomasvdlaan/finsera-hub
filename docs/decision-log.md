@@ -58,6 +58,41 @@ before the assistant handles anything sensitive (this is O8, not closed by D6a).
 **Revisit if:** an Anthropic account becomes available — D6 still judges Claude stronger at
 multi-step tool use, which is the orchestrator's whole job. Switching is one env var.
 
+### D8 — Documents live in SharePoint, on a site of their own
+**Date:** 2026-09-09 · **Status:** Decided · **Amends:** phase3-documents-brief §2 (storage), D4 (object storage, for documents only)
+
+Document bytes move from the local disk to a **new, separate SharePoint site** in the existing Microsoft 365 tenant. Metadata, extracted text, embeddings, links, per-artefact visibility and the client portal all stay exactly where they are.
+
+**Why now.** Phase 3 declared editing a non-goal — "this is storage, versioning and retrieval, not a word processor" — and that has aged badly: there is no way to edit a docx without downloading it, no way to hand a file to a colleague, and `STORAGE_DRIVER=s3` was never built, so every byte sits on one Netcup volume. The tenant is already there (MX points at M365, meetings happen in Teams), so Word/Excel Online, co-authoring and version history are had for the cost of an integration rather than the cost of building any of them.
+
+**A separate site, not a folder.** `Sites.Selected` grants at SITE level. A folder inside `FinseraHub` would have handed the application write access to `05_HR` (salary, contract hours) and all of `01_Projecten/03 Plibs` (bookkeeping, MT940s, loonstroken). The new site is the permission boundary; a folder would only have been a convention.
+
+**`FinseraHub` is never touched.** No read grant, no picker, no bulk import, no copying between sites. The library there holds thousands of files — MT940 statements, monthly loonstroken, energy invoices — that would cost real money to embed and would make search worse. The good documents (contracts, quotes, annual accounts) are moved across **by hand, once**, and adopted through the Unfiled screen; a curation pass worth doing on its own merits.
+
+**Auth: app-only client credentials, `Sites.Selected`, one grant, role `write`.** Delegated per-user OAuth is wrong here rather than merely expensive: the IdP is Zitadel, an `Actor.userId` is a Zitadel subject and not an Entra object id, and the two non-interactive writers (`BillingService.renderAndFilePdf`, `SalesService.renderAndFilePdf`) hold no user token — so app-only would have been needed anyway, alongside a second IdP in the login path, a Zitadel→Entra mapping and a refresh-token store.
+
+**Consequences accepted, in full:**
+
+1. **Two permission systems, and "Open in Word" bypasses one.** `docs.read`/`docs.write` protect the dashboard path, not the library. Staff need SharePoint permission independently — one Entra group with Contribute — so anyone in it can browse every platform document in SharePoint's own UI regardless of what the permission service says. At Finsera's size this is close to the status quo; the separate site is what keeps it from also meaning HR and bookkeeping.
+2. **Staff can create sharing links from SharePoint's own UI, with no audit trail here.** Today the only exit is a download that `docs.read` logged. Mitigated by tenant sharing policy (restrict anonymous links, force a default expiry), configured once — not by application code.
+3. **Document bytes leave the backup.** `restore.sh` now scopes its existence check to local rows and prints, loudly and every time, how many versions live in SharePoint and are therefore unverified by the drill. Microsoft's durability beats a Netcup volume, but the drill can no longer prove the whole system.
+4. **Graph joins the invoicing path.** Mitigated: a Graph failure while filing a generated PDF falls back to local storage. An invoice PDF must not fail to exist because a third party is having an afternoon.
+5. **Attribution splits, favourably.** `uploaded_by` stays a Zitadel id and stays true for dashboard uploads; SharePoint's `lastModifiedBy` reads as the app for our writes but as the real person for a Word Online edit — shown as a separate fact.
+
+**Indexing is manual, deliberately.** No webhooks, no `/delta`, no cron. `POST /documents/:id/check` is one metadata call; `POST /documents/:id/sync` re-reads and re-embeds. The cost is that between an edit and a re-index, search answers from the older text — so the staleness marker is carried on **search results**, not only the detail page. Without it there, this decision would make the AI features less trustworthy than they were.
+
+**Staleness is judged on `cTag`, never `eTag`.** eTag also moves when metadata moves, which under manual indexing would strand a document as out of date because somebody set a column — permanently, since re-reading an unchanged file cannot clear it.
+
+**The portal is deliberately excluded.** Clients never receive a `sharepoint.com` URL: it would bypass the per-person visibility grants and hand its holder a door into a library containing every other client's documents. Portal bytes keep streaming through the API, and `portal-isolation.spec.ts` asserts on serialized response bodies that no pointer ever escapes. This work also adds the missing half of that feature — nothing in production ever created the `shared_with_client` link the portal has required since Phase 7.
+
+**Deferred, with a trigger.** Graph can manage access itself (`/items/{id}/invite`, `/permissions`), which would close consequence 1 by making the platform the source of truth for document access. Not built: at two or three people it is machinery for a problem that does not exist. Build it when somebody is hired, or when a client contract requires segregation. It needs a nullable `microsoft_upn` on the user record, the site grant raised from `write` to `manage` (one Graph call by an admin, not a re-consent), and a reconcile action — because a **failed revoke fails open**. `DriveApi` and `DocumentStore` are already the right seams.
+
+**Not a StorageService driver.** `StorageService` takes bytes and returns an opaque string; a SharePoint file has an item id, a content tag, a web URL and a history of its own, and `/content` answers with a redirect to a pre-authenticated URL that must never reach a browser. So `StorageService` is untouched and still serves whiteboard images, note images and portal logos — blobs with no "open this" story. Documents get `DocumentStore` beside it, in core because the portal reads document bytes and may not import a module.
+
+**Revisit if:** per-client document access is ever wanted inside the platform (app-only actively undermines it), or the tenant stops being Microsoft.
+
+---
+
 ### D7 — Phase 0 green-lit per technical spec
 **Date:** 2026-07-27 · **Status:** Decided · **Closes:** O1
 Phase 0 (walking skeleton) approved for build against `phase0-spec.md` as drafted: core schema (§3), core service contracts (§4), manifest schema incl. AI-tools section (§5), event dispatcher design (§4), LLM provider interface (§7), 10-step build order (§10).

@@ -1,5 +1,14 @@
 # Phase 3 Requirement Brief — Document Management & the Knowledge Layer
 
+> **Superseded in part by D8 (2026-09-09).** The `StorageService` interface described in §2
+> stands, and still serves whiteboard images, meeting-note images and portal logos — but
+> DOCUMENTS no longer go through it. Their bytes live in a SharePoint library reached through
+> `DocumentStore` and `core/graph`, and the `s3` driver §2 anticipates was never built and is
+> no longer on the path for them. §1's "no editing" non-goal is also gone: a document opens in
+> Word or Excel Online. What remains true is that the platform has no editor of its own.
+
+
+
 **Companion to:** Master Document · AI Integration Plan · Build Roadmap · Decision Log
 **Status:** Draft
 **Date:** July 2026

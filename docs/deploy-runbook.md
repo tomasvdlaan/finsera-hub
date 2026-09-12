@@ -310,6 +310,87 @@ A task appears in a client's portal only when somebody ticks **Visible to the cl
 it. They see the title, status, type, due date and whether it is done — never the
 description, assignee, estimate or labels. The assistant cannot set that flag.
 
+## 10. Documents in SharePoint (D8)
+
+Document bytes live in a SharePoint library, not on the server's disk. This is a one-time
+setup in the Microsoft 365 tenant plus seven environment variables.
+
+**Until every variable below is set, `DOCS_STORE` stays `local` and everything works exactly
+as it did.** That is deliberate: a forgotten variable is a deployment that still stores files,
+not one that loses them.
+
+### Once, in the tenant
+
+1. **Create a new SharePoint site** — e.g. `FinseraDocs`, with one document library. A NEW
+   site, not a folder in `FinseraHub`: `Sites.Selected` grants at site level, so a folder
+   there would give the application write access to `05_HR` and every client's bookkeeping.
+2. **Set the library's version limit.** SharePoint stores most versions as full copies and
+   the default cap is 500. Set something sane, or enable automatic version trimming.
+3. **Tighten tenant sharing policy** — restrict or disable anonymous links, force a default
+   expiry. Staff can create sharing links from SharePoint's own UI with no audit trail in the
+   platform, and this is the only place that can be constrained.
+4. **Register an Entra application.** Note the tenant id, the client id, and a client secret.
+   **Write the secret's expiry date here → `________`.** Entra secrets expire at 24 months,
+   and an unowned expiry is a scheduled outage.
+5. **Grant it `Sites.Selected`** (application permission) with tenant admin consent. Then have
+   an admin grant that app the `write` role on the new site ONLY:
+
+   `POST https://graph.microsoft.com/v1.0/sites/{newSiteId}/permissions`
+
+   **Do not grant `Sites.ReadWrite.All`.** That is every site in the tenant, including HR.
+   Take `write`, not `manage` — the permission-management work is deferred (D8), and raising
+   the role later is a single Graph call rather than a re-consent.
+6. **Give staff access to the new site** — one Entra security group with Contribute. They open
+   files in Word Online as themselves; the application's credential is not what lets them.
+7. **Confirm the tenant's data location is EU.**
+
+### Then, in `deploy/.env`
+
+```
+GRAPH_TENANT_ID=…
+GRAPH_CLIENT_ID=…
+GRAPH_CLIENT_SECRET=…
+GRAPH_SITE_ID=…            # "host,siteCollectionId,siteId" from GET /sites/{host}:/sites/{path}
+GRAPH_DRIVE_ID=            # optional; resolved from the site and cached when unset
+GRAPH_ROOT_FOLDER=Clients
+DOCS_STORE=sharepoint
+```
+
+Every one of these is enumerated explicitly in `deploy/docker-compose.yml`. A value that is
+in `deploy/.env` but not named there reaches the host and stops — that is how
+`PORTAL_PAGE_KEY` never reached the container in Phase 8.
+
+### Verify
+
+```
+curl -H "Authorization: Bearer $TOKEN" https://hub.finsera.nl/api/core/health/graph
+```
+
+Admin-only. Expect `siteReachable: true` and a `driveId`. Then, and this is the check that
+matters: **confirm a write to `FinseraHub` fails.** If it succeeds, somebody consented to
+`Sites.ReadWrite.All` and the grant is not scoped.
+
+### Moving the existing local files across
+
+```
+node apps/api/scripts/migrate-docs-to-sharepoint.mjs           # dry run
+node apps/api/scripts/migrate-docs-to-sharepoint.mjs --commit
+```
+
+Resumable, and it verifies what came back before flipping a row. It leaves the local copies
+on disk — delete those by hand only after a restore drill has passed against the new world.
+
+Files moved into the library by hand appear under **Documents → Unfiled** in the dashboard,
+where they are given a title and a home. Nothing is copied; filing points a record at the
+file where it already is.
+
+### The quarterly drill
+
+`deploy/restore.sh` verifies local files only, and prints how many versions live in
+SharePoint and are therefore not covered by the backup. Those are covered by the library's
+version history and its two-stage recycle bin (93 days) instead. Once a quarter, spot-check
+that a document opens from the dashboard and that its "In SharePoint" date is plausible.
+
 ## Deploying changes afterwards
 
 ```bash
