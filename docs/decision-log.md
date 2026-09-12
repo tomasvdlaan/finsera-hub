@@ -65,6 +65,16 @@ Document bytes move from the local disk to a **new, separate SharePoint site** i
 
 **Why now.** Phase 3 declared editing a non-goal — "this is storage, versioning and retrieval, not a word processor" — and that has aged badly: there is no way to edit a docx without downloading it, no way to hand a file to a colleague, and `STORAGE_DRIVER=s3` was never built, so every byte sits on one Netcup volume. The tenant is already there (MX points at M365, meetings happen in Teams), so Word/Excel Online, co-authoring and version history are had for the cost of an integration rather than the cost of building any of them.
 
+**The library layout.** Three buckets at the library root, each a category:
+
+```
+Clients/<client>/<project>/     client work; Uitgaand/ for generated invoice and quote PDFs
+_Algemeen/                      templates and prospect quotes — documents belonging to no client
+_Exports/                       what the platform writes on a schedule: the monthly hours ledger
+```
+
+`GRAPH_ROOT_FOLDER` is an optional prefix above all three, empty in production. It exists so a developer machine pointed at the same library (`_Dev`) stays out of the way. It is deliberately not a wrapper folder containing everything: a single root folder holding the whole library is a level of nesting that carries no information, and naming it `Clients` made every non-client folder inside it look like a filing mistake. Nothing is ever looked up by path — the item id is the pointer and survives a rename or a move made by hand.
+
 **A separate site, not a folder.** `Sites.Selected` grants at SITE level. A folder inside `FinseraHub` would have handed the application write access to `05_HR` (salary, contract hours) and all of `01_Projecten/03 Plibs` (bookkeeping, MT940s, loonstroken). The new site is the permission boundary; a folder would only have been a convention.
 
 **`FinseraHub` is never touched.** No read grant, no picker, no bulk import, no copying between sites. The library there holds thousands of files — MT940 statements, monthly loonstroken, energy invoices — that would cost real money to embed and would make search worse. The good documents (contracts, quotes, annual accounts) are moved across **by hand, once**, and adopted through the Unfiled screen; a curation pass worth doing on its own merits.

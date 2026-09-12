@@ -352,7 +352,7 @@ GRAPH_CLIENT_ID=…
 GRAPH_CLIENT_SECRET=…
 GRAPH_SITE_ID=…            # "host,siteCollectionId,siteId" from GET /sites/{host}:/sites/{path}
 GRAPH_DRIVE_ID=            # optional; resolved from the site and cached when unset
-GRAPH_ROOT_FOLDER=Clients
+GRAPH_ROOT_FOLDER=            # empty in production; the library root holds Clients/, _Algemeen/, _Exports/
 DOCS_STORE=sharepoint
 ```
 

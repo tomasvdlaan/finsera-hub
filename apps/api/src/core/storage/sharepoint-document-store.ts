@@ -14,15 +14,18 @@ import {
 /** Generated invoice and quote PDFs. Dutch, because the people browsing the library are. */
 const OUTGOING_FOLDER = 'Uitgaand';
 
+/** Everything filed against a client or one of its projects. */
+const CLIENTS_FOLDER = 'Clients';
+
 /** Templates and prospect quotes — real documents belonging to no client. */
 const ORG_FOLDER = '_Algemeen';
 
 /**
  * What the platform writes on a schedule, rather than what a person filed.
  *
- * Excluded from listUnfiled below. Without that the monthly hours ledger would sit in the
- * Unfiled screen forever, and the one screen whose job is "adopt what somebody moved in"
- * would be permanently full of our own output.
+ * A top-level bucket, and excluded from listUnfiled below. Without that exclusion the
+ * monthly hours ledger would sit in the Unfiled screen forever, and the one screen whose
+ * job is "adopt what somebody moved in" would be permanently full of our own output.
  */
 export const EXPORTS_FOLDER = '_Exports';
 
@@ -169,16 +172,25 @@ export class SharePointDocumentStore extends DocumentStore {
 /**
  * Where a document goes, as folder names a person would have chosen.
  *
- * The library is the platform's own and starts empty, so there is no existing convention to
- * adopt — but people browse it, so the names are the client's and the project's rather than
- * anything with an id in it. Nothing is ever looked up by this path: the item id is the
- * pointer, and it survives somebody reorganising the folders by hand.
+ * Three buckets at the top, each a category: client work, things belonging to nobody, and
+ * what the platform writes on a schedule. That shape is deliberately the one FinseraHub
+ * already uses — grouped top-level folders rather than a flat pile — and it is why `Clients`
+ * is a bucket rather than a wrapper around everything. A single folder containing the whole
+ * library is a level of nesting that carries no information.
+ *
+ * Names are the client's and the project's, because people browse this. Nothing is ever
+ * looked up by this path: the item id is the pointer, and it survives somebody reorganising
+ * the folders by hand.
  */
 export function segmentsFor(folder: FolderSpec): string[] {
   if (folder.bucket === 'exports') return [EXPORTS_FOLDER];
   if (folder.orgScope || !folder.clientName) return [ORG_FOLDER];
-  if (folder.bucket === 'outgoing') return [folder.clientName, OUTGOING_FOLDER];
-  return folder.projectName ? [folder.clientName, folder.projectName] : [folder.clientName];
+  if (folder.bucket === 'outgoing') {
+    return [CLIENTS_FOLDER, folder.clientName, OUTGOING_FOLDER];
+  }
+  return folder.projectName
+    ? [CLIENTS_FOLDER, folder.clientName, folder.projectName]
+    : [CLIENTS_FOLDER, folder.clientName];
 }
 
 function metaFrom(item: DriveItem): RemoteMeta {
