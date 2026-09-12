@@ -372,7 +372,12 @@ interface DriveChildren {
 }
 
 function toDriveItem(raw: RawItem): DriveItem {
-  const parent = (raw.parentReference?.path ?? '').replace(/^\/drive\/root:/, '');
+  // Graph spells this two ways depending on the endpoint — '/drive/root:' and
+  // '/drives/{driveId}/root:' — and this string exists only to tell a person where a file
+  // lives, so a drive id in the middle of it defeats the entire purpose.
+  const parent = (raw.parentReference?.path ?? '')
+    .replace(/^\/drives\/[^/]+\/root:/, '')
+    .replace(/^\/drive\/root:/, '');
   return {
     id: raw.id,
     name: raw.name,
