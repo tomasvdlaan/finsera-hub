@@ -20,6 +20,7 @@ import { crmManifest } from '../crm/crm.manifest.js';
 import { CrmService } from '../crm/crm.service.js';
 import { timeManifest } from '../time/time.manifest.js';
 import { TimeService } from '../time/time.service.js';
+import { NO_EXPORT } from '../time/time-export.service.js';
 import { billingManifest } from './billing.manifest.js';
 import { invoices } from './billing.schema.js';
 import { BillingService } from './billing.service.js';
@@ -48,7 +49,7 @@ describe('BillingService', () => {
     const links = new LinkService(testDb, registry, permissions, audit, manifests);
     const bus = new EventBus(manifests);
     crm = new CrmService(testDb, registry, permissions, audit, bus, links);
-    time = new TimeService(testDb, registry, permissions, audit, bus, links, crm);
+    time = new TimeService(testDb, registry, permissions, audit, bus, links, crm, NO_EXPORT);
     const storage = new LocalDocumentStore(new StorageService());
     const docs = new DocsService(
       testDb,

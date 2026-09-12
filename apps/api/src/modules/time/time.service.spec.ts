@@ -14,6 +14,7 @@ import { CrmService } from '../crm/crm.service.js';
 import { timeManifest } from './time.manifest.js';
 import { entries, timesheets } from './time.schema.js';
 import { TimeService, addDays, weekStart } from './time.service.js';
+import { NO_EXPORT } from './time-export.service.js';
 
 const actor: Actor = { userId: crypto.randomUUID(), role: 'admin' };
 const MONDAY = '2026-07-27'; // a real Monday
@@ -30,7 +31,7 @@ function build() {
   const links = new LinkService(testDb, registry, permissions, audit, manifests);
   const bus = new EventBus(manifests);
   const crm = new CrmService(testDb, registry, permissions, audit, bus, links);
-  const time = new TimeService(testDb, registry, permissions, audit, bus, links, crm);
+  const time = new TimeService(testDb, registry, permissions, audit, bus, links, crm, NO_EXPORT);
   return { crm, time, links };
 }
 
@@ -440,6 +441,7 @@ describe('TimeService', () => {
       bus,
       links,
       new CrmService(testDb, registry, denied, audit, bus, links),
+      NO_EXPORT,
     );
 
     await expect(

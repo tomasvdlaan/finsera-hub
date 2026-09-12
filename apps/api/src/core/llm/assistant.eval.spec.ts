@@ -11,6 +11,7 @@ import { crmManifest } from '../../modules/crm/crm.manifest.js';
 import { CrmService } from '../../modules/crm/crm.service.js';
 import { timeManifest } from '../../modules/time/time.manifest.js';
 import { TimeService } from '../../modules/time/time.service.js';
+import { NO_EXPORT } from '../../modules/time/time-export.service.js';
 import { resetDb, seedUser, testDb, truncate } from '../../test/db.js';
 import { LlmService } from './llm.service.js';
 import { OrchestratorService } from './orchestrator.service.js';
@@ -41,7 +42,7 @@ describe.skipIf(!LlmService.hasCredentials())('assistant evals [live]', () => {
     const links = new LinkService(testDb, registry, permissions, audit, manifests);
     const bus = new EventBus(manifests);
     const crm = new CrmService(testDb, registry, permissions, audit, bus, links);
-    const time = new TimeService(testDb, registry, permissions, audit, bus, links, crm);
+    const time = new TimeService(testDb, registry, permissions, audit, bus, links, crm, NO_EXPORT);
     const tools = new AiToolRegistry(manifests, permissions);
 
     tools.bind('crm_search_clients', (a: Actor, i) => crm.searchClients(a, i as never));

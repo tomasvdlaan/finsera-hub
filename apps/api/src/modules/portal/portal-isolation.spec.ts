@@ -24,6 +24,7 @@ import { salesManifest } from '../sales/sales.manifest.js';
 import { SalesService } from '../sales/sales.service.js';
 import { timeManifest } from '../time/time.manifest.js';
 import { TimeService } from '../time/time.service.js';
+import { NO_EXPORT } from '../time/time-export.service.js';
 import { PortalAccessService } from './portal-access.service.js';
 import { PortalProjection, type PortalVisitor } from './portal.projection.js';
 
@@ -76,7 +77,7 @@ describe('Portal isolation, adversarially', () => {
     const links = new LinkService(testDb, registry, permissions, audit, manifests);
     const bus = new EventBus(manifests);
     crm = new CrmService(testDb, registry, permissions, audit, bus, links);
-    const time = new TimeService(testDb, registry, permissions, audit, bus, links, crm);
+    const time = new TimeService(testDb, registry, permissions, audit, bus, links, crm, NO_EXPORT);
     const docs = new DocsService(
       testDb, registry, permissions, audit, bus, links,
       new LocalDocumentStore(new StorageService()), new EmbeddingService(), new FileTypeRegistry(), crm, new LlmService(),

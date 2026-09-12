@@ -15,6 +15,7 @@ import { LinkService } from '../../core/links/link.service.js';
 import { PermissionService } from '../../core/permissions/permission.service.js';
 import { RegistryService } from '../../core/registry/registry.service.js';
 import { CrmService } from '../crm/crm.service.js';
+import { TimeExportService } from './time-export.service.js';
 import { users } from '../../core/db/core.schema.js';
 import { entries, timesheets } from './time.schema.js';
 import { csvHours, csvMoney, csvYesNo, toCsv } from './csv.js';
@@ -109,6 +110,7 @@ export class TimeService {
     private readonly events: EventBus,
     private readonly links: LinkService,
     private readonly crm: CrmService,
+    private readonly exporter: TimeExportService,
   ) {}
 
   // ── entries ────────────────────────────────────────────────
@@ -211,6 +213,10 @@ export class TimeService {
       });
     });
 
+    // Outside the transaction and deliberately not awaited into the result: the ledger is a
+    // convenience, and nobody logs an hour on the condition that Microsoft is reachable.
+    this.exporter.markDirty(workedOn);
+
     return this.getEntry(actor, id);
   }
 
@@ -286,6 +292,11 @@ export class TimeService {
       });
     });
 
+    // Both months: moving an entry from 31 August to 1 September changes two ledgers, and
+    // marking only the new one would leave August quietly overstated.
+    this.exporter.markDirty(before.workedOn);
+    this.exporter.markDirty(workedOn);
+
     return this.getEntry(actor, id);
   }
 
@@ -342,6 +353,9 @@ export class TimeService {
       });
     });
 
+    // A running timer is excluded from the ledger; stopping it is what turns it into an hour.
+    this.exporter.markDirty(running.workedOn);
+
     return this.getEntry(actor, running.id);
   }
 
@@ -366,6 +380,9 @@ export class TimeService {
         detail: { minutes: row.minutes, projectId: row.projectId },
       });
     });
+
+    // The change that leaves nothing behind in the database to notice later.
+    this.exporter.markDirty(row.workedOn);
   }
 
   async getEntry(actor: Actor, id: string) {

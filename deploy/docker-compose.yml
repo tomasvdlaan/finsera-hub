@@ -128,6 +128,7 @@ services:
       GRAPH_DRIVE_ID: ${GRAPH_DRIVE_ID:-}
       GRAPH_ROOT_FOLDER: ${GRAPH_ROOT_FOLDER:-Clients}
       DOCS_STORE: ${DOCS_STORE:-local}
+      TIME_EXPORT_INTERVAL_MINUTES: ${TIME_EXPORT_INTERVAL_MINUTES:-15}
     volumes:
       # Uploaded files live outside the database, so they need durable storage of their
       # own — and the backup job needs to see them.

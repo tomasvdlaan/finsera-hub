@@ -6,6 +6,7 @@ import { CrmModule } from '../crm/crm.module.js';
 import { TimeController } from './time.controller.js';
 import { timeManifest } from './time.manifest.js';
 import { TimeService, type CreateEntryInput } from './time.service.js';
+import { TimeExportService } from './time-export.service.js';
 
 /**
  * Time Registration — the first module that depends on another.
@@ -17,8 +18,8 @@ import { TimeService, type CreateEntryInput } from './time.service.js';
 @Module({
   imports: [CrmModule],
   controllers: [TimeController],
-  providers: [TimeService],
-  exports: [TimeService],
+  providers: [TimeService, TimeExportService],
+  exports: [TimeService, TimeExportService],
 })
 export class TimeModule implements OnModuleInit {
   constructor(

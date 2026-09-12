@@ -10,6 +10,7 @@ import { PermissionService } from '../../core/permissions/permission.service.js'
 import { RegistryService } from '../../core/registry/registry.service.js';
 import { timeManifest } from '../time/time.manifest.js';
 import { TimeService } from '../time/time.service.js';
+import { NO_EXPORT } from '../time/time-export.service.js';
 import { resetDb, seedUser, testDb, truncate } from '../../test/db.js';
 import { crmManifest } from '../crm/crm.manifest.js';
 import { CrmService } from '../crm/crm.service.js';
@@ -50,7 +51,7 @@ describe('PortalTicketsService', () => {
     const events = new EventBus(manifests);
     const links = new LinkService(testDb, registry, permissions, audit, manifests);
     crm = new CrmService(testDb, registry, permissions, audit, events, links);
-    const time = new TimeService(testDb, registry, permissions, audit, events, links, crm);
+    const time = new TimeService(testDb, registry, permissions, audit, events, links, crm, NO_EXPORT);
     const scrum = new ScrumService(
       testDb, registry, permissions, audit, events, links, crm, time,
     );

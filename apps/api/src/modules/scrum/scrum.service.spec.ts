@@ -14,6 +14,7 @@ import { crmManifest } from '../crm/crm.manifest.js';
 import { CrmService } from '../crm/crm.service.js';
 import { timeManifest } from '../time/time.manifest.js';
 import { TimeService } from '../time/time.service.js';
+import { NO_EXPORT } from '../time/time-export.service.js';
 import { scrumManifest } from './scrum.manifest.js';
 import { ScrumService } from './scrum.service.js';
 
@@ -47,7 +48,7 @@ describe('ScrumService sprints', () => {
     const links = new LinkService(testDb, registry, permissions, audit, manifests);
     const bus = new EventBus(manifests);
     const crm = new CrmService(testDb, registry, permissions, audit, bus, links);
-    const time = new TimeService(testDb, registry, permissions, audit, bus, links, crm);
+    const time = new TimeService(testDb, registry, permissions, audit, bus, links, crm, NO_EXPORT);
     scrum = new ScrumService(testDb, registry, permissions, audit, bus, links, crm, time);
 
     const client = await crm.createClient(actor, { name: 'DocHorse', status: 'active' });
@@ -310,7 +311,7 @@ describe('ScrumService blockers', () => {
     const links = new LinkService(testDb, registry, permissions, audit, manifests);
     const bus = new EventBus(manifests);
     const crm = new CrmService(testDb, registry, permissions, audit, bus, links);
-    const time = new TimeService(testDb, registry, permissions, audit, bus, links, crm);
+    const time = new TimeService(testDb, registry, permissions, audit, bus, links, crm, NO_EXPORT);
     scrum = new ScrumService(testDb, registry, permissions, audit, bus, links, crm, time);
 
     const client = await crm.createClient(actor, { name: 'DocHorse', status: 'active' });
@@ -484,7 +485,7 @@ describe('ScrumService card age, type and comment counts', () => {
     const links = new LinkService(testDb, registry, permissions, audit, manifests);
     const bus = new EventBus(manifests);
     const crm = new CrmService(testDb, registry, permissions, audit, bus, links);
-    const time = new TimeService(testDb, registry, permissions, audit, bus, links, crm);
+    const time = new TimeService(testDb, registry, permissions, audit, bus, links, crm, NO_EXPORT);
     scrum = new ScrumService(testDb, registry, permissions, audit, bus, links, crm, time);
     comments = new CommentService(testDb, registry, permissions, audit, new MentionService(testDb));
 
@@ -580,7 +581,7 @@ describe('ScrumService flow', () => {
     const links = new LinkService(testDb, registry, permissions, audit, manifests);
     const bus = new EventBus(manifests);
     const crm = new CrmService(testDb, registry, permissions, audit, bus, links);
-    const time = new TimeService(testDb, registry, permissions, audit, bus, links, crm);
+    const time = new TimeService(testDb, registry, permissions, audit, bus, links, crm, NO_EXPORT);
     scrum = new ScrumService(testDb, registry, permissions, audit, bus, links, crm, time);
 
     const client = await crm.createClient(actor, { name: 'DocHorse', status: 'active' });
@@ -806,7 +807,7 @@ describe('ScrumService sprint registration', () => {
     const links = new LinkService(testDb, registry, permissions, audit, manifests);
     const bus = new EventBus(manifests);
     const crm = new CrmService(testDb, registry, permissions, audit, bus, links);
-    const time = new TimeService(testDb, registry, permissions, audit, bus, links, crm);
+    const time = new TimeService(testDb, registry, permissions, audit, bus, links, crm, NO_EXPORT);
     scrum = new ScrumService(testDb, registry, permissions, audit, bus, links, crm, time);
 
     const client = await crm.createClient(actor, { name: 'DocHorse', status: 'active' });
@@ -881,7 +882,7 @@ describe('ScrumService warnings', () => {
     const links = new LinkService(testDb, registry, permissions, audit, manifests);
     const bus = new EventBus(manifests);
     const crm = new CrmService(testDb, registry, permissions, audit, bus, links);
-    const time = new TimeService(testDb, registry, permissions, audit, bus, links, crm);
+    const time = new TimeService(testDb, registry, permissions, audit, bus, links, crm, NO_EXPORT);
     scrum = new ScrumService(testDb, registry, permissions, audit, bus, links, crm, time);
 
     const client = await crm.createClient(actor, { name: 'DocHorse', status: 'active' });
@@ -1002,7 +1003,7 @@ describe('ScrumService sprint scope', () => {
     const links = new LinkService(testDb, registry, permissions, audit, manifests);
     const bus = new EventBus(manifests);
     const crm = new CrmService(testDb, registry, permissions, audit, bus, links);
-    const time = new TimeService(testDb, registry, permissions, audit, bus, links, crm);
+    const time = new TimeService(testDb, registry, permissions, audit, bus, links, crm, NO_EXPORT);
     scrum = new ScrumService(testDb, registry, permissions, audit, bus, links, crm, time);
 
     const client = await crm.createClient(actor, { name: 'DocHorse', status: 'active' });
@@ -1115,7 +1116,7 @@ describe('ScrumService sprint editing', () => {
     const links = new LinkService(testDb, registry, permissions, audit, manifests);
     const bus = new EventBus(manifests);
     const crm = new CrmService(testDb, registry, permissions, audit, bus, links);
-    const time = new TimeService(testDb, registry, permissions, audit, bus, links, crm);
+    const time = new TimeService(testDb, registry, permissions, audit, bus, links, crm, NO_EXPORT);
     scrum = new ScrumService(testDb, registry, permissions, audit, bus, links, crm, time);
 
     const client = await crm.createClient(actor, { name: 'DocHorse', status: 'active' });
@@ -1202,7 +1203,7 @@ describe('ScrumService sprint load', () => {
     const links = new LinkService(testDb, registry, permissions, audit, manifests);
     const bus = new EventBus(manifests);
     const crm = new CrmService(testDb, registry, permissions, audit, bus, links);
-    const time = new TimeService(testDb, registry, permissions, audit, bus, links, crm);
+    const time = new TimeService(testDb, registry, permissions, audit, bus, links, crm, NO_EXPORT);
     scrum = new ScrumService(testDb, registry, permissions, audit, bus, links, crm, time);
 
     const client = await crm.createClient(actor, { name: 'DocHorse', status: 'active' });
@@ -1298,7 +1299,7 @@ describe('ScrumService assistant task edits', () => {
     const links = new LinkService(testDb, registry, permissions, audit, manifests);
     const bus = new EventBus(manifests);
     const crm = new CrmService(testDb, registry, permissions, audit, bus, links);
-    const time = new TimeService(testDb, registry, permissions, audit, bus, links, crm);
+    const time = new TimeService(testDb, registry, permissions, audit, bus, links, crm, NO_EXPORT);
     scrum = new ScrumService(testDb, registry, permissions, audit, bus, links, crm, time);
 
     const client = await crm.createClient(actor, { name: 'DocHorse', status: 'active' });

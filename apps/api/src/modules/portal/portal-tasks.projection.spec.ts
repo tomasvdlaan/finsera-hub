@@ -15,6 +15,7 @@ import { ScrumService } from '../scrum/scrum.service.js';
 import { tasks } from '../scrum/scrum.schema.js';
 import { timeManifest } from '../time/time.manifest.js';
 import { TimeService } from '../time/time.service.js';
+import { NO_EXPORT } from '../time/time-export.service.js';
 import { PortalAccessService } from './portal-access.service.js';
 import { PortalProjection } from './portal.projection.js';
 
@@ -52,7 +53,7 @@ describe('PortalProjection.tasks', () => {
     const bus = new EventBus(manifests);
     const links = new LinkService(testDb, registry, permissions, audit, manifests);
     crm = new CrmService(testDb, registry, permissions, audit, bus, links);
-    const time = new TimeService(testDb, registry, permissions, audit, bus, links, crm);
+    const time = new TimeService(testDb, registry, permissions, audit, bus, links, crm, NO_EXPORT);
     scrum = new ScrumService(testDb, registry, permissions, audit, bus, links, crm, time);
     projection = new PortalProjection(testDb, manifests, new PortalAccessService(testDb, new PermissionService(testDb, manifests), new AuditService(testDb)));
 

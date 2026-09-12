@@ -18,6 +18,15 @@ const OUTGOING_FOLDER = 'Uitgaand';
 const ORG_FOLDER = '_Algemeen';
 
 /**
+ * What the platform writes on a schedule, rather than what a person filed.
+ *
+ * Excluded from listUnfiled below. Without that the monthly hours ledger would sit in the
+ * Unfiled screen forever, and the one screen whose job is "adopt what somebody moved in"
+ * would be permanently full of our own output.
+ */
+export const EXPORTS_FOLDER = '_Exports';
+
+/**
  * Documents in a SharePoint library (decision D8).
  *
  * One library on one site, granted to this application with `Sites.Selected`. Not a folder
@@ -124,6 +133,7 @@ export class SharePointDocumentStore extends DocumentStore {
 
     return all
       .filter((item) => !known.has(item.id))
+      .filter((item) => !item.path.split('/').includes(EXPORTS_FOLDER))
       .map((item) => ({
         driveId,
         itemId: item.id,
@@ -165,6 +175,7 @@ export class SharePointDocumentStore extends DocumentStore {
  * pointer, and it survives somebody reorganising the folders by hand.
  */
 export function segmentsFor(folder: FolderSpec): string[] {
+  if (folder.bucket === 'exports') return [EXPORTS_FOLDER];
   if (folder.orgScope || !folder.clientName) return [ORG_FOLDER];
   if (folder.bucket === 'outgoing') return [folder.clientName, OUTGOING_FOLDER];
   return folder.projectName ? [folder.clientName, folder.projectName] : [folder.clientName];

@@ -18,6 +18,7 @@ import { scrumManifest } from '../../scrum/scrum.manifest.js';
 import { ScrumService } from '../../scrum/scrum.service.js';
 import { timeManifest } from '../../time/time.manifest.js';
 import { TimeService } from '../../time/time.service.js';
+import { NO_EXPORT } from '../../time/time-export.service.js';
 import { meetingsManifest } from '../meetings.manifest.js';
 import { UserService } from '../../../core/auth/user.service.js';
 import { MeetingsService } from '../meetings.service.js';
@@ -105,7 +106,7 @@ describe('LiveGateway', () => {
     const links = new LinkService(testDb, registry, permissions, audit, manifests);
     const bus = new EventBus(manifests);
     crm = new CrmService(testDb, registry, permissions, audit, bus, links);
-    const time = new TimeService(testDb, registry, permissions, audit, bus, links, crm);
+    const time = new TimeService(testDb, registry, permissions, audit, bus, links, crm, NO_EXPORT);
     const scrum = new ScrumService(testDb, registry, permissions, audit, bus, links, crm, time);
     docs = new NoteDocService();
     meetings = new MeetingsService(

@@ -38,8 +38,14 @@ export interface FolderSpec {
   /**
    * 'outgoing' is the subfolder generated invoice and quote PDFs go to. Without it a client
    * folder fills with factuur-2026-0114.pdf and stops being somewhere a person can look.
+   *
+   * 'exports' is for files the platform writes on a schedule rather than because somebody
+   * uploaded something — the monthly hours ledger. They belong to no client, and they are
+   * deliberately invisible to the Unfiled screen: that screen exists to adopt files a person
+   * put there, and offering to file our own output every fifteen minutes would make it
+   * useless.
    */
-  bucket?: 'documents' | 'outgoing';
+  bucket?: 'documents' | 'outgoing' | 'exports';
   /** Templates and prospect quotes: real documents that belong to no client. */
   orgScope?: boolean;
 }

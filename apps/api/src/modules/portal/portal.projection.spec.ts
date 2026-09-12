@@ -26,6 +26,7 @@ import { salesManifest } from '../sales/sales.manifest.js';
 import { SalesService } from '../sales/sales.service.js';
 import { timeManifest } from '../time/time.manifest.js';
 import { TimeService } from '../time/time.service.js';
+import { NO_EXPORT } from '../time/time-export.service.js';
 import { UserService } from '../../core/auth/user.service.js';
 import { PortalAccessService } from './portal-access.service.js';
 import { portalManifest } from './portal.manifest.js';
@@ -92,7 +93,7 @@ describe('PortalProjection', () => {
     links = new LinkService(testDb, registry, permissions, audit, manifests);
     const bus = new EventBus(manifests);
     crm = new CrmService(testDb, registry, permissions, audit, bus, links);
-    time = new TimeService(testDb, registry, permissions, audit, bus, links, crm);
+    time = new TimeService(testDb, registry, permissions, audit, bus, links, crm, NO_EXPORT);
     docs = new DocsService(
       testDb, registry, permissions, audit, bus, links,
       new LocalDocumentStore(new StorageService()), new EmbeddingService(), new FileTypeRegistry(), crm, new LlmService(),

@@ -213,3 +213,30 @@ export const timesheets = time.table(
     ),
   ],
 );
+
+/**
+ * What the monthly hours ledger currently says, per month.
+ *
+ * One row per month, holding the pointer to the file in SharePoint and the checksum of what
+ * was last written to it. The checksum is the point: the exporter runs every few minutes, and
+ * without something to compare against, a quiet afternoon would produce a hundred identical
+ * versions and the history would stop being readable. With it, a version exists for exactly
+ * the moments something changed — which is the ledger somebody actually wanted.
+ *
+ * Not a backup. The database is the record and pg_dump is the backup; this is a portable,
+ * off-platform copy that can be read without the platform being up, and a trail of what the
+ * month looked like as it was being filled in.
+ */
+export const exports_ = time.table('exports', {
+  /** 'YYYY-MM'. A text key rather than a date, because a month is what this is about. */
+  month: text('month').primaryKey(),
+  driveId: text('drive_id'),
+  driveItemId: text('drive_item_id'),
+  filename: text('filename'),
+  /** sha256 of the CSV last written. Null means it has never been written. */
+  checksum: text('checksum'),
+  rowCount: integer('row_count').notNull().default(0),
+  exportedAt: timestamp('exported_at', { withTimezone: true }),
+  /** Why the last attempt failed, for a screen that has to explain itself. */
+  lastError: text('last_error'),
+});
