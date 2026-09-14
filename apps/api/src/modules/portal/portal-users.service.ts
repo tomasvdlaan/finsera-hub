@@ -98,6 +98,29 @@ export class PortalUsersService {
   }
 
   /**
+   * Which client an invitation belongs to, asked before anybody has signed in.
+   *
+   * The activation hop knows only the Zitadel user id on the link — and that is enough,
+   * because `attachSubject` writes exactly that id onto the row the moment an invitation is
+   * created. So the destination is known before the password exists.
+   *
+   * Deliberately not `resolveFromSubject`: that one is a sign-in. It refuses a disabled
+   * login, and it stamps `last_seen_at`, and neither belongs on a request that has not
+   * authenticated anybody. This reads one column and has no opinion.
+   *
+   * Null for a revoked login as well as an unknown one. Sending somebody to a portal that
+   * will refuse them is worse than the page that simply says their account is ready.
+   */
+  async clientForSubject(subject: string): Promise<string | null> {
+    const [row] = await this.db
+      .select({ clientId: portalUsers.clientId })
+      .from(portalUsers)
+      .where(and(eq(portalUsers.oidcSubject, subject), isNull(portalUsers.disabledAt)))
+      .limit(1);
+    return row?.clientId ?? null;
+  }
+
+  /**
    * Bind a verified email to a pending invitation, once.
    *
    * The claim is deliberately narrow. The email must come from the identity provider and

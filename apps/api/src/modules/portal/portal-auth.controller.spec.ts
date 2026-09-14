@@ -23,10 +23,14 @@ describe('PortalAuthController wiring', () => {
 
   it('exposes exactly the login flow', () => {
     expect([...routeNames].sort()).toEqual([
+      // `activate` is the first hop of an invitation and the only route here that is not
+      // part of a login: it exists so the link in the mail is on the domain the mail came
+      // from, and it redirects to the provider before any session exists.
+      //
       // `welcome` is where Zitadel's Default Redirect URI lands somebody whose account has
       // just been created. Public and stateless by design — it reads nothing and grants
       // nothing, which is what makes it a safe target for a redirect we do not control.
-      'callback', 'complete', 'login', 'logout', 'signedOut', 'start', 'welcome',
+      'activate', 'callback', 'complete', 'login', 'logout', 'signedOut', 'start', 'welcome',
     ]);
   });
 });

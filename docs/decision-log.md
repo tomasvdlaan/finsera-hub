@@ -922,3 +922,73 @@ wholesale would make ⌘Z discard everything the person had typed.
 404 instead of being served by the app. Production was never affected — there the API owns
 the whole path space and `PortalPagesService` already reserved `tickets` — but the rename on
 2026-09-12 left that list behind, and nothing pointed at it.
+
+## 2026-09-14 — The invitation link moves onto our own domain
+
+Invitations were landing in spam, and the mail's markup was not the reason. `finsera.nl`
+publishes SPF with `-all`, both Microsoft DKIM selectors and DMARC at `p=reject` with strict
+alignment; the template carries no images, no tracking pixel, no shortener, and a healthy
+text-to-markup ratio. Authentication and markup were already right.
+
+What was wrong is what the mail asked against where it pointed. It says "activate your
+account, you choose your password here" and linked to
+`finsera-dashboard-nsncri.eu1.zitadel.cloud/ui/v2/login/verify?userId=…&code=…` — a message
+from one domain sending somebody to set a password at an unrelated one, on a host with a
+random-looking label, with an opaque token in the query string. That is the shape of
+credential phishing, which is what the filters are trained on.
+
+So `GET /api/portal-auth/activate` now exists on the login host and the invitation links
+there, matching the domain the mail was sent from and the one the client signs in at
+afterwards. It carries only `userId` and `code` and redirects to the issuer's verify page:
+the destination is built from this deployment's own issuer, so nothing a caller supplies can
+change where it goes — asserted, because this hop carries an invitation token and a choosable
+destination would be a way to harvest one. It follows `PORTAL_AUTH_HOST` on its own,
+`ZITADEL_INVITE_URL` still overrides, and with neither the old Zitadel link remains as a
+fallback that works and merely delivers worse.
+
+Two sentences of the mail also changed. "Die horen erbij en zijn niet vals" is gone —
+telling somebody a message is genuine is what a fraudulent message does, filters score the
+phrasing, and the paragraph does its real job (warning that Zitadel will also write to them)
+without it.
+
+**What this cannot fix**, recorded so it is not chased in code later: a domain with little
+sending history to a given tenant, and recipients who have never had mail from us. The first
+few invitations may still be junked, and somebody marking them *not junk* is the only thing
+that moves it.
+
+## 2026-09-14 — A client lands on their own subdomain after activating
+
+Clients were finishing an activation on Zitadel's own page. The cause is not in this
+repository: Zitadel ends a flow that has no auth request in context on its **Default Redirect
+URI**, one static address for the whole instance, and its stock value is the management
+console. `/api/portal-auth/welcome` was built for this and has been live and correct all
+along — nothing was ever pointed at it. Setting it is a console step and is now in the
+runbook.
+
+That setting alone leaves a static page and a button, because one address cannot name a
+client. The destination now travels instead. The activation hop added earlier for
+deliverability turns out to know exactly who the invitation is for: the `userId` on the link
+is the Zitadel user id, and `attachSubject` writes that onto the portal user the moment the
+invitation is created. So `/activate` resolves the client, sets a slug in a cookie scoped to
+the auth routes on the auth host, and Zitadel's return to `/welcome` on that same host still
+carries it. `/welcome` spends it and redirects to `https://<slug>.finsera.nl/api/portal-auth/login`.
+
+Three properties worth stating, because each was a way to get this wrong:
+
+**It grants nothing.** The redirect points at a login, not at a session. Arriving runs the
+ordinary client-host login with its binding nonce; this hop only decides which front door
+somebody knocks on.
+
+**It cannot point anywhere.** The cookie holds a slug — a name, not an address — resolved the
+same way a `Host` header is, so the only destinations that exist are clients in
+`crm.clients`. A hand-written cookie falls through to the page.
+
+**It is best-effort.** A revoked login, a client with no portal address, a failed lookup: each
+leaves the cookie unset and the activation itself untouched. `SameSite=Lax` rather than
+`Strict`, because the browser returns from Zitadel by a top-level navigation from another
+site — the one case Lax still sends a cookie on and Strict does not.
+
+The static page stays as the fallback, for a password reset, a link opened in a second
+browser, or cleared cookies. Three earlier attempts at controlling the end of Zitadel's flow
+each failed by dumping a client somewhere that looked broken, and the page is what cannot be
+wrong about what just happened.

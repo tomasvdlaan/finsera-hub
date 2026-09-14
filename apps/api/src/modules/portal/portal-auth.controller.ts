@@ -19,13 +19,16 @@ import { Public } from '../../core/auth/public.decorator.js';
 import { DB, type Database } from '../../core/db/db.module.js';
 import {
   BINDING_COOKIE,
+  DESTINATION_COOKIE,
   LOGIN_COOKIE,
   SESSION_COOKIE,
   clearBindingCookie,
+  clearDestinationCookie,
   clearLoginCookie,
   clearSessionCookie,
   readCookie,
   setBindingCookie,
+  setDestinationCookie,
   setLoginCookie,
   setSessionCookie,
 } from './cookies.js';
@@ -34,6 +37,7 @@ import { PortalHostService, type PortalHost } from './portal-host.service.js';
 import { PortalIdentityService } from './portal-identity.service.js';
 import { LOGIN_STATE_MS, PortalOidcService } from './portal-oidc.service.js';
 import { PortalSessionsService, type SessionOwner } from './portal-sessions.service.js';
+import { PortalUsersService } from './portal-users.service.js';
 
 const CALLBACK_PATH = '/api/portal-auth/callback';
 
@@ -69,6 +73,9 @@ export class PortalAuthController {
     private readonly oidc: PortalOidcService,
     private readonly identity: PortalIdentityService,
     private readonly sessions: PortalSessionsService,
+    // Only to answer "whose invitation is this?" on the activation hop, before anybody has
+    // signed in and while the only thing known is the id on the link.
+    private readonly users: PortalUsersService,
     private readonly audit: AuditService,
     private readonly events: EventBus,
     @Inject(DB) private readonly db: Database,
@@ -339,6 +346,79 @@ export class PortalAuthController {
   }
 
   /**
+   * The activation link a client is actually sent — on our domain, not the provider's.
+   *
+   * Deliverability, and it is not a detail. The invitation says "activate your account and
+   * choose a password", and it used to link straight to
+   * `<instance>.eu1.zitadel.cloud/ui/v2/login/verify?userId=…&code=…`. A mail from
+   * `@finsera.nl` asking somebody to set a password at an unrelated domain, with an opaque
+   * token in the query string, is the exact shape of credential phishing — which is what
+   * spam filters are trained on, and why these invitations were landing in junk. Nothing was
+   * wrong with the mail's markup, SPF, DKIM or DMARC.
+   *
+   * So the link a client sees is `portal.finsera.nl/...`, the same domain the mail came
+   * from and the same one they will sign in at afterwards, and this hop sends them on.
+   *
+   * **Not an open redirect.** The destination is this deployment's own issuer and a fixed
+   * path; only `userId` and `code` travel, and they are re-encoded on the way out. Nothing a
+   * caller supplies can change *where* this goes — only which invitation it carries, which
+   * Zitadel validates itself.
+   */
+  @Get('activate')
+  async activate(
+    @Req() req: Request,
+    @Res() res: Response,
+    @Query('userId') userId?: string,
+    @Query('code') code?: string,
+  ) {
+    await this.requireAuthHost(req);
+
+    const issuer = process.env.ZITADEL_ISSUER;
+    if (!issuer || !userId || !code) {
+      // A link somebody truncated, or a deployment with no issuer. Either way there is
+      // nothing to send them to, and a redirect to a half-built URL would end at a Zitadel
+      // error page that names neither problem.
+      return this.page(
+        res,
+        400,
+        'Link onvolledig',
+        'Deze activatielink is niet compleet. Vraag ons om een nieuwe.',
+      );
+    }
+
+    /*
+     * Remember whose portal this is, before handing the browser to Zitadel.
+     *
+     * Zitadel finishes an activation with no auth request in context and falls back to its
+     * Default Redirect URI — one static address for the whole instance, which cannot name a
+     * client. So the destination is carried here instead: the link's `userId` is the Zitadel
+     * user id, `attachSubject` wrote that onto the portal user when the invitation was
+     * created, and the slug follows from the client. The cookie is on this host and scoped
+     * to these routes, so it is still there when Zitadel sends them back to `/welcome`.
+     *
+     * Best-effort by design. A lookup that fails, a revoked login, a client with no portal
+     * address — each leaves the cookie unset and the welcome page does what it did before,
+     * which is never wrong. An activation must not fail because a convenience could not be
+     * arranged.
+     */
+    try {
+      const clientId = await this.users.clientForSubject(userId);
+      const slug = clientId ? await this.hosts.slugOf(clientId) : null;
+      if (slug) setDestinationCookie(req, res, slug);
+    } catch (err) {
+      this.logger.warn(`Could not resolve the portal for an activation: ${(err as Error).message}`);
+    }
+
+    const target = new URL(`${issuer}/ui/v2/login/verify`);
+    target.searchParams.set('userId', userId);
+    target.searchParams.set('code', code);
+    target.searchParams.set('invite', 'true');
+    // 302, not 301: a permanent redirect would be cached by the browser against a URL that
+    // is single-use, and the second visit would never reach us to be told so.
+    return res.redirect(302, target.toString());
+  }
+
+  /**
    * Where the identity provider sends the browser once it has ended its session.
    *
    * On the login host, because a post-logout URI is exact-match at the provider and
@@ -377,6 +457,39 @@ export class PortalAuthController {
   @Get('welcome')
   async welcome(@Req() req: Request, @Res() res: Response) {
     await this.requireAuthHost(req);
+
+    /*
+     * If the activation hop knew whose portal this is, finish the journey rather than asking.
+     *
+     * The cookie holds a slug, which is a name rather than an address — so it is resolved
+     * here the same way any `Host` header is, and a value naming a client this deployment
+     * does not serve falls through to the page below. That is what stops a cookie somebody
+     * wrote by hand from turning this into a redirect to anywhere: the only destinations
+     * that exist are the ones already in `crm.clients`.
+     *
+     * And the redirect is to the client host's own `/login`, not to a session: arriving
+     * there runs the ordinary login, binding nonce and all, so this hop grants nothing. It
+     * only decides which front door somebody knocks on.
+     */
+    const slug = readCookie(req, DESTINATION_COOKIE);
+    if (slug) {
+      clearDestinationCookie(req, res);
+      const destination = await this.hosts.resolve(this.hosts.hostFor(slug));
+      if (destination?.kind === 'client') {
+        return res.redirect(302, `${req.protocol}://${destination.host}/api/portal-auth/login`);
+      }
+    }
+
+    /*
+     * The answer that cannot fail, and the reason it stays.
+     *
+     * Three attempts at controlling the end of Zitadel's own flow each found another layer
+     * beneath the last, and every one failed by dumping a client somewhere that looked
+     * broken. So the fallback is still a static page on our own host: no session to read, no
+     * token to verify, nothing to resolve, and correct whether the redirect arrives from an
+     * invitation, a password reset, or somebody opening the login page directly. A click is
+     * a small price for a page that is never wrong about what just happened.
+     */
     return this.page(
       res,
       200,
