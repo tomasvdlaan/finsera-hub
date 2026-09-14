@@ -26,6 +26,9 @@ function deps(sourceUrl: string) {
       }),
       secretFor: vi.fn().mockReturnValue(null),
     },
+    // The body-forwarding origin is deliberately a local test server. Production uses the
+    // default validator, while this test isolates Express stream handling.
+    validateSource: vi.fn().mockResolvedValue(undefined),
     // Everyone at this client may open it; the restriction path has its own test.
     access: { maySeeAs: vi.fn().mockResolvedValue(true) },
     audit: { record: vi.fn() },

@@ -417,6 +417,47 @@ export const RULES: Rule[] = [
   },
 
   {
+    name: 'ticket_waiting_on_us',
+    description: 'A client has been waiting on an answer in their portal.',
+    /*
+     * The mirror of `waiting_on_client_too_long`, and the reason tickets needed a published
+     * view at all.
+     *
+     * Age is measured from the client's last message, which is what `days_waiting` in the
+     * view already means — a thread running a fortnight is not two weeks late on the
+     * question asked this morning. The rule states the fact and stops: it does not reply,
+     * assign or close, and it resolves itself the moment somebody answers, because the
+     * status flips to `waiting_on_client` and the row leaves this WHERE clause. That is the
+     * whole argument for putting it here rather than counting tickets in the nav.
+     */
+    query: sql`
+      SELECT t.id, t.subject, t.client_name, t.assigned_to, t.days_waiting
+        FROM portal.v_tickets t
+       WHERE t.status = 'waiting_on_finsera'
+         AND t.days_waiting >= 2
+    `,
+    toCandidate: (r) => ({
+      key: `ticket_waiting:${String(r.id)}`,
+      rule: 'ticket_waiting_on_us',
+      // Whoever owns it; unassigned, it falls to the department — the same rule the mirror
+      // case uses, so an unowned ticket is the team's rather than nobody's.
+      personId: s(r.assigned_to),
+      audience: 'delivery',
+      subjectId: String(r.id),
+      subjectType: 'portal_ticket',
+      severity: n(r.days_waiting) >= 7 ? 'urgent' : 'attention',
+      title: `${r.client_name ? String(r.client_name) : 'A client'} has been waiting ${n(r.days_waiting)} days on "${String(r.subject)}"`,
+      detail: 'They asked in their portal and can see that nobody has answered yet.',
+      facts: {
+        daysWaiting: n(r.days_waiting),
+        clientName: r.client_name,
+        subject: r.subject,
+      },
+      magnitude: n(r.days_waiting),
+    }),
+  },
+
+  {
     name: 'task_blocked',
     description: 'A task is blocked and nobody has cleared it.',
     query: sql`

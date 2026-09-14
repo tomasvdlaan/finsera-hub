@@ -301,10 +301,17 @@ building one:
 
 ### Tickets and visible tasks
 
-*Client tickets* in the internal navigation is the inbox: every open conversation across
-every client, oldest first. Replying there is what the client sees in their portal; an
-*internal note* stays with us. *Make a task* is still a deliberate act by somebody who has
-read the thread, and it no longer closes the ticket.
+*Client tickets* is the inbox — **Board → Work → Client tickets**, or ⌘K: every open
+conversation across every client, oldest first, with *Open / Closed / All* and an owner
+column. In the client's own portal the tab is **Tickets** (`/<slug>/tickets`; the old
+`/vragen` address redirects). A ticket waiting on us for two days also raises an Inbox item
+under *delivery*, which resolves itself as soon as somebody answers, and a client's open
+tickets appear on their page in hub. Triaging needs `portal.tickets`, which members hold;
+inviting and revoking logins still needs `portal.admin`, which is admins only.
+
+Replying there is what the client sees in their portal; an *internal note* stays with us.
+*Make a task* is still a deliberate act by somebody who has read the thread, and it no
+longer closes the ticket.
 
 A task appears in a client's portal only when somebody ticks **Visible to the client** on
 it. They see the title, status, type, due date and whether it is done — never the

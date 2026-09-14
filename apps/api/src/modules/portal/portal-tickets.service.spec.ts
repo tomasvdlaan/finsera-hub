@@ -16,7 +16,7 @@ import { crmManifest } from '../crm/crm.manifest.js';
 import { CrmService } from '../crm/crm.service.js';
 import { scrumManifest } from '../scrum/scrum.manifest.js';
 import { ScrumService } from '../scrum/scrum.service.js';
-import { PortalTicketsService } from './portal-tickets.service.js';
+import { PortalTicketsService, ticketScope } from './portal-tickets.service.js';
 import { UserService } from '../../core/auth/user.service.js';
 import { PortalUsersService } from './portal-users.service.js';
 import { portalManifest } from './portal.manifest.js';
@@ -56,7 +56,10 @@ describe('PortalTicketsService', () => {
       testDb, registry, permissions, audit, events, links, crm, time,
     );
     const users = new PortalUsersService(testDb, permissions, audit, new UserService(testDb, audit, new ZitadelTokens()), registry);
-    tickets = new PortalTicketsService(testDb, audit, scrum);
+    tickets = new PortalTicketsService(testDb, audit, events, scrum);
+    // The published view, the same way the module creates it at boot — the rule and the
+    // inbox both read it, so a test that skipped this would be testing something else.
+    await tickets.ensureReportingViews();
 
     clientId = (await crm.createClient(actor, { name: 'Duce', status: 'active' })).id;
     await crm.updateClient(actor, clientId, { portalSlug: 'duce' });
@@ -279,5 +282,112 @@ describe('PortalTicketsService', () => {
     const { id } = await openOne();
     await testDb.delete(portalTickets).where(eq(portalTickets.id, id));
     expect(await testDb.select().from(portalTicketMessages)).toHaveLength(0);
+  });
+
+  /**
+   * The three things that had to become true for a ticket to reach anybody.
+   *
+   * They are tested together because they are one chain: the event is what tells the
+   * platform, the view is what a rule may read, and the scope is what stops a closed thread
+   * disappearing. Each of them was absent, and the feature looked finished without them.
+   */
+  describe('a ticket that somebody can be told about', () => {
+    it('publishes an event when a client opens one, with the subject and not the body', async () => {
+      const { id } = await tickets.open(visitor, {
+        subject: 'Waar staat de factuur van juli?',
+        body: 'Ik kan hem niet vinden in het portaal.',
+      });
+
+      const { rows } = await testDb.execute(sql`
+        SELECT event_name, entity_type, entity_id, payload FROM core.events
+         WHERE event_name = 'portal.ticket_opened'
+      `);
+      expect(rows).toHaveLength(1);
+      const event = (rows as Array<Record<string, unknown>>)[0]!;
+      expect(event.entity_type).toBe('client');
+      expect(event.entity_id).toBe(clientId);
+      const payload = event.payload as Record<string, unknown>;
+      expect(payload).toEqual({ ticketId: id, subject: 'Waar staat de factuur van juli?' });
+      // The body stays in the thread. On the bus it would reach places nobody audited — the
+      // assistant among them — and a client's words are not our instructions.
+      expect(JSON.stringify(payload)).not.toContain('niet vinden');
+    });
+
+    it('publishes when a client replies, and not when we do', async () => {
+      const { id } = await tickets.open(visitor, { subject: 'Vraag', body: 'Eerste bericht' });
+      await tickets.reply(actor, id, { body: 'Wij antwoorden' });
+      await tickets.replyAsClient(visitor, id, 'En de klant weer');
+
+      const { rows } = await testDb.execute(sql`
+        SELECT event_name FROM core.events WHERE event_name LIKE 'portal.ticket%'
+         ORDER BY created_at
+      `);
+      // Opened, then the client's reply. Our own answer is not news to us.
+      expect((rows as Array<{ event_name: string }>).map((r) => r.event_name)).toEqual([
+        'portal.ticket_opened',
+        'portal.ticket_replied',
+      ]);
+    });
+
+    it('measures the wait from the client\'s last message, not from when it was opened', async () => {
+      const { id } = await tickets.open(visitor, { subject: 'Oud', body: 'Bericht' });
+      // Opened a fortnight ago, but the client wrote again yesterday: one day of waiting, not
+      // fourteen. This is the whole reason the view computes it rather than the rule.
+      await testDb.execute(sql`
+        UPDATE portal.tickets
+           SET created_at = now() - interval '14 days',
+               last_client_message_at = now() - interval '1 day'
+         WHERE id = ${id}
+      `);
+
+      const { rows } = await testDb.execute(sql`
+        SELECT days_waiting, client_name, opened_by_email FROM portal.v_tickets WHERE id = ${id}
+      `);
+      const row = (rows as Array<Record<string, unknown>>)[0]!;
+      expect(Number(row.days_waiting)).toBe(1);
+      expect(row.client_name).toBe('Duce');
+      expect(row.opened_by_email).toBe('finance@duce.nl');
+    });
+
+    it('stops counting the moment it is ours no longer', async () => {
+      const { id } = await tickets.open(visitor, { subject: 'Antwoord', body: 'Bericht' });
+      await testDb.execute(sql`
+        UPDATE portal.tickets SET last_client_message_at = now() - interval '9 days' WHERE id = ${id}
+      `);
+      const before = await testDb.execute(sql`SELECT days_waiting FROM portal.v_tickets WHERE id = ${id}`);
+      expect(Number((before.rows[0] as Record<string, unknown>).days_waiting)).toBe(9);
+
+      await tickets.reply(actor, id, { body: 'Hier is het antwoord' });
+
+      // Null rather than zero: it is not waiting on us at all, and the rule's WHERE clause is
+      // what makes the insight resolve itself without anybody dismissing it.
+      const after = await testDb.execute(sql`SELECT days_waiting FROM portal.v_tickets WHERE id = ${id}`);
+      expect((after.rows[0] as Record<string, unknown>).days_waiting).toBeNull();
+    });
+
+    it('keeps a closed ticket reachable, which is what the scope is for', async () => {
+      const { id } = await tickets.open(visitor, { subject: 'Afgerond', body: 'Bericht' });
+      await tickets.close(actor, id);
+
+      const open = (await tickets.inbox()) as Array<{ id: string }>;
+      expect(open.map((t) => t.id)).not.toContain(id);
+
+      // Before this existed, closing a ticket left the thread reachable only by UUID.
+      const closed = (await tickets.inbox('closed')) as Array<{ id: string }>;
+      expect(closed.map((t) => t.id)).toContain(id);
+      const all = (await tickets.inbox('all')) as Array<{ id: string }>;
+      expect(all.map((t) => t.id)).toContain(id);
+
+      // And the thread itself still answers, whatever its status.
+      expect((await tickets.thread(id)).messages).toHaveLength(1);
+    });
+
+    it('treats an unknown scope as open rather than as a query', () => {
+      expect(ticketScope('closed')).toBe('closed');
+      expect(ticketScope('all')).toBe('all');
+      for (const bad of [undefined, '', 'OPEN', "'; DROP TABLE portal.tickets --", 1]) {
+        expect(ticketScope(bad), String(bad)).toBe('open');
+      }
+    });
   });
 });

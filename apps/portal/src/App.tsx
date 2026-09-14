@@ -9,7 +9,7 @@ import { Overview } from './pages/Overview.js';
 import { Projects } from './pages/Projects.js';
 import { Quotes } from './pages/Quotes.js';
 import { Tasks } from './pages/Tasks.js';
-import { Requests } from './pages/Requests.js';
+import { Tickets } from './pages/Tickets.js';
 
 /**
  * Who is looking, for the handful of places that must not offer a client's own actions to
@@ -137,7 +137,7 @@ function Session() {
           {/*
             A tab exists when there is something behind it.
             An empty Offertes tab reads as neglect, and a per-client list of switches to
-            keep in step with reality reads as a settings screen nobody updates. Vragen is
+            keep in step with reality reads as a settings screen nobody updates. Tickets is
             always here whatever it holds — hiding it when a client has asked nothing would
             take away the one thing they came to do.
           */}
@@ -147,7 +147,7 @@ function Session() {
           {me?.tabs.invoices && <NavLink to="/facturen">Facturen</NavLink>}
           {me?.tabs.documents && <NavLink to="/documenten">Documenten</NavLink>}
           {me?.tabs.pages && <NavLink to="/rapporten">Rapporten</NavLink>}
-          <NavLink to="/vragen">Vragen</NavLink>
+          <NavLink to="/tickets">Tickets</NavLink>
         </nav>
       </header>
       </div>
@@ -162,7 +162,10 @@ function Session() {
         <Route path="/facturen" element={<Invoices />} />
         <Route path="/documenten" element={<Documents />} />
         <Route path="/rapporten" element={<Pages />} />
-        <Route path="/vragen" element={<Requests />} />
+        <Route path="/tickets" element={<Tickets />} />
+        {/* The address this lived at until it was called what it is. Links to it are in
+            sent email and in clients' bookmarks, so it redirects rather than 404s. */}
+        <Route path="/vragen" element={<Navigate to="/tickets" replace />} />
         <Route path="*" element={<Navigate to="/overzicht" replace />} />
       </Routes>
       </div>

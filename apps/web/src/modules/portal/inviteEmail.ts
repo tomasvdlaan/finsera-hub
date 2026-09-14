@@ -122,9 +122,9 @@ export function inviteEmail({ name, clientName, portalHost, url }: InviteEmailIn
   const html = `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="font-family:-apple-system,'Segoe UI',Arial,sans-serif;">
   <tr>
     <td style="padding:8px 0;">
-      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="560" style="width:560px;max-width:100%;">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="560" align="left" style="width:560px;max-width:100%;">
         <tr>
-          <td style="color:${INK};font-size:15px;line-height:1.65;">
+          <td style="color:${INK};font-size:15px;line-height:25px;">
             <p style="margin:0 0 16px 0;">${escapeHtml(greeting)},</p>
             <p style="margin:0 0 16px 0;">
               Het klantportaal van Finsera staat voor <strong>${escapeHtml(clientName)}</strong>
@@ -132,25 +132,29 @@ export function inviteEmail({ name, clientName, portalHost, url }: InviteEmailIn
             </p>
             <p style="margin:0 0 18px 0;">Het gaat in twee stappen.</p>
 
-            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 22px 0;">
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 22px 0;">
               <tr>
-                <td width="30" valign="top" style="color:${BRAND};font-size:15px;font-weight:700;line-height:1.65;">1.</td>
-                <td style="color:${INK};font-size:15px;line-height:1.65;">
+                <td width="30" valign="top" style="color:${BRAND};font-size:15px;font-weight:700;line-height:25px;">1.</td>
+                <td style="color:${INK};font-size:15px;line-height:25px;">
                   <strong>Activeer eenmalig uw account.</strong> U kiest hierbij uw wachtwoord.
-                  <div style="padding-top:12px;">
-                    <a href="${escapeHtml(url)}" style="display:inline-block;padding:11px 22px;background:${BRAND};border-radius:6px;color:${ON_BRAND};font-size:15px;font-weight:600;text-decoration:none;">Account activeren</a>
-                  </div>
+                  <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin-top:12px;">
+                    <tr>
+                      <td align="center" bgcolor="${BRAND}" style="background:${BRAND};">
+                        <a href="${escapeHtml(url)}" style="display:inline-block;padding:11px 22px;color:${ON_BRAND};font-size:15px;font-weight:600;line-height:20px;text-decoration:none;">Account activeren</a>
+                      </td>
+                    </tr>
+                  </table>
                 </td>
               </tr>
               <tr><td colspan="2" style="height:20px;line-height:20px;font-size:0;">&nbsp;</td></tr>
               <tr>
-                <td width="30" valign="top" style="color:${BRAND};font-size:15px;font-weight:700;line-height:1.65;">2.</td>
-                <td style="color:${INK};font-size:15px;line-height:1.65;">
+                <td width="30" valign="top" style="color:${BRAND};font-size:15px;font-weight:700;line-height:25px;">2.</td>
+                <td style="color:${INK};font-size:15px;line-height:25px;">
                   <strong>Log daarna in op uw eigen portaaladres.</strong>
                   Dat is een ander adres dan de pagina waar u zojuist uw wachtwoord instelde.
                   <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:12px 0 0 0;">
                     <tr>
-                      <td style="background:${TINT};border-left:3px solid ${BRAND};border-radius:0 6px 6px 0;padding:14px 18px;">
+                      <td bgcolor="${TINT}" style="background:${TINT};border-left:3px solid ${BRAND};padding:14px 18px;">
                         <div style="color:${MUTED};font-size:12px;letter-spacing:0.04em;text-transform:uppercase;padding-bottom:4px;">Uw eigen portaaladres</div>
                         <a href="https://${escapeHtml(portalHost)}" style="color:${BRAND_DEEP};font-size:17px;font-weight:700;text-decoration:none;">${escapeHtml(portalHost)}</a>
                         <div style="color:${MUTED};font-size:13px;padding-top:4px;">Hier logt u voortaan in — de moeite van een bladwijzer waard.</div>

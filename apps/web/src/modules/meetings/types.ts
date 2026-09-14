@@ -12,6 +12,13 @@ export interface Attendee {
   name: string;
   email: string | null;
   contactId: string | null;
+  /**
+   * The colleague this attendee turned out to be, when they are one.
+   *
+   * Set as they join the call. It is also what makes the meeting visible to them, so an
+   * attendee without one is somebody who cannot find this note.
+   */
+  userId: string | null;
   consent: 'granted' | 'declined' | null;
   consentAt: string | null;
   /** Set when the meeting bot actually saw this person in the call. */

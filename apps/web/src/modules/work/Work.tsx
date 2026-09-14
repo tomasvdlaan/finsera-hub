@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { PageHeader } from '../../shell/ui/layout.js';
+import { SectionTabs } from '../../shell/useNav.js';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { useDocumentTitle } from '../../shell/useDocumentTitle.js';
@@ -87,9 +88,16 @@ export function Work() {
 
   return (
     <>
+      {/*
+        The strip is how the rest of this section is reachable at all. Client tickets and
+        Whiteboards declare themselves here in the manifests and had no route in from
+        anywhere: the top bar is nine fixed anchors, and nothing rendered a `work` strip.
+        Money has had one since the same thing hid four finance pages.
+      */}
       <PageHeader
         title="Work"
         subtitle="Every open card across all projects. Drag within a project on its own board — this is for seeing the whole plate at once."
+        tabs={<SectionTabs section="work" />}
       />
 
       <div className="row">

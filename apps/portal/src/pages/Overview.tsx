@@ -61,7 +61,7 @@ export function Overview() {
             ))}
             {o.awaitingTickets.map((t) => (
               <li key={t.id}>
-                <Link to="/vragen">{t.subject}</Link>
+                <Link to="/tickets">{t.subject}</Link>
                 <span className="detail">wacht op uw antwoord</span>
               </li>
             ))}

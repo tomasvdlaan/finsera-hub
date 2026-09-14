@@ -776,3 +776,111 @@ placeholder `.test` names and read that line — and is now what this config is 
 only reason this is a note rather than an incident. The rollback in `deploy/update.sh` did
 not help and could not: the API was healthy the whole time, so from the deploy script's
 point of view nothing had gone wrong.
+
+## Being in the meeting is what puts it on your list (2026-09-12) · **Built**
+
+A meeting was visible to whoever wrote it and to the team of the project it was linked to,
+and to nobody else. So the ordinary case — four colleagues sit through a call, one of them
+created the note — ended with three of them unable to find the meeting they had just been
+in, and the only remedy was for the author to remember to add each of them by hand.
+
+**Attendance now carries visibility.** `meetings.attendees` has had a `user_id` column since
+6b and nothing ever wrote to it. `recordAttendance` — already called as each person joins,
+from the roster the bot sees — now resolves the person to a colleague and fills it in, and
+`visibleNotes` reads it. Joining the call is the act that couples you to the note; nobody has
+to share anything.
+
+**How a name on a roster becomes an account.** An exact address wins when the meeting provider
+reports one, which Recall does in some tenants and not others — `emailOf` now reads it from
+the participant or from under the platform's own key, and returns null rather than a guess
+when it is absent. Otherwise the display name, and only when exactly one *active* colleague
+answers to it. Two people called Jan Jansen link neither, and somebody who has left links
+never: a wrong match here hands a meeting to the wrong person silently, which is the failure
+worth being conservative about. Anything unmatched stays an unlinked name, which is the state
+everything was already in.
+
+**Restricted notes are deliberately outside this.** `restricted` is the meeting held *about* a
+person — a salary review, a grievance — and attendance is a bot reading display names off a
+roster. That is a fine signal for putting a stand-up on somebody's list and much too weak for
+the one kind of note whose entire point is that it stays shut. Access there is still a grant
+into `note_viewers`, recorded with who gave it. The two tables have looked alike since 6b and
+this is the line between them: an attendee is a record of who was in the room, a viewer is a
+decision somebody made.
+
+**The history was backfilled**, in migration 0069, under the same matching rule. Without it the
+fix would apply from that day forward and every meeting held so far would stay invisible to
+the people who sat through it — which is the complaint, not a side issue. The backfill can be
+dropped from the migration if the retroactive opening is not wanted; nothing else depends on it.
+
+**It grants sight and nothing else.** `meetings.write` is still what it takes to change a note,
+and removing somebody from the attendee list removes their access with it.
+
+**A colleague can also be added by hand, from a picker rather than a text field.** Not everybody
+who should see a meeting was in the call — somebody who could not make it, somebody who has to
+pick the work up. The free-text field stays, because most attendees are guests from the client
+and always will be, but a colleague typed into it is a string that has to match their display
+name exactly before anything links it to them, and the failure when it does not is silent. So
+the two are separate controls, and the one with a consequence says what it is: *Add and give
+access*. Anybody already on the list is not offered, a second click adds nothing, and an
+account that is not active is refused — the same rule the detection path uses.
+
+**Removing asks first**, but only when it costs something you cannot undo by clicking again: a
+colleague loses the meeting, or the row was a record of somebody the bot actually saw, which is
+the one thing on that list that was observed rather than typed. Both directions are audited when
+they name an account; a guest's name is not, because "how did they come to see this" is a
+question asked about people.
+
+`removeAttendee` now resolves the note through `raw` first. That was harmless while it only
+deleted a name — the note id was already in the WHERE clause — and stopped being harmless the
+moment the row carried access.
+
+## 2026-09-12 — Phase 9: tickets that somebody is told about
+
+Brief: [phase9-tickets-brief.md](phase9-tickets-brief.md). **P1, P2, P4 and P7 confirmed and
+built; P3 deferred to a gate; P5 and P6 scoped and not started.**
+
+The client-facing tab is **Tickets**, not *Vragen*, at `/tickets` — `/vragen` redirects,
+because that address is in sent email and in clients' bookmarks. The hub inbox was not
+findable at all: it declares itself in `section: 'work'` and only the `money` section ever
+rendered a tab strip, so `/portal/tickets` had no link from anywhere and neither did
+Whiteboards. The Work page now renders its section's strip, which is the same fix
+`useNav.tsx` already documents for four finance pages.
+
+**A ticket now publishes something.** `portal.ticket_opened` and `portal.ticket_replied`,
+against the client, in the same transaction as the rows they describe. Only the client's
+replies: ours are not news to us, and a second event would make "who is waiting" the harder
+question. The subject travels, the **body never does** — a client's prose on the bus reaches
+places nobody audited, the assistant included, and this module declares no `aiTools`
+precisely so their words are never read as our instructions.
+
+**The badge is an Insights rule rather than a counter.** `ticket_waiting_on_us` reads a new
+published view, `portal.v_tickets`, and fires at two days (`attention`), seven (`urgent`),
+addressed to the owner or falling to `delivery` — the same shape as its mirror,
+`waiting_on_client_too_long`. The decisive property is that it **resolves itself**: answering
+flips the status, the row leaves the view, and the item disappears without anybody dismissing
+it. `days_waiting` is measured from the client's last message, not from `created_at`, because
+a thread running a fortnight is not two weeks late on this morning's question. A second
+notion of "needs attention" in the nav was rejected for the reason a badge stops being
+believed.
+
+**Closing a ticket no longer loses it.** The inbox query filtered `status <> 'closed'` and
+nothing else listed them, so an answered thread was reachable only by UUID. It is a scope
+now — Open / Closed / All — validated into one of three words on its way to a WHERE clause.
+
+**Triage is `portal.tickets`, held by members.** Granting somebody a login hands a client's
+money to a person outside the business and stays `portal.admin`, admins only. Answering a
+question a client already asked is delivery work, and while the two shared one capability a
+colleague opening the inbox saw an empty table — which reads as a broken page rather than a
+refusal, and made triage one person's job by accident. `assign()` had also existed since the
+feature shipped with no control anywhere; it has an owner column now.
+
+**Mail is not a ticket feature.** There is no mail capability in the platform at all —
+`core/graph` is deliberately drive-only. So a client still learns of an answer only by
+revisiting their portal, and choosing between Graph `sendMail`, a transactional provider and
+SMTP is **gate G8**, to be decided on its own terms rather than because a screen needed it.
+Now that the events exist, whichever wins is a subscriber rather than a rewrite.
+
+**Rich text is scoped, not built** (P5): a markdown subset stored as source, so the
+`length BETWEEN 1 AND 5000` check keeps meaning what it says. TipTap-both-ways storing HTML
+was rejected — client-authored HTML rendered inside hub is an XSS with an admin session
+behind it, and 5000 characters of HTML is a third of the prose.

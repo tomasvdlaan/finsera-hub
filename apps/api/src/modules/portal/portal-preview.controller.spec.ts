@@ -81,9 +81,10 @@ describe('PortalPreviewController wiring', () => {
     expect(previewRoutes).toEqual(clientScoped);
   });
 
-  it('keeps ticket triage separate from previewing, and admin-only', () => {
+  it('keeps ticket triage separate from previewing', () => {
     // Triage is about our inbox rather than one client's portal, so it is not
-    // client-scoped — and every one of its routes still checks portal.admin.
+    // client-scoped — and it is gated by `portal.tickets` rather than `portal.admin`,
+    // because answering a question a client already asked is delivery work.
     //
     // The list is the point. Writes on this controller must always be ours (answering a
     // ticket, closing one, turning one into a task) and never the client's, so a new route
@@ -122,8 +123,9 @@ describe('PortalPreviewController behaviour', () => {
       new StorageService(),
       new LocalDocumentStore(new StorageService()),
       audit,
-      // Ticket triage is exercised by its own spec; these tests are about previewing.
-      {} as unknown as PortalTicketsService,
+      // Ticket triage is exercised by its own spec; all these tests need of it is that the
+      // route gets past its capability check and calls something.
+      { inbox: async () => [] } as unknown as PortalTicketsService,
       testDb,
     );
     await crm.ensureReportingViews();
@@ -135,6 +137,19 @@ describe('PortalPreviewController behaviour', () => {
     // portal.admin is adminOnly precisely so this is true. Reading a client's portal and
     // handing someone a login to it are the same kind of act.
     await expect(controller.projects(member, clientId)).rejects.toThrow(/portal.admin/);
+  });
+
+  it('lets that same member triage tickets, which is the point of the second capability', async () => {
+    /*
+     * The two halves of P7, asserted together because the distinction is the whole change.
+     *
+     * Previewing a client's portal and inviting somebody into it stay admin-only: both hand
+     * a client's data to a person. Reading and answering a ticket the client has already
+     * opened is delivery work, and while it shared `portal.admin` a colleague who opened the
+     * inbox saw an empty table — which reads as a broken page rather than as a refusal, and
+     * quietly made triage one person's job.
+     */
+    await expect(controller.openTickets(member)).resolves.toEqual([]);
   });
 
   it('records who previewed which client', async () => {

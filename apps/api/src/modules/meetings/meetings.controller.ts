@@ -369,7 +369,7 @@ export class MeetingsController {
   addAttendee(
     @CurrentActor() actor: Actor,
     @Param('id') id: string,
-    @Body() body: { name: string; email?: string; contactId?: string },
+    @Body() body: { name: string; email?: string; contactId?: string; userId?: string },
   ) {
     return this.meetings.addAttendee(actor, id, body);
   }

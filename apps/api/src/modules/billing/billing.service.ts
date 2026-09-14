@@ -252,6 +252,15 @@ export class BillingService {
 
     let number = '';
     await this.db.transaction(async (tx) => {
+      const [current] = await tx
+        .select()
+        .from(invoices)
+        .where(eq(invoices.id, id))
+        .for('update');
+      if (!current) throw new NotFoundException('Invoice not found');
+      if (current.issuedAt) throw new BadRequestException('Already issued');
+      if (current.status === 'void') throw new BadRequestException('This draft was voided');
+
       number = await this.allocateNumber(tx, new Date().getFullYear());
 
       await tx
@@ -268,14 +277,15 @@ export class BillingService {
         .where(eq(invoices.id, id));
 
       await this.registry.updateDisplay(tx, id, {
-        displayName: `${invoice.kind === 'credit_note' ? 'Credit note' : 'Invoice'} ${number} — ${client.name}`,
+        displayName: `${current.kind === 'credit_note' ? 'Credit note' : 'Invoice'} ${number} — ${client.name}`,
       });
 
-      if (invoice.kind === 'credit_note' && invoice.creditsInvoiceId) {
+      const creditsInvoiceId = current.creditsInvoiceId;
+      if (current.kind === 'credit_note' && creditsInvoiceId) {
         // A credit note reverses its invoice, so the hours it billed become billable
         // again — that is usually the whole point: re-bill them corrected. Released at
         // ISSUE rather than at draft, so an abandoned credit-note draft changes nothing.
-        await this.time.releaseFromInvoice(tx, invoice.creditsInvoiceId);
+        await this.time.releaseFromInvoice(tx, creditsInvoiceId);
       } else {
         await this.time.markInvoiced(tx, id, new Date());
       }
@@ -285,7 +295,7 @@ export class BillingService {
         action: 'invoice.issue',
         entityType: 'invoice',
         entityId: id,
-        detail: { number, totalCents: invoice.totalCents, vatTreatment: treatment },
+        detail: { number, totalCents: current.totalCents, vatTreatment: treatment },
       });
 
       await this.events.publish(tx, {
@@ -293,7 +303,7 @@ export class BillingService {
         entityType: 'invoice',
         entityId: id,
         actorId: actor.userId,
-        payload: { number, clientId: invoice.clientId, totalCents: invoice.totalCents },
+        payload: { number, clientId: current.clientId, totalCents: current.totalCents },
       });
     });
 

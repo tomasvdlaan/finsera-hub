@@ -27,15 +27,24 @@ const KNOWN_EVENTS = new Set([
   'participant_events.leave',
 ]);
 
+interface RecallParticipant {
+  id?: number | string;
+  name?: string;
+  is_host?: boolean;
+  email?: string;
+  /** Platform-specific identity, keyed by platform — `{ microsoft_teams: { ... } }`. */
+  extra_data?: unknown;
+}
+
 interface RecallMessage {
   event?: string;
   data?: {
     data?: {
       buffer?: string;
       timestamp?: { relative?: number };
-      participant?: { id?: number | string; name?: string; is_host?: boolean; extra_data?: unknown };
+      participant?: RecallParticipant;
     };
-    participant?: { id?: number | string; name?: string; is_host?: boolean };
+    participant?: RecallParticipant;
   };
 }
 
@@ -368,17 +377,15 @@ export class RecallSession implements CaptureSession {
     }
   }
 
-  private rememberSpeaker(participant: {
-    id?: number | string;
-    name?: string;
-    is_host?: boolean;
-  }): Speaker {
+  private rememberSpeaker(participant: RecallParticipant): Speaker {
     const id = String(participant.id);
     const known = this.speakers.get(id);
     // Display names can change mid-meeting; the latest one wins, but identity does not.
     const speaker: Speaker = {
       id,
       name: participant.name ?? known?.name ?? 'Unknown participant',
+      // Never unset once seen: it arrives on the join event and not on every audio frame.
+      email: emailOf(participant) ?? known?.email ?? null,
       isHost: participant.is_host ?? known?.isHost,
     };
     this.speakers.set(id, speaker);
@@ -466,4 +473,31 @@ export class RecallSession implements CaptureSession {
     this.socket?.removeAllListeners();
     this.socket?.close();
   }
+}
+
+/**
+ * The address Recall knows for a participant, if it knows one.
+ *
+ * Worth the trouble because it is what makes an attendee a colleague with certainty rather
+ * than by name — see `colleagueFor` in the meetings service.
+ *
+ * Where it lives depends on the platform and on which of Recall's identity features the
+ * meeting has available: sometimes on the participant, sometimes a level down under the
+ * platform's own key. Rather than encode a shape that differs per platform and changes under
+ * us, this looks in both places for a field plainly called `email` and ignores everything
+ * else. Absent is the normal case — a bot that joined as a guest in somebody else's tenant
+ * usually sees display names and nothing more — so the caller must cope with null, and does.
+ */
+function emailOf(participant: RecallParticipant): string | null {
+  if (typeof participant.email === 'string' && participant.email.includes('@')) {
+    return participant.email;
+  }
+  const extra = participant.extra_data;
+  if (!extra || typeof extra !== 'object') return null;
+  for (const value of Object.values(extra as Record<string, unknown>)) {
+    if (!value || typeof value !== 'object') continue;
+    const email = (value as Record<string, unknown>).email;
+    if (typeof email === 'string' && email.includes('@')) return email;
+  }
+  return null;
 }

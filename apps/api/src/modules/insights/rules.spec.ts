@@ -191,3 +191,38 @@ describe('insight severities', () => {
     expect(c.magnitude).toBeGreaterThan(0);
   });
 });
+
+describe('a client waiting on us', () => {
+  const row = (days: number) => ({
+    id: crypto.randomUUID(),
+    subject: 'Waar staat de factuur van juli?',
+    client_name: 'DocHorse',
+    assigned_to: null,
+    days_waiting: days,
+  });
+
+  it('reaches the attention queue after two days and turns urgent after a week', () => {
+    expect(rule('ticket_waiting_on_us').toCandidate(row(2)).severity).toBe('attention');
+    expect(rule('ticket_waiting_on_us').toCandidate(row(7)).severity).toBe('urgent');
+  });
+
+  it('names the client, the wait and the question, because the title is the whole item', () => {
+    const c = rule('ticket_waiting_on_us').toCandidate(row(4));
+    expect(c.title).toBe('DocHorse has been waiting 4 days on "Waar staat de factuur van juli?"');
+    // The link the Inbox row resolves; without this the sentence is a dead end.
+    expect(c.subjectType).toBe('portal_ticket');
+  });
+
+  it('falls to the department when nobody owns it', () => {
+    // The mirror rule does the same: an unowned item is the team's, not nobody's.
+    const c = rule('ticket_waiting_on_us').toCandidate(row(3));
+    expect(c.personId).toBeNull();
+    expect(c.audience).toBe('delivery');
+  });
+
+  it('addresses the owner once there is one', () => {
+    const owner = crypto.randomUUID();
+    const c = rule('ticket_waiting_on_us').toCandidate({ ...row(3), assigned_to: owner });
+    expect(c.personId).toBe(owner);
+  });
+});

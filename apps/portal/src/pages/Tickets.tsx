@@ -77,7 +77,7 @@ function Thread({ id, onChanged }: { id: string; onChanged: () => void }) {
       ))}
 
       {thread.status === 'closed' ? (
-        <p className="tag">Deze vraag is afgerond. Stel gerust een nieuwe vraag.</p>
+        <p className="tag">Dit ticket is afgerond. Open gerust een nieuw ticket.</p>
       ) : staff ? (
         <p className="tag">Antwoorden doet u vanuit het dashboard, niet hier.</p>
       ) : (
@@ -106,7 +106,7 @@ function Thread({ id, onChanged }: { id: string; onChanged: () => void }) {
  * in the time it would have taken to open their mail client, or they will use their mail
  * client. The project is optional — plenty of requests are not about a project at all.
  */
-export function Requests() {
+export function Tickets() {
   const { rows, error } = useList<PortalTicket>(api.tickets);
   const { rows: projects } = useList<PortalProject>(api.projects);
   const { staff } = useViewer();
@@ -148,12 +148,12 @@ export function Requests() {
 
   return (
     <Page
-      title="Vragen"
-      lead="Iets nodig? Stel het hier, en volg wat ermee gebeurt."
+      title="Tickets"
+      lead="Iets nodig? Open een ticket, en volg hier wat ermee gebeurt."
     >
       {staff ? (
         <p className="tag" style={{ marginBottom: '2rem' }}>
-          Vragen van deze klant. Zelf een vraag indienen kan alleen de klant.
+          Tickets van deze klant. Zelf een ticket openen kan alleen de klant.
         </p>
       ) : (
         <form onSubmit={submit} className="ask">
@@ -173,7 +173,7 @@ export function Requests() {
             />
           </label>
           <label>
-            <span>Uw vraag</span>
+            <span>Uw bericht</span>
             <textarea
               value={body}
               onChange={(e) => setBody(e.target.value)}
@@ -206,7 +206,7 @@ export function Requests() {
       <Listing
         rows={all}
         error={error}
-        empty={staff ? 'Deze klant heeft nog niets gevraagd.' : 'U heeft nog niets gevraagd.'}
+        empty={staff ? 'Deze klant heeft nog geen ticket geopend.' : 'U heeft nog geen ticket geopend.'}
       >
         {(tickets) => (
           <Card>

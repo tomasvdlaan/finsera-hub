@@ -23,8 +23,12 @@ const audioFrom = (id: string, name: string, pcm: Buffer) =>
     }),
   );
 
-const participantEvent = (event: string, id: string, name: string) =>
-  Buffer.from(JSON.stringify({ event, data: { participant: { id, name } } }));
+const participantEvent = (
+  event: string,
+  id: string,
+  name: string,
+  extra: Record<string, unknown> = {},
+) => Buffer.from(JSON.stringify({ event, data: { participant: { id, name, ...extra } } }));
 
 class FakeSocket {
   private handlers = new Map<string, (raw: Buffer) => unknown>();
@@ -158,6 +162,52 @@ describe('RecallSession', () => {
 
     await socket.deliver(participantEvent('participant_events.leave', '7', 'Marieke'));
     expect(segments).toHaveLength(1);
+  });
+
+  /*
+   * The address is what turns a name on a roster into a colleague with certainty — see
+   * `colleagueFor` in the meetings service, which is what puts the meeting on their list.
+   * Recall reports it in more than one place and often not at all, so all three cases below
+   * are the normal ones rather than edge cases.
+   */
+  describe('the address, where Recall knows one', () => {
+    it('takes it from the participant', async () => {
+      await socket.deliver(
+        participantEvent('participant_events.join', '7', 'Marieke', {
+          email: 'marieke@finsera.nl',
+        }),
+      );
+      expect(speakerEvents[0]!.speaker.email).toBe('marieke@finsera.nl');
+    });
+
+    it('finds it under the platform key', async () => {
+      await socket.deliver(
+        participantEvent('participant_events.join', '7', 'Marieke', {
+          extra_data: { microsoft_teams: { user_id: 'aad-1', email: 'marieke@finsera.nl' } },
+        }),
+      );
+      expect(speakerEvents[0]!.speaker.email).toBe('marieke@finsera.nl');
+    });
+
+    it('is null rather than invented when it is absent', async () => {
+      // A bot joining as a guest in someone else's tenant usually sees names and nothing more.
+      await socket.deliver(
+        participantEvent('participant_events.join', '7', 'Marieke', {
+          extra_data: { microsoft_teams: { user_id: 'aad-1' } },
+        }),
+      );
+      expect(speakerEvents[0]!.speaker.email).toBeNull();
+    });
+
+    it('keeps it once seen, though it arrives only on the join', async () => {
+      await socket.deliver(
+        participantEvent('participant_events.join', '7', 'Marieke', {
+          email: 'marieke@finsera.nl',
+        }),
+      );
+      await say('7', 'Marieke');
+      expect(segments[0]!.speaker.email).toBe('marieke@finsera.nl');
+    });
   });
 
   it('takes the newest display name without losing identity', async () => {

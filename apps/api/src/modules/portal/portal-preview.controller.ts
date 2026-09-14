@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   Get,
   Post,
+  Query,
   Inject,
   Logger,
   NotFoundException,
@@ -20,7 +21,7 @@ import { DB, type Database } from '../../core/db/db.module.js';
 import { PermissionService } from '../../core/permissions/permission.service.js';
 import { StorageService } from '../../core/storage/storage.service.js';
 import { DocumentStore, refFromRow } from '../../core/storage/document-store.js';
-import { PortalTicketsService } from './portal-tickets.service.js';
+import { PortalTicketsService, ticketScope } from './portal-tickets.service.js';
 import { PortalProjection } from './portal.projection.js';
 
 /**
@@ -73,15 +74,17 @@ export class PortalPreviewController {
    * checks the projection routes rather than the whole class.
    */
   @Get('tickets')
-  async openTickets(@CurrentActor() actor: Actor) {
-    await this.requireAdmin(actor);
-    return this.tickets.inbox();
+  async openTickets(@CurrentActor() actor: Actor, @Query('status') status?: string) {
+    await this.requireTickets(actor);
+    // Validated into one of three words rather than passed through: it reaches a WHERE
+    // clause, and 'open' is the answer to anything else.
+    return this.tickets.inbox(ticketScope(status));
   }
 
   /** One thread, including the notes we have written to ourselves on it. */
   @Get('tickets/:id')
   async ticket(@CurrentActor() actor: Actor, @Param('id', ParseUUIDPipe) id: string) {
-    await this.requireAdmin(actor);
+    await this.requireTickets(actor);
     return this.tickets.thread(id);
   }
 
@@ -99,7 +102,7 @@ export class PortalPreviewController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() body: { body: string; internalOnly?: boolean },
   ) {
-    await this.requireAdmin(actor);
+    await this.requireTickets(actor);
     return this.tickets.reply(actor, id, body);
   }
 
@@ -110,19 +113,19 @@ export class PortalPreviewController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() body: { projectId: string; title?: string },
   ) {
-    await this.requireAdmin(actor);
+    await this.requireTickets(actor);
     return this.tickets.convert(actor, id, body);
   }
 
   @Post('tickets/:id/close')
   async closeTicket(@CurrentActor() actor: Actor, @Param('id', ParseUUIDPipe) id: string) {
-    await this.requireAdmin(actor);
+    await this.requireTickets(actor);
     return this.tickets.close(actor, id);
   }
 
   @Post('tickets/:id/reopen')
   async reopenTicket(@CurrentActor() actor: Actor, @Param('id', ParseUUIDPipe) id: string) {
-    await this.requireAdmin(actor);
+    await this.requireTickets(actor);
     return this.tickets.reopen(actor, id);
   }
 
@@ -139,6 +142,19 @@ export class PortalPreviewController {
   private async requireAdmin(actor: Actor): Promise<void> {
     if (!(await this.permissions.can(actor, 'portal.admin'))) {
       throw new ForbiddenException(`Missing capability 'portal.admin'`);
+    }
+  }
+
+  /**
+   * Triage, which is delivery work rather than admin work.
+   *
+   * Separate from `requireAdmin` on purpose: the routes that hand access to somebody
+   * outside the business stay admin-only, and answering a question a client already asked
+   * does not need to be.
+   */
+  private async requireTickets(actor: Actor): Promise<void> {
+    if (!(await this.permissions.can(actor, 'portal.tickets'))) {
+      throw new ForbiddenException(`Missing capability 'portal.tickets'`);
     }
   }
 

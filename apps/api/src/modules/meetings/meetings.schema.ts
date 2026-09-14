@@ -183,8 +183,22 @@ export const attendees = meetings.table(
       .references(() => notes.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
     email: text('email'),
-    /** Registry id of a CRM contact or a platform user, when the person is known. */
+    /** Registry id of a CRM contact, when the person is a known client contact. */
     contactId: uuid('contact_id'),
+    /**
+     * `core.users.id`, when the person in the room turns out to work here.
+     *
+     * Filled in by `recordAttendance` as people join — matched on the address the meeting
+     * provider reports, or failing that on an unambiguous display name. It is what makes a
+     * colleague's own meetings findable: `visibleNotes` reads this column, so being in the
+     * room is what puts an unrestricted note on your list, rather than somebody having
+     * remembered to link you to the project it belongs to.
+     *
+     * Deliberately not a route into a RESTRICTED note. Those are the meeting about a person,
+     * and attendance is recorded by a bot from a display name — a weak enough signal that it
+     * must not, on its own, open the one kind of note that exists to stay shut. Access there
+     * is still granted by hand, into `note_viewers`.
+     */
     userId: uuid('user_id'),
     consent: text('consent'),
     consentAt: timestamp('consent_at', { withTimezone: true }),
@@ -198,6 +212,8 @@ export const attendees = meetings.table(
   },
   (t) => [
     index('attendees_note_idx').on(t.noteId),
+    // Read by the visibility predicate on every note list: "which meetings was I in?"
+    index('attendees_user_idx').on(t.userId),
     check(
       'attendees_consent_valid',
       sql`${t.consent} IS NULL OR ${t.consent} IN ('granted','declined')`,
