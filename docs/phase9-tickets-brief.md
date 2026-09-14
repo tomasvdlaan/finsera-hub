@@ -1,8 +1,7 @@
 # Phase 9 — Tickets: a conversation somebody is told about
 
-**Status:** drafted 2026-09-12; **P1, P2, P4, P7 and the client-page widget built the same
-day** (§5 steps 1–5). P3 (mail) is gated on a provider choice; P5 (rich text) and P6
-(attachments) are not started
+**Status:** drafted 2026-09-12; **steps 1–5 built that day, P5 (rich text) built 2026-09-14**.
+P3 (mail) is gated on a provider choice; P6 (attachments) is not started
 **Parent:** [phase8-portal-v2-brief.md](phase8-portal-v2-brief.md) §4.1 (the ticket schema) and
 §4.6 (the internal inbox) — everything there still governs
 **Renaming already done:** the client-facing tab is *Tickets* at `/tickets`, with `/vragen`
@@ -142,6 +141,20 @@ answered is reachable only by UUID.
 
 No inline images: that is P6 wearing a disguise.
 
+**Built 2026-09-14, and one thing came out differently.** The plan said "a renderer and a
+sanitiser on both sides"; there is no sanitiser, because `@platform/ticket-markdown` returns
+a **tree of nodes with string leaves** rather than an HTML string. Each app maps those nodes
+to React elements, React escapes every leaf, and `dangerouslySetInnerHTML` appears nowhere in
+the path — so there is no list of dangerous things to keep current. What a sanitiser would
+have guarded is instead impossible to express. The link check survives as the one real rule:
+`http:`, `https:` and `mailto:` are clickable and everything else renders as the text
+somebody typed, parsed with `URL` so that `JaVaScRiPt:` and a leading space are the same
+question.
+
+A single newline is a **line break**, not a paragraph join. Strict Markdown would have
+silently reflowed every message written while both sides were plain text with
+`white-space: pre-wrap`, which is a formatting feature rewriting other people's words.
+
 ### P6 — Attachments (recommended: yes, but last)
 
 The commonest reason a thread falls back to email is "can you send me that document". It
@@ -224,7 +237,7 @@ both sides.
 | 4 ✅ | Assignee column and picker, `portal.tickets` capability (P7) | A member can triage; assignment shows on the row and routes the insight. Built 2026-09-12 |
 | 5 ✅ | Client-page widget (4.4) | A client's open tickets are visible while looking at that client. Built 2026-09-12 |
 | **G8** | **Mail (P3)** — decide the provider before building | A client is told by email that we replied |
-| 6 | Markdown subset both ways (P5) | A ticket links to an invoice; nothing a client types renders as markup in hub |
+| 6 ✅ | Markdown subset both ways (P5) | A ticket links to an invoice; nothing a client types renders as markup in hub. Built 2026-09-14 |
 | 7 | Attachments (P6), with their own security pass | A client attaches a PDF and we open it |
 
 **Built 2026-09-12, steps 1–5.** `days_waiting` is measured from the client's last message

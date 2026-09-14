@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { useViewer } from '../App.js';
 import {
   api,
@@ -6,6 +6,8 @@ import {
   type PortalThread,
   type PortalTicket,
 } from '../lib/api.js';
+import { FormatBar } from './FormatBar.js';
+import { MessageBody } from './MessageBody.js';
 import { Card, Listing, Page, date, useList } from './shared.js';
 
 const STATUS: Record<PortalTicket['status'], string> = {
@@ -33,6 +35,7 @@ function Thread({ id, onChanged }: { id: string; onChanged: () => void }) {
   const [error, setError] = useState<string>();
   const [reply, setReply] = useState('');
   const [sending, setSending] = useState(false);
+  const replyBox = useRef<HTMLTextAreaElement>(null);
 
   const load = useCallback(() => {
     api
@@ -70,9 +73,13 @@ function Thread({ id, onChanged }: { id: string; onChanged: () => void }) {
             {' · '}
             {moment(m.created_at)}
           </p>
-          {/* Plain text, rendered as text. Nothing a client or a colleague types becomes
-              markup — this is the one screen where both sides' words meet. */}
-          <p className="body">{m.body}</p>
+          {/* Bold, italic, code, links and lists — and nothing else, ever. What a person
+              types is parsed into a closed set of nodes and rendered as elements, so
+              markup somebody writes is still the characters they wrote. This is the one
+              screen where both sides' words meet, and it stays that way. */}
+          <div className="body">
+            <MessageBody source={m.body} />
+          </div>
         </article>
       ))}
 
@@ -82,7 +89,9 @@ function Thread({ id, onChanged }: { id: string; onChanged: () => void }) {
         <p className="tag">Antwoorden doet u vanuit het dashboard, niet hier.</p>
       ) : (
         <form onSubmit={send}>
+          <FormatBar area={replyBox} onChange={setReply} disabled={sending} />
           <textarea
+            ref={replyBox}
             value={reply}
             onChange={(e) => setReply(e.target.value)}
             placeholder="Uw antwoord…"
@@ -117,6 +126,7 @@ export function Tickets() {
   const [sending, setSending] = useState(false);
   const [open, setOpen] = useState<string>();
   const [failed, setFailed] = useState<string>();
+  const bodyBox = useRef<HTMLTextAreaElement>(null);
 
   const reload = () => {
     api
@@ -174,7 +184,9 @@ export function Tickets() {
           </label>
           <label>
             <span>Uw bericht</span>
+            <FormatBar area={bodyBox} onChange={setBody} disabled={sending} />
             <textarea
+              ref={bodyBox}
               value={body}
               onChange={(e) => setBody(e.target.value)}
               placeholder="Waar kunnen we mee helpen?"

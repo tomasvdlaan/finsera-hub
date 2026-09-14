@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { Empty } from '../../shell/ui/primitives.js';
 import { PageHeader } from '../../shell/ui/layout.js';
+import { FormatBar } from './FormatBar.js';
+import { MessageBody } from './MessageBody.js';
 import { useToast } from '../../shell/ui/Toast.js';
 
 interface Ticket {
@@ -80,6 +82,7 @@ function Thread({ id, projects, onChanged }: { id: string; projects: Project[]; 
   const [note, setNote] = useState(false);
   const [projectId, setProjectId] = useState('');
   const [busy, setBusy] = useState(false);
+  const replyBox = useRef<HTMLTextAreaElement>(null);
 
   const load = () =>
     api
@@ -122,9 +125,13 @@ function Thread({ id, projects, onChanged }: { id: string; projects: Project[]; 
           </p>
           {m.authorKind === 'client' ? (
             // A quotation, so nobody reading quickly mistakes a client's words for ours.
-            <blockquote style={{ margin: '.15rem 0 0', whiteSpace: 'pre-wrap' }}>{m.body}</blockquote>
+            <blockquote className="ticket-body" style={{ margin: '.15rem 0 0' }}>
+              <MessageBody source={m.body} />
+            </blockquote>
           ) : (
-            <p style={{ margin: '.15rem 0 0', whiteSpace: 'pre-wrap' }}>{m.body}</p>
+            <div className="ticket-body" style={{ margin: '.15rem 0 0' }}>
+              <MessageBody source={m.body} />
+            </div>
           )}
         </article>
       ))}
@@ -140,7 +147,9 @@ function Thread({ id, projects, onChanged }: { id: string; projects: Project[]; 
             );
           }}
         >
+          <FormatBar area={replyBox} onChange={setReply} disabled={busy} />
           <textarea
+            ref={replyBox}
             value={reply}
             onChange={(e) => setReply(e.target.value)}
             rows={3}

@@ -309,6 +309,11 @@ under *delivery*, which resolves itself as soon as somebody answers, and a clien
 tickets appear on their page in hub. Triaging needs `portal.tickets`, which members hold;
 inviting and revoking logins still needs `portal.admin`, which is admins only.
 
+Messages on both sides take a little formatting — **bold**, *italic*, `code`, links and
+lists — with buttons above the box for anyone who does not want to type the markers. Nothing
+else is allowed: what a client types can never become markup, and a link is only clickable if
+it is http, https or mailto.
+
 Replying there is what the client sees in their portal; an *internal note* stays with us.
 *Make a task* is still a deliberate act by somebody who has read the thread, and it no
 longer closes the ticket.

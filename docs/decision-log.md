@@ -884,3 +884,41 @@ Now that the events exist, whichever wins is a subscriber rather than a rewrite.
 `length BETWEEN 1 AND 5000` check keeps meaning what it says. TipTap-both-ways storing HTML
 was rejected — client-authored HTML rendered inside hub is an XSS with an admin session
 behind it, and 5000 characters of HTML is a third of the prose.
+
+## 2026-09-14 — Phase 9 P5: formatting in a ticket thread, without a sanitiser
+
+**Built.** Bold, italic, inline code, links and the two kinds of list, on both sides of a
+ticket thread, stored as Markdown source in the column that already existed — so the
+`length BETWEEN 1 AND 5000` check keeps meaning what it says, and a backup still contains
+text rather than somebody's markup.
+
+**The design changed on the way in.** The brief assumed a renderer plus a sanitiser.
+`@platform/ticket-markdown` instead returns a tree of nodes whose leaves are strings, and
+each app maps that tree to React elements. React escapes every leaf, there is no HTML string
+anywhere in the path and no `dangerouslySetInnerHTML` — so the thing a sanitiser exists to
+catch cannot be expressed. A sanitiser is a list of everything dangerous somebody has thought
+of so far; this is a closed set of five node types. `<script>` a client types is a text node
+that reads `<script>`, asserted in both apps by rendering with `renderToStaticMarkup`.
+
+Links are the one place a rule survives, because a link is the one node that carries an
+instruction to the browser: `http:`, `https:` and `mailto:` are clickable, and anything else
+renders as the text that was typed — visible, so nobody's message is quietly edited. Checked
+by parsing with `URL` rather than matching a pattern, which is what makes `JaVaScRiPt:`, a
+leading space and percent-encoding the same question.
+
+**A single newline stays a line break.** Strict Markdown joins those lines, which would have
+reflowed every message written while both sides were plain text rendered with
+`white-space: pre-wrap`. Formatting that rewrites what other people already wrote is not a
+feature, and the test that pins it names that reason.
+
+**The toolbar owns no rules.** Which markers each button inserts and where the caret lands is
+`applyFormat` in the same package, tested as a pure function, so hub and the portal cannot
+disagree about what Bold means. The components keep only what a component can do: apply the
+edit through `setRangeText`, so the browser's own undo history survives — replacing `value`
+wholesale would make ⌘Z discard everything the person had typed.
+
+**Found while verifying it in a browser:** the portal's dev proxy excluded `vragen` and not
+`tickets`, so in development the renamed route was forwarded to the API and answered with a
+404 instead of being served by the app. Production was never affected — there the API owns
+the whole path space and `PortalPagesService` already reserved `tickets` — but the rename on
+2026-09-12 left that list behind, and nothing pointed at it.
