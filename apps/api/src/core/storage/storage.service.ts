@@ -34,7 +34,44 @@ export class StorageService implements OnModuleInit {
       );
     }
     await mkdir(this.root, { recursive: true });
+    await this.assertWritable();
     this.logger.log(`Storage: local driver at ${this.root}`);
+  }
+
+  /**
+   * Can we actually write here? Asked once, at boot, because the answer was no for weeks.
+   *
+   * `storage` is a Docker named volume. A new volume inherits the image's ownership at that
+   * path — but when the path does not exist in the image, Docker creates it owned by root,
+   * and the container runs as `node`. `mkdir` above then succeeds (the directory is already
+   * there) and every *upload* fails with `EACCES` on the shard directory it tries to create.
+   *
+   * Nothing noticed. The container was healthy, every page loaded, and the failure arrived
+   * one 500 at a time, to whoever happened to be attaching a file — which is how a client
+   * logo, a document and a pasted note image were all broken in production without a single
+   * alert. The probe writes into a shard directory rather than the root, because the root
+   * being writable is not the thing that was false.
+   *
+   * Throws in production, the way an unset `PORTAL_SESSION_SECRET` does: the deploy's health
+   * check fails, `update.sh` rolls back, and somebody is told immediately. In development it
+   * is a warning, because a laptop with an odd umask should not be unable to start the API.
+   */
+  private async assertWritable(): Promise<void> {
+    const probe = join(this.root, '.probe', `${randomUUID()}.tmp`);
+    try {
+      await mkdir(dirname(probe), { recursive: true });
+      await writeFile(probe, 'ok');
+      await rm(dirname(probe), { recursive: true, force: true });
+    } catch (err) {
+      const message =
+        `Storage at ${this.root} is not writable by this process (${(err as Error).message}). ` +
+        'On a container this is usually a volume owned by root while the app runs as `node` — ' +
+        'see the runbook, "Uploads fail with a 500".';
+      // The EACCES travels with it: the message says what to do, the cause says what the
+      // operating system actually refused.
+      if (process.env.NODE_ENV === 'production') throw new Error(message, { cause: err });
+      this.logger.warn(message);
+    }
   }
 
   /**

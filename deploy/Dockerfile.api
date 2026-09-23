@@ -43,6 +43,20 @@ ENV PORTAL_STATIC_DIR=/app/portal
 
 # Run unprivileged; the node image already provides this user.
 COPY --from=build --chown=node:node /out /app
+
+# The upload directory, created here and owned by the user that will write to it.
+#
+# `storage` is a named volume. Docker seeds a *new* volume from the image's contents at this
+# path — including its ownership — and when the path does not exist in the image it creates
+# an empty directory owned by root instead. That is what happened: the container runs as
+# `node`, every upload called `mkdir` inside a root-owned directory, and every one of them
+# failed with EACCES and a 500. Not only logos — documents and pasted note images go through
+# the same StorageService.
+#
+# Creating it here fixes it for any volume made from now on. An *existing* volume is never
+# re-seeded, so a deployment that already has one needs its ownership corrected once by hand;
+# the runbook says how.
+RUN mkdir -p /app/storage && chown node:node /app/storage
 USER node
 
 EXPOSE 3001

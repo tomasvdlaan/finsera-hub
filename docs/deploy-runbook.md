@@ -280,6 +280,29 @@ the same commit. Deactivating a colleague internally ends their staff portal ses
 same way. Clearing a client's portal address, or archiving the client, takes their whole
 portal away immediately — including any session already open.
 
+### Vercel's proxy secret
+
+Vercel can be told to refuse any request to a `*.vercel.app` project that does not carry a
+shared header — so a report is reachable through the portal and not by anybody who guesses
+the deployment URL. Generate the value in the Vercel dashboard, then put it in `deploy/.env`:
+
+```
+VERCEL_PROXY_SECRET=<the value Vercel generated>
+```
+
+It has to be named in `deploy/docker-compose.yml` too, and it is; a value that file does not
+enumerate reaches the host and stops there.
+
+The API sends it as `x-proxy-secret` on every request it forwards to a `*.vercel.app` host —
+**and only to those hosts.** A page's source URL is typed by a person and can point anywhere,
+and this secret is account-wide: whoever holds it can reach every report we host. The
+per-page bypass secret is the opposite and still goes wherever its page points, because
+somebody typed it for that URL.
+
+Unset, no header is sent, which is right until a project is configured to require one.
+Rotating it is two steps in either order — the value in Vercel and the value here — and
+between them reports 401 rather than leaking.
+
 ### Giving a client a custom report
 
 Reports are built and hosted wherever they already are, usually Vercel. On the client's
@@ -446,6 +469,41 @@ file where it already is.
 SharePoint and are therefore not covered by the backup. Those are covered by the library's
 version history and its two-stage recycle bin (93 days) instead. Once a quarter, spot-check
 that a document opens from the dashboard and that its "In SharePoint" date is plausible.
+
+## Uploads fail with a 500
+
+A logo, a document or a pasted note image comes back *Internal server error*, and the API log
+says:
+
+```
+EACCES: permission denied, mkdir '/app/storage/xx'
+```
+
+`storage` is a Docker named volume. Docker seeds a new volume from the image's contents at
+that path, ownership included — and when the path does not exist in the image it creates an
+empty directory owned by **root**, while the container runs as **node**. Creating the
+directory at boot then succeeds, because it is already there, and every upload fails on the
+shard directory beneath it.
+
+The image now creates `/app/storage` owned by `node`, so any volume made from here on is
+correct. **An existing volume is never re-seeded**, so a deployment that predates this needs
+its ownership corrected once:
+
+```bash
+cd /opt/finsera && docker compose -f deploy/docker-compose.yml exec -u 0 api \
+  chown -R node:node /app/storage
+```
+
+Done on production 2026-09-14. To check it rather than assume it:
+
+```bash
+docker compose -f deploy/docker-compose.yml exec api \
+  sh -lc 'mkdir -p /app/storage/probe && rm -r /app/storage/probe && echo writable'
+```
+
+The API now refuses to start in production when that directory cannot be written to, so the
+deploy's health check fails and `update.sh` rolls back rather than serving a platform whose
+uploads are quietly broken.
 
 ## Deploying changes afterwards
 

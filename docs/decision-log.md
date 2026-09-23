@@ -992,3 +992,54 @@ The static page stays as the fallback, for a password reset, a link opened in a 
 browser, or cleared cookies. Three earlier attempts at controlling the end of Zitadel's flow
 each failed by dumping a client somewhere that looked broken, and the page is what cannot be
 wrong about what just happened.
+
+## 2026-09-14 — Uploads had never worked in production
+
+Setting a client's portal logo returned a 500. The cause was not in the logo path and not in
+this release: `EACCES: permission denied, mkdir '/app/storage/1f'`, thrown by
+`StorageService.put`. The container runs as `node` (uid 1000) and the `storage` volume was
+owned by `root`, created 25 August.
+
+Docker seeds a *new* named volume from the image at that path, ownership included; when the
+path is absent from the image it creates an empty root-owned directory instead. The image
+copied `/out` to `/app` and never created `/app/storage`, so the volume was root-owned from
+the day it was made — and `mkdir(root)` at boot then succeeded every time, because the
+directory existed. Only the shard directory beneath it failed.
+
+So this was never a logo bug. Documents and pasted note images go through the same service,
+and all of them had been failing since the volume was created, one 500 at a time, to whoever
+happened to be attaching a file. Nothing reported it: the container was healthy and every
+page loaded.
+
+Three changes, because the fix and the reason it went unnoticed are different problems.
+`Dockerfile.api` now creates `/app/storage` owned by `node`, which makes every future volume
+correct. Production's existing volume was chowned by hand — an existing volume is never
+re-seeded, so the image fix alone would not have unstuck it, and the runbook now says so.
+And `StorageService` probes a *subdirectory* at boot, which is the thing that was actually
+false, throwing in production the way an unset `PORTAL_SESSION_SECRET` does: the health check
+fails, `update.sh` rolls back, and somebody is told at deploy time instead of a client being
+told by a red error beside a file picker.
+
+## 2026-09-23 — Vercel's proxy secret, and where a credential is allowed to go
+
+Vercel now offers an account-wide secret a project can require on every request, so a
+`*.vercel.app` deployment can refuse anything that did not arrive through our proxy. It is
+sent as `x-proxy-secret` and read from `VERCEL_PROXY_SECRET`; unset, nothing is sent, which
+is correct until a project asks for it.
+
+The interesting decision is not sending it but **withholding** it. A page's source URL is
+typed by a person in the admin screen and can be any origin — a client's own site, another
+vendor, a pasted mistake — and this secret is not scoped to one page: holding it is enough to
+reach every report we host. So it goes to Vercel's own hosts and nowhere else, and the check
+is `new URL(...).hostname` ending in `.vercel.app` rather than a string match, because
+`https://vercel.app@evil.example/` reads as Vercel to a careless eye and parses as
+`evil.example`. The per-page bypass secret keeps the opposite rule and still travels wherever
+its page points, since an admin typed it for that exact URL.
+
+Both call sites — the proxy and the admin screen's *Test* — now build their credentials from
+the same function. A Test that authenticated differently from the real request would pass
+while the page 401s, which is the confusion that button exists to end.
+
+`deploy/docker-compose.yml` names the variable as well as `deploy/.env`, for the reason
+already written in that file: a value the compose file does not enumerate reaches the host and
+stops there, which is how `PORTAL_PAGE_KEY` once never reached the container.

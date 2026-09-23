@@ -17,6 +17,7 @@ import { PermissionService } from '../../core/permissions/permission.service.js'
 import { StorageService } from '../../core/storage/storage.service.js';
 import { PortalAccessService } from './portal-access.service.js';
 import type { PortalViewer } from './portal.projection.js';
+import { upstreamCredentials } from './vercel-headers.js';
 import {
   PageSecretKeyMissing,
   decryptPageSecret,
@@ -393,7 +394,10 @@ export class PortalPagesService {
         method: 'GET',
         redirect: 'manual',
         headers: {
-          ...(secret ? { 'x-vercel-protection-bypass': secret } : {}),
+          // The same credentials the proxy sends, from the same place. A Test that
+          // authenticated differently from the real request would be a Test that passes
+          // while the page 401s — which is exactly the confusion it exists to end.
+          ...upstreamCredentials(row.sourceUrl, secret),
           'user-agent': 'Finsera-Portal/1.0',
         },
         signal: AbortSignal.timeout(10_000),

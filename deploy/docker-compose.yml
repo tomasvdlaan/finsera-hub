@@ -88,6 +88,10 @@ services:
       # says it cannot store one — and the workaround somebody reaches for is turning
       # Vercel's deployment protection off, which is the whole problem P3 exists to end.
       PORTAL_PAGE_KEY: ${PORTAL_PAGE_KEY:-}
+      # Vercel's account-wide proxy secret, sent only to `*.vercel.app`. Named here as well
+      # as in deploy/.env for the reason written a few lines down: a value this file does not
+      # enumerate reaches the host and stops.
+      VERCEL_PROXY_SECRET: ${VERCEL_PROXY_SECRET:-}
       # Shared with Caddy's on-demand-TLS `ask` URL, so that endpoint answers the reverse
       # proxy and not anyone who can reach /api. Unset leaves it open.
       PORTAL_ASK_TOKEN: ${PORTAL_ASK_TOKEN:-}

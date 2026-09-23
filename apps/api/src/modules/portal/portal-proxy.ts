@@ -10,6 +10,7 @@ import type { PortalPagesService } from './portal-pages.service.js';
 import { assertPublicSource } from './portal-pages.service.js';
 import type { PortalAccessService } from './portal-access.service.js';
 import type { PortalSessionsService } from './portal-sessions.service.js';
+import { upstreamCredentials } from './vercel-headers.js';
 
 /** Long enough for a cold serverless start, short enough that a hung origin is not our problem. */
 const TIMEOUT_MS = 10_000;
@@ -284,9 +285,11 @@ async function serve(
     // checked, which is the shape of every SSRF that got past a URL allow-list.
     redirect: 'manual',
     headers: {
-      // Vercel's Protection Bypass for Automation. With it the deployment can keep
-      // protection on and still answer us — and only us, since the secret never leaves here.
-      ...(secret ? { 'x-vercel-protection-bypass': secret } : {}),
+      // Two credentials, both decided in one place: the page's own Protection Bypass, which
+      // lets a protected deployment answer us while staying protected, and the account-wide
+      // proxy secret, which lets a Vercel project refuse anything that did not come through
+      // here. Neither ever leaves this process, and the second goes to `*.vercel.app` only.
+      ...upstreamCredentials(target, secret),
       accept: req.headers.accept ?? '*/*',
       ...(req.headers['accept-language']
         ? { 'accept-language': String(req.headers['accept-language']) }
