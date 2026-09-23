@@ -4,6 +4,7 @@ import {
   check,
   customType,
   date,
+  doublePrecision,
   index,
   integer,
   jsonb,
@@ -47,6 +48,32 @@ export const meetings = pgSchema('meetings');
 
 export const NOTE_STATUSES = ['draft', 'final'] as const;
 export const ACTION_STATUSES = ['proposed', 'accepted', 'dismissed'] as const;
+
+/**
+ * What became of a suggestion the agent made during a meeting.
+ *
+ * Three values and not four, because the live panel now offers one button. `kept` is the
+ * default outcome — a suggestion nobody objected to is one the note keeps — and `dismissed`
+ * is the only thing a person can actively do. `open` means the recording never finished:
+ * the process died, or the session is still running.
+ *
+ * Deliberately NOT 'accepted'. There is no accept, and there was never really one: for
+ * every kind but agenda coverage, pressing the old accept button did exactly what ignoring
+ * the card did. Recording a value that means the same as its absence is how the last
+ * eighteen months of this data came to mean nothing.
+ */
+export const PROPOSAL_OUTCOMES = ['open', 'kept', 'dismissed'] as const;
+
+/**
+ * Why something was dismissed, inferred rather than asked.
+ *
+ * Nobody picks from a menu in the middle of a client meeting, so the reason is derived from
+ * how the dismissal happened — see `dismissalReason` in the live runner. The distinction is
+ * the whole point of the column: only `judged` is evidence about the suggestion. A `reflex`
+ * says the operator was busy, and a `duplicate` says the agent repeated itself, which is a
+ * complaint about `similar()` rather than about the proposal.
+ */
+export const DISMISS_REASONS = ['judged', 'reflex', 'duplicate'] as const;
 /** Null until asked. 6c refuses to process audio unless every attendee has granted. */
 export const CONSENT_STATES = ['granted', 'declined'] as const;
 
@@ -286,10 +313,22 @@ export const actionItems = meetings.table(
      * nothing that a cascade would have saved.
      */
     carriedFrom: uuid('carried_from'),
+    /**
+     * The suggestion this came from, when the agent proposed it.
+     *
+     * The join that turns the proposal ledger into a funnel: proposed → kept → became an
+     * action point → accepted onto the board → done. Without it the two tables can only be
+     * matched on text, which the note-taker rewords often enough to be useless.
+     *
+     * Null for anything typed by a person, and for everything created before the ledger
+     * existed. A plain uuid rather than an FK, the same shape `carried_from` uses.
+     */
+    proposalId: uuid('proposal_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     index('action_items_note_idx').on(t.noteId),
+    index('action_items_proposal_idx').on(t.proposalId),
     // Asked of every open action point: has this one already been carried somewhere newer?
     index('action_items_carried_from_idx').on(t.carriedFrom),
     check('action_items_status_valid', sql`${t.status} IN ('proposed','accepted','dismissed')`),
@@ -302,6 +341,105 @@ export const actionItems = meetings.table(
     check(
       'action_items_not_own_ancestor',
       sql`${t.carriedFrom} IS NULL OR ${t.carriedFrom} <> ${t.id}`,
+    ),
+  ],
+);
+
+/**
+ * Every suggestion the agent made, and what became of it.
+ *
+ * ## Why this table exists
+ *
+ * Until now a proposal lived in `LiveSession` and nowhere else — in memory, for the length
+ * of one recording. What survived was its *effect*: a line in the note, an action point on
+ * the board. The judgement itself was never written down, so the platform had no way to
+ * answer the one question that would make the agent better: of everything it suggested,
+ * what did a person actually want?
+ *
+ * ## Why the old accept/dismiss pair could not answer it
+ *
+ * Because accepting did nothing. `keptProposals` was `status !== 'dismissed'`, so an
+ * accepted decision and an ignored one produced identical notes, and an accepted action
+ * point differed from an ignored one only in when it appeared. The panel asked a question
+ * with two answers and the system read one bit. Worse, the card stayed until pressed, so
+ * the fastest way back to the meeting was to press something — which is what people did.
+ *
+ * So the button is gone, and what is recorded here is the honest shape of the interaction:
+ * things the agent proposed, and the few a person objected to.
+ *
+ * ## What makes a row usable later
+ *
+ * The decision alone is nearly worthless without the conditions it was made under. A
+ * dismissal at 600ms with four cards queued behind it is a person clearing their screen; a
+ * dismissal at nine seconds with an empty queue is a judgement about the suggestion. Both
+ * look identical if all you store is 'dismissed'. So the timing, the queue depth, the
+ * confidence the model claimed, the triage score that let the passage through, and the
+ * passage itself are all kept beside the outcome.
+ *
+ * `window` is the expensive column and the one that matters most: it is the input the
+ * judgement was about. Without it a row says a verdict was reached and cannot say on what,
+ * which makes the whole table unusable for calibrating anything.
+ *
+ * ## Retention
+ *
+ * Cascades with the note. A meeting deleted takes its suggestions with it — this holds
+ * verbatim speech from client meetings, and it may not outlive the transcript it came from.
+ */
+export const proposals = meetings.table(
+  'proposals',
+  {
+    id: uuid('id').primaryKey(),
+    noteId: uuid('note_id')
+      .notNull()
+      .references(() => notes.id, { onDelete: 'cascade' }),
+    kind: text('kind').notNull(),
+    text: text('text').notNull(),
+    /** The behaviour that produced it, or 'extraction' for the runner's own pass. */
+    source: text('source').notNull(),
+    /** What the model said its odds were, before `clearing()` applied the floor. */
+    confidence: doublePrecision('confidence'),
+    /** What `triage()` scored the passage at — the gate this got through to be proposed. */
+    triageScore: doublePrecision('triage_score'),
+    /** The dial in force for this proposal's kind, since it set both floor and pace. */
+    eagerness: text('eagerness'),
+    /**
+     * How many undecided suggestions stood in front of this one when it was made.
+     *
+     * The panel shows one at a time, so this is the distance between being proposed and
+     * being looked at — and the best single predictor of a dismissal that means nothing.
+     */
+    queuedAhead: integer('queued_ahead').notNull().default(0),
+    /** The stretch of transcript the suggestion was drawn from. */
+    window: text('window'),
+    outcome: text('outcome').notNull().default('open'),
+    dismissReason: text('dismiss_reason'),
+    decidedBy: uuid('decided_by'),
+    /** When it reached the front of the queue and a person could first act on it. */
+    shownAt: timestamp('shown_at', { withTimezone: true }),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+    /** Milliseconds between reaching the front of the queue and being dismissed. */
+    decisionMs: integer('decision_ms'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('proposals_note_idx').on(t.noteId),
+    // The two queries this table is for: what happened to a kind, and what happened to a
+    // source. Both are always filtered by outcome, so it leads.
+    index('proposals_outcome_kind_idx').on(t.outcome, t.kind),
+    index('proposals_source_idx').on(t.source),
+    check(
+      'proposals_outcome_valid',
+      sql`${t.outcome} IN ('open','kept','dismissed')`,
+    ),
+    check(
+      'proposals_dismiss_reason_valid',
+      sql`${t.dismissReason} IS NULL OR ${t.dismissReason} IN ('judged','reflex','duplicate')`,
+    ),
+    // A reason without a dismissal is a contradiction, and would quietly skew every count
+    // drawn from this table.
+    check(
+      'proposals_reason_needs_dismissal',
+      sql`${t.dismissReason} IS NULL OR ${t.outcome} = 'dismissed'`,
     ),
   ],
 );

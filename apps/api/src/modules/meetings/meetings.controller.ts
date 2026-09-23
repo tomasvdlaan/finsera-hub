@@ -198,11 +198,17 @@ export class MeetingsController {
   }
 
   /**
-   * Accept or dismiss one of the agent's suggestions while the meeting is running.
+   * Object to one of the agent's suggestions while the meeting is running.
    *
-   * A rejected decision word is a 400 rather than a silent no-op: the two values do
-   * opposite things, and a typo that quietly dismissed everything would be discovered
-   * only by noticing that the note was empty afterwards.
+   * `dismissed` is what the panel sends, and for every kind but agenda coverage it is the
+   * only thing it may send — a suggestion nobody objects to is kept, so there is nothing
+   * for an accept to do. The service refuses the meaningless case rather than returning 200
+   * and changing nothing, which is exactly the behaviour this endpoint used to have and the
+   * reason a year of decisions recorded through it turned out to say nothing.
+   *
+   * A rejected decision word stays a 400 rather than a silent no-op: the two values do
+   * opposite things, and a typo that quietly dismissed everything would be discovered only
+   * by noticing that the note was empty afterwards.
    */
   @Post(':id/live/proposals/:proposalId')
   decideProposal(

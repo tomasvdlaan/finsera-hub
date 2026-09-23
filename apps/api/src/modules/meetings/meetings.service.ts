@@ -975,7 +975,21 @@ export class MeetingsService {
   async addActionItem(
     actor: Actor,
     noteId: string,
-    item: { text: string; assigneeId?: string; dueOn?: string; source?: 'typed' | 'ai' },
+    item: {
+      text: string;
+      assigneeId?: string;
+      dueOn?: string;
+      source?: 'typed' | 'ai';
+      /**
+       * The live suggestion this came from, when it came from one.
+       *
+       * Carried so the proposal ledger can be followed all the way through: proposed →
+       * kept → became an action point → accepted onto the board → done. Matching the two
+       * on text instead would fail exactly where it matters, because the model rewords
+       * itself between the suggestion and the note.
+       */
+      proposalId?: string;
+    },
   ) {
     await this.require(actor, 'meetings.write');
     await this.raw(actor, noteId);
@@ -989,6 +1003,7 @@ export class MeetingsService {
       assigneeId: item.assigneeId ?? null,
       dueOn: item.dueOn ?? null,
       source: item.source ?? 'typed',
+      proposalId: item.proposalId ?? null,
     });
     return this.get(actor, noteId);
   }

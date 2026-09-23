@@ -29,6 +29,7 @@ import type { AiToolRegistry } from '../../../core/llm/tool-registry.service.js'
 import type { LlmService } from '../../../core/llm/llm.service.js';
 import type { TtsService } from '../../../core/llm/tts.service.js';
 import { LiveRegistry } from './live-registry.service.js';
+import { ProposalLedger } from './proposal-ledger.service.js';
 import { NoteDocService } from '../doc/note-doc.service.js';
 import { appendMarkdown } from '../doc/note-edit.js';
 import { LiveRunner } from './live-runner.service.js';
@@ -115,7 +116,11 @@ describe('LiveRunner', () => {
     live = {
       transcribeSegment: vi.fn().mockResolvedValue('We should add supplier drill-down.'),
       extract: vi.fn().mockImplementation((session: LiveSession) => {
-        const added = [{ id: 'p1', kind: 'action', text: 'Send the dataset', status: 'open' }];
+        // A real proposal id, because it now travels into `action_items.proposal_id` —
+        // a uuid column — when the meeting stops. 'p1' passed until that link existed.
+        const added = [
+          { id: crypto.randomUUID(), kind: 'action', text: 'Send the dataset', status: 'open' },
+        ];
         session.state = { summary: 'Talked about the model.', decisions: [], openQuestions: [] };
         session.proposals.push(...(added as never[]));
         session.markExtracted();
@@ -176,6 +181,7 @@ describe('LiveRunner', () => {
       {} as LlmService,
       { speak: vi.fn().mockResolvedValue({ mp3: Buffer.from('mp3'), mimeType: 'audio/mp3' }) } as unknown as TtsService,
       docs,
+      new ProposalLedger(testDb),
     );
 
     const client = await crm.createClient(actor, { name: 'DocHorse', status: 'active' });
@@ -300,13 +306,18 @@ describe('LiveRunner', () => {
     expect(live.extract).toHaveBeenCalledOnce();
   });
 
-  // ── deciding a suggestion while it can still be decided ──
+  // ── objecting to a suggestion while it can still be objected to ──
 
   /**
-   * `Proposal.status` has existed since the type was written and nothing ever changed it.
-   * Every suggestion was created open and stayed open until the recording stopped, when all
-   * of them were written down at once — so the agent's contribution arrived as a pile of
-   * homework at the moment the meeting ended and the context for judging it had gone.
+   * The panel asks for one thing: an objection.
+   *
+   * It used to offer accept and dismiss, and for every kind but agenda coverage the two
+   * produced identical notes — `keptProposals` is everything not dismissed, so pressing
+   * "Keep it" did exactly what ignoring the card did. A two-answer question whose answers
+   * are read as one bit is not a question, and the record of a year of them said nothing.
+   *
+   * So these assert the new shape: silence keeps, dismissal removes, and an accept on
+   * anything that cannot act on one is refused rather than quietly returning success.
    */
   const withProposal = async (kind: 'action' | 'decision' = 'action') => {
     const note = await noteWithConsent();
@@ -325,27 +336,34 @@ describe('LiveRunner', () => {
     return { note, session, proposal: proposal! };
   };
 
-  it('turns an accepted action into an action point there and then', async () => {
+  it('refuses an accept on anything that cannot act on one', async () => {
     const { note, session, proposal } = await withProposal();
 
-    await runner.decideProposal(actor, note.id, proposal.id, 'accepted');
+    /*
+     * The whole point of the change. Accepting an action used to return 200 and create the
+     * action point a few minutes early — the same one stopping would have created anyway —
+     * so the press carried no information and the record of it was noise. Refusing is what
+     * stops the panel manufacturing that data again.
+     */
+    await expect(
+      runner.decideProposal(actor, note.id, proposal.id, 'accepted'),
+    ).rejects.toThrow(/only agenda coverage/i);
 
-    const after = await meetings.get(actor, note.id);
-    expect(after.actionItems).toHaveLength(1);
-    expect(after.actionItems[0]!.text).toBe('Send DocHorse the supplier drill-down');
-    // Marked, so it is not created a second time when the meeting stops.
-    expect(session.openProposals).toHaveLength(0);
+    expect(session.openProposals).toHaveLength(1);
+    expect((await meetings.get(actor, note.id)).actionItems).toHaveLength(0);
   });
 
-  it('does not add an accepted action twice when the meeting then stops', async () => {
+  it('turns an untouched action into exactly one action point when the meeting stops', async () => {
     const { note, proposal } = await withProposal();
     sessions.attachCapture(note.id, joined);
-    await runner.decideProposal(actor, note.id, proposal.id, 'accepted');
 
     await runner.stop(actor, note.id);
 
     const after = await meetings.get(actor, note.id);
     expect(after.actionItems).toHaveLength(1);
+    expect(after.actionItems[0]!.text).toBe('Send DocHorse the supplier drill-down');
+    // Linked back, so the ledger can be followed from suggestion to task.
+    expect(after.actionItems[0]!.proposalId).toBe(proposal.id);
   });
 
   it('keeps a dismissed suggestion out of the note entirely', async () => {
@@ -359,39 +377,33 @@ describe('LiveRunner', () => {
     expect(body).not.toContain('supplier drill-down');
   });
 
-  it('writes an accepted decision into the note rather than deleting it', async () => {
-    /*
-     * The inversion this guards against. The end-of-session write read `openProposals`, so
-     * accepting a decision — saying "yes, record that" — would have been the one way to
-     * make sure it was never recorded. Undecided and accepted both belong in the note.
-     */
-    const { note, proposal } = await withProposal('decision');
+  it('writes an untouched decision into the note', async () => {
+    // Silence is the answer that keeps something. Nobody should have to press anything to
+    // have the meeting recorded correctly — that was the toll the second button charged.
+    const { note } = await withProposal('decision');
     sessions.attachCapture(note.id, joined);
-    await runner.decideProposal(actor, note.id, proposal.id, 'accepted');
 
     await runner.stop(actor, note.id);
 
     expect(await docs.markdown(note.id)).toContain('supplier drill-down');
   });
 
-  it('treats deciding the same suggestion twice as agreement, not an error', async () => {
-    // Two people in the room, one suggestion, both press. The second press must not create
-    // a second action point, and must not fail in front of the client either.
+  it('treats dismissing the same suggestion twice as agreement, not an error', async () => {
+    // Two people in the room, one suggestion, both press. The second press must agree with
+    // the first rather than fail in front of the client.
     const { note, proposal } = await withProposal();
 
-    const first = await runner.decideProposal(actor, note.id, proposal.id, 'accepted');
+    const first = await runner.decideProposal(actor, note.id, proposal.id, 'dismissed');
     const second = await runner.decideProposal(actor, note.id, proposal.id, 'dismissed');
 
     expect(first.decided).toBe(true);
     expect(second.decided).toBe(false);
-    const after = await meetings.get(actor, note.id);
-    expect(after.actionItems).toHaveLength(1);
   });
 
   it('refuses to decide anything on a meeting that is not being recorded', async () => {
     const note = await noteWithConsent();
     await expect(
-      runner.decideProposal(actor, note.id, 'whatever', 'accepted'),
+      runner.decideProposal(actor, note.id, 'whatever', 'dismissed'),
     ).rejects.toThrow(/not being recorded/i);
   });
 

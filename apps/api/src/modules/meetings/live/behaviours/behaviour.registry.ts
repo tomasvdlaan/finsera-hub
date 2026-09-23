@@ -3,7 +3,7 @@ import { AgendaDriftBehaviour } from './agenda-drift.behaviour.js';
 import { ContextFinderBehaviour } from './context-finder.behaviour.js';
 import { NoteTakerBehaviour } from './note-taker.behaviour.js';
 import { WakeWordBehaviour } from './wake-word.behaviour.js';
-import { DEFAULT_EAGERNESS, pace, type Eagerness } from '../eagerness.js';
+import { DEFAULT_EAGERNESS, pace, type Eagerness, type EagernessDial } from '../eagerness.js';
 import type { BehaviourContext, BehaviourResult, MeetingBehaviour } from './behaviour.js';
 
 /** What the operator has switched on for one meeting. */
@@ -75,6 +75,18 @@ export class BehaviourRegistry {
   }
 
   /**
+   * Which dial a behaviour answers to.
+   *
+   * Asked by the ledger, which records the level in force when a suggestion was made — the
+   * one setting that governed both the confidence floor it cleared and how often it was
+   * allowed to run. Without it, a run of dismissals cannot be told apart from a dial left
+   * on eager, and the corpus reads as a worse agent rather than a bolder setting.
+   */
+  dialOf(name: string): EagernessDial | undefined {
+    return this.behaviours.find((b) => b.name === name)?.dial;
+  }
+
+  /**
    * Run whatever is due.
    *
    * A behaviour that throws is logged and skipped: one broken behaviour must not stop
@@ -84,8 +96,11 @@ export class BehaviourRegistry {
     trigger: 'utterance' | 'interval',
     ctx: BehaviourContext,
     settings: BehaviourSettings,
-  ): Promise<BehaviourResult[]> {
-    const results: BehaviourResult[] = [];
+  ): Promise<Array<BehaviourResult & { behaviour: string }>> {
+    // Tagged with the behaviour that produced it. The runner needs it to say in the ledger
+    // where a suggestion came from, and "the note-taker's proposals are dismissed twice as
+    // often as the extractor's" is not a question an untagged list can answer.
+    const results: Array<BehaviourResult & { behaviour: string }> = [];
 
     for (const behaviour of this.behaviours) {
       if (behaviour.trigger !== trigger) continue;
@@ -108,9 +123,9 @@ export class BehaviourRegistry {
         if (!result) continue;
         // The per-behaviour permission and the meeting-wide switch must both allow it.
         if (result.speak && !(behaviour.canSpeak && settings.maySpeak)) {
-          results.push({ ...result, speak: undefined });
+          results.push({ ...result, speak: undefined, behaviour: behaviour.name });
         } else {
-          results.push(result);
+          results.push({ ...result, behaviour: behaviour.name });
         }
       } catch (error) {
         this.logger.warn(`${behaviour.name} failed: ${(error as Error).message}`);

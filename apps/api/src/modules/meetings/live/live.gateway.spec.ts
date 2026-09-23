@@ -24,6 +24,7 @@ import { UserService } from '../../../core/auth/user.service.js';
 import { MeetingsService } from '../meetings.service.js';
 import type { LiveSession } from './live-session.js';
 import { LiveRegistry } from './live-registry.service.js';
+import { ProposalLedger } from './proposal-ledger.service.js';
 import { NoteDocService } from '../doc/note-doc.service.js';
 import { LiveRunner } from './live-runner.service.js';
 import { BehaviourRegistry } from './behaviours/behaviour.registry.js';
@@ -129,9 +130,11 @@ describe('LiveGateway', () => {
       // that state is what persist() writes, so a fake that only returned it would test
       // a gateway that does not exist.
       extract: vi.fn().mockImplementation((session: LiveSession) => {
+        // Real proposal ids: one now travels into `action_items.proposal_id`, a uuid
+        // column, when the meeting stops.
         const added = [
-          { id: 'p1', kind: 'action', text: 'Add supplier drill-down', status: 'open' },
-          { id: 'p2', kind: 'note', text: 'They liked the spend view', status: 'open' },
+          { id: crypto.randomUUID(), kind: 'action', text: 'Add supplier drill-down', status: 'open' },
+          { id: crypto.randomUUID(), kind: 'note', text: 'They liked the spend view', status: 'open' },
         ];
         session.state = {
           summary: 'Discussed the spend model.',
@@ -180,6 +183,7 @@ describe('LiveGateway', () => {
       {} as LlmService,
       {} as unknown as TtsService,
       docs,
+      new ProposalLedger(testDb),
     );
 
     gateway = new LiveGateway(

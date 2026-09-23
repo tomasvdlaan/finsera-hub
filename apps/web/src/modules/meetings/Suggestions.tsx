@@ -8,18 +8,35 @@ import type { FoundContext, Proposal } from '../../shell/liveMeetingReducer.js';
  * How many suggestions stand in front of the dock at once.
  *
  * One. This used to be three, stacked, which is a list — and a list in front of the notes is
- * a thing you postpone rather than answer. One question, two buttons, the rest counted
+ * a thing you postpone rather than answer. One suggestion, one button, the rest counted
  * underneath: the queue is visible without being in the way, and the dock holds all of it for
  * anyone who wants to work through them.
+ *
+ * The depth matters more than it looks. The server records how many suggestions stood in
+ * front of each one, because a dismissal pressed to clear a queue of four says nothing about
+ * the suggestion it landed on — and a panel that lets the queue grow is a panel that
+ * manufactures that kind of press.
  */
 const AT_ONCE = 1;
 
-/** What accepting each kind of suggestion actually does, said in the button. */
-const WORDING: Record<Proposal['kind'], { label: string; accept: string; dismiss: string }> = {
-  action: { label: 'Action point', accept: 'Keep it', dismiss: 'Not that' },
+/**
+ * What each kind of suggestion offers, said in the button.
+ *
+ * `accept` is set for exactly one kind, and that is the point. "Keep it" used to appear on
+ * all four and did nothing on three of them: the note keeps everything not dismissed, so
+ * pressing it produced the same note as ignoring the card. Two buttons that do the same
+ * thing are not a choice, they are a toll — and the fastest way back to the meeting was to
+ * press whichever was nearer, which is how every accept and dismiss ever recorded here came
+ * to mean the same thing.
+ *
+ * Agenda coverage keeps its pair because accepting one genuinely marks the item covered,
+ * and the server refuses an accept on anything else rather than quietly ignoring it.
+ */
+const WORDING: Record<Proposal['kind'], { label: string; accept?: string; dismiss: string }> = {
+  action: { label: 'Action point', dismiss: 'Not that' },
   agenda_covered: { label: 'Agenda', accept: 'Mark covered', dismiss: 'Not yet' },
-  decision: { label: 'Decision', accept: 'Keep it', dismiss: 'Not that' },
-  note: { label: 'Worth noting', accept: 'Keep it', dismiss: 'Not that' },
+  decision: { label: 'Decision', dismiss: 'Not that' },
+  note: { label: 'Worth noting', dismiss: 'Not that' },
 };
 
 /**
@@ -37,7 +54,8 @@ const WORDING: Record<Proposal['kind'], { label: string; accept: string; dismiss
  *
  * Deliberately not a toast. A toast leaves on a timer, and a suggestion that disappeared
  * because nobody clicked fast enough is worse than one that never appeared — it was seen,
- * so it feels handled. These stay until decided.
+ * so it feels handled. These stay until dismissed, or until the recording stops and the
+ * ones nobody objected to go into the note.
  */
 export function Suggestions({
   noteId,
@@ -115,10 +133,24 @@ export function Suggestions({
               </div>
             )}
 
+            {/*
+              One button, unless accepting does something.
+
+              The card is a chance to object, not a form to complete: leaving it alone keeps
+              the suggestion, which is what a reader wants nine times in ten and costs no
+              attention during the part of a meeting where there is none to spare.
+            */}
             <div className="suggestion-buttons">
-              <button type="button" className="act" data-variant="primary" onClick={() => void decide(p, 'accepted')()}>
-                {words.accept}
-              </button>
+              {words.accept && (
+                <button
+                  type="button"
+                  className="act"
+                  data-variant="primary"
+                  onClick={() => void decide(p, 'accepted')()}
+                >
+                  {words.accept}
+                </button>
+              )}
               <button type="button" className="act" onClick={() => void decide(p, 'dismissed')()}>
                 {words.dismiss}
               </button>

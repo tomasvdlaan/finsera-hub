@@ -179,3 +179,52 @@ describe('similar', () => {
     });
   });
 });
+
+/**
+ * The queue measurements the proposal ledger is built on.
+ *
+ * These are the two columns that decide whether a dismissal is evidence or noise, and both
+ * are derived here rather than reported by the browser — a client that lagged or lied would
+ * corrupt exactly the signal the ledger exists to collect.
+ */
+describe('LiveSession queue position', () => {
+  it('counts what stood in front of a suggestion when it was made', () => {
+    const session = new LiveSession('note', 'actor');
+
+    const [first] = session.mergeProposals([{ kind: 'action', text: 'Send the dataset' }], newId);
+    expect(first?.queuedAhead).toBe(0);
+
+    const [second] = session.mergeProposals([{ kind: 'decision', text: 'Stay on Postgres' }], newId);
+    expect(second?.queuedAhead).toBe(1);
+
+    // Clearing the front makes room: the next one arrives into a shorter queue, which is
+    // the whole reason this is measured at the moment of proposing.
+    session.decide(first!.id, 'dismissed');
+    const [third] = session.mergeProposals([{ kind: 'note', text: 'Budget is 40k' }], newId);
+    expect(third?.queuedAhead).toBe(1);
+  });
+
+  it('starts a suggestion\'s clock when it reaches the front, not when it was made', () => {
+    const session = new LiveSession('note', 'actor');
+    const [first] = session.mergeProposals([{ kind: 'action', text: 'Send the dataset' }], newId);
+    const [second] = session.mergeProposals([{ kind: 'action', text: 'Book the workshop' }], newId);
+
+    // Only the head is on screen, so only the head has been shown.
+    expect(first?.shownAt).toBeDefined();
+    expect(second?.shownAt).toBeUndefined();
+
+    session.decide(first!.id, 'dismissed');
+    expect(second?.shownAt).toBeDefined();
+  });
+
+  it('keeps the first moment a suggestion was shown', () => {
+    const session = new LiveSession('note', 'actor');
+    const [only] = session.mergeProposals([{ kind: 'note', text: 'Budget is 40k' }], newId);
+    const first = only?.shownAt;
+
+    session.promote(Date.now() + 10_000);
+    // Otherwise every later promotion would reset the clock and every dismissal would
+    // measure as instant — which reads as a reflex, and would file the whole corpus as noise.
+    expect(only?.shownAt).toBe(first);
+  });
+});
