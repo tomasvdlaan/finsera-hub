@@ -4,6 +4,7 @@ import { and, asc, eq, sql } from 'drizzle-orm';
 import { v7 as uuidv7 } from 'uuid';
 import { AuditService } from '../../core/audit/audit.service.js';
 import { DB, type Database } from '../../core/db/db.module.js';
+import { EventBus } from '../../core/events/event-bus.service.js';
 import { ScrumService } from '../scrum/scrum.service.js';
 import { portalTicketMessages, portalTickets } from './portal.schema.js';
 import type { PortalAudience, PortalVisitor } from './portal.projection.js';
@@ -15,6 +16,16 @@ const MAX_BODY = 5_000;
 const HOURLY_LIMIT = 10;
 
 export type TicketStatus = 'waiting_on_finsera' | 'waiting_on_client' | 'closed';
+
+/** What the hub inbox is asking for. Not a status — 'open' is "any status but closed". */
+export type TicketScope = 'open' | 'closed' | 'all';
+
+const SCOPES: readonly TicketScope[] = ['open', 'closed', 'all'];
+
+/** A scope from a query string, or the default. Never trusted as given. */
+export function ticketScope(value: unknown): TicketScope {
+  return SCOPES.includes(value as TicketScope) ? (value as TicketScope) : 'open';
+}
 
 /**
  * A conversation with a client, kept where the work is.
@@ -38,6 +49,7 @@ export class PortalTicketsService {
   constructor(
     @Inject(DB) private readonly db: Database,
     private readonly audit: AuditService,
+    private readonly events: EventBus,
     private readonly scrum: ScrumService,
   ) {}
 
@@ -102,6 +114,22 @@ export class PortalTicketsService {
         entityId: visitor.clientId,
         detail: { ticketId: id, subject, email: visitor.email, viaPortal: true },
       });
+      /*
+       * Now somebody can be told.
+       *
+       * In the same transaction as the rows it describes, so there is no event for a ticket
+       * that rolled back. The subject travels because a notification with no subject is a
+       * notification nobody acts on; the *body* deliberately does not — a client's prose on
+       * the bus ends up in places nobody audited, the assistant included, and the whole
+       * reason this module declares no `aiTools` is that their words are not our
+       * instructions. Whoever needs the text reads the thread, where it is attributed.
+       */
+      await this.events.publish(tx, {
+        name: 'portal.ticket_opened',
+        entityType: 'client',
+        entityId: visitor.clientId,
+        payload: { ticketId: id, subject },
+      });
     });
 
     this.logger.log(`Portal ticket from ${visitor.email}: ${subject}`);
@@ -118,7 +146,7 @@ export class PortalTicketsService {
     // is not evidence of anything.
     const ticket = await this.ownedBy(ticketId, visitor.clientId);
     if (ticket.status === 'closed') {
-      throw new BadRequestException('Deze vraag is afgerond. Stel gerust een nieuwe vraag.');
+      throw new BadRequestException('Dit ticket is afgerond. Open gerust een nieuw ticket.');
     }
 
     const id = uuidv7();
@@ -142,6 +170,14 @@ export class PortalTicketsService {
         entityType: 'client',
         entityId: visitor.clientId,
         detail: { ticketId, email: visitor.email, viaPortal: true },
+      });
+      // Only the client's replies are published. Ours are not news to us, and an event per
+      // message in both directions would make "a client is waiting" the harder question.
+      await this.events.publish(tx, {
+        name: 'portal.ticket_replied',
+        entityType: 'client',
+        entityId: visitor.clientId,
+        payload: { ticketId },
       });
     });
     return { id, status: 'waiting_on_finsera' as const };
@@ -196,17 +232,28 @@ export class PortalTicketsService {
 
   // ── the internal side ──
 
-  /** The inbox: everything not closed, across every client, oldest first. */
-  async inbox() {
+  /**
+   * The inbox, across every client, oldest first.
+   *
+   * Oldest first because a list sorted by newest puts what somebody has waited longest for
+   * at the bottom, which is the opposite of what an inbox is for.
+   *
+   * `scope` exists because closing a ticket used to make it unreachable: the query filtered
+   * `status <> 'closed'` and nothing else listed them, so an answered thread could only be
+   * opened by knowing its UUID. The archive of what we told clients is not a thing to lose
+   * by default, so it is a filter rather than a hard-coded WHERE.
+   *
+   * Reads the published view, not the tables — the same rows the Insights rule sees, so the
+   * screen and the badge cannot disagree about who is waiting.
+   */
+  async inbox(scope: TicketScope = 'open') {
     const { rows } = await this.db.execute(sql`
-      SELECT t.id, t.subject, t.status, t.created_at, t.client_id, t.project_id, t.task_id,
-             t.assigned_to, c.name AS client_name, pu.email AS opened_by,
-             greatest(coalesce(t.last_client_message_at, t.created_at),
-                      coalesce(t.last_internal_message_at, t.created_at)) AS last_activity_at
-        FROM portal.tickets t
-        JOIN crm.v_clients c ON c.id = t.client_id
-        LEFT JOIN portal.users pu ON pu.id = t.portal_user_id
-       WHERE t.status <> 'closed'
+      SELECT id, subject, status, created_at, client_id, client_name, project_id, task_id,
+             assigned_to, opened_by_email AS opened_by, last_activity_at, days_waiting
+        FROM portal.v_tickets
+       WHERE ${scope === 'all' ? sql`true` : scope === 'closed'
+         ? sql`status = 'closed'`
+         : sql`status <> 'closed'`}
        ORDER BY last_activity_at
     `);
     return rows;
@@ -394,6 +441,40 @@ export class PortalTicketsService {
    * and counted per client rather than per login, because a client with four logins would
    * otherwise have four times the allowance, which is not what the limit means.
    */
+  /**
+   * `portal.v_tickets` — the only way anything outside this module learns about a ticket.
+   *
+   * Published because the Insights rule that raises "a client is waiting" reads published
+   * views and core, and nothing else: a rule reaching into `portal.tickets` directly would
+   * be the coupling the manifests exist to prevent. So the view is the contract, and it
+   * carries the one thing the rule cannot compute for itself — how long it has been.
+   *
+   * `days_waiting` is measured from the client's last message rather than from
+   * `created_at`, because a thread that has been going a fortnight is not four days late
+   * on its first question. Closed tickets are included: the view is what the hub inbox
+   * reads too, and an archive you cannot reach was the bug that made this worth doing.
+   *
+   * No message bodies. A client's prose belongs in the thread, attributed and audited, not
+   * in a view that any rule may read.
+   */
+  async ensureReportingViews(): Promise<void> {
+    await this.db.execute(sql`DROP VIEW IF EXISTS portal.v_tickets CASCADE`);
+    await this.db.execute(sql`
+      CREATE VIEW portal.v_tickets AS
+      SELECT t.id, t.client_id, c.name AS client_name, t.subject, t.status,
+             t.project_id, t.task_id, t.assigned_to, t.created_at, t.closed_at,
+             pu.email AS opened_by_email,
+             greatest(coalesce(t.last_client_message_at, t.created_at),
+                      coalesce(t.last_internal_message_at, t.created_at)) AS last_activity_at,
+             CASE WHEN t.status = 'waiting_on_finsera'
+                  THEN (extract(epoch FROM now() - coalesce(t.last_client_message_at, t.created_at)) / 86400)::int
+             END AS days_waiting
+        FROM portal.tickets t
+        JOIN crm.v_clients c ON c.id = t.client_id
+        LEFT JOIN portal.users pu ON pu.id = t.portal_user_id
+    `);
+  }
+
   private async checkRate(visitor: PortalVisitor) {
     const { rows } = await this.db.execute(sql`
       SELECT count(*)::int AS recent

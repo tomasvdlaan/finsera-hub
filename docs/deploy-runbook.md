@@ -299,12 +299,68 @@ building one:
 - **A report cannot call the portal's API.** Proxied pages carry a content-security policy
   with `connect-src 'none'`, so a script inside a report cannot use the visitor's session.
 
+### Where somebody lands after activating their account
+
+**One setting in Zitadel decides this, and without it nothing below happens.** Console →
+Settings → **Login Behavior and Security** → **Default Redirect URI**:
+
+```
+https://portal.finsera.nl/api/portal-auth/welcome
+```
+
+Zitadel finishes an activation with no auth request in context and falls back to that URI;
+its stock value is the management console, which is where clients were getting stuck. If the
+*organisation* has its own login policy it overrides the instance one — set it there too, or
+remove the override.
+
+With that in place the journey finishes on the client's own address without anybody choosing
+anything: the activation link sets a cookie naming their portal, Zitadel returns to
+`/welcome` on the same host, and that sends them to `https://<slug>.finsera.nl` to sign in.
+
+The cookie holds a slug, not an address, and it is resolved the same way any `Host` header
+is — so it can only ever name a client that exists. When it is missing (a password reset, a
+link opened in another browser, cleared cookies) `/welcome` shows a page with a button
+instead, which is the behaviour that cannot be wrong about what just happened.
+
+### Why an invitation does not land in spam
+
+The activation link in the invitation mail points at **`https://<auth host>/api/portal-auth/activate`**,
+not at Zitadel, and that is deliberate rather than decorative. A mail sent from `@finsera.nl`
+asking somebody to choose a password at `…eu1.zitadel.cloud/...?code=…` is a message pointing
+at a domain the recipient has no relationship with, carrying a token — the shape of credential
+phishing, and filters junked real invitations for it. The hop redirects to Zitadel's verify
+page and carries nothing but the invitation's own `userId` and `code`.
+
+It follows `PORTAL_AUTH_HOST` automatically. `ZITADEL_INVITE_URL` still overrides it if a
+deployment ever needs a different address, and with neither set the link falls back to
+Zitadel and merely delivers worse.
+
+Nothing else about the mail needs tuning for deliverability, and it is worth knowing why so
+that it is not "improved" later: `finsera.nl` publishes SPF (`-all`), both Microsoft DKIM
+selectors, and DMARC at `p=reject` with strict alignment — the strongest of the three postures
+— and the mail itself carries no images, no tracking pixel and no shortened links. If an
+invitation is still junked, the remaining causes are recipient-side: a new domain with little
+sending history to that tenant, or a recipient who has never had mail from us. Asking the
+first few to mark it *not junk* is what fixes that, and nothing in this repository can.
+
 ### Tickets and visible tasks
 
-*Client tickets* in the internal navigation is the inbox: every open conversation across
-every client, oldest first. Replying there is what the client sees in their portal; an
-*internal note* stays with us. *Make a task* is still a deliberate act by somebody who has
-read the thread, and it no longer closes the ticket.
+*Client tickets* is the inbox — **Board → Work → Client tickets**, or ⌘K: every open
+conversation across every client, oldest first, with *Open / Closed / All* and an owner
+column. In the client's own portal the tab is **Tickets** (`/<slug>/tickets`; the old
+`/vragen` address redirects). A ticket waiting on us for two days also raises an Inbox item
+under *delivery*, which resolves itself as soon as somebody answers, and a client's open
+tickets appear on their page in hub. Triaging needs `portal.tickets`, which members hold;
+inviting and revoking logins still needs `portal.admin`, which is admins only.
+
+Messages on both sides take a little formatting — **bold**, *italic*, `code`, links and
+lists — with buttons above the box for anyone who does not want to type the markers. Nothing
+else is allowed: what a client types can never become markup, and a link is only clickable if
+it is http, https or mailto.
+
+Replying there is what the client sees in their portal; an *internal note* stays with us.
+*Make a task* is still a deliberate act by somebody who has read the thread, and it no
+longer closes the ticket.
 
 A task appears in a client's portal only when somebody ticks **Visible to the client** on
 it. They see the title, status, type, due date and whether it is done — never the
@@ -352,7 +408,7 @@ GRAPH_CLIENT_ID=…
 GRAPH_CLIENT_SECRET=…
 GRAPH_SITE_ID=…            # "host,siteCollectionId,siteId" from GET /sites/{host}:/sites/{path}
 GRAPH_DRIVE_ID=            # optional; resolved from the site and cached when unset
-GRAPH_ROOT_FOLDER=Clients
+GRAPH_ROOT_FOLDER=            # empty in production; the library root holds Clients/, _Algemeen/, _Exports/
 DOCS_STORE=sharepoint
 ```
 

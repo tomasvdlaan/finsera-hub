@@ -70,9 +70,16 @@ import { PortalTicketsService } from './portal-tickets.service.js';
   ],
 })
 export class PortalModule implements OnModuleInit {
-  constructor(private readonly manifests: ManifestRegistry) {}
+  constructor(
+    private readonly manifests: ManifestRegistry,
+    private readonly tickets: PortalTicketsService,
+  ) {}
 
-  onModuleInit(): void {
+  async onModuleInit(): Promise<void> {
     this.manifests.register(portalManifest);
+    // Dropped and recreated at every boot, like every other module's views, so a change to
+    // the definition ships with the code rather than in a migration somebody has to
+    // remember. The portal had none until tickets needed to be visible outside it.
+    await this.tickets.ensureReportingViews();
   }
 }

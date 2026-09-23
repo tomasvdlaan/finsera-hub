@@ -88,7 +88,7 @@ describe('documents in SharePoint', () => {
     expect(row.storage_key).toBeNull();
     // Ours, not Graph's: its own hash is quickXorHash, and the audit story wants sha256.
     expect(row.checksum).toHaveLength(64);
-    expect(drive.calls).toContain('ensureFolder:Plibs B.V.');
+    expect(drive.calls).toContain('ensureFolder:Clients/Plibs B.V.');
   });
 
   /**

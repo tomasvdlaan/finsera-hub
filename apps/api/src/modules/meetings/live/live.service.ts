@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { LlmService } from '../../../core/llm/llm.service.js';
 import { clearing, guidance, type Eagerness } from './eagerness.js';
 import { LiveSession, type Proposal, type RunningState } from './live-session.js';
+import type { ProposalContext } from './proposal-ledger.service.js';
 import { worthReading } from './triage.js';
 
 /** Roughly what a token costs, so a meeting can show a number rather than a shrug. */
@@ -118,7 +119,13 @@ export class LiveService {
     agenda: Array<{ id: string; title: string; covered: boolean }>,
     newId: () => string,
     eagerness: Eagerness,
-  ): Promise<{ added: Proposal[]; state: RunningState; agendaCovered: string[] }> {
+  ): Promise<{
+    added: Proposal[];
+    state: RunningState;
+    agendaCovered: string[];
+    /** What produced these, for the ledger. Absent when nothing was proposed. */
+    context?: ProposalContext;
+  }> {
     const open = agenda.filter((a) => !a.covered);
     const level = eagerness.actions;
 
@@ -130,9 +137,20 @@ export class LiveService {
      * delay an extraction, never lose one. That property is what makes it safe to put a
      * handful of regular expressions in front of the model.
      */
-    if (!worthReading(session.freshText, level).worth) {
+    const gate = worthReading(session.freshText, level);
+    if (!gate.worth) {
       return { added: [], state: session.state, agendaCovered: [] };
     }
+
+    /*
+     * The passage, captured before the model reads it.
+     *
+     * Taken here rather than after the call because `markExtracted` moves the watermark
+     * partway through, and a window read afterwards would be the text that comes NEXT. The
+     * ledger's whole value rests on this column being the input the suggestion was drawn
+     * from; silently recording the wrong passage would be worse than recording none.
+     */
+    const window = session.window();
 
     const result = await this.llm.generateStructured<Extraction>({
       context: { module: 'meetings', feature: 'live-extraction' },
@@ -209,7 +227,10 @@ export class LiveService {
      * never shown.
      */
     const proposals: Array<Omit<Proposal, 'id' | 'status'>> = clearing(object.proposals, level).map(
-      (p) => ({ kind: p.kind, text: p.text }),
+      // `confidence` travels with the proposal now rather than being dropped at the floor.
+      // It is the number the ledger exists to collect: what the model claimed, beside what
+      // a person then did about it. Discarding it here left the floor uncheckable.
+      (p) => ({ kind: p.kind, text: p.text, confidence: p.confidence, source: 'extraction' }),
     );
     // Agenda coverage is proposed too — never applied. Marking an item covered when it
     // was only mentioned in passing is the kind of quiet wrongness that erodes trust.
@@ -218,12 +239,27 @@ export class LiveService {
     for (const id of agendaCovered) {
       const item = open.find((a) => a.id === id);
       if (item) {
-        proposals.push({ kind: 'agenda_covered', text: item.title, agendaItemId: id });
+        proposals.push({
+          kind: 'agenda_covered',
+          text: item.title,
+          agendaItemId: id,
+          source: 'extraction',
+        });
       }
     }
 
     const added = session.mergeProposals(proposals, newId);
-    return { added, state: session.state, agendaCovered };
+    return {
+      added,
+      state: session.state,
+      agendaCovered,
+      context: {
+        source: 'extraction',
+        eagerness: level,
+        triageScore: gate.score,
+        window,
+      },
+    };
   }
 
   /** What the session has cost so far, in cents. */

@@ -40,6 +40,8 @@ export function subjectPath(insight: Insight): string | null {
       return `/tasks/${insight.subjectId}`;
     case 'sprint':
       return `/board/sprints/${insight.subjectId}`;
+    case 'portal_ticket':
+      return `/portal/tickets/${insight.subjectId}`;
     default:
       return null;
   }

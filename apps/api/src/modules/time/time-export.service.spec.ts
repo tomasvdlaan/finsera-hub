@@ -7,6 +7,8 @@ import { LinkService } from '../../core/links/link.service.js';
 import { ManifestRegistry } from '../../core/manifest/manifest.registry.js';
 import { PermissionService } from '../../core/permissions/permission.service.js';
 import { RegistryService } from '../../core/registry/registry.service.js';
+import { UserService } from '../../core/auth/user.service.js';
+import type { ZitadelTokens } from '../../core/auth/zitadel.tokens.js';
 import { StorageService } from '../../core/storage/storage.service.js';
 import { LocalDocumentStore } from '../../core/storage/local-document-store.js';
 import { SharePointDocumentStore } from '../../core/storage/sharepoint-document-store.js';
@@ -45,8 +47,11 @@ describe('the monthly hours ledger', () => {
     const links = new LinkService(testDb, registry, permissions, audit, manifests);
     const bus = new EventBus(manifests);
     const crm = new CrmService(testDb, registry, permissions, audit, bus, links);
+    // Only namesByIds is exercised here, and it touches neither the audit log nor the
+    // token verifier — the same shortcut portal-preview.controller.spec.ts takes.
+    const users = new UserService(testDb, audit, {} as unknown as ZitadelTokens);
 
-    exporter = new TimeExportService(testDb, registry, store);
+    exporter = new TimeExportService(testDb, registry, users, store);
     time = new TimeService(testDb, registry, permissions, audit, bus, links, crm, exporter);
 
     // Reading crm.v_projects means the view has to be there; a hand-built service graph
@@ -68,7 +73,7 @@ describe('the monthly hours ledger', () => {
     await resetDb();
     await truncate(sql`TRUNCATE time.exports, time.entries, time.timesheets,
                    crm.projects, crm.contacts, crm.clients CASCADE`);
-    await seedUser(actor.userId, 'admin');
+    await seedUser(actor.userId, 'admin', 'Tomas van der Laan');
     drive = new FakeGraphDrive();
     await build(new SharePointDocumentStore(drive, configuredGraph()));
   });
@@ -92,6 +97,21 @@ describe('the monthly hours ledger', () => {
     expect(csv).toContain('Jaarrekening 2025');
     // Names, not ids: the point of the file is that it survives the platform that made it.
     expect(csv).toContain('Plibs B.V.');
+  });
+
+  /**
+   * A name, not a uuid.
+   *
+   * People are not registry entities, so the registry-based lookup that resolves clients and
+   * projects silently fell through to the raw id for the one column a person reads first.
+   */
+  it('names the person rather than printing their id', async () => {
+    await log('2026-09-03', 90);
+    await exporter.flush();
+
+    const csv = await csvOf((await drive.listAll())[0]!.id);
+    expect(csv).toContain('Tomas van der Laan');
+    expect(csv).not.toContain(actor.userId);
   });
 
   /**

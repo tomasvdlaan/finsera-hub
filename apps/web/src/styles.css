@@ -9453,3 +9453,40 @@ a.btn { text-decoration: none; }
 }
 .chip-set input[type='checkbox']:focus-visible + * ,
 .chip-set label:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/*
+ * A ticket message, which is blocks now rather than one run of text (Phase 9 P5).
+ *
+ * `white-space: pre-wrap` lives on the paragraph rather than the container: a single
+ * newline is still a line break, which is what every message written before formatting
+ * existed relied on, while the space between blocks is left to the margins.
+ */
+.ticket-body > :first-child { margin-top: 0; }
+.ticket-body > :last-child { margin-bottom: 0; }
+.ticket-body p { margin: 0 0 .5rem; }
+.ticket-body ul,
+.ticket-body ol { margin: 0 0 .5rem; padding-left: 1.25rem; }
+.ticket-body li { margin: 0 0 .15rem; }
+.ticket-body code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .92em;
+  background: rgb(0 0 0 / 5%);
+  padding: .1em .3em;
+  border-radius: var(--radius-sm);
+}
+
+/* The formatting buttons above a compose box: available, and not the point of the form. */
+.formatbar { display: flex; gap: .25rem; margin-bottom: .35rem; }
+.formatbar button {
+  min-width: 1.9rem;
+  padding: .2rem .45rem;
+  font-size: 12px;
+  line-height: 1.2;
+  background: var(--surface);
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.formatbar button:hover:not(:disabled) { color: var(--text); border-color: var(--muted); }
+.formatbar button:disabled { opacity: .5; cursor: default; }

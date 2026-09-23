@@ -207,8 +207,16 @@ function merged(first: string[], second: string[]): string[] {
   return out;
 }
 
-/** Whether a body already says a thing, allowing for it being worded a little differently. */
-function mentions(body: string, text: string): boolean {
+/**
+ * Whether a body already says a thing, allowing for it being worded a little differently.
+ *
+ * Exported for the ledger, which asks the same question for a different purpose: a
+ * dismissal of something the note already contains is a complaint about repetition rather
+ * than a judgement on the suggestion, and the two must not be counted together. Same
+ * function on purpose — two notions of "the note already says this" would drift, and the
+ * one that decided what to write is the one that should decide what the dismissal meant.
+ */
+export function mentions(body: string, text: string): boolean {
   const hay = normalise(body);
   const needle = normalise(text);
   if (!needle) return true;

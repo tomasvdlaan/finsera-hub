@@ -388,6 +388,7 @@ export class PortalPagesService {
 
     const secret = this.secretFor(row);
     try {
+      await assertPublicSource(row.sourceUrl);
       const res = await fetch(row.sourceUrl, {
         method: 'GET',
         redirect: 'manual',
@@ -468,20 +469,7 @@ export class PortalPagesService {
         throw new BadRequestException(`'${url.hostname}' is one of ours — content lives elsewhere`);
       }
     }
-    const addresses = isIP(host)
-      ? [host]
-      : await lookup(host, { all: true })
-          .then((r) => r.map((a) => a.address))
-          .catch(() => {
-            throw new BadRequestException(`'${url.hostname}' does not resolve`);
-          });
-    for (const address of addresses) {
-      if (isPrivate(address)) {
-        throw new BadRequestException(
-          `'${url.hostname}' resolves to ${address}, which is inside our own network`,
-        );
-      }
-    }
+    await assertPublicSource(url.toString());
 
     // Trailing slash removed once, here, so the proxy can join paths without guessing.
     return url.toString().replace(/\/$/, '');
@@ -496,6 +484,42 @@ export class PortalPagesService {
   private async require(actor: Actor, capability: string): Promise<void> {
     if (!(await this.permissions.can(actor, capability))) {
       throw new ForbiddenException(`Missing capability '${capability}'`);
+    }
+  }
+}
+
+/**
+ * Re-check a stored source immediately before every server-side request.
+ *
+ * Creation-time validation alone is insufficient: DNS can change after an approved page is
+ * stored. This still cannot eliminate the final DNS-to-connect race without a pinned-address
+ * HTTP client, but it closes the long-lived gap and rejects a hostname as soon as it starts
+ * resolving to an internal address.
+ */
+export async function assertPublicSource(raw: string): Promise<void> {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new BadRequestException('That is not a URL');
+  }
+  if (url.protocol !== 'https:') {
+    throw new BadRequestException('A source must be https — the client reads it over TLS');
+  }
+
+  const host = url.hostname.replace(/^\[|\]$/g, '');
+  const addresses = isIP(host)
+    ? [host]
+    : await lookup(host, { all: true })
+        .then((r) => r.map((a) => a.address))
+        .catch(() => {
+          throw new BadRequestException(`'${url.hostname}' does not resolve`);
+        });
+  for (const address of addresses) {
+    if (isPrivate(address)) {
+      throw new BadRequestException(
+        `'${url.hostname}' resolves to ${address}, which is inside our own network`,
+      );
     }
   }
 }

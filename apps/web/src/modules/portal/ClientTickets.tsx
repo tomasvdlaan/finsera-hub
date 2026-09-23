@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Link, useParams } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { Empty } from '../../shell/ui/primitives.js';
 import { PageHeader } from '../../shell/ui/layout.js';
+import { FormatBar } from './FormatBar.js';
+import { MessageBody } from './MessageBody.js';
 import { useToast } from '../../shell/ui/Toast.js';
 
 interface Ticket {
@@ -17,7 +19,22 @@ interface Ticket {
   project_id: string | null;
   task_id: string | null;
   assigned_to: string | null;
+  /** Only while it is waiting on us — the same number the Inbox insight is counting. */
+  days_waiting: number | null;
 }
+
+interface Person {
+  id: string;
+  displayName: string;
+}
+
+type Scope = 'open' | 'closed' | 'all';
+
+const SCOPES: Array<{ key: Scope; label: string }> = [
+  { key: 'open', label: 'Open' },
+  { key: 'closed', label: 'Closed' },
+  { key: 'all', label: 'All' },
+];
 
 interface Message {
   id: string;
@@ -65,6 +82,7 @@ function Thread({ id, projects, onChanged }: { id: string; projects: Project[]; 
   const [note, setNote] = useState(false);
   const [projectId, setProjectId] = useState('');
   const [busy, setBusy] = useState(false);
+  const replyBox = useRef<HTMLTextAreaElement>(null);
 
   const load = () =>
     api
@@ -107,9 +125,13 @@ function Thread({ id, projects, onChanged }: { id: string; projects: Project[]; 
           </p>
           {m.authorKind === 'client' ? (
             // A quotation, so nobody reading quickly mistakes a client's words for ours.
-            <blockquote style={{ margin: '.15rem 0 0', whiteSpace: 'pre-wrap' }}>{m.body}</blockquote>
+            <blockquote className="ticket-body" style={{ margin: '.15rem 0 0' }}>
+              <MessageBody source={m.body} />
+            </blockquote>
           ) : (
-            <p style={{ margin: '.15rem 0 0', whiteSpace: 'pre-wrap' }}>{m.body}</p>
+            <div className="ticket-body" style={{ margin: '.15rem 0 0' }}>
+              <MessageBody source={m.body} />
+            </div>
           )}
         </article>
       ))}
@@ -125,7 +147,9 @@ function Thread({ id, projects, onChanged }: { id: string; projects: Project[]; 
             );
           }}
         >
+          <FormatBar area={replyBox} onChange={setReply} disabled={busy} />
           <textarea
+            ref={replyBox}
             value={reply}
             onChange={(e) => setReply(e.target.value)}
             rows={3}
@@ -201,24 +225,48 @@ function Thread({ id, projects, onChanged }: { id: string; projects: Project[]; 
  * longest for at the bottom, which is the opposite of what an inbox is for.
  */
 export function ClientTickets() {
+  // The ticket an insight or a link pointed at. Present in the URL so that "DocHorse has
+  // been waiting 4 days" is one click from the thread rather than from the list it is in.
+  const { id: linked } = useParams<{ id: string }>();
   const [rows, setRows] = useState<Ticket[]>();
   const [projects, setProjects] = useState<Project[]>([]);
-  const [open, setOpen] = useState<string>();
+  const [people, setPeople] = useState<Person[]>([]);
+  const [open, setOpen] = useState<string | undefined>(linked);
+  const [scope, setScope] = useState<Scope>(
+    // A link to a closed ticket has to be able to show it, and 'open' would silently not.
+    linked ? 'all' : 'open',
+  );
   const [error, setError] = useState<string>();
 
-  const load = () =>
-    api
-      .get<Ticket[]>('/portal-preview/tickets')
-      .then(setRows)
-      .catch((err: Error) => setError(err.message));
+  const load = useCallback(
+    () =>
+      api
+        .get<Ticket[]>(`/portal-preview/tickets?status=${scope}`)
+        .then(setRows)
+        .catch((err: Error) => setError(err.message)),
+    [scope],
+  );
 
   useEffect(() => {
     void load();
+  }, [load]);
+
+  useEffect(() => {
     api
       .get<Project[]>('/crm/projects')
       .then(setProjects)
       .catch(() => setProjects([]));
+    api
+      .get<Person[]>('/core/users')
+      .then(setPeople)
+      .catch(() => setPeople([]));
   }, []);
+
+  const assign = (ticketId: string, userId: string) =>
+    api
+      .post(`/portal-preview/tickets/${ticketId}/assign`, { userId: userId || null })
+      .then(load)
+      .catch((err: Error) => setError(err.message));
 
   return (
     <>
@@ -229,7 +277,25 @@ export function ClientTickets() {
       </p>
       {error && <p className="error">{error}</p>}
 
-      {rows && rows.length === 0 && <Empty>Nothing waiting. Everything has been answered.</Empty>}
+      <div className="row" style={{ gap: '.4rem', margin: '.5rem 0 1rem' }}>
+        {SCOPES.map((o) => (
+          <button
+            key={o.key}
+            className={scope === o.key ? undefined : 'link-button'}
+            onClick={() => setScope(o.key)}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+
+      {rows && rows.length === 0 && (
+        <Empty>
+          {scope === 'closed'
+            ? 'Nothing has been closed yet.'
+            : 'Nothing waiting. Everything has been answered.'}
+        </Empty>
+      )}
 
       {rows && rows.length > 0 && (
         <table>
@@ -239,6 +305,7 @@ export function ClientTickets() {
               <th>Subject</th>
               <th>Last activity</th>
               <th>Status</th>
+              <th>Owner</th>
             </tr>
           </thead>
           <tbody>
@@ -255,7 +322,30 @@ export function ClientTickets() {
                   {open === t.id && <Thread id={t.id} projects={projects} onChanged={load} />}
                 </td>
                 <td>{moment(t.last_activity_at)}</td>
-                <td>{STATUS[t.status] ?? t.status}</td>
+                <td>
+                  {STATUS[t.status] ?? t.status}
+                  {/* The age the insight is measuring, on the row it is about — so the
+                      badge in the nav and this screen cannot tell different stories. */}
+                  {t.days_waiting != null && t.days_waiting >= 2 && (
+                    <div className="muted">{t.days_waiting} days</div>
+                  )}
+                </td>
+                <td>
+                  {/* `assign()` has existed in the service since this feature shipped and
+                      had no control anywhere, so "is anyone on this" was unanswerable from
+                      the one screen whose job is triage. */}
+                  <select
+                    value={t.assigned_to ?? ''}
+                    onChange={(e) => void assign(t.id, e.target.value)}
+                  >
+                    <option value="">Nobody</option>
+                    {people.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.displayName}
+                      </option>
+                    ))}
+                  </select>
+                </td>
               </tr>
             ))}
           </tbody>

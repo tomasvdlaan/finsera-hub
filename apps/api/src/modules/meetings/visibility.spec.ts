@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { Actor } from '@platform/contracts';
-import { sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { ZitadelTokens } from '../../core/auth/zitadel.tokens.js';
 import { AuditService } from '../../core/audit/audit.service.js';
 import { EventBus } from '../../core/events/event-bus.service.js';
@@ -10,6 +10,7 @@ import { ManifestRegistry } from '../../core/manifest/manifest.registry.js';
 import { PermissionService } from '../../core/permissions/permission.service.js';
 import { RegistryService } from '../../core/registry/registry.service.js';
 import { resetDb, seedUser, testDb, truncate } from '../../test/db.js';
+import { users as coreUsers } from '../../core/db/core.schema.js';
 import { crmManifest } from '../crm/crm.manifest.js';
 import { CrmService } from '../crm/crm.service.js';
 import { scrumManifest } from '../scrum/scrum.manifest.js';
@@ -145,6 +146,198 @@ describe('meeting note visibility', () => {
       const note = await meetings.create(owner, { title: 'Stand-up', meetingDate: '2026-08-01' });
       await expect(meetings.get(outsider, note.id)).resolves.toMatchObject({ id: note.id });
       expect(await ids(outsider)).toContain(note.id);
+    });
+  });
+
+  describe('somebody who was in the room', () => {
+    /*
+     * The case this branch was added for: a meeting is written by one person, and everybody
+     * else who sat through it could not find it afterwards. Attendance is recorded by the bot
+     * as people join, so the note reaches them without anybody having had to share it.
+     */
+    it('sees a project note they are not a member of', async () => {
+      const note = await onProject();
+      expect(await ids(outsider)).not.toContain(note.id);
+
+      await meetings.recordAttendance(owner, note.id, { name: 'Outsider' });
+
+      await expect(meetings.get(outsider, note.id)).resolves.toMatchObject({ id: note.id });
+      expect(await ids(outsider)).toContain(note.id);
+    });
+
+    it('is matched by address when the meeting provider reports one', async () => {
+      const note = await onProject();
+      // A display name that matches nobody: the address is what has to do the work.
+      await meetings.recordAttendance(owner, note.id, {
+        name: 'O. Sider (mobile)',
+        email: `${outsider.userId}@test.local`.toUpperCase(),
+      });
+      expect(await ids(outsider)).toContain(note.id);
+    });
+
+    it('does not reach a restricted note', async () => {
+      /*
+       * Attendance is a bot reading a roster, and `restricted` is the meeting held about a
+       * person. Being in that room — or being named identically to somebody who was — must
+       * not open it; that still takes a grant.
+       */
+      const note = await meetings.create(owner, {
+        title: 'Salary review',
+        projectId,
+        meetingDate: '2026-08-01',
+      });
+      await meetings.setRestricted(owner, note.id, true);
+      await meetings.recordAttendance(owner, note.id, { name: 'Outsider' });
+
+      await expect(meetings.get(outsider, note.id)).rejects.toThrow(/not found/i);
+      expect(await ids(outsider)).not.toContain(note.id);
+    });
+
+    it('leaves an ambiguous name unlinked rather than guessing', async () => {
+      // Two colleagues answering to one name is the case where a wrong match hands a meeting
+      // to the wrong person, silently. Neither gets it.
+      const twin: Actor = { userId: crypto.randomUUID(), role: 'member' };
+      await seedUser(twin.userId, 'member', 'Outsider');
+
+      const note = await onProject();
+      await meetings.recordAttendance(owner, note.id, { name: 'Outsider' });
+
+      expect(await ids(outsider)).not.toContain(note.id);
+      expect(await ids(twin)).not.toContain(note.id);
+    });
+
+    it('does not let a departed colleague back in', async () => {
+      const note = await onProject();
+      await testDb
+        .update(coreUsers)
+        .set({ isActive: false })
+        .where(eq(coreUsers.id, outsider.userId));
+
+      await meetings.recordAttendance(owner, note.id, { name: 'Outsider' });
+      expect(await ids(outsider)).not.toContain(note.id);
+    });
+
+    it('links somebody typed in beforehand once they turn up', async () => {
+      // One row, not two: the attendee added by hand is the same person the bot sees.
+      const note = await onProject();
+      await meetings.addAttendee(owner, note.id, { name: 'Outsider' });
+      const seen = await meetings.recordAttendance(owner, note.id, { name: 'Outsider' });
+
+      expect(seen.attendees).toHaveLength(1);
+      expect(seen.attendees[0]).toMatchObject({ userId: outsider.userId });
+      expect(seen.attendees[0]!.detectedAt).not.toBeNull();
+      expect(await ids(outsider)).toContain(note.id);
+    });
+
+    it('loses access when they are taken off the list', async () => {
+      const note = await onProject();
+      const seen = await meetings.recordAttendance(owner, note.id, { name: 'Outsider' });
+      expect(await ids(outsider)).toContain(note.id);
+
+      await meetings.removeAttendee(owner, note.id, seen.attendees[0]!.id);
+      await expect(meetings.get(outsider, note.id)).rejects.toThrow(/not found/i);
+    });
+
+    it('does not make a guest from another company into anybody', async () => {
+      const note = await onProject();
+      const seen = await meetings.recordAttendance(owner, note.id, {
+        name: 'Klaas from Vandenberg',
+        email: 'klaas@vandenberg.example',
+      });
+      expect(seen.attendees.find((a) => a.name === 'Klaas from Vandenberg')?.userId).toBeNull();
+    });
+  });
+
+  describe('adding and removing a colleague by hand', () => {
+    /*
+     * The other half of coupling people to a meeting: not everybody is in the call, and not
+     * everybody in the call should stay on the list. Picking a colleague is how access is
+     * given on purpose rather than as a consequence of having been in the room.
+     */
+    it('gives a colleague the meeting straight away', async () => {
+      const note = await onProject();
+      expect(await ids(outsider)).not.toContain(note.id);
+
+      await meetings.addAttendee(owner, note.id, {
+        name: 'Outsider',
+        userId: outsider.userId,
+      });
+
+      await expect(meetings.get(outsider, note.id)).resolves.toMatchObject({ id: note.id });
+      expect(await ids(outsider)).toContain(note.id);
+    });
+
+    it('takes it away again when they are removed', async () => {
+      const note = await onProject();
+      const added = await meetings.addAttendee(owner, note.id, {
+        name: 'Outsider',
+        userId: outsider.userId,
+      });
+      expect(await ids(outsider)).toContain(note.id);
+
+      await meetings.removeAttendee(owner, note.id, added.attendees[0]!.id);
+      await expect(meetings.get(outsider, note.id)).rejects.toThrow(/not found/i);
+    });
+
+    it('adds one attendee however many times it is clicked', async () => {
+      const note = await onProject();
+      await meetings.addAttendee(owner, note.id, { name: 'Outsider', userId: outsider.userId });
+      const twice = await meetings.addAttendee(owner, note.id, {
+        name: 'Outsider',
+        userId: outsider.userId,
+      });
+      expect(twice.attendees).toHaveLength(1);
+    });
+
+    it('refuses an account that is not somebody who works here', async () => {
+      const note = await onProject();
+      await expect(
+        meetings.addAttendee(owner, note.id, { name: 'Nobody', userId: crypto.randomUUID() }),
+      ).rejects.toThrow(/works here/i);
+    });
+
+    it('refuses somebody who has left', async () => {
+      // A deactivated account is refused sign-in already; it must not be handed meetings either.
+      const note = await onProject();
+      await testDb
+        .update(coreUsers)
+        .set({ isActive: false })
+        .where(eq(coreUsers.id, outsider.userId));
+
+      await expect(
+        meetings.addAttendee(owner, note.id, { name: 'Outsider', userId: outsider.userId }),
+      ).rejects.toThrow(/works here/i);
+    });
+
+    it('cannot be done on a note the actor cannot open', async () => {
+      const note = await onProject();
+      await expect(
+        meetings.addAttendee(outsider, note.id, {
+          name: 'Outsider',
+          userId: outsider.userId,
+        }),
+      ).rejects.toThrow(/not found/i);
+    });
+
+    it('does not let somebody removed from a restricted note lose a grant they hold', async () => {
+      /*
+       * Attendance and access are separate tables on purpose, and this is where it shows: a
+       * viewer named on a restricted note keeps it whatever happens to the roster.
+       */
+      const note = await meetings.create(owner, {
+        title: 'Salary review',
+        projectId,
+        meetingDate: '2026-08-01',
+      });
+      await meetings.setRestricted(owner, note.id, true);
+      await meetings.addViewer(owner, note.id, teammate.userId);
+      const added = await meetings.addAttendee(owner, note.id, {
+        name: 'Teammate',
+        userId: teammate.userId,
+      });
+
+      await meetings.removeAttendee(owner, note.id, added.attendees[0]!.id);
+      await expect(meetings.get(teammate, note.id)).resolves.toMatchObject({ id: note.id });
     });
   });
 

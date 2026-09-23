@@ -818,10 +818,53 @@ ul.pages .tag {
   background: var(--surface-sunk);
   border: 1px solid var(--line);
   border-radius: var(--r-md);
-  white-space: pre-wrap;
   font-size: 14px;
   color: var(--ink);
 }
+
+/*
+ * A message is blocks now, not one run of text.
+ *
+ * `white-space: pre-wrap` moved off this container and onto each paragraph, where it still
+ * does its one job — a single newline stays a line break, the way every message written
+ * before formatting existed relied on. Left here it would also apply between the block
+ * elements, which is whitespace nobody typed.
+ */
+.thread .msg .body > :first-child { margin-top: 0; }
+.thread .msg .body > :last-child { margin-bottom: 0; }
+.thread .msg .body p { margin: 0 0 var(--s2); }
+.thread .msg .body ul,
+.thread .msg .body ol { margin: 0 0 var(--s2); padding-left: 1.25rem; }
+.thread .msg .body li { margin: 0 0 .15rem; }
+.thread .msg .body code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .92em;
+  background: rgb(0 0 0 / 5%);
+  padding: .1em .3em;
+  border-radius: var(--r-sm, 4px);
+}
+.thread .msg .body a { color: var(--accent); }
+
+/*
+ * The formatting buttons: present, and quiet about it.
+ *
+ * A client came here to ask a question, so the toolbar must not read as the point of the
+ * form. Small, unfilled, and it inherits the disabled state of the box it belongs to.
+ */
+.formatbar { display: flex; gap: .25rem; margin-bottom: .35rem; }
+.formatbar button {
+  min-width: 1.9rem;
+  padding: .2rem .45rem;
+  font-size: 12px;
+  line-height: 1.2;
+  background: var(--surface);
+  color: var(--ink-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm, 4px);
+  cursor: pointer;
+}
+.formatbar button:hover:not(:disabled) { color: var(--ink); border-color: var(--ink-3); }
+.formatbar button:disabled { opacity: .5; cursor: default; }
 
 .thread .msg.mine .body {
   background: var(--accent-wash);

@@ -111,9 +111,11 @@ describe('the invitation email', () => {
      * now reads whichever two colours the button actually uses and checks those.
      */
     const html = inviteEmail(base).html;
-    const button = /background:(#[0-9a-f]{6});[^"]*?color:(#[0-9a-f]{6})/i.exec(html);
-    expect(button, 'no button with an explicit background and colour was found').not.toBeNull();
-    expect(contrast(button![1]!, button![2]!)).toBeGreaterThanOrEqual(4.5);
+    const buttonBackground = /<td align="center" bgcolor="(#[0-9a-f]{6})"/i.exec(html);
+    const buttonText = /<a href="[^"]+" style="display:inline-block;[^"]*?color:(#[0-9a-f]{6})/i.exec(html);
+    expect(buttonBackground, 'no button background was found').not.toBeNull();
+    expect(buttonText, 'no button text colour was found').not.toBeNull();
+    expect(contrast(buttonBackground![1]!, buttonText![1]!)).toBeGreaterThanOrEqual(4.5);
 
     // And the links, which are gold on white and have no such trick available.
     const link = /color:(#[0-9a-f]{6});">[^<]*finsera/i.exec(html);
@@ -157,5 +159,16 @@ describe('the invitation email', () => {
     // Assets, not links: a remote image is blocked or slow, while an href is just an href.
     expect(mail.html).not.toMatch(/<style|class=|<img|src=|url\(/);
     expect(mail.html).toContain('style="');
+  });
+
+  it('uses an Outlook-safe table button and explicit background attributes', () => {
+    const mail = inviteEmail(base);
+
+    // Outlook's Word renderer is unreliable with padding and background colours on an
+    // anchor alone. The table cell is the button's fallback; bgcolor preserves it when
+    // Outlook ignores CSS backgrounds.
+    expect(mail.html).toMatch(/<td align="center" bgcolor="#C2AB44" style="background:#C2AB44;/);
+    expect(mail.html).toContain('line-height:20px;text-decoration:none;');
+    expect(mail.html).not.toContain('border-radius');
   });
 });

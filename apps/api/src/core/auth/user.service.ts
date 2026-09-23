@@ -7,7 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { Actor } from '@platform/contracts';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { v7 as uuidv7 } from 'uuid';
 import { DB, type Database } from '../db/db.module.js';
 import { AuditService } from '../audit/audit.service.js';
@@ -460,6 +460,24 @@ export class UserService {
       .from(users)
       .where(eq(users.isActive, true))
       .orderBy(users.displayName);
+  }
+
+  /**
+   * Display names for a set of user ids, active or not.
+   *
+   * Deliberately without the `isActive` filter every other lookup here carries. Those answer
+   * "who can be given work", and a colleague who has left is correctly absent. This answers
+   * "whose hours were these", and a historical record that turns a departed colleague's name
+   * back into a uuid is a record that rewrites the past — the hours ledger rewrites closed
+   * months in place, so the name has to keep resolving for as long as the row exists.
+   */
+  async namesByIds(ids: string[]): Promise<Map<string, string>> {
+    if (ids.length === 0) return new Map();
+    const rows = await this.db
+      .select({ id: users.id, displayName: users.displayName })
+      .from(users)
+      .where(inArray(users.id, ids));
+    return new Map(rows.map((r) => [r.id, r.displayName]));
   }
 
   async listAssignable(): Promise<Array<{ id: string; displayName: string }>> {

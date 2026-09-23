@@ -49,6 +49,9 @@ describe('ZitadelAdminService', () => {
     process.env.ZITADEL_PROJECT_ID = 'proj-1';
     delete process.env.ZITADEL_ORG_ID;
     delete process.env.ZITADEL_INVITE_URL;
+    // Now decides the shape of the link, so a stray value in the ambient environment would
+    // make this suite pass or fail depending on whose machine it ran on.
+    delete process.env.PORTAL_AUTH_HOST;
     zitadel = new ZitadelAdminService(new ZitadelClient());
     respond();
   });
@@ -73,9 +76,39 @@ describe('ZitadelAdminService', () => {
     expect(calls[3]!.body).toEqual({ returnCode: {} });
 
     expect(invite.zitadelUserId).toBe('zit-1');
+    // With no auth host configured the link still works, pointing at the provider — worse
+    // for deliverability, which is what the next test is about, but never broken.
     expect(invite.url).toBe(
       'https://finsera.example/ui/v2/login/verify?userId=zit-1&code=the-code&invite=true',
     );
+  });
+
+  it('puts the activation link on our own domain when there is one', async () => {
+    /*
+     * The deliverability fix, asserted where the link is built.
+     *
+     * An invitation sent from `@finsera.nl` that asks somebody to choose a password at
+     * `finsera.example/ui/v2/login/verify?code=…` is a mail from one domain pointing at an
+     * unrelated one, with a token in the query string — the shape of credential phishing,
+     * and why real invitations were landing in junk. The recipient should see the same
+     * domain the mail came from and the same one they will sign in at afterwards.
+     */
+    process.env.PORTAL_AUTH_HOST = 'portal.finsera.nl';
+    const invite = await zitadel.inviteToPortal({ email: 'anna@dochorse.nl' });
+
+    expect(invite.url).toBe(
+      'https://portal.finsera.nl/api/portal-auth/activate?userId=zit-1&code=the-code',
+    );
+    // The code is still only ever in the link, never in anything sent to Zitadel to email.
+    expect(calls.some((c) => JSON.stringify(c.body).includes('the-code'))).toBe(false);
+  });
+
+  it('still lets an explicit invite URL override both', async () => {
+    process.env.PORTAL_AUTH_HOST = 'portal.finsera.nl';
+    process.env.ZITADEL_INVITE_URL = 'https://id.finsera.nl/invite?u={userId}&c={code}';
+
+    const invite = await zitadel.inviteToPortal({ email: 'anna@dochorse.nl' });
+    expect(invite.url).toBe('https://id.finsera.nl/invite?u=zit-1&c=the-code');
   });
 
   it('re-uses an account that already exists rather than refusing', async () => {

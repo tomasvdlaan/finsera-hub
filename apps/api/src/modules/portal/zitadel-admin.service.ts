@@ -211,9 +211,26 @@ export class ZitadelAdminService {
      * the v1 default went unnoticed, but authorize hands out `V2_` requests destined for
      * `/ui/v2/login` and that is the UI in use.
      */
+    /*
+     * Our own domain first, the provider's only as a fallback.
+     *
+     * The link in the invitation is the single biggest thing deciding whether that mail is
+     * read or junked. Sent from `@finsera.nl` and pointing at
+     * `<instance>.eu1.zitadel.cloud/...?code=…`, it asks somebody to set a password at a
+     * domain they have no relationship with — the shape of credential phishing, and filters
+     * treat it accordingly. `portal.finsera.nl/api/portal-auth/activate` is the same domain
+     * as the sender and as the portal they will use afterwards, and it redirects here.
+     *
+     * The old address stays as the fallback for a deployment with no auth host configured,
+     * because a link to the provider still works; it is only worse. `ZITADEL_INVITE_URL`
+     * still overrides both, which is what makes this a preference rather than a rule.
+     */
+    const ownHost = process.env.PORTAL_AUTH_HOST;
     const template =
       process.env.ZITADEL_INVITE_URL ||
-      `${this.issuer}/ui/v2/login/verify?userId={userId}&code={code}&invite=true`;
+      (ownHost
+        ? `https://${ownHost}/api/portal-auth/activate?userId={userId}&code={code}`
+        : `${this.issuer}/ui/v2/login/verify?userId={userId}&code={code}&invite=true`);
     return template
       .replace('{userId}', encodeURIComponent(userId))
       .replace('{code}', encodeURIComponent(code))

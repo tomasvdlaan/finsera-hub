@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { useViewer } from '../App.js';
 import {
   api,
@@ -6,6 +6,8 @@ import {
   type PortalThread,
   type PortalTicket,
 } from '../lib/api.js';
+import { FormatBar } from './FormatBar.js';
+import { MessageBody } from './MessageBody.js';
 import { Card, Listing, Page, date, useList } from './shared.js';
 
 const STATUS: Record<PortalTicket['status'], string> = {
@@ -33,6 +35,7 @@ function Thread({ id, onChanged }: { id: string; onChanged: () => void }) {
   const [error, setError] = useState<string>();
   const [reply, setReply] = useState('');
   const [sending, setSending] = useState(false);
+  const replyBox = useRef<HTMLTextAreaElement>(null);
 
   const load = useCallback(() => {
     api
@@ -70,19 +73,25 @@ function Thread({ id, onChanged }: { id: string; onChanged: () => void }) {
             {' · '}
             {moment(m.created_at)}
           </p>
-          {/* Plain text, rendered as text. Nothing a client or a colleague types becomes
-              markup — this is the one screen where both sides' words meet. */}
-          <p className="body">{m.body}</p>
+          {/* Bold, italic, code, links and lists — and nothing else, ever. What a person
+              types is parsed into a closed set of nodes and rendered as elements, so
+              markup somebody writes is still the characters they wrote. This is the one
+              screen where both sides' words meet, and it stays that way. */}
+          <div className="body">
+            <MessageBody source={m.body} />
+          </div>
         </article>
       ))}
 
       {thread.status === 'closed' ? (
-        <p className="tag">Deze vraag is afgerond. Stel gerust een nieuwe vraag.</p>
+        <p className="tag">Dit ticket is afgerond. Open gerust een nieuw ticket.</p>
       ) : staff ? (
         <p className="tag">Antwoorden doet u vanuit het dashboard, niet hier.</p>
       ) : (
         <form onSubmit={send}>
+          <FormatBar area={replyBox} onChange={setReply} disabled={sending} />
           <textarea
+            ref={replyBox}
             value={reply}
             onChange={(e) => setReply(e.target.value)}
             placeholder="Uw antwoord…"
@@ -106,7 +115,7 @@ function Thread({ id, onChanged }: { id: string; onChanged: () => void }) {
  * in the time it would have taken to open their mail client, or they will use their mail
  * client. The project is optional — plenty of requests are not about a project at all.
  */
-export function Requests() {
+export function Tickets() {
   const { rows, error } = useList<PortalTicket>(api.tickets);
   const { rows: projects } = useList<PortalProject>(api.projects);
   const { staff } = useViewer();
@@ -117,6 +126,7 @@ export function Requests() {
   const [sending, setSending] = useState(false);
   const [open, setOpen] = useState<string>();
   const [failed, setFailed] = useState<string>();
+  const bodyBox = useRef<HTMLTextAreaElement>(null);
 
   const reload = () => {
     api
@@ -148,12 +158,12 @@ export function Requests() {
 
   return (
     <Page
-      title="Vragen"
-      lead="Iets nodig? Stel het hier, en volg wat ermee gebeurt."
+      title="Tickets"
+      lead="Iets nodig? Open een ticket, en volg hier wat ermee gebeurt."
     >
       {staff ? (
         <p className="tag" style={{ marginBottom: '2rem' }}>
-          Vragen van deze klant. Zelf een vraag indienen kan alleen de klant.
+          Tickets van deze klant. Zelf een ticket openen kan alleen de klant.
         </p>
       ) : (
         <form onSubmit={submit} className="ask">
@@ -173,8 +183,10 @@ export function Requests() {
             />
           </label>
           <label>
-            <span>Uw vraag</span>
+            <span>Uw bericht</span>
+            <FormatBar area={bodyBox} onChange={setBody} disabled={sending} />
             <textarea
+              ref={bodyBox}
               value={body}
               onChange={(e) => setBody(e.target.value)}
               placeholder="Waar kunnen we mee helpen?"
@@ -206,7 +218,7 @@ export function Requests() {
       <Listing
         rows={all}
         error={error}
-        empty={staff ? 'Deze klant heeft nog niets gevraagd.' : 'U heeft nog niets gevraagd.'}
+        empty={staff ? 'Deze klant heeft nog geen ticket geopend.' : 'U heeft nog geen ticket geopend.'}
       >
         {(tickets) => (
           <Card>

@@ -153,6 +153,71 @@ function AddInline({
 }
 
 /**
+ * Add a colleague by name, rather than by typing one.
+ *
+ * The free-text field beside this one is still how a guest from the client gets on the list —
+ * most people in a meeting are not accounts here and never will be. But a colleague typed in
+ * by hand is a string that has to match their display name exactly before anything links it to
+ * them, and a meeting they cannot find is the failure that is silent: nothing reports it, and
+ * they only discover it by asking where the note went.
+ *
+ * So picking is the deliberate way to do the thing that has a consequence. Adding somebody
+ * here puts the meeting on their own list straight away, which is why the button says so.
+ *
+ * Anybody already on the list is not offered, so this cannot be used to add a second row for
+ * one person — the roster would then disagree with itself about who was in the room.
+ */
+function AddColleague({
+  colleagues,
+  onAdd,
+}: {
+  colleagues: Array<{ id: string; displayName: string }>;
+  onAdd: (person: { userId: string; name: string }) => Promise<unknown>;
+}) {
+  const [userId, setUserId] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  // Everyone who works here is already in the room. Nothing to offer, so nothing is shown.
+  if (colleagues.length === 0) return null;
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    const picked = colleagues.find((c) => c.id === userId);
+    if (!picked) return;
+    setBusy(true);
+    try {
+      await onAdd({ userId: picked.id, name: picked.displayName });
+      setUserId(''); // back to the placeholder, ready for the next one
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form onSubmit={(e) => void submit(e)}>
+      <div className="row">
+        <select
+          value={userId}
+          onChange={(e) => setUserId(e.target.value)}
+          aria-label="Add a colleague"
+          style={{ flex: 1, minWidth: 200 }}
+        >
+          <option value="">Add a colleague…</option>
+          {colleagues.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.displayName}
+            </option>
+          ))}
+        </select>
+        <button type="submit" disabled={busy || !userId}>
+          {busy ? 'Adding…' : 'Add and give access'}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+/**
  * What each phase puts where.
  *
  * Two columns rather than one stack, because the page is a document *and* everything around
@@ -256,6 +321,12 @@ export function NoteDetail() {
   const peopleById = useMemo(
     () => new Map(people.map((p) => [p.id, p.displayName])),
     [people],
+  );
+
+  /** Colleagues already on the list, so the picker cannot offer a second row for one person. */
+  const attending = useMemo(
+    () => new Set((note?.attendees ?? []).map((a) => a.userId).filter(Boolean)),
+    [note],
   );
 
   /*
@@ -551,9 +622,49 @@ export function NoteDetail() {
                 {person.email && <span className="muted"> · {person.email}</span>}{' '}
                 {person.detectedAt && (
                   <Badge tone="ok" title="Seen in the meeting by the bot">present</Badge>
+                )}{' '}
+                {person.userId ? (
+                  <Badge tone="brand" title="A colleague — this meeting is on their list too">
+                    has access
+                  </Badge>
+                ) : (
+                  person.detectedAt && (
+                    <Badge
+                      tone="neutral"
+                      title="Not matched to an account, so this meeting does not appear on their list. Add them as a viewer if they should see it."
+                    >
+                      not linked
+                    </Badge>
+                  )
                 )}
                 <div className="row">
-                  <Button size="sm" variant="ghost" onClick={() => void act(() => api.del(`/meetings/${id}/attendees/${person.id}`))}>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() =>
+                      void (async () => {
+                        /*
+                         * Asked only when removing costs something you cannot put back by
+                         * clicking again. A colleague loses sight of the meeting, and somebody
+                         * the bot saw is a record of who was actually in the room rather than a
+                         * name typed in by mistake — the one thing on this list that was
+                         * observed rather than entered.
+                         */
+                        if (person.userId || person.detectedAt) {
+                          const go = await confirm({
+                            title: `Remove ${person.name} from this meeting?`,
+                            body: person.userId
+                              ? 'This meeting disappears from their list. Add them again to give it back.'
+                              : 'The bot saw them in the call, so this removes a record of who was there.',
+                            confirmLabel: 'Remove',
+                            destructive: true,
+                          });
+                          if (!go) return;
+                        }
+                        await act(() => api.del(`/meetings/${id}/attendees/${person.id}`));
+                      })()
+                    }
+                  >
                     remove
                   </Button>
                 </div>
@@ -561,14 +672,20 @@ export function NoteDetail() {
             ))}
           </ul>
         )}
+        <AddColleague
+          colleagues={people.filter((p) => !attending.has(p.id))}
+          onAdd={(person) => act(() => api.post(`/meetings/${id}/attendees`, person))}
+        />
         <AddInline
-          label="New attendee"
-          placeholder="Who is in the meeting?"
+          label="Somebody else"
+          placeholder="Somebody from outside?"
           onAdd={(name) => act(() => api.post(`/meetings/${id}/attendees`, { name }))}
         />
         <p className="muted">
           Anyone the bot sees join is added here automatically, so the list ends up being who
-          was actually there rather than who was expected.
+          was actually there rather than who was expected. A colleague it recognises gets this
+          meeting on their own list — you do not have to share it with them, and removing them
+          here takes it away again.
         </p>
       </Fold>
     ),

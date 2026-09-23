@@ -65,6 +65,16 @@ Document bytes move from the local disk to a **new, separate SharePoint site** i
 
 **Why now.** Phase 3 declared editing a non-goal — "this is storage, versioning and retrieval, not a word processor" — and that has aged badly: there is no way to edit a docx without downloading it, no way to hand a file to a colleague, and `STORAGE_DRIVER=s3` was never built, so every byte sits on one Netcup volume. The tenant is already there (MX points at M365, meetings happen in Teams), so Word/Excel Online, co-authoring and version history are had for the cost of an integration rather than the cost of building any of them.
 
+**The library layout.** Three buckets at the library root, each a category:
+
+```
+Clients/<client>/<project>/     client work; Uitgaand/ for generated invoice and quote PDFs
+_Algemeen/                      templates and prospect quotes — documents belonging to no client
+_Exports/                       what the platform writes on a schedule: the monthly hours ledger
+```
+
+`GRAPH_ROOT_FOLDER` is an optional prefix above all three, empty in production. It exists so a developer machine pointed at the same library (`_Dev`) stays out of the way. It is deliberately not a wrapper folder containing everything: a single root folder holding the whole library is a level of nesting that carries no information, and naming it `Clients` made every non-client folder inside it look like a filing mistake. Nothing is ever looked up by path — the item id is the pointer and survives a rename or a move made by hand.
+
 **A separate site, not a folder.** `Sites.Selected` grants at SITE level. A folder inside `FinseraHub` would have handed the application write access to `05_HR` (salary, contract hours) and all of `01_Projecten/03 Plibs` (bookkeeping, MT940s, loonstroken). The new site is the permission boundary; a folder would only have been a convention.
 
 **`FinseraHub` is never touched.** No read grant, no picker, no bulk import, no copying between sites. The library there holds thousands of files — MT940 statements, monthly loonstroken, energy invoices — that would cost real money to embed and would make search worse. The good documents (contracts, quotes, annual accounts) are moved across **by hand, once**, and adopted through the Unfiled screen; a curation pass worth doing on its own merits.
@@ -766,3 +776,219 @@ placeholder `.test` names and read that line — and is now what this config is 
 only reason this is a note rather than an incident. The rollback in `deploy/update.sh` did
 not help and could not: the API was healthy the whole time, so from the deploy script's
 point of view nothing had gone wrong.
+
+## Being in the meeting is what puts it on your list (2026-09-12) · **Built**
+
+A meeting was visible to whoever wrote it and to the team of the project it was linked to,
+and to nobody else. So the ordinary case — four colleagues sit through a call, one of them
+created the note — ended with three of them unable to find the meeting they had just been
+in, and the only remedy was for the author to remember to add each of them by hand.
+
+**Attendance now carries visibility.** `meetings.attendees` has had a `user_id` column since
+6b and nothing ever wrote to it. `recordAttendance` — already called as each person joins,
+from the roster the bot sees — now resolves the person to a colleague and fills it in, and
+`visibleNotes` reads it. Joining the call is the act that couples you to the note; nobody has
+to share anything.
+
+**How a name on a roster becomes an account.** An exact address wins when the meeting provider
+reports one, which Recall does in some tenants and not others — `emailOf` now reads it from
+the participant or from under the platform's own key, and returns null rather than a guess
+when it is absent. Otherwise the display name, and only when exactly one *active* colleague
+answers to it. Two people called Jan Jansen link neither, and somebody who has left links
+never: a wrong match here hands a meeting to the wrong person silently, which is the failure
+worth being conservative about. Anything unmatched stays an unlinked name, which is the state
+everything was already in.
+
+**Restricted notes are deliberately outside this.** `restricted` is the meeting held *about* a
+person — a salary review, a grievance — and attendance is a bot reading display names off a
+roster. That is a fine signal for putting a stand-up on somebody's list and much too weak for
+the one kind of note whose entire point is that it stays shut. Access there is still a grant
+into `note_viewers`, recorded with who gave it. The two tables have looked alike since 6b and
+this is the line between them: an attendee is a record of who was in the room, a viewer is a
+decision somebody made.
+
+**The history was backfilled**, in migration 0069, under the same matching rule. Without it the
+fix would apply from that day forward and every meeting held so far would stay invisible to
+the people who sat through it — which is the complaint, not a side issue. The backfill can be
+dropped from the migration if the retroactive opening is not wanted; nothing else depends on it.
+
+**It grants sight and nothing else.** `meetings.write` is still what it takes to change a note,
+and removing somebody from the attendee list removes their access with it.
+
+**A colleague can also be added by hand, from a picker rather than a text field.** Not everybody
+who should see a meeting was in the call — somebody who could not make it, somebody who has to
+pick the work up. The free-text field stays, because most attendees are guests from the client
+and always will be, but a colleague typed into it is a string that has to match their display
+name exactly before anything links it to them, and the failure when it does not is silent. So
+the two are separate controls, and the one with a consequence says what it is: *Add and give
+access*. Anybody already on the list is not offered, a second click adds nothing, and an
+account that is not active is refused — the same rule the detection path uses.
+
+**Removing asks first**, but only when it costs something you cannot undo by clicking again: a
+colleague loses the meeting, or the row was a record of somebody the bot actually saw, which is
+the one thing on that list that was observed rather than typed. Both directions are audited when
+they name an account; a guest's name is not, because "how did they come to see this" is a
+question asked about people.
+
+`removeAttendee` now resolves the note through `raw` first. That was harmless while it only
+deleted a name — the note id was already in the WHERE clause — and stopped being harmless the
+moment the row carried access.
+
+## 2026-09-12 — Phase 9: tickets that somebody is told about
+
+Brief: [phase9-tickets-brief.md](phase9-tickets-brief.md). **P1, P2, P4 and P7 confirmed and
+built; P3 deferred to a gate; P5 and P6 scoped and not started.**
+
+The client-facing tab is **Tickets**, not *Vragen*, at `/tickets` — `/vragen` redirects,
+because that address is in sent email and in clients' bookmarks. The hub inbox was not
+findable at all: it declares itself in `section: 'work'` and only the `money` section ever
+rendered a tab strip, so `/portal/tickets` had no link from anywhere and neither did
+Whiteboards. The Work page now renders its section's strip, which is the same fix
+`useNav.tsx` already documents for four finance pages.
+
+**A ticket now publishes something.** `portal.ticket_opened` and `portal.ticket_replied`,
+against the client, in the same transaction as the rows they describe. Only the client's
+replies: ours are not news to us, and a second event would make "who is waiting" the harder
+question. The subject travels, the **body never does** — a client's prose on the bus reaches
+places nobody audited, the assistant included, and this module declares no `aiTools`
+precisely so their words are never read as our instructions.
+
+**The badge is an Insights rule rather than a counter.** `ticket_waiting_on_us` reads a new
+published view, `portal.v_tickets`, and fires at two days (`attention`), seven (`urgent`),
+addressed to the owner or falling to `delivery` — the same shape as its mirror,
+`waiting_on_client_too_long`. The decisive property is that it **resolves itself**: answering
+flips the status, the row leaves the view, and the item disappears without anybody dismissing
+it. `days_waiting` is measured from the client's last message, not from `created_at`, because
+a thread running a fortnight is not two weeks late on this morning's question. A second
+notion of "needs attention" in the nav was rejected for the reason a badge stops being
+believed.
+
+**Closing a ticket no longer loses it.** The inbox query filtered `status <> 'closed'` and
+nothing else listed them, so an answered thread was reachable only by UUID. It is a scope
+now — Open / Closed / All — validated into one of three words on its way to a WHERE clause.
+
+**Triage is `portal.tickets`, held by members.** Granting somebody a login hands a client's
+money to a person outside the business and stays `portal.admin`, admins only. Answering a
+question a client already asked is delivery work, and while the two shared one capability a
+colleague opening the inbox saw an empty table — which reads as a broken page rather than a
+refusal, and made triage one person's job by accident. `assign()` had also existed since the
+feature shipped with no control anywhere; it has an owner column now.
+
+**Mail is not a ticket feature.** There is no mail capability in the platform at all —
+`core/graph` is deliberately drive-only. So a client still learns of an answer only by
+revisiting their portal, and choosing between Graph `sendMail`, a transactional provider and
+SMTP is **gate G8**, to be decided on its own terms rather than because a screen needed it.
+Now that the events exist, whichever wins is a subscriber rather than a rewrite.
+
+**Rich text is scoped, not built** (P5): a markdown subset stored as source, so the
+`length BETWEEN 1 AND 5000` check keeps meaning what it says. TipTap-both-ways storing HTML
+was rejected — client-authored HTML rendered inside hub is an XSS with an admin session
+behind it, and 5000 characters of HTML is a third of the prose.
+
+## 2026-09-14 — Phase 9 P5: formatting in a ticket thread, without a sanitiser
+
+**Built.** Bold, italic, inline code, links and the two kinds of list, on both sides of a
+ticket thread, stored as Markdown source in the column that already existed — so the
+`length BETWEEN 1 AND 5000` check keeps meaning what it says, and a backup still contains
+text rather than somebody's markup.
+
+**The design changed on the way in.** The brief assumed a renderer plus a sanitiser.
+`@platform/ticket-markdown` instead returns a tree of nodes whose leaves are strings, and
+each app maps that tree to React elements. React escapes every leaf, there is no HTML string
+anywhere in the path and no `dangerouslySetInnerHTML` — so the thing a sanitiser exists to
+catch cannot be expressed. A sanitiser is a list of everything dangerous somebody has thought
+of so far; this is a closed set of five node types. `<script>` a client types is a text node
+that reads `<script>`, asserted in both apps by rendering with `renderToStaticMarkup`.
+
+Links are the one place a rule survives, because a link is the one node that carries an
+instruction to the browser: `http:`, `https:` and `mailto:` are clickable, and anything else
+renders as the text that was typed — visible, so nobody's message is quietly edited. Checked
+by parsing with `URL` rather than matching a pattern, which is what makes `JaVaScRiPt:`, a
+leading space and percent-encoding the same question.
+
+**A single newline stays a line break.** Strict Markdown joins those lines, which would have
+reflowed every message written while both sides were plain text rendered with
+`white-space: pre-wrap`. Formatting that rewrites what other people already wrote is not a
+feature, and the test that pins it names that reason.
+
+**The toolbar owns no rules.** Which markers each button inserts and where the caret lands is
+`applyFormat` in the same package, tested as a pure function, so hub and the portal cannot
+disagree about what Bold means. The components keep only what a component can do: apply the
+edit through `setRangeText`, so the browser's own undo history survives — replacing `value`
+wholesale would make ⌘Z discard everything the person had typed.
+
+**Found while verifying it in a browser:** the portal's dev proxy excluded `vragen` and not
+`tickets`, so in development the renamed route was forwarded to the API and answered with a
+404 instead of being served by the app. Production was never affected — there the API owns
+the whole path space and `PortalPagesService` already reserved `tickets` — but the rename on
+2026-09-12 left that list behind, and nothing pointed at it.
+
+## 2026-09-14 — The invitation link moves onto our own domain
+
+Invitations were landing in spam, and the mail's markup was not the reason. `finsera.nl`
+publishes SPF with `-all`, both Microsoft DKIM selectors and DMARC at `p=reject` with strict
+alignment; the template carries no images, no tracking pixel, no shortener, and a healthy
+text-to-markup ratio. Authentication and markup were already right.
+
+What was wrong is what the mail asked against where it pointed. It says "activate your
+account, you choose your password here" and linked to
+`finsera-dashboard-nsncri.eu1.zitadel.cloud/ui/v2/login/verify?userId=…&code=…` — a message
+from one domain sending somebody to set a password at an unrelated one, on a host with a
+random-looking label, with an opaque token in the query string. That is the shape of
+credential phishing, which is what the filters are trained on.
+
+So `GET /api/portal-auth/activate` now exists on the login host and the invitation links
+there, matching the domain the mail was sent from and the one the client signs in at
+afterwards. It carries only `userId` and `code` and redirects to the issuer's verify page:
+the destination is built from this deployment's own issuer, so nothing a caller supplies can
+change where it goes — asserted, because this hop carries an invitation token and a choosable
+destination would be a way to harvest one. It follows `PORTAL_AUTH_HOST` on its own,
+`ZITADEL_INVITE_URL` still overrides, and with neither the old Zitadel link remains as a
+fallback that works and merely delivers worse.
+
+Two sentences of the mail also changed. "Die horen erbij en zijn niet vals" is gone —
+telling somebody a message is genuine is what a fraudulent message does, filters score the
+phrasing, and the paragraph does its real job (warning that Zitadel will also write to them)
+without it.
+
+**What this cannot fix**, recorded so it is not chased in code later: a domain with little
+sending history to a given tenant, and recipients who have never had mail from us. The first
+few invitations may still be junked, and somebody marking them *not junk* is the only thing
+that moves it.
+
+## 2026-09-14 — A client lands on their own subdomain after activating
+
+Clients were finishing an activation on Zitadel's own page. The cause is not in this
+repository: Zitadel ends a flow that has no auth request in context on its **Default Redirect
+URI**, one static address for the whole instance, and its stock value is the management
+console. `/api/portal-auth/welcome` was built for this and has been live and correct all
+along — nothing was ever pointed at it. Setting it is a console step and is now in the
+runbook.
+
+That setting alone leaves a static page and a button, because one address cannot name a
+client. The destination now travels instead. The activation hop added earlier for
+deliverability turns out to know exactly who the invitation is for: the `userId` on the link
+is the Zitadel user id, and `attachSubject` writes that onto the portal user the moment the
+invitation is created. So `/activate` resolves the client, sets a slug in a cookie scoped to
+the auth routes on the auth host, and Zitadel's return to `/welcome` on that same host still
+carries it. `/welcome` spends it and redirects to `https://<slug>.finsera.nl/api/portal-auth/login`.
+
+Three properties worth stating, because each was a way to get this wrong:
+
+**It grants nothing.** The redirect points at a login, not at a session. Arriving runs the
+ordinary client-host login with its binding nonce; this hop only decides which front door
+somebody knocks on.
+
+**It cannot point anywhere.** The cookie holds a slug — a name, not an address — resolved the
+same way a `Host` header is, so the only destinations that exist are clients in
+`crm.clients`. A hand-written cookie falls through to the page.
+
+**It is best-effort.** A revoked login, a client with no portal address, a failed lookup: each
+leaves the cookie unset and the activation itself untouched. `SameSite=Lax` rather than
+`Strict`, because the browser returns from Zitadel by a top-level navigation from another
+site — the one case Lax still sends a cookie on and Strict does not.
+
+The static page stays as the fallback, for a password reset, a link opened in a second
+browser, or cleared cookies. Three earlier attempts at controlling the end of Zitadel's flow
+each failed by dumping a client somewhere that looked broken, and the page is what cannot be
+wrong about what just happened.

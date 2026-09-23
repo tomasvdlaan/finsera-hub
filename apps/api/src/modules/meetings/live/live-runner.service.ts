@@ -12,7 +12,8 @@ import { AiToolRegistry } from '../../../core/llm/tool-registry.service.js';
 import { LlmService } from '../../../core/llm/llm.service.js';
 import { TtsService } from '../../../core/llm/tts.service.js';
 import { BehaviourRegistry, type BehaviourSettings } from './behaviours/behaviour.registry.js';
-import { applySession, sessionSummary } from './session-body.js';
+import { applySession, mentions, sessionSummary } from './session-body.js';
+import { ProposalLedger } from './proposal-ledger.service.js';
 import { NoteDocService } from '../doc/note-doc.service.js';
 import { DEFAULT_EAGERNESS, readEagerness, type Eagerness } from './eagerness.js';
 import { TEMPLATES, type Template, type TemplateName } from '../templates.js';
@@ -25,7 +26,9 @@ import { TEMPLATES, type Template, type TemplateName } from '../templates.js';
  * the call or the operator's browser is listening to a tab.
  *
  * Nothing here acts on the meeting. Proposals accumulate and are written when the session
- * ends, still needing a decision.
+ * ends — all of them except the ones somebody objected to, which is the only answer the
+ * live panel asks for. Every proposal and every objection also lands in the ledger, so the
+ * agent's suggestions can later be judged against what people did with them.
  */
 @Injectable()
 export class LiveRunner {
@@ -43,6 +46,7 @@ export class LiveRunner {
     private readonly llm: LlmService,
     private readonly tts: TtsService,
     private readonly docs: NoteDocService,
+    private readonly ledger: ProposalLedger,
   ) {}
 
   /**
@@ -394,6 +398,19 @@ export class LiveRunner {
       for (const result of results) {
         if (result.proposals?.length) {
           const added = live.mergeProposals(result.proposals, () => this.registry.newId());
+          /*
+           * Written down before the panel is told about them.
+           *
+           * Ordering matters here in one direction only: a suggestion recorded and never
+           * shown is a harmless orphan, while one shown and never recorded is a dismissal
+           * with nothing to attach itself to. The ledger swallows its own failures, so this
+           * cannot delay or break the broadcast that follows.
+           */
+          await this.ledger.recorded(noteId, added, {
+            source: result.behaviour,
+            eagerness: settings.eagerness[this.behaviours.dialOf(result.behaviour) ?? 'notes'],
+            window: live.window(),
+          });
           const suggestions = await this.recordNotes(actor, noteId, live, added);
           if (suggestions.length > 0) {
             this.sessions.broadcast(noteId, { type: 'proposals', proposals: suggestions });
@@ -419,18 +436,43 @@ export class LiveRunner {
   }
 
   /**
-   * Accept or dismiss one of the agent's suggestions, mid-meeting.
+   * Object to one of the agent's suggestions, mid-meeting.
    *
-   * Everything a suggestion could become was already reachable — an action point, a covered
-   * agenda item — but only after the recording stopped, and only by working through a list.
-   * So the agent's contribution arrived as homework at exactly the moment the meeting was
-   * over and nobody wanted any.
+   * ## Why there is no longer an accept
    *
-   * Accepting does now what stopping would have done later, which is the property worth
-   * keeping: an accepted action becomes the same proposed action point on the note, from
-   * the same source, so nothing behaves differently for having been decided early. It does
-   * NOT go straight onto the board — that needs a project and is a commitment the room
-   * should make deliberately, and the note offers it one step later.
+   * Because there never really was one. `keptProposals` is everything not dismissed, so an
+   * accepted decision and an untouched one produced exactly the same note; an accepted
+   * action point differed from an untouched one only in whether it appeared now or when the
+   * recording stopped. The panel asked a two-answer question and the system read one bit —
+   * and because a card stayed until pressed, the quickest way back to the meeting was to
+   * press whichever button was nearer. Every press meant the same thing, so the record of
+   * them meant nothing.
+   *
+   * One button fixes both halves. The default is already yes, so silence is an answer and
+   * costs nothing during the part of a meeting where attention is scarcest. And a press is
+   * now unambiguous: somebody looked at a suggestion and said no.
+   *
+   * ## Where acceptance went
+   *
+   * To the note, where it already lived and already costs something. An action point still
+   * has to be accepted onto the board — `acceptActionItem`, which creates a real task and is
+   * guarded by a CHECK constraint saying so — and that decision is made after the meeting,
+   * deliberately, by somebody who has to live with the task. That is a signal worth
+   * recording precisely because it is not free.
+   *
+   * ## The one exception
+   *
+   * Agenda coverage keeps both buttons, because it is the only kind whose accept was ever
+   * real: it calls `setAgendaCovered`, which changes something no other path changes, and
+   * the live panel is where a room wants to see the agenda filling in. It is deliberately
+   * NOT applied automatically — `LiveService.extract` refuses to mark an item covered
+   * without being asked, on the grounds that an item ticked off because it was mentioned in
+   * passing is the kind of quiet wrongness that erodes trust in the whole agent. That
+   * reasoning is untouched by anything here.
+   *
+   * So the rule is: dismissal is always available, acceptance only where it does something.
+   * Asking for it anywhere else is refused rather than quietly treated as a keep — a button
+   * that returns 200 and changes nothing is precisely what this is undoing.
    */
   async decideProposal(
     actor: Actor,
@@ -441,6 +483,14 @@ export class LiveRunner {
     const entry = this.sessions.get(noteId);
     if (!entry) throw new BadRequestException('This meeting is not being recorded');
 
+    const at = Date.now();
+    const existing = entry.live.proposals.find((p) => p.id === proposalId);
+    if (decision === 'accepted' && existing && existing.kind !== 'agenda_covered') {
+      throw new BadRequestException(
+        'Only agenda coverage can be accepted — everything else is kept unless dismissed',
+      );
+    }
+
     const proposal = entry.live.decide(proposalId, decision);
     // Already decided, or never existed. Not an error: two people in the room may press the
     // same button, and the second press should agree with the first rather than fail.
@@ -448,28 +498,46 @@ export class LiveRunner {
 
     if (decision === 'accepted') {
       try {
-        if (proposal.kind === 'action') {
-          await this.meetings.addActionItem(actor, noteId, { text: proposal.text, source: 'ai' });
-        } else if (proposal.kind === 'agenda_covered' && proposal.agendaItemId) {
+        if (proposal.agendaItemId) {
           await this.meetings.setAgendaCovered(actor, noteId, proposal.agendaItemId, true);
         }
-        // A decision or a note needs nothing done to it: staying open is what puts it in the
-        // note at the end, and that is what accepting one means.
       } catch (error) {
-        /*
-         * Put it back, or the suggestion is lost in both directions — decided here and never
-         * written anywhere. Open is the honest state for something that was not applied.
-         */
+        // Open is the honest state for something that was not applied. Without this the
+        // suggestion is lost in both directions: decided here, and never acted on.
         proposal.status = 'open';
         throw error;
       }
+      await this.ledger.kept(proposal, actor.userId, at);
+      this.sessions.broadcast(noteId, { type: 'proposal_decided', id: proposal.id, decision });
+      return { decided: true };
     }
+
+    /*
+     * Whether the note already says this, asked before the reason is written.
+     *
+     * A dismissal of something the document already contains is a complaint about the agent
+     * repeating itself, not a verdict on the suggestion — and the two must not be counted
+     * together. Read from the document authority rather than from the session's copy, so a
+     * line somebody typed by hand counts just as much as one the note-taker wrote.
+     *
+     * Never allowed to fail the dismissal: an unknown reason is a worse row, not a broken
+     * button.
+     */
+    let alreadyInNote = false;
+    try {
+      const { markdown } = await this.docs.snapshot(noteId);
+      alreadyInNote = mentions(markdown, proposal.text);
+    } catch (error) {
+      this.logger.warn(`Could not read ${noteId} while dismissing: ${(error as Error).message}`);
+    }
+
+    await this.ledger.dismissed(proposal, actor.userId, { alreadyInNote, at });
 
     // So every screen watching this meeting agrees, including the one that did not press.
     this.sessions.broadcast(noteId, {
       type: 'proposal_decided',
       id: proposal.id,
-      decision,
+      decision: 'dismissed',
     });
     return { decided: true };
   }
@@ -575,12 +643,15 @@ export class LiveRunner {
     try {
       const note = await this.meetings.get(actor, noteId);
       const settings = await this.behaviourSettings(actor, noteId);
-      const { added, state } = await this.live.extract(
+      const { added, state, context } = await this.live.extract(
         live,
         note.agenda.map((a) => ({ id: a.id, title: a.title, covered: a.covered })),
         () => this.registry.newId(),
         settings.eagerness,
       );
+      // `context` is absent only when the triage gate declined, in which case `added` is
+      // empty too and the ledger has nothing to write.
+      if (context) await this.ledger.recorded(noteId, added, context);
       const suggestions = await this.recordNotes(actor, noteId, live, added);
       if (suggestions.length > 0) {
         this.sessions.broadcast(noteId, { type: 'proposals', proposals: suggestions });
@@ -713,9 +784,26 @@ export class LiveRunner {
 
     for (const proposal of live.openProposals) {
       if (proposal.kind === 'action') {
-        await this.meetings.addActionItem(actor, noteId, { text: proposal.text, source: 'ai' });
+        await this.meetings.addActionItem(actor, noteId, {
+          text: proposal.text,
+          source: 'ai',
+          proposalId: proposal.id,
+        });
       }
     }
+
+    /*
+     * Close the ledger for this meeting.
+     *
+     * Everything not dismissed was kept — that is what the one-button panel means, and
+     * leaving those rows `open` would make a meeting nobody objected during look identical
+     * to one where the process died mid-recording. Written after the note, because until
+     * the note is written "kept" is not yet true of anything.
+     */
+    await this.ledger.settled(
+      noteId,
+      live.keptProposals.map((p) => p.id),
+    );
 
     // Rounded cents read as "0" for a short meeting, which looks like broken metering
     // rather than a cheap one. The token counts are kept so the real figure is

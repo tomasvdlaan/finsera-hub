@@ -1,6 +1,18 @@
 /**
  * The message a client is sent to activate their portal login.
  *
+ * **Written to survive a spam filter**, which is a constraint on the words as much as on the
+ * markup. Two things were changed after real invitations landed in junk. The link now points
+ * at `portal.finsera.nl`, the same domain the mail is sent from — an activation link on a
+ * domain the recipient has no relationship with is the single strongest phishing signal a
+ * filter can read, and it was pointing straight at the identity provider. And the paragraph
+ * about Zitadel no longer ends "die horen erbij en zijn niet vals": telling somebody a
+ * message is genuine is what a fraudulent message does, filters score that phrasing, and the
+ * sentence does its real job — warning that other mail will arrive — without it.
+ *
+ * There are deliberately no images, no tracking pixel and no link shortener. Every one of
+ * those is a reason for a filter to look twice, and none of them would add anything here.
+ *
  * A pure function returning three renderings of one text — subject, plain body, and HTML —
  * so the wording lives in one place and can be tested without a browser. The component's job
  * is to show it and put it on the clipboard; deciding what it says is this file's.
@@ -102,9 +114,9 @@ export function inviteEmail({ name, clientName, portalHost, url }: InviteEmailIn
     ``,
     `De link uit stap 1 is persoonlijk en werkt één keer. Werkt hij niet meer? Laat het ons weten.`,
     ``,
-    `Onze inlog loopt via Zitadel, onze identiteitsprovider. U kunt daarom ook berichten van`,
-    `Zitadel krijgen — bijvoorbeeld om uw e-mailadres te bevestigen of een wachtwoord te`,
-    `herstellen. Die horen erbij en zijn niet vals.`,
+    `Het aanmelden verloopt via Zitadel, de identiteitsprovider die wij gebruiken. U kunt`,
+    `daarom ook berichten van Zitadel ontvangen, bijvoorbeeld om uw e-mailadres te`,
+    `bevestigen of een wachtwoord te herstellen.`,
   ].join('\n');
 
   /*
@@ -122,9 +134,9 @@ export function inviteEmail({ name, clientName, portalHost, url }: InviteEmailIn
   const html = `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="font-family:-apple-system,'Segoe UI',Arial,sans-serif;">
   <tr>
     <td style="padding:8px 0;">
-      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="560" style="width:560px;max-width:100%;">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="560" align="left" style="width:560px;max-width:100%;">
         <tr>
-          <td style="color:${INK};font-size:15px;line-height:1.65;">
+          <td style="color:${INK};font-size:15px;line-height:25px;">
             <p style="margin:0 0 16px 0;">${escapeHtml(greeting)},</p>
             <p style="margin:0 0 16px 0;">
               Het klantportaal van Finsera staat voor <strong>${escapeHtml(clientName)}</strong>
@@ -132,25 +144,29 @@ export function inviteEmail({ name, clientName, portalHost, url }: InviteEmailIn
             </p>
             <p style="margin:0 0 18px 0;">Het gaat in twee stappen.</p>
 
-            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 22px 0;">
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 22px 0;">
               <tr>
-                <td width="30" valign="top" style="color:${BRAND};font-size:15px;font-weight:700;line-height:1.65;">1.</td>
-                <td style="color:${INK};font-size:15px;line-height:1.65;">
+                <td width="30" valign="top" style="color:${BRAND};font-size:15px;font-weight:700;line-height:25px;">1.</td>
+                <td style="color:${INK};font-size:15px;line-height:25px;">
                   <strong>Activeer eenmalig uw account.</strong> U kiest hierbij uw wachtwoord.
-                  <div style="padding-top:12px;">
-                    <a href="${escapeHtml(url)}" style="display:inline-block;padding:11px 22px;background:${BRAND};border-radius:6px;color:${ON_BRAND};font-size:15px;font-weight:600;text-decoration:none;">Account activeren</a>
-                  </div>
+                  <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin-top:12px;">
+                    <tr>
+                      <td align="center" bgcolor="${BRAND}" style="background:${BRAND};">
+                        <a href="${escapeHtml(url)}" style="display:inline-block;padding:11px 22px;color:${ON_BRAND};font-size:15px;font-weight:600;line-height:20px;text-decoration:none;">Account activeren</a>
+                      </td>
+                    </tr>
+                  </table>
                 </td>
               </tr>
               <tr><td colspan="2" style="height:20px;line-height:20px;font-size:0;">&nbsp;</td></tr>
               <tr>
-                <td width="30" valign="top" style="color:${BRAND};font-size:15px;font-weight:700;line-height:1.65;">2.</td>
-                <td style="color:${INK};font-size:15px;line-height:1.65;">
+                <td width="30" valign="top" style="color:${BRAND};font-size:15px;font-weight:700;line-height:25px;">2.</td>
+                <td style="color:${INK};font-size:15px;line-height:25px;">
                   <strong>Log daarna in op uw eigen portaaladres.</strong>
                   Dat is een ander adres dan de pagina waar u zojuist uw wachtwoord instelde.
                   <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:12px 0 0 0;">
                     <tr>
-                      <td style="background:${TINT};border-left:3px solid ${BRAND};border-radius:0 6px 6px 0;padding:14px 18px;">
+                      <td bgcolor="${TINT}" style="background:${TINT};border-left:3px solid ${BRAND};padding:14px 18px;">
                         <div style="color:${MUTED};font-size:12px;letter-spacing:0.04em;text-transform:uppercase;padding-bottom:4px;">Uw eigen portaaladres</div>
                         <a href="https://${escapeHtml(portalHost)}" style="color:${BRAND_DEEP};font-size:17px;font-weight:700;text-decoration:none;">${escapeHtml(portalHost)}</a>
                         <div style="color:${MUTED};font-size:13px;padding-top:4px;">Hier logt u voortaan in — de moeite van een bladwijzer waard.</div>
@@ -164,9 +180,9 @@ export function inviteEmail({ name, clientName, portalHost, url }: InviteEmailIn
               De link is persoonlijk en werkt één keer. Werkt hij niet meer? Laat het ons weten.
             </p>
             <p style="margin:0 0 6px 0;color:${MUTED};font-size:13px;line-height:1.6;">
-              Onze inlog loopt via Zitadel, onze identiteitsprovider. U kunt daarom ook berichten
-              van Zitadel krijgen — bijvoorbeeld om uw e-mailadres te bevestigen of een wachtwoord
-              te herstellen. Die horen erbij en zijn niet vals.
+              Het aanmelden verloopt via Zitadel, de identiteitsprovider die wij gebruiken. U kunt
+              daarom ook berichten van Zitadel ontvangen, bijvoorbeeld om uw e-mailadres te
+              bevestigen of een wachtwoord te herstellen.
             </p>
             <p style="margin:0;color:${MUTED};font-size:13px;line-height:1.6;word-break:break-all;">
               Werkt de knop niet? <a href="${escapeHtml(url)}" style="color:${BRAND_DEEP};">${escapeHtml(url)}</a>

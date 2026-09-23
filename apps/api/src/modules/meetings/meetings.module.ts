@@ -14,6 +14,7 @@ import { RecallGateway } from './live/recall.gateway.js';
 import { LiveService } from './live/live.service.js';
 import { LiveRunner } from './live/live-runner.service.js';
 import { LiveRegistry } from './live/live-registry.service.js';
+import { ProposalLedger } from './live/proposal-ledger.service.js';
 import { RecallProvider } from './live/capture/recall.provider.js';
 import { ConversationService } from './live/conversation.service.js';
 import { BehaviourRegistry } from './live/behaviours/behaviour.registry.js';
@@ -40,6 +41,7 @@ import { DocGateway } from './doc/doc.gateway.js';
     RecallGateway,
     LiveRunner,
     LiveRegistry,
+    ProposalLedger,
     RecallProvider,
     ConversationService,
     BehaviourRegistry,

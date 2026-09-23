@@ -756,19 +756,74 @@ export class MeetingsService {
 
   // ── attendees and consent ──────────────────────────────────
 
+  /**
+   * Put somebody on the list by hand.
+   *
+   * Two kinds of person arrive here and they are not equivalent. Most attendees are a name —
+   * a guest from the client, somebody dialling in from another company — and nothing more is
+   * known or needed. A colleague named by `userId` is the other kind: adding them hands over
+   * sight of the meeting, so it is checked rather than trusted.
+   *
+   * `userId` is verified against an ACTIVE account, and a second row for somebody already on
+   * the list is refused. Both are the same concern — a grant of access should be a thing you
+   * can look at the list and see, and a roster that lists one person twice, or names an
+   * account that no longer works here, is one nobody can read that way.
+   *
+   * Audited when it names an account, and only then. "How did they come to see this" is a
+   * question asked about people, and `meeting_attendee.detected` already answers it for the
+   * ones the bot found.
+   */
   async addAttendee(
     actor: Actor,
     noteId: string,
-    person: { name: string; email?: string; contactId?: string },
+    person: { name: string; email?: string; contactId?: string; userId?: string },
   ) {
     await this.require(actor, 'meetings.write');
     await this.raw(actor, noteId);
-    await this.db.insert(attendees).values({
-      id: this.registry.newId(),
-      noteId,
-      name: person.name,
-      email: person.email ?? null,
-      contactId: person.contactId ?? null,
+
+    /* Resolved even when the caller did not name an account, because an attendee typed in
+       beforehand and the same person detected by the bot must end up as one row holding one
+       user id — otherwise inviting a colleague by name and having them turn up produces two
+       attendees, one of which can see the meeting. */
+    let userId = person.userId ?? null;
+    if (userId) {
+      const [account] = await this.db
+        .select({ id: users.id })
+        .from(users)
+        .where(and(eq(users.id, userId), eq(users.isActive, true)))
+        .limit(1);
+      if (!account) throw new BadRequestException('That is not somebody who works here');
+    } else {
+      userId = (await this.colleagueFor(person))?.id ?? null;
+    }
+
+    if (userId) {
+      const [already] = await this.db
+        .select({ id: attendees.id })
+        .from(attendees)
+        .where(and(eq(attendees.noteId, noteId), eq(attendees.userId, userId)))
+        .limit(1);
+      if (already) return this.get(actor, noteId); // idempotent: two clicks, one attendee
+    }
+
+    await this.db.transaction(async (tx) => {
+      await tx.insert(attendees).values({
+        id: this.registry.newId(),
+        noteId,
+        name: person.name,
+        email: person.email ?? null,
+        contactId: person.contactId ?? null,
+        userId,
+      });
+      if (userId) {
+        await this.audit.record(tx, {
+          actorId: actor.userId,
+          action: 'meeting_attendee.added',
+          entityType: 'meeting_note',
+          entityId: noteId,
+          detail: { userId, name: person.name },
+        });
+      }
     });
     return this.get(actor, noteId);
   }
@@ -781,7 +836,14 @@ export class MeetingsService {
    * rather than two — and where they do not match, a new row appears with no consent,
    * which is precisely the thing worth noticing.
    *
-   * Never sets consent. Being present is not agreeing.
+   * It also asks whether the person is a colleague, and writes their account id onto the row
+   * when they are. That is what couples a meeting to the people who were in it: `visibleNotes`
+   * reads `attendees.user_id`, so joining the call is what puts the note on your own list.
+   * Before this, a meeting was visible to whoever wrote it and to their project's team, and
+   * everybody else who had sat through it had to be added by hand or never saw it at all.
+   *
+   * Never sets consent, and never grants access to a restricted note. Being present is not
+   * agreeing, and it is not an invitation to the meeting held about somebody.
    */
   async recordAttendance(
     actor: Actor,
@@ -797,17 +859,29 @@ export class MeetingsService {
       .from(attendees)
       .where(eq(attendees.noteId, noteId));
 
+    const colleague = await this.colleagueFor({ name, email: person.email });
+
     const match = existing.find(
       (a) =>
         a.name.trim().toLowerCase() === name.toLowerCase() ||
-        (person.email && a.email && a.email.toLowerCase() === person.email.toLowerCase()),
+        (person.email && a.email && a.email.toLowerCase() === person.email.toLowerCase()) ||
+        // The surest of the three: a display name can be changed mid-call, an address can be
+        // missing, and an account id is neither.
+        (colleague && a.userId === colleague.id),
     );
 
     if (match) {
-      if (match.detectedAt) return this.get(actor, noteId); // already seen
+      /* Still written on a row already seen, and that is the point of doing it here rather
+         than only on insert: the rows that predate this linking, and the ones typed in
+         beforehand, are repaired the next time the person joins a call. */
+      if (match.detectedAt && (match.userId || !colleague)) return this.get(actor, noteId);
       await this.db
         .update(attendees)
-        .set({ detectedAt: new Date(), email: match.email ?? person.email ?? null })
+        .set({
+          detectedAt: match.detectedAt ?? new Date(),
+          email: match.email ?? person.email ?? colleague?.email ?? null,
+          userId: match.userId ?? colleague?.id ?? null,
+        })
         .where(eq(attendees.id, match.id));
       return this.get(actor, noteId);
     }
@@ -817,7 +891,8 @@ export class MeetingsService {
         id: this.registry.newId(),
         noteId,
         name,
-        email: person.email ?? null,
+        email: person.email ?? colleague?.email ?? null,
+        userId: colleague?.id ?? null,
         detectedAt: new Date(),
       });
       await this.audit.record(tx, {
@@ -825,7 +900,7 @@ export class MeetingsService {
         action: 'meeting_attendee.detected',
         entityType: 'meeting_note',
         entityId: noteId,
-        detail: { name },
+        detail: { name, userId: colleague?.id ?? null },
       });
     });
 
@@ -857,11 +932,41 @@ export class MeetingsService {
     return this.get(actor, noteId);
   }
 
+  /**
+   * Take somebody off the list.
+   *
+   * `raw` first, which it did not used to do. It was harmless while this only deleted a name:
+   * the note id was already in the WHERE clause, so the worst somebody could do was guess two
+   * uuids at once. It stopped being harmless when the row started carrying access — removing
+   * an attendee now takes a meeting off their list, and that is not something to be reachable
+   * on a note you cannot open.
+   *
+   * Audited when it names an account, for the same reason adding one is.
+   */
   async removeAttendee(actor: Actor, noteId: string, attendeeId: string) {
     await this.require(actor, 'meetings.write');
-    await this.db
-      .delete(attendees)
-      .where(and(eq(attendees.id, attendeeId), eq(attendees.noteId, noteId)));
+    await this.raw(actor, noteId);
+
+    const [person] = await this.db
+      .select({ userId: attendees.userId, name: attendees.name })
+      .from(attendees)
+      .where(and(eq(attendees.id, attendeeId), eq(attendees.noteId, noteId)))
+      .limit(1);
+
+    await this.db.transaction(async (tx) => {
+      await tx
+        .delete(attendees)
+        .where(and(eq(attendees.id, attendeeId), eq(attendees.noteId, noteId)));
+      if (person?.userId) {
+        await this.audit.record(tx, {
+          actorId: actor.userId,
+          action: 'meeting_attendee.removed',
+          entityType: 'meeting_note',
+          entityId: noteId,
+          detail: { userId: person.userId, name: person.name },
+        });
+      }
+    });
     return this.get(actor, noteId);
   }
 
@@ -870,7 +975,21 @@ export class MeetingsService {
   async addActionItem(
     actor: Actor,
     noteId: string,
-    item: { text: string; assigneeId?: string; dueOn?: string; source?: 'typed' | 'ai' },
+    item: {
+      text: string;
+      assigneeId?: string;
+      dueOn?: string;
+      source?: 'typed' | 'ai';
+      /**
+       * The live suggestion this came from, when it came from one.
+       *
+       * Carried so the proposal ledger can be followed all the way through: proposed →
+       * kept → became an action point → accepted onto the board → done. Matching the two
+       * on text instead would fail exactly where it matters, because the model rewords
+       * itself between the suggestion and the note.
+       */
+      proposalId?: string;
+    },
   ) {
     await this.require(actor, 'meetings.write');
     await this.raw(actor, noteId);
@@ -884,6 +1003,7 @@ export class MeetingsService {
       assigneeId: item.assigneeId ?? null,
       dueOn: item.dueOn ?? null,
       source: item.source ?? 'typed',
+      proposalId: item.proposalId ?? null,
     });
     return this.get(actor, noteId);
   }
@@ -1656,6 +1776,58 @@ export class MeetingsService {
   }
 
   // ── internals ──────────────────────────────────────────────
+
+  /**
+   * The colleague a person in the room is, if they are one.
+   *
+   * Two ways in, in order of how much they can be trusted:
+   *
+   * - **The address.** Exact, case-insensitive. When the meeting provider reports one this is
+   *   the answer, and there is nothing to weigh up.
+   * - **The display name**, and only when exactly one active colleague answers to it. Names
+   *   are what Teams actually gives us most of the time, so refusing to use them would leave
+   *   this doing nothing in the common case — but two colleagues called Jan de Vries must not
+   *   silently resolve to whichever row sorted first. Ambiguous means no match, and the
+   *   attendee stays an unlinked name, which is the state we were already in.
+   *
+   * Inactive accounts are never matched. Somebody who has left and whose address is still on
+   * an old invitation should not start seeing this year's meetings.
+   *
+   * Returns the account, not just its id, so the caller can fill in an address the provider
+   * did not give us.
+   */
+  private async colleagueFor(person: {
+    name?: string | null;
+    email?: string | null;
+  }): Promise<{ id: string; email: string } | undefined> {
+    const email = person.email?.trim().toLowerCase();
+    if (email) {
+      const [byEmail] = await this.db
+        .select({ id: users.id, email: users.email })
+        .from(users)
+        .where(and(sql`lower(${users.email}) = ${email}`, eq(users.isActive, true)))
+        .limit(1);
+      if (byEmail) return byEmail;
+    }
+
+    const name = person.name?.trim().toLowerCase();
+    if (!name) return undefined;
+
+    // Two rows fetched to answer a one-row question: the second is how ambiguity is detected.
+    const byName = await this.db
+      .select({ id: users.id, email: users.email })
+      .from(users)
+      .where(and(sql`lower(${users.displayName}) = ${name}`, eq(users.isActive, true)))
+      .limit(2);
+
+    if (byName.length !== 1) {
+      if (byName.length > 1) {
+        this.logger.warn(`Attendee "${person.name}" matches ${byName.length} colleagues; left unlinked`);
+      }
+      return undefined;
+    }
+    return byName[0];
+  }
 
   /**
    * The projects this actor is on, for the visibility predicate.

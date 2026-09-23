@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { Inject, Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { and, eq, gte, lt, sql } from 'drizzle-orm';
 import { DB, type Database } from '../../core/db/db.module.js';
+import { UserService } from '../../core/auth/user.service.js';
 import { RegistryService } from '../../core/registry/registry.service.js';
 import { DocumentStore, refFromRow } from '../../core/storage/document-store.js';
 import { entries, exports_ } from './time.schema.js';
@@ -65,6 +66,7 @@ export class TimeExportService implements OnModuleInit, OnModuleDestroy {
   constructor(
     @Inject(DB) private readonly db: Database,
     private readonly registry: RegistryService,
+    private readonly users: UserService,
     private readonly store: DocumentStore,
   ) {}
 
@@ -291,12 +293,17 @@ export class TimeExportService implements OnModuleInit, OnModuleDestroy {
     const logged = rows.filter((r) => r.minutes != null);
     const names = await this.nameLookup(logged);
     const clientOf = await this.clientNames(logged);
+    // People are not registry entities — the registry holds what modules own, and a
+    // colleague is not a document. Their names come from core's user service.
+    const personOf = await this.users.namesByIds([
+      ...new Set(logged.map((r) => r.personId).filter((id): id is string => !!id)),
+    ]);
 
     const body = toCsv(
       HEADER,
       logged.map((r) => [
         r.workedOn,
-        names.get(r.personId) ?? r.personId,
+        personOf.get(r.personId) ?? r.personId,
         // Client-direct hours name their client; project hours inherit it from the project.
         r.clientId ? (names.get(r.clientId) ?? r.clientId) : (clientOf.get(r.projectId ?? '') ?? ''),
         r.projectId ? (names.get(r.projectId) ?? r.projectId) : '',
@@ -354,7 +361,7 @@ export class TimeExportService implements OnModuleInit, OnModuleDestroy {
   private async nameLookup(rows: Array<Record<string, unknown>>): Promise<Map<string, string>> {
     const ids = new Set<string>();
     for (const r of rows) {
-      for (const key of ['personId', 'clientId', 'projectId', 'taskId']) {
+      for (const key of ['clientId', 'projectId', 'taskId']) {
         const value = r[key];
         if (typeof value === 'string') ids.add(value);
       }

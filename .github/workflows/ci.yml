@@ -75,3 +75,12 @@ jobs:
 
       - name: Architectural boundaries
         run: pnpm boundaries
+
+      - name: Route contracts
+        run: pnpm routes
+
+      - name: Widget contracts
+        run: pnpm widgets
+
+      - name: Bundle checks
+        run: pnpm bundle

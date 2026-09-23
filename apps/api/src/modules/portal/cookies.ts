@@ -6,6 +6,15 @@ export const SESSION_COOKIE = 'psid';
 export const LOGIN_COOKIE = 'psa';
 /** The nonce tying a handoff ticket to the browser that started the login, on its own host. */
 export const BINDING_COOKIE = 'psb';
+/**
+ * Which portal an activation belongs to, remembered across the trip to Zitadel.
+ *
+ * Set when somebody opens their invitation link and read when Zitadel sends them back, so
+ * the last hop lands them on their own subdomain rather than on a page that has to ask.
+ * It holds a slug and nothing else: not a credential, not an identity, and forging it buys
+ * nothing — the login it leads to is what decides whose portal anybody may see.
+ */
+export const DESTINATION_COOKIE = 'psx';
 /** The path the login cookie is scoped to; nothing outside the auth flow can read it. */
 export const LOGIN_COOKIE_PATH = '/api/portal-auth';
 
@@ -79,6 +88,36 @@ export function setBindingCookie(req: Request, res: Response, value: string, max
     sameSite: 'lax',
     path: LOGIN_COOKIE_PATH,
     maxAge: maxAgeMs,
+  });
+}
+
+/**
+ * Where this activation is headed, for as long as setting a password takes.
+ *
+ * An hour: long enough for somebody who opens the mail, sets a password, verifies an address
+ * and is interrupted by a phone call, and short enough that a shared machine does not carry
+ * it into next week. Scoped to the auth routes, on the auth host, so it travels with exactly
+ * the round trip it exists for.
+ */
+export function setDestinationCookie(req: Request, res: Response, slug: string) {
+  res.cookie(DESTINATION_COOKIE, slug, {
+    httpOnly: true,
+    secure: secureCookies(req),
+    // Lax, and it matters here: the browser arrives back from Zitadel by a top-level
+    // navigation from another site, which is precisely the case Lax still sends cookies on
+    // and Strict does not.
+    sameSite: 'lax',
+    path: LOGIN_COOKIE_PATH,
+    maxAge: 60 * 60 * 1000,
+  });
+}
+
+export function clearDestinationCookie(req: Request, res: Response) {
+  res.clearCookie(DESTINATION_COOKIE, {
+    httpOnly: true,
+    secure: secureCookies(req),
+    sameSite: 'lax',
+    path: LOGIN_COOKIE_PATH,
   });
 }
 

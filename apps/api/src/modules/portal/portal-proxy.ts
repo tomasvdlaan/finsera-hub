@@ -7,6 +7,7 @@ import type { Database } from '../../core/db/db.module.js';
 import { SESSION_COOKIE, readCookie } from './cookies.js';
 import type { PortalHostService } from './portal-host.service.js';
 import type { PortalPagesService } from './portal-pages.service.js';
+import { assertPublicSource } from './portal-pages.service.js';
 import type { PortalAccessService } from './portal-access.service.js';
 import type { PortalSessionsService } from './portal-sessions.service.js';
 
@@ -52,6 +53,7 @@ export interface ProxyDeps {
   hosts: PortalHostService;
   sessions: PortalSessionsService;
   pages: PortalPagesService;
+  validateSource?: (sourceUrl: string) => Promise<void>;
   access: PortalAccessService;
   audit: AuditService;
   db: Database;
@@ -273,6 +275,7 @@ async function serve(
   deps: ProxyDeps,
   logger: Logger,
 ) {
+  await (deps.validateSource ?? assertPublicSource)(target);
   const secret = deps.pages.secretFor(page);
   const body = READ.has(req.method) ? null : await requestBody(req);
   const upstream = await fetch(target, {

@@ -374,7 +374,7 @@ export function LivePanel({
                 ))}
               </ul>
               <p className="muted">
-                These are recorded on the note when you stop, still needing your decision.
+                These go onto the note when you stop, unless you dismiss them first.
               </p>
             </section>
           )}

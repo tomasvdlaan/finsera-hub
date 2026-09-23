@@ -37,8 +37,31 @@ export interface Proposal {
   text: string;
   /** For agenda_covered: which item the model believes was discussed. */
   agendaItemId?: string;
-  /** Set once the user accepts or dismisses; proposals are never applied on their own. */
+  /**
+   * Where this one is in its life.
+   *
+   * `accepted` is no longer something a person can do — the panel offers one button. It
+   * survives as the internal marker for a proposal the pipeline has already applied on its
+   * own: a note written straight into the document by `recordNotes`, which must stay in the
+   * session for deduplication but must not be shown as a card. See the ledger's
+   * PROPOSAL_OUTCOMES for what is actually recorded about a suggestion.
+   */
   status: 'open' | 'accepted' | 'dismissed';
+  /**
+   * What the model claimed its odds were, carried through from the extraction.
+   *
+   * Kept on the proposal rather than dropped at `clearing()` because it is the number the
+   * ledger needs: knowing that a dismissed suggestion arrived at 0.91 and a kept one at 0.62
+   * is the entire basis for ever moving the floor, or for replacing self-reported confidence
+   * with something calibrated.
+   */
+  confidence?: number;
+  /** The behaviour that produced it, or 'extraction' for the runner's own pass. */
+  source?: string;
+  /** How many undecided suggestions stood in front of this one when it was made. */
+  queuedAhead?: number;
+  /** Epoch ms at which it reached the front of the queue — see `promote`. */
+  shownAt?: number;
 }
 
 /**
@@ -221,31 +244,67 @@ export class LiveSession {
       const text = candidate.text.trim();
       if (!text) continue;
       if (this.proposals.some((p) => similar(p.text, text) && p.kind === candidate.kind)) continue;
-      const proposal: Proposal = { ...candidate, text, id: newId(), status: 'open' };
+      const proposal: Proposal = {
+        ...candidate,
+        text,
+        id: newId(),
+        status: 'open',
+        // Counted before the push, so the first suggestion of a meeting records zero rather
+        // than counting itself. This is the queue a person would have had to clear to reach
+        // it, which is why it is measured at the moment of proposing and never updated.
+        queuedAhead: this.openProposals.length,
+      };
       this.proposals.push(proposal);
       added.push(proposal);
     }
+    // A meeting that has been quiet leaves the head of the queue undecided and already
+    // shown; one that was busy promotes whatever just arrived into an empty panel.
+    this.promote();
     return added;
   }
 
   /**
-   * Accept or dismiss a suggestion, while the meeting is still going.
+   * Mark the suggestion now at the front of the queue as being on screen.
    *
-   * `status` has been on this type since the beginning and nothing ever changed it: every
-   * proposal was created `open` and stayed open until the recording stopped, at which point
-   * all of them were written down and you triaged the pile afterwards. Deciding in the
-   * moment is better because the context is still in the room — a week later you cannot
-   * tell a real commitment from something the model misheard.
+   * The panel shows one at a time, so "when could a person first act on this?" is not when
+   * it was proposed — it is when everything ahead of it was cleared. Derived here rather
+   * than reported by the browser because it is a fact about the queue, which the server
+   * owns, and because a client that lied or lagged would corrupt the one measurement that
+   * separates a considered dismissal from a reflex.
    *
-   * The rest of the pipeline already accounts for a decided proposal: `openProposals` is
-   * what the end-of-session write and the action-point creation both read, so dismissing
-   * keeps something out of the note and accepting stops it being added twice. Deciding one
-   * twice is a no-op rather than an error — two people in the room may press at once.
+   * Idempotent: a proposal keeps the first moment it was shown, however often this runs.
+   */
+  promote(at = Date.now()): void {
+    const head = this.openProposals[0];
+    if (head && head.shownAt === undefined) head.shownAt = at;
+  }
+
+  /**
+   * Take a suggestion out of the queue.
+   *
+   * Two callers, and they mean different things. A person dismissing one is an objection:
+   * the suggestion is wrong, or not worth the note, and `keptProposals` will leave it out.
+   * `recordNotes` marking a note `accepted` is the pipeline saying it has already applied
+   * this itself — the text is in the document, and the card would be a question whose only
+   * answer is yes.
+   *
+   * There is no third case, because the panel no longer offers one. Accepting used to be a
+   * button, and for every kind but agenda coverage it did precisely what ignoring the card
+   * did: `keptProposals` is everything not dismissed, so an accepted decision and an
+   * untouched one produced the same note. Asking for an answer and then not reading it is
+   * how a year of accept/dismiss came to mean nothing, and removing the button is what makes
+   * the remaining presses evidence.
+   *
+   * Deciding one twice is a no-op rather than an error — two people in the room may press
+   * at once, and the second press should agree with the first.
    */
   decide(proposalId: string, decision: 'accepted' | 'dismissed'): Proposal | null {
     const proposal = this.proposals.find((p) => p.id === proposalId);
     if (!proposal || proposal.status !== 'open') return null;
     proposal.status = decision;
+    // Whatever was behind it is on screen now, and its clock starts here rather than when
+    // it was proposed — which may have been several minutes and four cards ago.
+    this.promote();
     return proposal;
   }
 
@@ -256,13 +315,14 @@ export class LiveSession {
   /**
    * Everything not thrown away — what the note should end up holding.
    *
-   * Distinct from `openProposals`, and the distinction is load-bearing. Accepting a decision
-   * or a note means "yes, record that", so reading `openProposals` when writing the note
-   * would make accepting one the way to delete it. Undecided and accepted both belong in the
-   * note; only a dismissal keeps something out.
+   * Distinct from `openProposals`, and the distinction is load-bearing. A note the pipeline
+   * has already written is marked `accepted`, and reading `openProposals` here would make
+   * having applied something the reason to leave it out. Undecided and applied both belong
+   * in the note; only a dismissal keeps something out.
    *
-   * Creating action points still reads `openProposals`, because an accepted action has
-   * already been created and adding it again would give you it twice.
+   * That silence is the default is the design, not an oversight: the agent's suggestions are
+   * kept unless somebody objects, which is why objecting is the only thing the panel asks
+   * for.
    */
   get keptProposals(): Proposal[] {
     return this.proposals.filter((p) => p.status !== 'dismissed');

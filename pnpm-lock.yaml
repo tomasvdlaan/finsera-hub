@@ -156,6 +156,9 @@ importers:
 
   apps/portal:
     dependencies:
+      '@platform/ticket-markdown':
+        specifier: workspace:*
+        version: link:../../packages/ticket-markdown
       react:
         specifier: ^19.0.0
         version: 19.2.8
@@ -214,6 +217,9 @@ importers:
       '@platform/note-doc':
         specifier: workspace:*
         version: link:../../packages/note-doc
+      '@platform/ticket-markdown':
+        specifier: workspace:*
+        version: link:../../packages/ticket-markdown
       '@tiptap/core':
         specifier: 3.29.2
         version: 3.29.2(@tiptap/pm@3.29.2)
@@ -405,6 +411,18 @@ importers:
       '@types/markdown-it':
         specifier: ^14.1.2
         version: 14.1.2
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.1)(jsdom@25.0.1(supports-color@8.1.1))(sass@1.51.0)(supports-color@8.1.1)(terser@5.49.0)
+
+  packages/ticket-markdown:
+    devDependencies:
+      '@platform/config':
+        specifier: workspace:*
+        version: link:../config
       typescript:
         specifier: ^5.7.3
         version: 5.9.3

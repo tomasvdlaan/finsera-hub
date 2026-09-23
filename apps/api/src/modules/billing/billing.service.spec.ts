@@ -359,6 +359,23 @@ describe('BillingService', () => {
     expect(new Set([ia.number, ib.number]).size).toBe(2);
   });
 
+  it('issues a single invoice at most once when requests race', async () => {
+    await submitHours(600);
+    const draft = await billing.draftFromHours(actor, projectId);
+
+    const results = await Promise.allSettled([
+      billing.issue(actor, draft.id),
+      billing.issue(actor, draft.id),
+    ]);
+
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    expect(results.filter((result) => result.status === 'rejected')).toHaveLength(1);
+    expect(await billing.getInvoice(actor, draft.id)).toMatchObject({
+      status: 'issued',
+      number: `${new Date().getFullYear()}-0001`,
+    });
+  });
+
   // ── VAT treatments ──
 
   it('reverse charge yields 0% with the mandatory legend', async () => {
