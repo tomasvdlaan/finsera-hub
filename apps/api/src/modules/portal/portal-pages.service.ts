@@ -17,7 +17,6 @@ import { PermissionService } from '../../core/permissions/permission.service.js'
 import { StorageService } from '../../core/storage/storage.service.js';
 import { PortalAccessService } from './portal-access.service.js';
 import type { PortalViewer } from './portal.projection.js';
-import { upstreamCredentials } from './vercel-headers.js';
 import {
   PageSecretKeyMissing,
   decryptPageSecret,
@@ -59,6 +58,15 @@ export interface PageInput {
   /** Write-only. Undefined leaves it alone; null clears it; a string replaces it. */
   bypassSecret?: string | null;
   enabled?: boolean;
+}
+
+/** What the assistant may hand in. Narrower than `PageInput` on purpose — see below. */
+export interface AddPageToolInput {
+  clientId: string;
+  slug: string;
+  title: string;
+  sourceUrl: string;
+  kind?: 'proxy' | 'redirect';
 }
 
 /** What a page looks like to whoever may administer one. Never the secret itself. */
@@ -260,6 +268,62 @@ export class PortalPagesService {
     }));
   }
 
+  /**
+   * The assistant adding a page, which it may do — and may not publish.
+   *
+   * Everything here is `create` with two differences, and both are the point.
+   *
+   * **It is always disabled.** The row exists, the address is taken, and no client sees
+   * anything until somebody ticks it on in hub. That is what makes this safe to automate:
+   * the fiddly part (which client, is the slug free, is it reserved, does the client even
+   * have a portal address, is the source URL reachable and not an internal one) is work a
+   * model is good at, and the decision to put something in front of a client stays a
+   * person's. The two other tools that reach a client — sending a quote and sending an
+   * invoice — are `restricted` for the same reason; this one is allowed because the act of
+   * creating is no longer the act of publishing.
+   *
+   * **It takes no bypass secret.** A credential should be typed into the field that stores
+   * it write-only, not into a chat message that is kept, summarised and sent to a model.
+   *
+   * The client must already have a portal address. Without one a page has nowhere to live,
+   * and the refusal says so rather than leaving a row nobody can reach — the same rule
+   * inviting somebody follows.
+   */
+  async addPageTool(
+    actor: Actor,
+    input: AddPageToolInput,
+  ): Promise<{ id: string; address: string; enabled: false; next: string }> {
+    await this.require(actor, 'portal.admin');
+
+    const { rows } = await this.db.execute<{ portal_slug: string | null; name: string }>(
+      sql`SELECT portal_slug, name FROM crm.clients WHERE id = ${input.clientId} AND archived_at IS NULL`,
+    );
+    const client = rows[0];
+    if (!client) throw new NotFoundException('No such client');
+    if (!client.portal_slug) {
+      throw new BadRequestException(
+        `${client.name} has no portal address yet, so a page would have nowhere to live. ` +
+          'Set one on the client in hub first.',
+      );
+    }
+
+    const { id } = await this.create(actor, input.clientId, {
+      slug: input.slug,
+      title: input.title,
+      sourceUrl: input.sourceUrl,
+      kind: input.kind ?? 'proxy',
+      enabled: false,
+    });
+
+    const host = `${client.portal_slug}.${process.env.PORTAL_BASE_DOMAIN ?? 'localhost:5174'}`;
+    return {
+      id,
+      address: `https://${host}/${this.validSlug(input.slug)}/`,
+      enabled: false,
+      next: `Not visible to ${client.name} yet. Turn it on under Custom content on their page in hub.`,
+    };
+  }
+
   async create(actor: Actor, clientId: string, input: PageInput): Promise<{ id: string }> {
     await this.require(actor, 'portal.admin');
     const slug = this.validSlug(input.slug);
@@ -394,10 +458,7 @@ export class PortalPagesService {
         method: 'GET',
         redirect: 'manual',
         headers: {
-          // The same credentials the proxy sends, from the same place. A Test that
-          // authenticated differently from the real request would be a Test that passes
-          // while the page 401s — which is exactly the confusion it exists to end.
-          ...upstreamCredentials(row.sourceUrl, secret),
+          ...(secret ? { 'x-vercel-protection-bypass': secret } : {}),
           'user-agent': 'Finsera-Portal/1.0',
         },
         signal: AbortSignal.timeout(10_000),

@@ -1,4 +1,5 @@
 import { defineManifest } from '@platform/contracts';
+import { z } from 'zod';
 
 /**
  * The portal owns logins, not data.
@@ -106,5 +107,58 @@ export const portalManifest = defineManifest({
     },
   ],
   portalExposure: [],
-  aiTools: [],
+
+  /*
+   * One tool, and the sentence that used to say there were none still governs the rest.
+   *
+   * The reason this manifest declared no `aiTools` was never "the assistant must not touch
+   * the portal" in general — it was that **nothing a client typed may be read by the
+   * assistant as though we had written it**. A request form, a ticket message: that text is
+   * written by somebody outside the business, and a model that reads it cannot tell an
+   * instruction from a description. That rule is unchanged, and it is why there is no tool
+   * here that *reads* anything a client wrote, and why `portalExposure` above stays empty.
+   *
+   * Adding a page writes, and reads nothing of theirs. It also cannot publish: the page is
+   * created disabled and a person turns it on, which is the difference between this and the
+   * two tools that genuinely reach a client — `sales_send_quote` and `billing_send_invoice`
+   * — both of which are `restricted`.
+   */
+  aiTools: [
+    {
+      name: 'portal_add_page',
+      description:
+        'Add a custom content page (a report or dashboard hosted elsewhere) to a client ' +
+        "portal, at an address under that client's own subdomain. The page is created " +
+        'switched off and is not visible to the client until somebody enables it in hub. ' +
+        'Use crm_search_clients first to get the client id. The address must be a short ' +
+        'slug such as "rapportage-q3". Do not pass a protection-bypass secret: that is ' +
+        'typed on the page itself, never into a conversation.',
+      inputSchema: z.object({
+        clientId: z.string().uuid(),
+        slug: z
+          .string()
+          .describe('The address under the client subdomain, e.g. "rapportage-q3".'),
+        title: z.string().describe('What the client sees in their Rapporten tab.'),
+        sourceUrl: z.string().url().describe('Where the report is really hosted.'),
+        kind: z
+          .enum(['proxy', 'redirect'])
+          .optional()
+          .describe(
+            'proxy (default) serves it at the client address and keeps the source hidden; ' +
+              'redirect sends the client to the source URL, which they then see.',
+          ),
+      }),
+      outputSchema: z.object({
+        id: z.string(),
+        address: z.string(),
+        enabled: z.boolean(),
+        next: z.string(),
+      }),
+      permission: 'portal.admin',
+      // Executes, and the result is a draft in the only sense that matters here: nothing is
+      // in front of a client until a person enables it.
+      riskClass: 'write:draft',
+      handler: 'addPageTool',
+    },
+  ],
 });

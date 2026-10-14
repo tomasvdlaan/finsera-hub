@@ -1043,3 +1043,37 @@ while the page 401s, which is the confusion that button exists to end.
 `deploy/docker-compose.yml` names the variable as well as `deploy/.env`, for the reason
 already written in that file: a value the compose file does not enumerate reaches the host and
 stops there, which is how `PORTAL_PAGE_KEY` once never reached the container.
+
+## 2026-10-14 — The assistant may add custom content, and may not publish it
+
+`portal_add_page`: the first AI tool this module has ever declared. It takes a client, a
+slug, a title and a source URL, and creates the page **disabled**.
+
+The manifest has said since Phase 8 that the portal declares no `aiTools`, and the reason
+written there is not "the assistant must stay out" in general — it is that *nothing a client
+typed may be read by the assistant as though we had written it*. A ticket message is written
+by somebody outside the business, and a model cannot tell an instruction from a description.
+That rule is untouched: this tool writes and reads nothing of theirs, `portalExposure` stays
+empty, and a test asserts this remains the **only** tool here, so a second one — particularly
+a read — has to be somebody's decision rather than a drift.
+
+Risk class `write:draft`, which is the honest one because of the disabled flag. The two tools
+that genuinely reach a client, `sales_send_quote` and `billing_send_invoice`, are
+`restricted`; creating a page would belong with them if creating were publishing. It is not:
+the work being automated is the fiddly part — which client, is the slug free or reserved, does
+the client have a portal address at all, is the source URL public rather than internal — and
+the decision to put something in front of a client stays a person's.
+
+Two deliberate narrowings. The tool takes **no bypass secret**: a credential belongs in the
+write-only field that stores it, not in a chat message that is retained, summarised and sent
+to a model. And a client with no portal address is refused by name — "DocHorse has no portal
+address yet" — because the model relays that sentence to a person, and it is actionable where
+a validation error is not.
+
+Everything else routes through `create`, so the reserved-slug list, the slug format and the
+SSRF guard on the source URL hold here without being restated.
+
+**Not built:** publishing the artefact itself from chat. That pipeline lives in the
+`artefact-publiceren` skill with the GitHub and Vercel credentials it already holds, and
+moving it into the platform would mean the API owning both. The split stands: the skill
+publishes, the assistant registers.

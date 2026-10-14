@@ -312,6 +312,12 @@ if the deployment is protected. *Test* makes one real request from the server an
 what came back, which is how the three indistinguishable failures — no secret, wrong
 secret, unreachable URL — get told apart.
 
+**The assistant can add one too.** Ask it in hub — "add the maandrapportage at
+`<url>` to DocHorse as rapportage-q3" — and it creates the page **switched off**: the address
+is taken, nothing is in front of the client, and the Custom content panel is where somebody
+turns it on. It never accepts a protection-bypass secret, which is typed on the page itself.
+Needs `portal.admin`, like the panel.
+
 The API fetches the report itself, so the source URL never reaches the client's browser and
 the Vercel project can keep Deployment Protection on. Two things are worth knowing when
 building one:
