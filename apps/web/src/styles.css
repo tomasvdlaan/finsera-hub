@@ -275,11 +275,38 @@
   --ease-out: cubic-bezier(0.2, 0, 0, 1);
   --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
 
-  /* Stacking, declared once, so nothing has to guess at 9999. */
-  --z-sticky: 10;
-  --z-rail: 20;
-  --z-overlay: 100;
-  --z-toast: 200;
+  /*
+   * Stacking: the global layers, lowest first.
+   *
+   * These were declared at 10/20/100/200 and never used, while the layers that existed were
+   * literals at 20/30/40/50/60 — so the names described a stack nobody had built. They now
+   * name the one that is there. A z-index that only orders siblings inside one component
+   * (a strip over a toolbar, the now-line over agenda blocks) stays a small literal, 0–6:
+   * naming it would suggest it competes with the top bar, and it cannot.
+   */
+  --z-sticky: 10; /* table headers stuck while their table scrolls */
+  --z-menu: 20; /* dropdowns, popovers, mention lists */
+  --z-bar: 30; /* the top bar */
+  --z-dock: 40; /* docked to the bottom edge: suggestions, the phone's tab bar */
+  --z-toast: 50;
+  --z-overlay: 60; /* the command bar, drawers */
+
+  /*
+   * Breakpoints — four tiers, and only these.
+   *
+   * A custom property cannot be used inside @media, so the tiers are written out wherever
+   * they are needed and listed here as the contract. There were ten different values for
+   * what is really one job; each was moved to the tier at or above it, so anything that
+   * changed now stacks a little earlier, never later.
+   *
+   *   75rem  wide    the top bar's pill takes its own row; meeting rows drop a figure
+   *   68rem  medium  two-column bodies stack (board preview, documents, tracker, Today's hero)
+   *   60rem  narrow  everything single-column; the page grid collapses (container query)
+   *   40rem  phone   phone.css, and PHONE in shell/useMediaQuery.ts
+   *
+   * Container queries (`@container`) are a different thing — they ask how wide a card or
+   * the page is, not the window — and keep their own values.
+   */
 
   /* The coloured left edge that marks a row's state. Was a literal 3px at fourteen sites. */
   --edge: 3px;
@@ -945,6 +972,25 @@ select:focus-visible,
 textarea:focus-visible {
   border-color: var(--brand);
 }
+/*
+ * Buttons: one element, seven dressings — which to reach for.
+ *
+ * They grew one at a time, each for a real need, and none is a duplicate of another; what was
+ * missing was this list. In a new screen, the first two are almost always the answer.
+ *
+ *   <Button>           (.btn, .btn-primary/-danger/-ghost, .btn-sm) — the component. Forms,
+ *                      dialogs, page actions. Use this unless a row below fits better.
+ *   .act               the small verb on a record — page headers, act rows, room entries.
+ *                      `data-variant="primary|danger|quiet"`. 12px semibold, outlined.
+ *   .link-button       an action that reads as text: "edit", "archive", "mark read". Inline
+ *                      with prose or meta, never the main thing a screen asks for.
+ *   .icon-btn          a glyph with no word, in dense rows (conversation list, time entries).
+ *                      Always with an aria-label.
+ *   .chip              a filter or toggle that stays pressed (`.chip-on`), and "+ sprint".
+ *   .round             the top bar's circular controls. Nowhere else.
+ *   bare <button>      the base below: what anything unstyled gets. Fine inside a component
+ *                      that dresses it; in a screen, prefer <Button>.
+ */
 button {
   cursor: pointer;
   font-weight: 600;
@@ -981,25 +1027,6 @@ button.danger {
 button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-}
-/*
- * A link that is the page's primary action.
- *
- * A <Link> rather than a button because it navigates — middle-click, copy-link and
- * back-button all have to keep working — but it should look like the thing you press.
- */
-.button-link {
-  display: inline-block;
-  font: inherit;
-  padding: 0.4rem 0.7rem;
-  border: 1px solid var(--accent);
-  border-radius: var(--radius);
-  background: var(--accent);
-  color: var(--accent-contrast);
-}
-.button-link:hover {
-  text-decoration: none;
-  opacity: 0.9;
 }
 
 /*
@@ -2530,7 +2557,7 @@ a.badge:hover {
 .board-stage.has-preview {
   grid-template-columns: minmax(0, 1fr) 24rem;
 }
-@media (max-width: 1100px) {
+@media (max-width: 68rem) {
   /* Below this the two-column split leaves the board unusable, so the preview goes under. */
   .board-stage.has-preview {
     grid-template-columns: minmax(0, 1fr);
@@ -2997,7 +3024,7 @@ a.badge:hover {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  z-index: 50;
+  z-index: var(--z-toast);
   pointer-events: none;
 }
 .toast {
@@ -4282,7 +4309,7 @@ a.badge:hover {
 .cmdk-scrim {
   position: fixed;
   inset: 0;
-  z-index: 60;
+  z-index: var(--z-overlay);
   background: rgb(0 0 0 / 0.45);
   backdrop-filter: blur(2px);
   display: flex;
@@ -4759,12 +4786,25 @@ button.nav-me:hover { background: var(--surface); }
 .turn-assistant .turn-content { white-space: pre-wrap; }
 .turn-tools { display: flex; flex-wrap: wrap; gap: var(--space-1); }
 
+/*
+ * The question box, drawn as a card.
+ *
+ * Not by design at first: this rule was a flex row under a hairline, and the Time page's clock
+ * card — also called `.composer`, three thousand lines further down — overrode it, so the box
+ * has been a card with its button under the field. That card is `.tracker-composer` now, and
+ * the look it lent is written out here so nothing moved. Whether the row was the better design
+ * is a separate question; this records what is on screen.
+ */
 .composer {
-  display: flex;
-  gap: var(--space-2);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-4);
   margin-top: var(--space-4);
-  padding-top: var(--space-4);
-  border-top: 1px solid var(--border);
+  padding: var(--space-4) var(--space-5) var(--space-5);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  box-shadow: inset 0 1px 0 0 rgb(255 255 255 / 0.05);
 }
 .composer input { flex: 1; min-width: 0; }
 .assistant-page .composer { position: sticky; bottom: 0; background: var(--bg); }
@@ -4844,7 +4884,7 @@ button.nav-me:hover { background: var(--surface); }
 .dept-summary:hover { border-color: var(--border); background: var(--surface-sunken); }
 .dept-options {
   position: absolute;
-  z-index: 20;
+  z-index: var(--z-menu);
   margin-top: var(--space-1);
   min-width: 12rem;
   padding: var(--space-2);
@@ -5018,7 +5058,7 @@ button.nav-me:hover { background: var(--surface); }
   position: absolute;
   right: 0;
   top: 100%;
-  z-index: 20;
+  z-index: var(--z-menu);
   min-width: 12rem;
   display: flex;
   flex-direction: column;
@@ -6183,7 +6223,7 @@ main table:not(.grid) [data-align='action'] {
      every page that forgot would slide its first card under the bar. */
   position: sticky;
   top: 0;
-  z-index: 30;
+  z-index: var(--z-bar);
   background: var(--bg);
 }
 .topbar-brand {
@@ -6239,7 +6279,7 @@ main table:not(.grid) [data-align='action'] {
  * Below this the bar cannot hold brand, eight anchors, the clock and three controls on one line.
  * The pill drops to its own full-width row rather than any of them being squeezed out.
  */
-@media (max-width: 1180px) {
+@media (max-width: 75rem) {
   .topbar { flex-wrap: wrap; }
   .topbar-pill {
     order: 3;
@@ -6535,7 +6575,7 @@ main table:not(.grid) [data-align='action'] {
   right: var(--space-4);
   bottom: var(--space-4);
   width: min(24rem, calc(100vw - 2 * var(--space-4)));
-  z-index: 60;
+  z-index: var(--z-overlay);
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
@@ -6766,7 +6806,7 @@ main table:not(.grid) [data-align='action'] {
   gap: var(--space-6);
   padding: var(--space-6) var(--space-5);
 }
-@media (max-width: 62rem) {
+@media (max-width: 68rem) {
   .hero-body { grid-template-columns: 1fr; }
 }
 /*
@@ -7521,7 +7561,7 @@ main table:not(.grid) [data-align='action'] {
 }
 .doc-unfiled-text { display: grid; gap: 2px; min-width: 0; }
 .doc-unfiled-text b { word-break: break-all; }
-@media (max-width: 900px) {
+@media (max-width: 60rem) {
   .doc-unfiled li { grid-template-columns: minmax(0, 1fr); }
 }
 
@@ -7566,7 +7606,15 @@ main table:not(.grid) [data-align='action'] {
  * One composer with two ways in, the list of what has been logged, and a rail that says what
  * is wrong with it. See Tracker.tsx for why the clock and the manual form became one card.
  * ═══════════════════════════════════════════════════════════════════════════ */
-.composer {
+/*
+ * Not `.composer`, which is the assistant's input row.
+ *
+ * Both were called that, so this card quietly inherited that row's top margin and its
+ * `input { flex: 1; min-width: 0 }`. The layout was tuned with both in place, so they are
+ * stated here now rather than dropped.
+ */
+.tracker-composer {
+  margin-top: var(--space-4);
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
@@ -7579,6 +7627,7 @@ main table:not(.grid) [data-align='action'] {
   grid-template-columns: minmax(0, 1fr);
   gap: var(--space-4);
 }
+.tracker-composer input { flex: 1; min-width: 0; }
 .composer-tabs { display: flex; gap: var(--space-1); border-bottom: 1px solid var(--border); }
 .composer-tab {
   background: none;
@@ -7631,7 +7680,7 @@ main table:not(.grid) [data-align='action'] {
 /* The list and the rail. Below the breakpoint the rail goes under, because a 20rem column of
    findings squeezed beside a list of entries is neither. */
 .tracker-body { display: grid; grid-template-columns: minmax(0, 1fr) 22rem; gap: var(--space-5); }
-@media (max-width: 64rem) { .tracker-body { grid-template-columns: 1fr; } }
+@media (max-width: 68rem) { .tracker-body { grid-template-columns: 1fr; } }
 .tracker-activity { min-width: 0; display: grid; gap: var(--space-4); align-content: start; }
 .tracker-rail { display: grid; gap: var(--space-4); align-content: start; min-width: 0; }
 
@@ -8034,7 +8083,7 @@ main table:not(.grid) [data-align='action'] {
   left: 50%;
   transform: translateX(-50%);
   bottom: 5.5rem;
-  z-index: 40;
+  z-index: var(--z-dock);
   display: grid;
   gap: var(--space-2);
   width: min(34rem, calc(100vw - var(--space-6)));
@@ -9322,7 +9371,7 @@ a.btn { text-decoration: none; }
   position: absolute;
   left: 0;
   bottom: calc(100% + 4px);
-  z-index: 20;
+  z-index: var(--z-menu);
   margin: 0;
   padding: 4px;
   list-style: none;

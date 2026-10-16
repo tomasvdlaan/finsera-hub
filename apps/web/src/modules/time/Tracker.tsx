@@ -609,7 +609,7 @@ export function Tracker() {
         opened with two competing controls and you read both to find the one you wanted. They
         are the same act with a different tense, so they are two tabs on one card.
       */}
-      <div className="composer" data-span={12}>
+      <div className="tracker-composer" data-span={12}>
         <div className="composer-tabs" role="tablist">
           {(['clock', 'manual'] as const).map((m) => (
             <button
