@@ -9,6 +9,7 @@ import { PageHeader, SubNav } from '../../shell/ui/layout.js';
 import { EntityWidgets } from '../../shell/ui/EntityWidgets.js';
 import { DataTable, Skeleton } from '../../shell/ui/data.js';
 import { useDialog } from '../../shell/ui/Dialog.js';
+import { useInstalled } from '../../shell/useNav.js';
 import { useToast } from '../../shell/ui/Toast.js';
 import { Avatar, Badge, Empty, Panel, Status } from '../../shell/ui/primitives.js';
 import { PortalPages } from '../portal/PortalPages.js';
@@ -100,6 +101,43 @@ export function ClientDetail() {
     await api.patch(`/crm/clients/${id}`, body);
     await load();
   };
+
+  /*
+   * The next step with this client, from this client.
+   *
+   * Each of these used to start on another module's list page, which asked which client all
+   * over again — and the quote list silently defaulted to whichever client sorted first. Here
+   * the client is already known, so the step creates the record and lands on it.
+   */
+  const installed = useInstalled();
+  const [starting, setStarting] = useState<string | null>(null);
+  const startWith = async (what: string, make: () => Promise<string>) => {
+    setStarting(what);
+    try {
+      navigate(await make());
+    } catch (e) {
+      setError((e as Error).message);
+      setStarting(null);
+    }
+  };
+  const newMeeting = () =>
+    startWith('meeting', async () => {
+      const note = await api.post<{ id: string }>('/meetings', {
+        title: `Meeting with ${client?.name ?? 'client'}`,
+        clientId: id,
+      });
+      return `/meetings/${note.id}`;
+    });
+  const newQuote = () =>
+    startWith('quote', async () => {
+      const quote = await api.post<{ id: string }>('/sales/quotes', {
+        clientId: id,
+        title: `Proposal for ${client?.name ?? 'client'}`,
+        // One placeholder line so the quote is valid from the start, as QuoteList does.
+        lines: [{ description: 'Work', quantity: '1.00', unitPriceCents: 3_500 }],
+      });
+      return `/money/quotes/${quote.id}`;
+    });
 
   const archive = async () => {
     // Fired immediately before, from the same `.row` as the status dropdown — so a
@@ -214,6 +252,21 @@ export function ClientDetail() {
         }
         actions={
           <>
+            {installed('/time') && (
+              <Link className="act" to={`/time?mode=manual&clientId=${client.id}`}>
+                Log time
+              </Link>
+            )}
+            {installed('/meetings') && (
+              <button className="act" onClick={() => void newMeeting()} disabled={starting !== null}>
+                {starting === 'meeting' ? 'Opening…' : 'New meeting'}
+              </button>
+            )}
+            {installed('/money/quotes') && (
+              <button className="act" onClick={() => void newQuote()} disabled={starting !== null}>
+                {starting === 'quote' ? 'Drafting…' : 'New quote'}
+              </button>
+            )}
             {/* Read-only, audited, and served by the same projection the portal uses — so
                 what it shows is what this client actually gets, not an approximation. */}
             <Link className="act" to={`/clients/${client.id}/portal`}>

@@ -3,17 +3,17 @@ import { PageHeader } from '../../shell/ui/layout.js';
 import { SectionTabs } from '../../shell/useNav.js';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api.js';
-import type { Client, Project } from '../crm/types.js';
+import type { Client } from '../crm/types.js';
+import { hoursOf, useDraftFromHours, type Unbilled } from './DraftFromHours.js';
 import { VAT_LABELS, money, type Invoice } from './types.js';
 import { Empty, Status } from '../../shell/ui/primitives.js';
 
 export function InvoiceList() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
-  const [projects, setProjects] = useState<Project[]>([]);
+  const [projects, setProjects] = useState<Unbilled[]>([]);
   const [status, setStatus] = useState('');
   const [draftProject, setDraftProject] = useState('');
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(() => {
@@ -30,7 +30,15 @@ export function InvoiceList() {
 
   useEffect(() => {
     api.get<Client[]>('/crm/clients').then(setClients).catch(() => setClients([]));
-    api.get<Project[]>('/crm/projects').then(setProjects).catch(() => setProjects([]));
+    /*
+     * Only the projects there is something to invoice on, each with what it would come to.
+     * The select used to list every project, so the usual result of choosing one was the
+     * server explaining it had no unbilled hours.
+     */
+    api
+      .get<{ byProject: Unbilled[] }>('/reporting/unbilled')
+      .then((r) => setProjects(r.byProject.filter((p) => p.minutes > 0)))
+      .catch(() => setProjects([]));
   }, []);
 
   const clientName = useMemo(
@@ -38,19 +46,7 @@ export function InvoiceList() {
     [clients],
   );
 
-  const draftFromHours = async () => {
-    if (!draftProject) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await api.post('/billing/invoices/draft-from-hours', { projectId: draftProject });
-      await load();
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  };
+  const drafting = useDraftFromHours();
 
   const open = invoices.filter((i) => i.status === 'issued');
   const outstanding = open.reduce((sum, i) => sum + i.totalCents, 0);
@@ -88,19 +84,25 @@ export function InvoiceList() {
           onChange={(e) => setDraftProject(e.target.value)}
           aria-label="Project to invoice"
         >
-          <option value="">Draft from hours…</option>
+          <option value="">
+            {projects.length === 0 ? 'Nothing unbilled to draft from' : 'Draft from hours…'}
+          </option>
           {projects.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
+            <option key={p.projectId} value={p.projectId}>
+              {p.projectName}
+              {p.clientName ? ` · ${p.clientName}` : ''} — {hoursOf(p.minutes)}, {money(p.valueCents)}
             </option>
           ))}
         </select>
-        <button onClick={() => void draftFromHours()} disabled={busy || !draftProject}>
-          {busy ? 'Drafting…' : 'Create draft'}
+        <button
+          onClick={() => void drafting.draft(draftProject)}
+          disabled={drafting.busy || !draftProject}
+        >
+          {drafting.busy ? 'Drafting…' : 'Create draft'}
         </button>
       </div>
 
-      {error && <p className="error">{error}</p>}
+      {(error || drafting.error) && <p className="error">{error ?? drafting.error}</p>}
 
       {invoices.length === 0 ? (
         <Empty>No invoices yet.</Empty>

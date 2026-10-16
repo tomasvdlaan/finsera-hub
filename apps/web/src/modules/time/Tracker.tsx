@@ -185,8 +185,21 @@ export function Tracker() {
   const [days, setDays] = useState<Day[]>([]);
   const [error, setError] = useState<string | null>(null);
 
+  /*
+   * Arriving with context.
+   *
+   * "Log time" on a client or a project links here with `?projectId=` or `?clientId=`, and
+   * `?mode=manual` when what is wanted is an hour already worked. Read once, as the initial
+   * state: after that the picker is the person's, and a URL that kept overriding it would
+   * undo their choice on every render.
+   */
+  const query = new URLSearchParams(useLocation().search);
   // What the clock will be started against, and what a manual entry is logged to.
-  const [target, setTarget] = useState<Target>({});
+  const [target, setTarget] = useState<Target>(() => {
+    const projectId = query.get('projectId');
+    const clientId = query.get('clientId');
+    return projectId ? { projectId, clientId: null } : clientId ? { projectId: null, clientId } : {};
+  });
   const [clients, setClients] = useState<Array<{ id: string; name: string }>>([]);
   const [description, setDescription] = useState('');
   const [manualStart, setManualStart] = useState('');
@@ -201,7 +214,9 @@ export function Tracker() {
    * hour written down later is an hour you already noticed, and the one you did not notice is
    * the one this page exists to catch.
    */
-  const [mode, setMode] = useState<'clock' | 'manual'>('clock');
+  const [mode, setMode] = useState<'clock' | 'manual'>(() =>
+    query.get('mode') === 'manual' ? 'manual' : 'clock',
+  );
   /*
    * Re-renders once a second while something is running.
    *

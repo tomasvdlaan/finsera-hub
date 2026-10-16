@@ -3017,6 +3017,10 @@ a.badge:hover {
   bottom: 1rem;
   left: 50%;
   transform: translateX(-50%);
+  /* Without a width the box shrinks to fit inside the half of the viewport right of `left`,
+     so a one-line toast wrapped to three on a phone. */
+  width: max-content;
+  max-width: calc(100vw - 2rem);
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
@@ -4824,6 +4828,7 @@ button.nav-me:hover { background: var(--surface); }
 }
 .tracker-clock {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-4);
@@ -4872,7 +4877,7 @@ button.nav-me:hover { background: var(--surface); }
   min-width: 12rem;
   padding: var(--space-2);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius);
   background: var(--surface);
   box-shadow: var(--plane-2-shadow);
 }
@@ -4883,7 +4888,7 @@ button.nav-me:hover { background: var(--surface); }
   gap: var(--space-3);
   align-items: center;
   padding: var(--space-2) 0;
-  border-bottom: 1px solid var(--border-subtle, var(--border));
+  border-bottom: 1px solid var(--border);
 }
 .dept-list li:last-child { border-bottom: 0; }
 .dept-list input { flex: 1; min-width: 8rem; max-width: 20rem; }
@@ -4920,7 +4925,7 @@ button.nav-me:hover { background: var(--surface); }
   max-height: 420px;
   overflow: auto;
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius);
   background: #f4f7f6;
 }
 .invite-preview iframe {
@@ -6200,7 +6205,7 @@ main table:not(.grid) [data-align='action'] {
  *
  * What used to be 232px of left rail. See shell/TopNav.tsx for why the anchors are capped.
  * ═══════════════════════════════════════════════════════════════════════════ */
-.layout-top { min-height: 100vh; display: flex; flex-direction: column; background: var(--bg); }
+.layout-top { min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; background: var(--bg); }
 .topbar {
   display: flex;
   align-items: center;
@@ -6222,6 +6227,9 @@ main table:not(.grid) [data-align='action'] {
   letter-spacing: -0.02em;
   padding-right: var(--space-2);
   white-space: nowrap;
+  /* A link home now, and it must not look like one: the brand in link green is two accents. */
+  color: var(--text);
+  text-decoration: none !important;
 }
 .topbar-brand svg { width: 26px; height: 26px; fill: var(--accent); flex: none; }
 
@@ -6294,7 +6302,9 @@ main table:not(.grid) [data-align='action'] {
  * is spent on the running clock, and two accents on one bar is neither.
  */
 .anchor.on { background: var(--surface-sunken); color: var(--text); font-weight: var(--weight-strong); }
-:root:not([data-theme='light']) .anchor.on { background: var(--surface-raised); }
+/* Dark only. This line also used to sit outside the media query, where it matched in light
+   mode and painted the selected anchor white on the white pill — the one state the bar exists
+   to show, visible only as a change of weight. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) .anchor.on { background: var(--surface-raised); }
 }
@@ -6420,6 +6430,8 @@ main table:not(.grid) [data-align='action'] {
    the card rather than the corner, because the arrow must clear the card's own padding. */
 .card { position: relative; }
 .card-corner { position: absolute; top: var(--space-4); right: var(--space-4); }
+/* The verb a card offers about its own figure — "Draft invoice" under what is unbilled. */
+.card-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-4); }
 
 /* Running, the pill holds two controls: the whole reading opens the timesheet, and the square
    stops the clock without going anywhere. */
@@ -6823,8 +6835,13 @@ main table:not(.grid) [data-align='action'] {
   font-weight: var(--weight-strong);
   font-size: var(--text-sm);
   text-decoration: none;
+  /* A button now as often as a link — "Draft the invoice" acts where "Open it" navigated. */
+  border: 1px solid var(--accent);
+  cursor: pointer;
 }
+.hero-go:hover:not(:disabled) { background: var(--brand-bright); border-color: var(--brand-bright); text-decoration: none; }
 .hero-second {
+  text-decoration: none !important;
   background: none;
   border: 1px solid var(--border-strong);
   color: var(--text);
@@ -7517,7 +7534,7 @@ main table:not(.grid) [data-align='action'] {
  * Warning-coloured rather than muted on purpose: this is the failure mode manual indexing
  * creates, and a reader who does not notice it will quote the old clause with confidence.
  */
-.doc-via[data-stale] { background: var(--warning-tint, var(--surface-sunken)); color: var(--warning); }
+.doc-via[data-stale] { background: var(--warning-bg); color: var(--warning); }
 
 /* Whether the client can see this, and the one control that changes it. */
 .doc-share {
@@ -7526,7 +7543,7 @@ main table:not(.grid) [data-align='action'] {
   justify-content: space-between;
   gap: var(--space-3);
   padding-top: var(--space-3);
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--border);
 }
 
 /* One file somebody put in the library, and the single decision it needs. */
@@ -7537,8 +7554,8 @@ main table:not(.grid) [data-align='action'] {
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-3);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
 }
 .doc-unfiled-text { display: grid; gap: 2px; min-width: 0; }
 .doc-unfiled-text b { word-break: break-all; }
@@ -7594,6 +7611,10 @@ main table:not(.grid) [data-align='action'] {
   box-shadow: inset 0 1px 0 0 rgb(255 255 255 / 0.05);
   padding: var(--space-4) var(--space-5) var(--space-5);
   display: grid;
+  /* `minmax(0, …)`, not the implicit `auto`: an auto track sizes to the widest thing in it,
+     and the clock row — dot, elapsed, input, picker, button — made the card 684px wide on a
+     390px phone and dragged the whole page sideways with it. */
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-4);
 }
 .composer-tabs { display: flex; gap: var(--space-1); border-bottom: 1px solid var(--border); }
@@ -9101,6 +9122,30 @@ a.btn { text-decoration: none; }
 .task-card .task-open { height: auto; font-size: var(--text-sm); line-height: 1.35; text-align: left; }
 
 .task-card-meta { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+/* Start the clock from the card. Quiet at rest; running, it is the clock's own lit dot. */
+.task-clock {
+  display: grid;
+  place-items: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.5rem;
+  line-height: 1;
+}
+.task-clock:hover:not(:disabled) { color: var(--accent); border-color: var(--accent-line); background: var(--accent-bg); }
+.task-clock:disabled { opacity: 1; cursor: default; }
+.task-clock.is-running { background: var(--brand-tint); border-color: var(--accent-line); }
+.task-clock.is-running i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+}
 /* Who has it on the left, what it costs on the right — the two are asked about separately. */
 .task-card-gap { flex: 1; }
 .task-comments { display: inline-flex; align-items: center; gap: 3px; }
@@ -9168,7 +9213,14 @@ a.btn { text-decoration: none; }
 }
 @media (max-width: 60rem) {
   /* One column, properties first: on a narrow screen the decisions matter more than the prose. */
-  .task-modal-body { grid-template-columns: minmax(0, 1fr); }
+  /*
+   * The body scrolls as one column here, not its two halves. Stacked, the rows size to their
+   * content, so `.task-modal-main`'s own overflow never engaged: properties and description
+   * grew past the modal and were clipped by its `overflow: hidden`, with nothing to scroll.
+   */
+  .task-modal-body { grid-template-columns: minmax(0, 1fr); grid-auto-rows: max-content; overflow-y: auto; }
+  .task-modal-main,
+  .task-modal-side { overflow: visible; }
   .task-modal-side { border-left: 0; border-bottom: 1px solid var(--border); order: -1; }
 }
 

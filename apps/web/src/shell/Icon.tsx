@@ -41,6 +41,11 @@ const PATHS: Record<string, string> = {
   check: 'M4 12.5 9 18 20 6',
   x: 'M6 6l12 12M18 6 6 18',
   compass: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18ZM15.5 8.5l-2 5-5 2 2-5z',
+
+  // Added for the phone's bottom bar, where every destination needs a glyph to be a target.
+  calendar: 'M4 6a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v14H4zM4 10h16M8 3v4M16 3v4',
+  briefcase: 'M3 8h18v12H3zM9 8V5h6v3M3 13h18',
+  grid: 'M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z',
 };
 
 export function Icon({ name, size = 16 }: { name?: string; size?: number }) {

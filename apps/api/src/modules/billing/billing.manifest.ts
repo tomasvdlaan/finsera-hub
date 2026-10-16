@@ -26,7 +26,10 @@ export const billingManifest = defineManifest({
   ],
 
   navigation: [{ label: 'Invoices', path: '/money/invoices', icon: 'receipt', section: 'money', order: 1, hidden: true }],
-  widgets: [{ slot: 'entity-page', component: 'billing:client-invoices' }],
+  widgets: [
+    { slot: 'entity-page', component: 'billing:client-invoices' },
+    { slot: 'entity-page', component: 'billing:project-unbilled' },
+  ],
   chatWidgets: [{ entityType: 'invoice', component: 'billing:invoice-card' }],
 
   reportingViews: [

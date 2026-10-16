@@ -17,6 +17,7 @@ import { AssistantPage } from './AssistantPage.js';
 import { StarredAnswers } from './StarredAnswers.js';
 import { CommandBar } from './CommandBar.js';
 import { TopNav, type NavCounts } from './TopNav.js';
+import { BottomNav } from './BottomNav.js';
 import { LiveMeetingProvider } from './LiveMeeting.js';
 import { RunningTimerProvider } from './useRunningTimer.js';
 import { LivePill } from './LivePill.js';
@@ -397,6 +398,9 @@ function ChromeLayout({
           </>
         )}
       </main>
+
+      {/* Drawn on every width and shown only on a phone — see phone.css. */}
+      <BottomNav nav={nav} counts={counts} />
 
     </div>
   );

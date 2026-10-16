@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api.js';
+import { useRunningTimer } from '../../shell/useRunningTimer.js';
 import type { ChatWidgetProps } from '../types.js';
 
 interface Task {
   id: string;
+  projectId: string;
   title: string;
   status: string;
   priority: string;
@@ -23,7 +25,6 @@ const hours = (minutes: number | null | undefined) =>
  */
 export function TaskChatCard({ id, displayName, urlPath }: ChatWidgetProps) {
   const [task, setTask] = useState<Task | null>(null);
-  const [busy, setBusy] = useState(false);
 
   const load = () =>
     api
@@ -35,14 +36,13 @@ export function TaskChatCard({ id, displayName, urlPath }: ChatWidgetProps) {
     void load();
   }, [id]);
 
+  // The shared clock, so the top bar hears about it at once — see TaskDetail.
+  const timer = useRunningTimer();
+  const ticking = timer.running?.taskId === id;
   const startTimer = async () => {
-    setBusy(true);
-    try {
-      await api.post(`/scrum/tasks/${id}/start-timer`, {});
-      await load();
-    } finally {
-      setBusy(false);
-    }
+    if (!task) return;
+    await timer.switchTo({ projectId: task.projectId, taskId: task.id }, task.title);
+    await load();
   };
 
   const estimate = hours(task?.estimateMinutes);
@@ -66,8 +66,12 @@ export function TaskChatCard({ id, displayName, urlPath }: ChatWidgetProps) {
       <div className="chat-card-actions">
         <Link to={urlPath}>open</Link>
         {/* Acting on what the assistant just told you, without leaving the answer. */}
-        <button className="link-button" onClick={() => void startTimer()} disabled={busy}>
-          start timer
+        <button
+          className="link-button"
+          onClick={() => void startTimer()}
+          disabled={!task || timer.busy || ticking}
+        >
+          {ticking ? 'clock running' : timer.running ? 'switch the clock to this' : 'start timer'}
         </button>
       </div>
     </div>

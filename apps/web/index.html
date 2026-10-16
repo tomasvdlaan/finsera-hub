@@ -2,7 +2,13 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- viewport-fit=cover so the bottom tab bar can sit on the home indicator and pad itself
+         with env(safe-area-inset-bottom), rather than float above a strip of dead page. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <!-- The browser chrome takes the canvas colour, so on a phone the status bar and the page
+         read as one surface. Values match --bg in styles.css. -->
+    <meta name="theme-color" content="#eae5de" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0a0b0c" media="(prefers-color-scheme: dark)" />
     <title>Finsera Platform</title>
   </head>
   <body>

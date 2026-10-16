@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { api } from '../lib/api.js';
 import { Icon } from './Icon.js';
+import { useRunningTimer } from './useRunningTimer.js';
+import { parseQuickAdd } from '../modules/scrum/quickAdd.js';
 import { Button } from './ui/primitives.js';
 import { Composer, ConversationView, useConversation } from './conversation/index.js';
 import type { NavItem } from '../modules/types.js';
@@ -168,15 +170,121 @@ export function CommandBar({
     return () => clearTimeout(timer);
   }, [query, open]);
 
+  /*
+   * What the page behind the bar is about.
+   *
+   * The same reasoning the assistant fallback below uses for "this client": the next step
+   * from a record is almost always a step on that record, so the bar offers it with the
+   * record already filled in rather than asking for it again.
+   */
+  const location = useLocation();
+  const timer = useRunningTimer();
+  const context = useMemo(() => {
+    const m = /^\/(projects|clients)\/([0-9a-f-]{36})/i.exec(location.pathname);
+    const onBoard = location.pathname.startsWith('/board')
+      ? new URLSearchParams(location.search).get('projectId')
+      : null;
+    return {
+      projectId: m?.[1] === 'projects' ? m[2]! : onBoard,
+      clientId: m?.[1] === 'clients' ? m[2]! : null,
+    };
+  }, [location.pathname, location.search]);
+
   /**
    * The things you can do from here, as opposed to go to.
    *
    * Deliberately few, and all of them things you would otherwise navigate somewhere to start.
    * Each returns the path to land on, so an action and a destination behave the same from the
    * outside: you press Enter and end up where the work is.
+   *
+   * Shown before anything is typed as well as matched against what is. Hidden until typed,
+   * they were a feature you had to already know the name of — and on a phone, where this box
+   * is the search button, they were the only quick way to create anything at all.
    */
+  // Whether a module is installed, by whether its page is in the navigation — the test the
+  // top bar's anchors use, so an action never points at a module that is not there.
+  const has = useCallback((path: string) => nav.some((n) => n.path === path), [nav]);
+
   const actions = useMemo<Row[]>(
     () => [
+      ...(timer.running
+        ? [
+            {
+              kind: 'action' as const,
+              key: 'a:stop',
+              label: 'Stop the clock',
+              run: async () => {
+                // Past a day it needs the hours actually worked, which only the Time page asks.
+                if (timer.needsDuration) return '/time';
+                await timer.stop();
+                return null;
+              },
+            },
+          ]
+        : []),
+      {
+        kind: 'action',
+        key: 'a:log',
+        label: 'Log time',
+        run: async () => {
+          const at = context.projectId
+            ? `&projectId=${context.projectId}`
+            : context.clientId
+              ? `&clientId=${context.clientId}`
+              : '';
+          return `/time?mode=manual${at}`;
+        },
+      },
+      ...(context.projectId && has('/money/invoices')
+        ? [
+            {
+              kind: 'action' as const,
+              key: 'a:invoice',
+              label: 'Draft an invoice from this project’s hours',
+              run: async () => {
+                const invoice = await api.post<{ id: string }>(
+                  '/billing/invoices/draft-from-hours',
+                  { projectId: context.projectId },
+                );
+                return `/money/invoices/${invoice.id}`;
+              },
+            },
+          ]
+        : []),
+      ...(context.clientId && has('/money/quotes')
+        ? [
+            {
+              kind: 'action' as const,
+              key: 'a:quote',
+              label: 'New quote for this client',
+              run: async () => {
+                const quote = await api.post<{ id: string }>('/sales/quotes', {
+                  clientId: context.clientId,
+                  title: 'New quote',
+                  // One placeholder line so the quote is valid from the start, as QuoteList does.
+                  lines: [{ description: 'Work', quantity: '1.00', unitPriceCents: 3_500 }],
+                });
+                return `/money/quotes/${quote.id}`;
+              },
+            },
+          ]
+        : []),
+      ...(context.clientId && has('/meetings')
+        ? [
+            {
+              kind: 'action' as const,
+              key: 'a:client-meeting',
+              label: 'New meeting with this client',
+              run: async () => {
+                const note = await api.post<{ id: string }>('/meetings', {
+                  title: 'Meeting',
+                  clientId: context.clientId,
+                });
+                return `/meetings/${note.id}`;
+              },
+            },
+          ]
+        : []),
       {
         kind: 'action',
         key: 'a:standup',
@@ -201,8 +309,18 @@ export function CommandBar({
           return `/meetings/${note.id}`;
         },
       },
+      ...(has('/board')
+        ? [
+            {
+              kind: 'action' as const,
+              key: 'a:task',
+              label: 'New task',
+              run: async () => `/board${context.projectId ? `?projectId=${context.projectId}` : ''}`,
+            },
+          ]
+        : []),
     ],
-    [me],
+    [me, timer, context, has],
   );
 
   const rows = useMemo<Row[]>(() => {
@@ -234,16 +352,46 @@ export function CommandBar({
         path: r.path,
         entityType: r.entityType,
       }));
-      return [...recent, ...pages];
+      return [...recent, ...actions, ...pages];
     }
 
     const doable: Row[] = actions.filter((a) => a.label.toLowerCase().includes(q));
+
+    /*
+     * Whatever was typed, as a card — on the board the page is about.
+     *
+     * The quick-add grammar the board's own input understands (`!high`, `#label`, `~2h`), so
+     * a task written here and one written there come out the same. Only where a project is
+     * known: a task belongs to one, and guessing which is how cards end up on the wrong board.
+     */
+    const projectId = context.projectId;
+    if (projectId && has('/board') && q.length > 2) {
+      const parsed = parseQuickAdd(query.trim(), []);
+      if (parsed.title) {
+        doable.unshift({
+          kind: 'action',
+          key: 'a:task-now',
+          label: `New task: “${parsed.title}”`,
+          run: async () => {
+            await api.post('/scrum/tasks', {
+              projectId,
+              title: parsed.title,
+              type: parsed.type,
+              priority: parsed.priority,
+              labels: parsed.labels,
+              estimateMinutes: parsed.estimateMinutes,
+            });
+            return `/board?projectId=${projectId}`;
+          },
+        });
+      }
+    }
 
     // Always last, and always offered: the question you could not have answered by
     // navigating is the whole reason the assistant is here.
     const ask: Row[] = [{ kind: 'ask', key: 'ask', label: query.trim() }];
     return [...doable, ...pages, ...records, ...ask];
-  }, [nav, hits, query, recents, actions]);
+  }, [nav, hits, query, recents, actions, context.projectId, has]);
 
   useEffect(() => setPicked(0), [rows.length]);
 
@@ -313,8 +461,8 @@ export function CommandBar({
           <input
             ref={inputRef}
             value={query}
-            placeholder="Go to, find, or ask anything…"
-            aria-label="Go to, find, or ask anything"
+            placeholder="Go to, find, do, or ask anything…"
+            aria-label="Go to, find, do, or ask anything"
             onChange={(e) => {
               setQuery(e.target.value);
               setActionError(null);
