@@ -951,7 +951,7 @@ button {
   transition: background var(--transition-fast), border-color var(--transition-fast);
 }
 button:hover:not(:disabled) {
-  border-color: var(--border-strong);
+  border-color: var(--accent);
   background: var(--surface-sunken);
 }
 
@@ -1000,13 +1000,6 @@ button:disabled {
 .button-link:hover {
   text-decoration: none;
   opacity: 0.9;
-}
-button:hover:not(:disabled) {
-  border-color: var(--accent);
-}
-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 
 /*
@@ -1378,9 +1371,6 @@ ol {
   padding: var(--space-6);
   outline: none;
 }
-.rich-editor .tiptap h1 { font-size: 1.5rem; margin: 1rem 0 0.4rem; }
-.rich-editor .tiptap h2 { font-size: var(--text-lg); margin: 1rem 0 0.4rem; }
-.rich-editor .tiptap h3 { font-size: 1.05rem; margin: 0.8rem 0 0.3rem; }
 .rich-editor .tiptap ul,
 .rich-editor .tiptap ol { padding-left: 1.4rem; list-style: revert; }
 .rich-editor .tiptap ul[data-type='taskList'] { list-style: none; padding-left: 0.2rem; }
@@ -1406,7 +1396,7 @@ ol {
   margin: var(--space-4) 0 var(--space-5);
 }
 .rich-editor .tiptap hr.ProseMirror-selectednode { border-top-color: var(--accent); }
-.rich-editor .tiptap table { border-collapse: collapse; width: 100%; margin: var(--space-2) 0; }
+.rich-editor .tiptap table { position: relative; border-collapse: collapse; width: 100%; margin: var(--space-2) 0; }
 .rich-editor .tiptap th,
 .rich-editor .tiptap td { border: 1px solid var(--border); padding: 0.3rem 0.5rem; }
 /* Left, like the cells beneath them. A centred header over left-aligned content puts the
@@ -1598,10 +1588,6 @@ ul.insights li.insight {
 }
 .stat a {
   text-decoration: none;
-  color: inherit;
-  display: block;
-}
-.stat a {
   color: inherit;
   display: block;
 }
@@ -2131,6 +2117,8 @@ a.badge:hover {
  * rounded corners.
  */
 .board-column {
+  display: flex;
+  flex-direction: column;
   flex: 1 1 240px;
   min-width: 240px;
   max-width: 420px;
@@ -2145,12 +2133,13 @@ a.badge:hover {
 .board-column-head {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: baseline;
   gap: var(--space-2);
   padding: var(--space-2) var(--space-2) var(--space-3);
   color: var(--muted);
 }
 .board-column-body {
+  flex: 1;
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
@@ -2165,8 +2154,9 @@ a.badge:hover {
  */
 .task-card {
   display: flex;
-  align-items: flex-start;
-  gap: var(--space-2);
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
   cursor: grab;
   user-select: none;
   background: var(--surface);
@@ -2192,6 +2182,9 @@ a.badge:hover {
 .task-card-body {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
 }
 .task-card.dragging {
   opacity: 0.4;
@@ -2281,11 +2274,14 @@ a.badge:hover {
  */
 .task-thumb {
   display: block;
+  width: 100%;
   margin: var(--space-2) 0 0;
+  padding: 0;
   border-radius: var(--radius-sm);
   overflow: hidden;
   border: 1px solid var(--border);
   background: var(--surface-sunken);
+  cursor: pointer;
 }
 .task-thumb img {
   display: block;
@@ -2314,14 +2310,6 @@ a.badge:hover {
   background: var(--danger-bg);
   color: var(--danger);
 }
-/* A hairline down the left edge, so a stalled card is findable by scanning the column rather
-   than by reading every chip in it. */
-.task-card.age-old {
-  border-left: 3px solid var(--danger);
-}
-.task-card.age-stale {
-  border-left: 3px solid var(--warning);
-}
 
 /*
  * The card, given some weight.
@@ -2344,7 +2332,8 @@ a.badge:hover {
  * shout with. The edge now means trouble and only trouble, and the rules below are the whole
  * of what may colour it.
  */
-/* Age, then blocked — a blocked card is more urgent than an old one, and it wins the edge. */
+/* Age, then blocked — a blocked card is more urgent than an old one, and it wins the edge. A
+   coloured edge makes a stalled card findable by scanning the column rather than reading chips. */
 .task-card.age-stale { border-left-color: var(--warning); }
 .task-card.age-old,
 .task-card.is-blocked { border-left-color: var(--danger); }
@@ -2374,14 +2363,6 @@ a.badge:hover {
   text-decoration: underline;
 }
 
-.task-thumb {
-  display: block;
-  width: 100%;
-  padding: 0;
-  border: 1px solid var(--border);
-  background: var(--surface-sunken);
-  cursor: pointer;
-}
 
 /*
  * The checklist bar.
@@ -2466,9 +2447,6 @@ a.badge:hover {
 .board-column.is-done-column {
   background: color-mix(in srgb, var(--ok-bg) 45%, var(--surface-sunken));
 }
-.board-column-head {
-  align-items: baseline;
-}
 .column-fold,
 .column-spine {
   background: none;
@@ -2547,6 +2525,7 @@ a.badge:hover {
   grid-template-columns: minmax(0, 1fr);
   gap: var(--space-4);
   align-items: start;
+  min-height: 0;
 }
 .board-stage.has-preview {
   grid-template-columns: minmax(0, 1fr) 24rem;
@@ -2940,19 +2919,13 @@ a.badge:hover {
 .comment-body {
   margin: var(--space-1) 0;
 }
-.task-card-body {
-  flex: 1;
-  min-width: 0;
-}
 .task-card-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.3rem;
-  align-items: baseline;
+  gap: var(--space-2);
+  align-items: center;
   margin-top: 0.2rem;
   font-size: 0.8rem;
-}
-.task-card-meta {
   width: 100%;
 }
 .priority-high {
@@ -4248,7 +4221,6 @@ a.badge:hover {
   background: var(--accent);
   pointer-events: none;
 }
-.rich-editor .tiptap table { position: relative; }
 .rich-editor .tiptap th, .rich-editor .tiptap td { position: relative; }
 .rich-editor .tiptap .selectedCell::after {
   content: '';
@@ -5042,12 +5014,6 @@ button.nav-me:hover { background: var(--surface); }
   0%, 49% { opacity: 1; }
   50%, 100% { opacity: 0; }
 }
-.conversation-row:hover .row-menu-trigger,
-.folder-head:hover .row-menu-trigger,
-.row-menu-trigger:focus-visible,
-.row-menu-trigger[aria-expanded='true'] {
-  opacity: 1;
-}
 .row-menu {
   position: absolute;
   right: 0;
@@ -5062,7 +5028,11 @@ button.nav-me:hover { background: var(--surface); }
   border-radius: var(--radius);
   box-shadow: var(--shadow-3);
 }
+/* Menus keep their words — a menu is read once you have decided to look. */
 .row-menu button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   text-align: left;
   background: none;
   border: 0;
@@ -5456,12 +5426,6 @@ button.nav-me:hover { background: var(--surface); }
   max-width: 6rem;
 }
 
-/* Menus keep their words — a menu is read once you have decided to look. */
-.row-menu button {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
 
 /* ── saved answers ─────────────────────────────────────────────────────── */
 .starred-list {
@@ -5962,12 +5926,16 @@ main table:not(.grid) [data-align='action'] {
   transition: border-color var(--transition-fast), background var(--transition-fast);
 }
 @media (prefers-color-scheme: light) {
+  /*
+   * The prefix always matches — nothing sets `data-theme`, the theme follows the OS — and is
+   * kept only for the specificity it lends, which outranks `.card[data-tone]` below. That is
+   * load-bearing and probably a mistake: in light mode it hides a toned card's coloured left
+   * edge (the tint shows, the stripe does not; dark mode shows both). Dropping the prefix
+   * brings the stripe back, which is a visible change, so it is not made here.
+   */
   :root:not([data-theme='dark']) .card {
     box-shadow: inset 0 1px 0 0 rgb(255 255 255 / 0.9), 0 1px 2px -1px rgb(0 0 0 / 0.05);
   }
-}
-:root[data-theme='light'] .card {
-  box-shadow: inset 0 1px 0 0 rgb(255 255 255 / 0.9), 0 1px 2px -1px rgb(0 0 0 / 0.05);
 }
 
 /*
@@ -6306,7 +6274,7 @@ main table:not(.grid) [data-align='action'] {
    mode and painted the selected anchor white on the white pill — the one state the bar exists
    to show, visible only as a change of weight. */
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) .anchor.on { background: var(--surface-raised); }
+  .anchor.on { background: var(--surface-raised); }
 }
 
 .topbar-right { margin-left: auto; display: flex; align-items: center; gap: var(--space-2); }
@@ -6333,7 +6301,9 @@ main table:not(.grid) [data-align='action'] {
   white-space: nowrap;
 }
 .clock:hover { border-color: var(--border-strong); color: var(--text); }
-.clock.live { background: var(--brand-tint); border-color: var(--accent-line); color: var(--accent); }
+/* Running, the pill holds two controls: the whole reading opens the timesheet, and the square
+   stops the clock without going anywhere. */
+.clock.live { background: var(--brand-tint); border-color: var(--accent-line); color: var(--accent); padding: 0 var(--space-1) 0 0; gap: 0; }
 .clock.live .clock-time { font-variant-numeric: tabular-nums; font-weight: var(--weight-strong); color: var(--text); }
 .clock.live .clock-what { color: var(--muted); }
 .clock.live i {
@@ -6426,16 +6396,12 @@ main table:not(.grid) [data-align='action'] {
 /* The page itself, now that nothing is beside it. */
 .layout-top > main { padding: 0 var(--space-5) var(--space-7); flex: 1; min-width: 0; }
 
-/* An untitled card has no row for the arrow, so it takes the corner instead. `position` on
-   the card rather than the corner, because the arrow must clear the card's own padding. */
-.card { position: relative; }
+/* An untitled card has no row for the arrow, so it takes the corner instead — positioned
+   against the card (see `.card`), because the arrow must clear the card's own padding. */
 .card-corner { position: absolute; top: var(--space-4); right: var(--space-4); }
 /* The verb a card offers about its own figure — "Draft invoice" under what is unbilled. */
 .card-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-4); }
 
-/* Running, the pill holds two controls: the whole reading opens the timesheet, and the square
-   stops the clock without going anywhere. */
-.clock.live { padding: 0 var(--space-1) 0 0; gap: 0; }
 .clock-open,
 .clock-stop {
   display: flex;
@@ -6972,10 +6938,13 @@ main table:not(.grid) [data-align='action'] {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  padding: var(--space-3) 0;
+  padding: var(--space-3) var(--space-4);
+  margin-inline: calc(var(--space-4) * -1);
   border-top: 1px solid var(--border);
+  border-radius: var(--radius-sm);
   font-size: var(--text-sm);
   min-width: 0;
+  transition: background var(--transition-fast);
 }
 .act-row:first-child { border-top: 0; padding-top: var(--space-1); }
 /*
@@ -6986,12 +6955,6 @@ main table:not(.grid) [data-align='action'] {
  * bleeds into the card's own padding so the highlight reaches the card edge rather than
  * stopping short and looking like a misaligned box.
  */
-.act-row {
-  margin-inline: calc(var(--space-4) * -1);
-  padding-inline: var(--space-4);
-  border-radius: var(--radius-sm);
-  transition: background var(--transition-fast);
-}
 .act-row:hover,
 .act-row:focus-within { background: var(--wash); }
 
@@ -7006,7 +6969,7 @@ main table:not(.grid) [data-align='action'] {
  * Opacity rather than display, so the row does not resize under the pointer and the buttons
  * stay in the tab order for anyone navigating without one.
  */
-.act-row-buttons { opacity: 0; transition: opacity var(--transition-fast); }
+.act-row-buttons { display: flex; gap: var(--space-2); flex: none; opacity: 0; transition: opacity var(--transition-fast); }
 .act-row:hover .act-row-buttons,
 .act-row:focus-within .act-row-buttons { opacity: 1; }
 /* Touch and reduced-motion users get no hover, so nothing may depend on it. */
@@ -7015,7 +6978,6 @@ main table:not(.grid) [data-align='action'] {
 }
 .act-row-text { display: grid; gap: 3px; min-width: 0; flex: 1; }
 .act-row-text > span { overflow: hidden; text-overflow: ellipsis; }
-.act-row-buttons { display: flex; gap: var(--space-2); flex: none; }
 
 /*
  * The strip along the bottom of a compound card.
@@ -7249,9 +7211,9 @@ main table:not(.grid) [data-align='action'] {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: var(--space-3) var(--space-4);
+  margin-inline: 0;
   margin-bottom: var(--space-2);
 }
-.board-stuck .act-row { margin-inline: 0; }
 .board-stuck .act-row:hover { border-color: var(--border-strong); }
 .board-stuck .act-row[data-blocked] { border-color: var(--danger-line); background: var(--danger-bg); }
 .board-stuck .act-row a { color: var(--text); text-decoration: none; font-weight: var(--weight-strong); }
@@ -9088,21 +9050,16 @@ a.btn { text-decoration: none; }
  * `100dvh` rather than `vh`: on a phone the toolbar bar collapses as you scroll and `vh`
  * measures the taller of the two, so the last card would sit permanently under the chrome.
  */
-.board-stage { min-height: 0; }
 .board-stage .board {
   margin: var(--space-3) 0 0;
   min-height: calc(100dvh - 13rem);
   align-items: stretch;
 }
-.board-column { display: flex; flex-direction: column; }
-.board-column-body { flex: 1; }
 
 /* ==========================================================================================
    The card — badges first
    ========================================================================================== */
 
-.task-card { flex-direction: column; align-items: stretch; gap: 0; }
-.task-card-body { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
 
 /*
  * The badges, above the title.
@@ -9110,7 +9067,7 @@ a.btn { text-decoration: none; }
  * They answer "is this mine to worry about" before the title answers "what is it", which is
  * the order a column is actually read in: you scan for the one that matters, then read words.
  */
-.task-badges { display: flex; flex-wrap: wrap; gap: 4px; }
+.task-badges { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
 .task-badges:empty { display: none; }
 
 .badge.type-story { color: var(--accent); border-color: var(--accent-line); background: var(--accent-bg); }
@@ -9121,7 +9078,6 @@ a.btn { text-decoration: none; }
 
 .task-card .task-open { height: auto; font-size: var(--text-sm); line-height: 1.35; text-align: left; }
 
-.task-card-meta { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 /* Start the clock from the card. Quiet at rest; running, it is the clock's own lit dot. */
 .task-clock {
   display: grid;
@@ -9224,7 +9180,6 @@ a.btn { text-decoration: none; }
   .task-modal-side { border-left: 0; border-bottom: 1px solid var(--border); order: -1; }
 }
 
-.task-badges { margin-top: 2px; }
 .task-modal-title {
   margin: var(--space-2) 0 0;
   font-size: var(--text-xl);
