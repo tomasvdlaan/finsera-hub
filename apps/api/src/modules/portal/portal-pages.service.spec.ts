@@ -211,4 +211,72 @@ describe('PortalPagesService', () => {
     expect(rows.map((r) => r.action)).toEqual(['portal.page.create', 'portal.page.delete']);
     expect(rows[0]?.detail).toMatchObject({ sourceUrl: valid.sourceUrl });
   });
+
+  /*
+   * The assistant's one way in, which is allowed because it cannot publish.
+   *
+   * Everything it does goes through `create`, so the rules tested elsewhere in this file —
+   * reserved slugs, slug format, the SSRF guard on the source URL — hold here too and are
+   * not re-asserted. What is new is the part that makes automating this safe at all: the
+   * page arrives switched off, and a client with nowhere to put it is refused rather than
+   * given a row nobody can reach.
+   */
+  describe('addPageTool', () => {
+    const call = () => ({
+      clientId,
+      slug: 'rapportage-q3',
+      title: 'Rapportage Q3',
+      sourceUrl: 'https://art-dochorse-maandrapportage-finsera.vercel.app',
+    });
+
+    it('refuses a client who has no portal address, and says why', async () => {
+      // Named rather than generic: the model relays this sentence to a person, and "set a
+      // portal address first" is actionable where "bad request" is not.
+      await expect(pages.addPageTool(admin, call())).rejects.toThrow(/no portal address/i);
+    });
+
+    it('creates the page switched off', async () => {
+      await crm.updateClient(admin, clientId, { portalSlug: 'duce' });
+
+      const result = await pages.addPageTool(admin, call());
+
+      expect(result.enabled).toBe(false);
+      const [row] = await pages.list(admin, clientId);
+      expect(row?.slug).toBe('rapportage-q3');
+      // The assertion the whole design rests on: nothing is in front of a client until a
+      // person turns it on.
+      expect(row?.enabled).toBe(false);
+    });
+
+    it('hands back the address the page will have, and says it is not live', async () => {
+      process.env.PORTAL_BASE_DOMAIN = 'finsera.nl';
+      await crm.updateClient(admin, clientId, { portalSlug: 'duce' });
+
+      const result = await pages.addPageTool(admin, call());
+
+      expect(result.address).toBe('https://duce.finsera.nl/rapportage-q3/');
+      expect(result.next).toMatch(/not visible to Duce yet/i);
+    });
+
+    it('stores no bypass secret, because it is never given one', async () => {
+      await crm.updateClient(admin, clientId, { portalSlug: 'duce' });
+      await pages.addPageTool(admin, call());
+
+      const [row] = await pages.list(admin, clientId);
+      expect(row?.hasSecret).toBe(false);
+    });
+
+    it('is refused for a member, like every other way into this service', async () => {
+      await crm.updateClient(admin, clientId, { portalSlug: 'duce' });
+      // The registry filters tools by the calling user's capability, but the service is what
+      // actually holds the line — the tool is not a second door with a lower lock.
+      await expect(pages.addPageTool(member, call())).rejects.toThrow(/portal.admin/);
+    });
+
+    it('refuses a client that does not exist', async () => {
+      await expect(
+        pages.addPageTool(admin, { ...call(), clientId: crypto.randomUUID() }),
+      ).rejects.toThrow(/No such client/);
+    });
+  });
 });

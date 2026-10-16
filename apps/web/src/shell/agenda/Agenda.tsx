@@ -3,6 +3,7 @@ import { Block, PageHeader } from '../ui/layout.js';
 import { Button, Empty } from '../ui/primitives.js';
 import { Card } from '../ui/card.js';
 import { useDocumentTitle } from '../useDocumentTitle.js';
+import { PHONE, useMediaQuery } from '../useMediaQuery.js';
 import { clock, shiftDay, todayIso, weekDays, weekStart } from '../../lib/dates.js';
 import { itemsOnDay, sortItems, withinWindow } from './agendaItems.js';
 import { AgendaGrid } from './AgendaGrid.js';
@@ -45,7 +46,14 @@ export function Agenda() {
    * calendar you end up describing over a call instead. Same reasoning `/time` uses for its
    * modes, and the same reason the board keeps `?projectId=` on its tab strip.
    */
-  const view: View = VIEWS.includes(params.get('view') as View) ? (params.get('view') as View) : 'week';
+  /*
+   * A phone opens on the list. Seven columns of hours at 390px is a grid you scroll sideways
+   * to read one day of, and the question a phone asks of a calendar is "what is next", which
+   * the list answers top to bottom. An explicit `?view=` still wins, so a shared link holds.
+   */
+  const phone = useMediaQuery(PHONE);
+  const fallback: View = phone ? 'list' : 'week';
+  const view: View = VIEWS.includes(params.get('view') as View) ? (params.get('view') as View) : fallback;
   const anchor = /^\d{4}-\d{2}-\d{2}$/.test(params.get('date') ?? '') ? params.get('date')! : todayIso();
 
   const set = (next: Partial<{ view: View; date: string }>) => {

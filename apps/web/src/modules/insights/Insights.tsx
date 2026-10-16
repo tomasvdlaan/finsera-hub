@@ -42,6 +42,12 @@ export function subjectPath(insight: Insight): string | null {
       return `/board/sprints/${insight.subjectId}`;
     case 'portal_ticket':
       return `/portal/tickets/${insight.subjectId}`;
+    // Two rules raised items about these and had nowhere to send them, so their items were
+    // the only ones in the queue with no way to open what they were about.
+    case 'meeting':
+      return `/meetings/${insight.subjectId}`;
+    case 'time_entry':
+      return '/time';
     default:
       return null;
   }

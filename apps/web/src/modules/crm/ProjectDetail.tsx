@@ -2,13 +2,14 @@ import { useEffect, useState } from 'react';
 import { PageHeader } from '../../shell/ui/layout.js';
 import { EntityWidgets } from '../../shell/ui/EntityWidgets.js';
 import { ProjectTeam } from './ProjectTeam.js';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import type { EntityRef } from '@platform/contracts';
 import { api } from '../../lib/api.js';
 import { cents, euros } from '../../lib/money.js';
 import { Comments } from '../../shell/Comments.js';
 import { Links } from '../../shell/Links.js';
 import { Timeline } from '../../shell/Timeline.js';
+import { useInstalled } from '../../shell/useNav.js';
 import { EditableField } from './EditableField.js';
 import {
   PROJECT_STATUSES,
@@ -25,6 +26,8 @@ export function ProjectDetail() {
   const [candidates, setCandidates] = useState<EntityRef[]>([]);
   const [refreshKey, setRefreshKey] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const navigate = useNavigate();
+  const installed = useInstalled();
 
   const load = () =>
     api
@@ -68,16 +71,49 @@ export function ProjectDetail() {
   // price) must surface inline, with the record still on screen.
   if (!project) return error ? <p className="error">{error}</p> : <p className="muted">Loading…</p>;
 
+  // The next step on this project, from this project — see ClientDetail for why.
+  const newMeeting = async () => {
+    try {
+      const note = await api.post<{ id: string }>('/meetings', {
+        title: `${project.name} — meeting`,
+        projectId: project.id,
+        clientId: project.clientId,
+      });
+      navigate(`/meetings/${note.id}`);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
   return (
     <>
       <PageHeader
         title={project.name}
-        back={{ to: "/crm/projects", label: 'Projects' }}
+        back={{ to: '/projects', label: 'Projects' }}
         meta={
           <>
           {client && (
             <Link to={`/clients/${client.id}`}>{client.name}</Link>
           )}
+          </>
+        }
+        actions={
+          <>
+            {installed('/time') && (
+              <Link className="act" to={`/time?mode=manual&projectId=${project.id}`}>
+                Log time
+              </Link>
+            )}
+            {installed('/board') && (
+              <Link className="act" to={`/board?projectId=${project.id}`}>
+                Board
+              </Link>
+            )}
+            {installed('/meetings') && (
+              <button className="act" onClick={() => void newMeeting()}>
+                New meeting
+              </button>
+            )}
           </>
         }
       />

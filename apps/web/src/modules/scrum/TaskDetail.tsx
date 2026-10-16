@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import type { EntityRef } from '@platform/contracts';
 import { api } from '../../lib/api.js';
 import { Comments } from '../../shell/Comments.js';
+import { useRunningTimer } from '../../shell/useRunningTimer.js';
 import { useDialog } from '../../shell/ui/Dialog.js';
 import { Links } from '../../shell/Links.js';
 import { Timeline } from '../../shell/Timeline.js';
@@ -122,13 +123,18 @@ export function TaskDetail() {
     }
   };
 
+  /*
+   * Through the shared clock, not the task's own start-timer endpoint.
+   *
+   * That endpoint started the clock behind the top bar's back, so the bar went on saying
+   * "Start a timer" for up to thirty seconds, and it refused outright when another clock was
+   * running. `switchTo` is what the board's modal and cards use: one clock, told at once.
+   */
+  const timer = useRunningTimer();
   const startTimer = async () => {
-    try {
-      await api.post(`/scrum/tasks/${id}/start-timer`, {});
-      await load();
-    } catch (e) {
-      setError((e as Error).message);
-    }
+    if (!task) return;
+    await timer.switchTo({ projectId: task.projectId, taskId: task.id }, task.title);
+    await load();
   };
 
   const archive = async () => {
@@ -196,7 +202,17 @@ export function TaskDetail() {
         ) : (
           <button onClick={() => void block()}>Blocked?</button>
         )}
-        <button onClick={() => void startTimer()}>Start timer</button>
+        <button
+          onClick={() => void startTimer()}
+          disabled={timer.busy || timer.running?.taskId === task.id}
+        >
+          {timer.running?.taskId === task.id
+            ? 'Clock running'
+            : timer.running
+              ? 'Switch the clock to this'
+              : 'Start timer'}
+        </button>
+        {timer.error && <span className="error">{timer.error}</span>}
         <button className="link-button destructive" onClick={() => void archive()}>
           archive
         </button>

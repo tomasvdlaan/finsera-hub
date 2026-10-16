@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useDocumentTitle } from './useDocumentTitle.js';
 import { Empty } from './ui/primitives.js';
 import {
@@ -123,7 +123,12 @@ export function AssistantPage() {
   }, [conversationId, id, navigate, refreshHistory]);
 
   return (
-    <div className="assistant-page">
+    /*
+      `data-view` is for the phone, where list and thread cannot share a row: with a
+      conversation open it shows the thread alone, and without one it shows the question box
+      above the history. On a wide screen both are on screen and the attribute changes nothing.
+    */
+    <div className="assistant-page" data-view={id ? 'thread' : 'list'}>
       <ConversationList
         history={history}
         folders={folders}
@@ -138,6 +143,11 @@ export function AssistantPage() {
       />
 
       <div className="assistant-main">
+        {id && (
+          <Link to="/assistant" className="page-back assistant-back">
+            <span aria-hidden="true">←</span> Conversations
+          </Link>
+        )}
         {turns.length === 0 && !busy ? (
           <Empty>
             Ask about a client, a project, an invoice or what was said in a meeting. Answers

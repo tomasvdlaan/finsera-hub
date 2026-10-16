@@ -1,5 +1,7 @@
 import { Module, type OnModuleInit } from '@nestjs/common';
+import type { Actor } from '@platform/contracts';
 import { AuthModule } from '../../core/auth/auth.module.js';
+import { AiToolRegistry } from '../../core/llm/tool-registry.service.js';
 import { ManifestRegistry } from '../../core/manifest/manifest.registry.js';
 import { SalesModule } from '../sales/sales.module.js';
 import { ScrumModule } from '../scrum/scrum.module.js';
@@ -8,7 +10,7 @@ import { PortalAuthController } from './portal-auth.controller.js';
 import { PortalAuthGuard } from './portal-auth.guard.js';
 import { PortalAdminController } from './portal-admin.controller.js';
 import { PortalHostController } from './portal-host.controller.js';
-import { PortalPagesService } from './portal-pages.service.js';
+import { PortalPagesService, type AddPageToolInput } from './portal-pages.service.js';
 import { PortalHostService } from './portal-host.service.js';
 import { PortalIdentityService } from './portal-identity.service.js';
 import { PortalOidcService } from './portal-oidc.service.js';
@@ -72,7 +74,9 @@ import { PortalTicketsService } from './portal-tickets.service.js';
 export class PortalModule implements OnModuleInit {
   constructor(
     private readonly manifests: ManifestRegistry,
+    private readonly aiTools: AiToolRegistry,
     private readonly tickets: PortalTicketsService,
+    private readonly pages: PortalPagesService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -81,5 +85,10 @@ export class PortalModule implements OnModuleInit {
     // the definition ships with the code rather than in a migration somebody has to
     // remember. The portal had none until tickets needed to be visible outside it.
     await this.tickets.ensureReportingViews();
+
+    // The only thing an assistant may do in here, and it cannot publish — see the manifest.
+    this.aiTools.bind('portal_add_page', (actor: Actor, input: unknown) =>
+      this.pages.addPageTool(actor, input as AddPageToolInput),
+    );
   }
 }

@@ -3,6 +3,7 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Avatar } from '../../shell/ui/primitives.js';
 import { firstImage } from '../../shell/ui/MarkdownEditor.js';
+import { useRunningTimer } from '../../shell/useRunningTimer.js';
 import { ageTone, daysBlocked, hours, isOverdue, type Task } from './types.js';
 
 /**
@@ -104,6 +105,8 @@ const CardBody = forwardRef<
   ref,
 ) {
 
+  const timer = useRunningTimer();
+  const ticking = timer.running?.taskId === task.id;
   const estimate = hours(task.estimateMinutes);
   const overdue = isOverdue(task);
   const stale = task.completedAt ? null : ageTone(task.daysInColumn);
@@ -285,6 +288,29 @@ const CardBody = forwardRef<
           {onPull && (
             <button type="button" className="chip chip-pull" onClick={onPull}>
               + sprint
+            </button>
+          )}
+          {/*
+            The clock, on the card.
+
+            Starting one used to mean opening the card first; from anywhere quicker, the hour
+            arrived with no task on it and the card's "0h of 8h" never moved. Switch rather
+            than start, as in the modal: a clock already running on something else is the
+            ordinary case. Running here, it says so — the board is where you look for what you
+            are on.
+          */}
+          {!task.completedAt && !isGhost && (
+            <button
+              type="button"
+              className={ticking ? 'task-clock is-running' : 'task-clock'}
+              disabled={timer.busy || ticking}
+              onClick={() =>
+                void timer.switchTo({ projectId: task.projectId, taskId: task.id }, task.title)
+              }
+              aria-label={ticking ? 'Clock running on this card' : `Start the clock on ${task.title}`}
+              title={ticking ? 'Clock running on this card' : timer.running ? 'Switch the clock to this card' : 'Start the clock on this card'}
+            >
+              {ticking ? <i aria-hidden="true" /> : <span aria-hidden="true">▶</span>}
             </button>
           )}
         </div>

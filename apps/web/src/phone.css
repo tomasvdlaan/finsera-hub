@@ -1,0 +1,540 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+ * TOUCH, AND THE PHONE
+ *
+ * The app was drawn desktop-first and shrank as far as 60rem, then stopped: below that every
+ * page kept its desktop gutters, its 36px headings and a nine-anchor pill that wrapped to three
+ * rows and stayed stuck to the top of the screen. This file is the tier underneath.
+ *
+ * Two layers, deliberately separate:
+ *
+ * - **Touch** is about the pointer, not the width. A tablet held landscape is as wide as a
+ *   laptop and still has no hover and a fingertip for a cursor, so it is keyed on
+ *   `(hover: none)` and `(pointer: coarse)`.
+ * - **Phone** is about the width — `40rem`, one breakpoint, shared with `PHONE` in
+ *   shell/useMediaQuery.ts so script and stylesheet agree on where a phone begins.
+ *
+ * Loaded after styles.css, so it overrides by source order rather than by specificity.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* The bottom bar's own height, before the home-indicator inset is added under it. */
+  --tabbar-h: 3.75rem;
+  --tabbar-space: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px));
+}
+
+html {
+  /* iOS enlarges text it thinks is too small after a rotation; the type scale is deliberate. */
+  -webkit-text-size-adjust: 100%;
+  /* The grey flash on tap is a desktop browser's idea of feedback; every control has its own. */
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ── Touch ──────────────────────────────────────────────────────────────── */
+
+/*
+ * Controls that only appear on hover, made present.
+ *
+ * Each of these hid itself at rest so a desktop list reads as content rather than as a column
+ * of icons. Without hover there is no "approach", so the rule that revealed them never fires
+ * and the edit, delete and fold controls were simply unreachable from a phone.
+ */
+@media (hover: none) {
+  .column-fold,
+  .turn-actions,
+  .crow-more,
+  .cfolder-head > .icon-btn,
+  .entry-actions {
+    opacity: 1;
+  }
+  /* A keystroke hint on a device with no keyboard is a label for nothing. */
+  .round kbd,
+  .cmdk-foot {
+    display: none;
+  }
+}
+
+@media (pointer: coarse) {
+  /*
+   * Sixteen pixels, not fifteen.
+   *
+   * iOS zooms the page into any field whose text is under 16px when it takes focus, and does
+   * not zoom back out — so every input in the app, at the body's 15px, threw the layout off
+   * by a pinch on every tap. The zoom is the browser's fix for unreadable fields; meeting the
+   * threshold is ours.
+   */
+  input:not([type='checkbox']):not([type='radio']):not([type='range']),
+  select,
+  textarea {
+    font-size: max(1rem, 1em);
+  }
+
+  /*
+   * Targets a finger can hit.
+   *
+   * `--control-h` was declared for exactly this and never used. The small variants keep
+   * their look and gain height, which is what a fingertip misses by.
+   */
+  .btn-sm,
+  .hero-chrome button,
+  .clock-stop {
+    min-height: var(--control-h);
+  }
+  .icon-btn {
+    min-width: var(--control-h);
+    min-height: var(--control-h);
+  }
+  .chip {
+    min-height: 2rem;
+  }
+  .link-button {
+    padding-block: var(--space-2);
+  }
+  .hero-chrome button {
+    width: var(--control-h);
+  }
+  .task-clock {
+    width: 2rem;
+    height: 2rem;
+  }
+}
+
+/* ── Phone ──────────────────────────────────────────────────────────────── */
+
+/* Desktop never draws the bar; it is mounted everywhere so it exists the moment a window narrows. */
+.bottomnav,
+.more-scrim {
+  display: none;
+}
+
+@media (max-width: 40rem) {
+  /*
+   * The page's frame: a 16px gutter, and room at the bottom for the bar.
+   *
+   * 24px gutters inside 24px card padding left 279px of a 390px screen for content. Halving
+   * the outer one gives back what the inner one needs.
+   */
+  .layout-top > main {
+    padding: 0 var(--space-4) calc(var(--tabbar-space) + var(--space-5));
+  }
+  .page {
+    gap: var(--space-4);
+  }
+  section {
+    padding: var(--space-4);
+  }
+
+  /* The ramp comes down one step at the top, where a 36px title wrapped to three lines. */
+  h1 {
+    font-size: var(--text-2xl);
+  }
+  .page-header-row {
+    gap: var(--space-3);
+  }
+  /*
+   * Two lines of explanation, not five.
+   *
+   * The subtitles are written for someone meeting the page for the first time; on a phone
+   * they pushed the page's actual content below the fold on every visit after that one.
+   */
+  .page-subtitle {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    overflow: hidden;
+  }
+  /* A search row in the header held a fixed 18rem input on one unwrapping line. */
+  .page-actions,
+  .page-actions .row {
+    flex-wrap: wrap;
+    width: 100%;
+  }
+  .page-actions .row > input {
+    flex: 1 1 12rem;
+  }
+
+  /* ── The top bar, compact ─────────────────────────────────────────────── */
+
+  .topbar {
+    flex-wrap: nowrap;
+    gap: var(--space-2);
+    padding: max(var(--space-2), env(safe-area-inset-top, 0px)) var(--space-4) var(--space-2);
+  }
+  /* The pill's destinations are in the bottom bar and the More sheet. */
+  .topbar-pill {
+    display: none;
+  }
+  .topbar-brand {
+    font-size: var(--text-base);
+    padding-right: 0;
+    min-width: 0;
+  }
+  .topbar-brand svg {
+    width: 22px;
+    height: 22px;
+  }
+  .topbar-right {
+    gap: var(--space-1);
+  }
+  .round,
+  .topbar .avatar {
+    width: 2.25rem;
+    height: 2.25rem;
+  }
+  /* Idle, the clock is its glyph; running, it is the time and the stop — the name can wait. */
+  .clock-idle {
+    width: 2.25rem;
+    height: 2.25rem;
+    padding: 0;
+    justify-content: center;
+  }
+  .clock-idle .clock-what,
+  .clock.live .clock-what {
+    display: none;
+  }
+  .clock-open {
+    padding-left: var(--space-3);
+  }
+
+  /* ── The bottom bar ───────────────────────────────────────────────────── */
+
+  .bottomnav {
+    position: fixed;
+    inset: auto 0 0 0;
+    z-index: var(--z-dock);
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+    height: var(--tabbar-space);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    background: color-mix(in srgb, var(--surface) 92%, transparent);
+    -webkit-backdrop-filter: saturate(1.4) blur(14px);
+    backdrop-filter: saturate(1.4) blur(14px);
+    border-top: 1px solid var(--border);
+  }
+  .tab {
+    display: grid;
+    place-items: center;
+    align-content: center;
+    gap: 2px;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: none;
+    color: var(--muted);
+    font-size: var(--text-2xs);
+    font-weight: var(--weight-medium);
+    text-decoration: none !important;
+    cursor: pointer;
+  }
+  .tab:hover:not(:disabled) {
+    background: none;
+  }
+  .tab .nav-icon {
+    opacity: 1;
+  }
+  /*
+   * The current tab is the accent, and only the current tab.
+   *
+   * On desktop the accent is spent on the running clock; down here the clock is in the top
+   * bar and the bar has no other colour, so "where am I" can have it.
+   */
+  .tab.on {
+    color: var(--accent);
+    font-weight: var(--weight-strong);
+  }
+  .tab-glyph {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 3.5rem;
+    height: 1.75rem;
+    border-radius: var(--radius-pill);
+    transition: background var(--dur-2) var(--ease-out);
+  }
+  .tab.on .tab-glyph {
+    background: var(--accent-bg);
+  }
+  .tab-glyph .count {
+    position: absolute;
+    top: -4px;
+    right: 4px;
+    min-width: 1.1rem;
+    padding: 0 4px;
+    font-size: 10px;
+    line-height: 1.1rem;
+  }
+
+  /* ── More ─────────────────────────────────────────────────────────── */
+
+  .more-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    /* Under the bar it opens from, so the sheet rises out of it. */
+    z-index: calc(var(--z-dock) - 1);
+    background: rgb(0 0 0 / 0.32);
+    animation: more-fade var(--dur-2) var(--ease-out);
+  }
+  .more-sheet {
+    position: absolute;
+    inset: auto 0 var(--tabbar-space) 0;
+    padding: var(--space-2) var(--space-4) var(--space-5);
+    background: var(--surface-raised);
+    border-top: 1px solid var(--border-strong);
+    border-radius: var(--radius-card) var(--radius-card) 0 0;
+    box-shadow: var(--plane-3-shadow);
+    animation: more-rise var(--dur-3) var(--ease-out);
+  }
+  .more-grip {
+    display: block;
+    width: 2.5rem;
+    height: 4px;
+    margin: 0 auto var(--space-3);
+    border-radius: var(--radius-pill);
+    background: var(--border-strong);
+  }
+  .more-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-2);
+  }
+  .more-item {
+    display: grid;
+    place-items: center;
+    gap: var(--space-1);
+    padding: var(--space-4) var(--space-2);
+    border-radius: var(--radius-lg);
+    background: var(--surface-sunken);
+    color: var(--text);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+    text-decoration: none !important;
+  }
+  .more-item .nav-icon {
+    opacity: 1;
+    color: var(--muted);
+  }
+  .more-item.on {
+    background: var(--accent-bg);
+    color: var(--accent);
+  }
+  .more-item.on .nav-icon {
+    color: var(--accent);
+  }
+
+  /* Everything else that sits on the bottom edge moves up off the bar. */
+  .toasts {
+    bottom: calc(var(--tabbar-space) + var(--space-3));
+  }
+  .assistant-page .composer {
+    bottom: var(--tabbar-space);
+    padding-bottom: var(--space-3);
+  }
+
+  /* ── Pages ────────────────────────────────────────────────────────── */
+
+  /*
+   * The assistant: the list or the thread, never both in one row.
+   *
+   * At 390px the 18rem history column left the conversation 60px — one word to a line. Here
+   * an open conversation fills the screen with a way back, and with none open the question
+   * box comes first and the history follows it.
+   */
+  .assistant-page {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-4);
+  }
+  .assistant-page[data-view='thread'] .assistant-history {
+    display: none;
+  }
+  .assistant-page[data-view='list'] .assistant-main {
+    order: -1;
+  }
+
+  /* Inbox: the actions take their own line under the item rather than squeezing its title. */
+  ul.insights li.insight {
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+  ul.insights li.insight > :first-child {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+  .insight-actions {
+    flex-wrap: wrap;
+    white-space: normal;
+  }
+
+  /* The decision card on Today: the kicker wrapped mid-phrase beside its own counter. */
+  .hero-chrome {
+    flex-wrap: wrap;
+    row-gap: var(--space-1);
+    padding: var(--space-3) var(--space-4);
+  }
+  .hero-body {
+    padding: var(--space-5) var(--space-4);
+    gap: var(--space-5);
+  }
+  .hero-next {
+    border-left: 0;
+    padding-left: 0;
+    border-top: 1px solid var(--border);
+    padding-top: var(--space-4);
+  }
+
+  /* Clients: who, then two figures side by side, then what is open and the stage control. */
+  .clientlist li {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: var(--space-3);
+  }
+  .clientlist .client-id,
+  .clientlist .client-open,
+  .clientlist .client-do {
+    grid-column: 1 / -1;
+  }
+  .client-do {
+    display: flex;
+    gap: var(--space-2);
+  }
+  .client-do select {
+    flex: 1;
+  }
+
+  /* Meetings: the row keeps its date and title; the figures were crushing the title to 80px. */
+  .meet-row {
+    grid-template-columns: 2.5rem minmax(0, 1fr) auto;
+  }
+  .meet-figures {
+    display: none;
+  }
+  .startbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .startbar-chips .ceremony {
+    flex: 1 1 calc(50% - var(--space-2));
+    min-width: 0;
+    justify-content: space-between;
+    text-align: left;
+  }
+  .ceremony-box {
+    white-space: nowrap;
+  }
+  .startbar-compose input {
+    min-width: 0;
+  }
+
+  /* Time: the clock row stacks — the reading, then what, then where, then go. */
+  /* The assistant's question box is drawn as the same card (see `.composer`), so it takes the
+     same phone padding. */
+  .tracker-composer,
+  .composer {
+    padding: var(--space-3) var(--space-4) var(--space-4);
+  }
+  .tracker-clock {
+    padding: var(--space-3);
+  }
+  .tracker-clock > :is(input, select, button) {
+    flex: 1 1 100%;
+  }
+
+  /* The board: columns snap, so a swipe lands on a column rather than between two. */
+  .board {
+    scroll-snap-type: x mandatory;
+    scroll-padding-inline: var(--space-1);
+  }
+  .board-column {
+    flex-basis: 82vw;
+    min-width: 82vw;
+    scroll-snap-align: start;
+  }
+
+  /*
+   * Bare tables scroll inside themselves.
+   *
+   * The DataTable and the editors wrap theirs; about a dozen portal and settings tables do
+   * not, and a nowrap header row on any of them pushed the page sideways.
+   */
+  main table:not(.grid) {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+  }
+  .table-wrap > table {
+    display: table;
+  }
+
+  /* The task modal becomes the screen: a card floating 16px inside a phone is wasted edge. */
+  .task-modal {
+    width: 100vw;
+    height: 100dvh;
+    border: 0;
+    border-radius: 0;
+  }
+  .task-modal-head {
+    flex-wrap: wrap;
+    padding: max(var(--space-2), env(safe-area-inset-top, 0px)) var(--space-3) var(--space-2);
+  }
+  .task-modal-main {
+    padding: var(--space-4);
+  }
+
+  .dialog {
+    width: calc(100vw - 2 * var(--space-3));
+  }
+
+  /*
+   * The meeting room, which has no bottom bar — it takes the whole viewport on every width.
+   *
+   * Its bar and strip are single unwrapping rows sized for a laptop. The bar wraps its side
+   * controls under the title; the strip scrolls sideways within itself, because its zones are
+   * glanced at rather than read and a wrapped strip would push the notes off the screen.
+   */
+  .room-bar {
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    padding: max(var(--space-2), env(safe-area-inset-top, 0px)) var(--space-3) var(--space-2);
+  }
+  .room-bar-side {
+    flex: 1 1 auto;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+  .room-back {
+    min-width: var(--control-h);
+    min-height: var(--control-h);
+  }
+  .room-strip {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .room-strip::-webkit-scrollbar {
+    display: none;
+  }
+  .room-strip-zone {
+    flex: none;
+    padding: var(--space-2) var(--space-3);
+  }
+  .room-strip-agenda {
+    flex: 1 0 auto;
+    max-width: 75vw;
+  }
+  .room-segments {
+    width: 6rem;
+  }
+}
+
+@keyframes more-rise {
+  from { transform: translateY(16px); opacity: 0; }
+}
+@keyframes more-fade {
+  from { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .more-sheet,
+  .more-scrim {
+    animation: none;
+  }
+}

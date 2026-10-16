@@ -11,6 +11,8 @@ import { App } from './shell/App.js';
  */
 import '@fontsource-variable/plus-jakarta-sans';
 import './styles.css';
+// After styles.css on purpose: the phone tier overrides it, and source order is how.
+import './phone.css';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

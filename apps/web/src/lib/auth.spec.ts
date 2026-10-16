@@ -137,6 +137,8 @@ describe('the way out of a bad session', () => {
     vi.resetModules();
     vi.doMock('react-router-dom', () => ({
       NavLink: ({ children }: { children?: unknown }) => children,
+      // The brand is a link home.
+      Link: ({ children }: { children?: unknown }) => children,
       useNavigate: () => vi.fn(),
     }));
     vi.doMock('../shell/useCan.js', () => ({ useCan: () => ({ can: () => true }) }));

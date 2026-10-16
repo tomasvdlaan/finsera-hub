@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import { Link, NavLink, useNavigate } from 'react-router-dom';
 import type { CurrentUser } from '@platform/contracts';
 import { Count } from './ui/primitives.js';
+import { Icon } from './Icon.js';
 import { elapsed, useRunningTimer } from './useRunningTimer.js';
 import { useCan } from './useCan.js';
 import type { NavItem } from '../modules/types.js';
@@ -34,17 +35,40 @@ export interface NavCounts {
  * honest next step if a tenth is proposed is that two of these merge: Time and Agenda are
  * closer to one question than either is to Board.
  */
-const ANCHORS: Array<{ label: string; path: string }> = [
-  { label: 'Today', path: '/today' },
-  { label: 'Inbox', path: '/insights' },
-  { label: 'Agenda', path: '/agenda' },
-  { label: 'Board', path: '/board' },
-  { label: 'Time', path: '/time' },
-  { label: 'Clients', path: '/clients' },
-  { label: 'Money', path: '/money' },
-  { label: 'Meetings', path: '/meetings' },
-  { label: 'Docs', path: '/docs' },
+export interface Anchor {
+  label: string;
+  path: string;
+  /** Drawn by the phone's bottom bar and More sheet, where a word alone is too small a target. */
+  icon: string;
+}
+
+const ANCHORS: Anchor[] = [
+  { label: 'Today', path: '/today', icon: 'home' },
+  { label: 'Inbox', path: '/insights', icon: 'inbox' },
+  { label: 'Agenda', path: '/agenda', icon: 'calendar' },
+  { label: 'Board', path: '/board', icon: 'columns' },
+  { label: 'Time', path: '/time', icon: 'clock' },
+  { label: 'Clients', path: '/clients', icon: 'briefcase' },
+  { label: 'Money', path: '/money', icon: 'receipt' },
+  { label: 'Meetings', path: '/meetings', icon: 'users' },
+  { label: 'Docs', path: '/docs', icon: 'file-text' },
 ];
+
+/*
+ * An anchor survives if the manifests know its path, or if the shell owns it outright.
+ *
+ * Today, Inbox and Money are composed from several modules and belong to no single one, so
+ * they can never appear in `nav` — but a module that is genuinely absent should not leave a
+ * pill anchor pointing at a page that does not exist.
+ *
+ * Exported because the phone's bottom bar draws the same set, and two filters over one list
+ * is how a destination ends up reachable on one screen size and not the other.
+ */
+const OWNED = new Set(['/today', '/insights', '/money', '/agenda']);
+export function visibleAnchors(nav: NavItem[]): Anchor[] {
+  const known = new Set(nav.map((n) => n.path));
+  return ANCHORS.filter((a) => OWNED.has(a.path) || known.has(a.path));
+}
 
 /**
  * The bar.
@@ -114,20 +138,12 @@ export function TopNav({
     };
   }, [menu]);
 
-  /*
-   * An anchor survives if the manifests know its path, or if the shell owns it outright.
-   *
-   * Today, Inbox and Money are composed from several modules and belong to no single one, so
-   * they can never appear in `nav` — but a module that is genuinely absent should not leave a
-   * pill anchor pointing at a page that does not exist.
-   */
-  const OWNED = new Set(['/today', '/insights', '/money', '/agenda']);
-  const known = new Set(nav.map((n) => n.path));
-  const anchors = ANCHORS.filter((a) => OWNED.has(a.path) || known.has(a.path));
+  const anchors = visibleAnchors(nav);
 
   return (
     <header className="topbar">
-      <div className="topbar-brand">
+      {/* A link home: on a phone Today is in the More sheet, so the mark is the short way back. */}
+      <Link to="/today" className="topbar-brand" aria-label="Finsera — Today">
         {/* Three ascending bars in the brand green: the shortest honest statement of what
             this platform is for. Inline so it inherits the accent and needs no asset. */}
         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -136,7 +152,7 @@ export function TopNav({
           <rect x="17" y="2" width="5" height="20" rx="1.5" />
         </svg>
         <span>Finsera</span>
-      </div>
+      </Link>
 
       <nav className="topbar-pill" aria-label="Sections">
         {anchors.map((a) => (
@@ -196,7 +212,14 @@ export function TopNav({
             </button>
           </div>
         ) : (
-          <button type="button" className="clock" onClick={() => navigate('/time')}>
+          <button
+            type="button"
+            className="clock clock-idle"
+            onClick={() => navigate('/time')}
+            // The label stays when the phone hides the words and leaves the glyph.
+            aria-label="Start a timer"
+          >
+            <Icon name="clock" size={16} />
             <span className="clock-what">Start a timer</span>
           </button>
         )}

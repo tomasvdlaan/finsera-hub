@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../../lib/api.js';
-import { useShared } from '../../lib/useShared.js';
+import { refreshShared, useShared } from '../../lib/useShared.js';
+import { useRunningTimer } from '../../shell/useRunningTimer.js';
 import { subjectPath, type Insight } from './Insights.js';
 
 /**
@@ -34,10 +35,52 @@ function cost(i: Insight): number {
   return (i.severity === 'urgent' ? 1_000_000 : 0) + (i.magnitude ?? 0);
 }
 
+/**
+ * The decision itself, for the rules where the decision is one obvious act.
+ *
+ * "Open it" sends you to a page and leaves the act to you; for these the page was only ever a
+ * detour to one button. Each returns where to land, or nothing to stay on the queue. The rest
+ * stay "Open it" on purpose — marking an invoice paid, say, is a fact to check against the
+ * bank, not a reflex to have from a dashboard.
+ */
+interface Decide {
+  label: string;
+  busyLabel: string;
+  run: (item: Insight) => Promise<string | null>;
+}
+
 export function DecisionQueue() {
   const { data, loading } = useShared<Insight[]>('/insights?status=open');
   const [at, setAt] = useState(0);
   const [dismissed, setDismissed] = useState<string[]>([]);
+  const [acting, setActing] = useState(false);
+  const [actError, setActError] = useState<string | null>(null);
+  const navigate = useNavigate();
+  const timer = useRunningTimer();
+
+  const DECIDE: Record<string, Decide> = {
+    unbilled_work_ageing: {
+      label: 'Draft the invoice',
+      busyLabel: 'Drafting…',
+      run: async (item) => {
+        const invoice = await api.post<{ id: string }>('/billing/invoices/draft-from-hours', {
+          projectId: item.subjectId,
+        });
+        return `/money/invoices/${invoice.id}`;
+      },
+    },
+    timer_left_running: {
+      label: 'Stop the clock',
+      busyLabel: 'Stopping…',
+      // Past a day the clock cannot be stopped without being told the hours actually worked,
+      // and only the Time page asks that question.
+      run: async () => {
+        if (timer.needsDuration) return '/time';
+        await timer.stop();
+        return null;
+      },
+    },
+  };
 
   const queue = (data ?? [])
     .filter((i) => i.severity === 'urgent' || i.severity === 'attention')
@@ -63,7 +106,29 @@ export function DecisionQueue() {
   if (!item) return null;
   const path = subjectPath(item);
 
-  const skip = () => setAt((n) => (n + 1) % queue.length);
+  const decide = DECIDE[item.rule];
+  const act = async () => {
+    if (!decide) return;
+    setActing(true);
+    setActError(null);
+    try {
+      const to = await decide.run(item);
+      // Acted on, so it leaves the queue now; the sweep will resolve it on its next pass.
+      setDismissed((all) => [...all, item.id]);
+      setAt(0);
+      refreshShared();
+      if (to) navigate(to);
+    } catch (e) {
+      setActError((e as Error).message);
+    } finally {
+      setActing(false);
+    }
+  };
+
+  const skip = () => {
+    setActError(null);
+    setAt((n) => (n + 1) % queue.length);
+  };
   const drop = () => {
     void api.post(`/insights/${item.id}/dismiss`, {}).catch(() => undefined);
     // Removed locally straight away. The sweep that produced it runs every six hours, so
@@ -94,18 +159,32 @@ export function DecisionQueue() {
           <h2>{item.title}</h2>
           {item.detail && <p>{item.detail}</p>}
           <div className="hero-actions">
-            {path && (
-              <Link to={path} className="hero-go">
-                Open it
-              </Link>
+            {decide ? (
+              <>
+                <button type="button" className="hero-go" onClick={() => void act()} disabled={acting}>
+                  {acting ? decide.busyLabel : decide.label}
+                </button>
+                {path && (
+                  <Link to={path} className="hero-second">
+                    Open it
+                  </Link>
+                )}
+              </>
+            ) : (
+              path && (
+                <Link to={path} className="hero-go">
+                  Open it
+                </Link>
+              )
             )}
-            <button type="button" onClick={drop} className="hero-second">
+            <button type="button" onClick={drop} className={decide ? 'hero-third' : 'hero-second'}>
               Dismiss
             </button>
             <button type="button" onClick={skip} className="hero-third" disabled={queue.length < 2}>
               Later
             </button>
           </div>
+          {actError && <p className="error">{actError}</p>}
         </div>
 
         {queue.length > 1 && (

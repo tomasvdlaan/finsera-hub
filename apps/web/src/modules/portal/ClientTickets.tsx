@@ -116,7 +116,7 @@ function Thread({ id, projects, onChanged }: { id: string; projects: Project[]; 
   const forClient = projects.filter((p) => p.clientId === ticket.client_id);
 
   return (
-    <div style={{ borderLeft: '2px solid var(--line)', paddingLeft: '1rem', margin: '.5rem 0 1.5rem' }}>
+    <div style={{ borderLeft: '2px solid var(--border)', paddingLeft: '1rem', margin: '.5rem 0 1.5rem' }}>
       {messages.map((m) => (
         <article key={m.id} style={{ marginBottom: '.9rem' }}>
           <p className="muted" style={{ margin: 0 }}>

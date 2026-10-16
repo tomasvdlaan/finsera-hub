@@ -26,6 +26,18 @@ export function useSection(section: string): NavItem[] {
 }
 
 /**
+ * Whether the module behind a page is installed.
+ *
+ * For a page offering the next step in somebody else's module — "New quote" on a client —
+ * which must not offer a step into a module that is not there. Asked of the manifests'
+ * navigation, the same evidence the top bar's anchors use.
+ */
+export function useInstalled(): (path: string) => boolean {
+  const nav = useContext(NavContext);
+  return (path) => nav.some((i) => i.path === path);
+}
+
+/**
  * The tab strip for a section, for the `tabs` slot on PageHeader.
  *
  * Every page in the section renders the same strip, so moving between them keeps the strip
