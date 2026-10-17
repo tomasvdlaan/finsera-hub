@@ -226,7 +226,7 @@ export class NotificationService {
   }
 
   /** The badge: how many things — groups, not occurrences — are unread. */
-  async count(actor: Actor): Promise<number> {
+  async count(actor: Pick<Actor, 'userId'>): Promise<number> {
     const [row] = await this.db
       .select({ n: sql<number>`count(DISTINCT ${notifications.groupKey})::int` })
       .from(notifications)
@@ -246,7 +246,7 @@ export class NotificationService {
    * Reading a mention also reads the mention itself, so the two records never disagree about
    * whether somebody has seen it.
    */
-  async markRead(actor: Actor, ids?: string[]): Promise<{ read: number }> {
+  async markRead(actor: Pick<Actor, 'userId'>, ids?: string[]): Promise<{ read: number }> {
     const mine = eq(notifications.personId, actor.userId);
     const unread = isNull(notifications.readAt);
     let scope = and(mine, unread);

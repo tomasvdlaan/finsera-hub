@@ -7,6 +7,8 @@ import { CommentService } from './comments/comment.service.js';
 import { MentionService } from './comments/mention.service.js';
 import { NotificationService } from './notifications/notification.service.js';
 import { NotificationProducers } from './notifications/notification-producers.js';
+import { PushService } from './notifications/push.service.js';
+import { PushRouter } from './notifications/push-router.js';
 import { DbModule } from './db/db.module.js';
 import { EventBus } from './events/event-bus.service.js';
 import { EventDispatcher } from './events/event-dispatcher.service.js';
@@ -43,6 +45,8 @@ const services = [
   MentionService,
   NotificationService,
   NotificationProducers,
+  PushService,
+  PushRouter,
   ManifestRegistry,
   RegistryService,
   AuditService,

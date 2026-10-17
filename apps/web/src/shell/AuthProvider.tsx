@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import type { User } from 'oidc-client-ts';
-import { getUser, login, logout, userManager } from '../lib/auth.js';
+import { getUser, login, logout, safeReturnPath, userManager } from '../lib/auth.js';
 
 interface AuthState {
   user: User | null;
@@ -34,7 +34,8 @@ function resolveSession(): Promise<User | null> {
   sessionPromise ??= (async () => {
     if (window.location.pathname === '/auth/callback') {
       const user = await userManager.signinRedirectCallback();
-      window.history.replaceState({}, '', '/');
+      const returnTo = safeReturnPath((user.state as { returnTo?: unknown } | undefined)?.returnTo);
+      window.history.replaceState({}, '', returnTo ?? '/');
       return user;
     }
     return getUser();

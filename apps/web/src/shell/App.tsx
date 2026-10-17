@@ -31,6 +31,8 @@ import { People } from './People.js';
 import { Costs } from './Costs.js';
 import { PersonDetail } from './PersonDetail.js';
 import { Settings } from './Settings.js';
+import { NotificationSettings } from './NotificationSettings.js';
+import { PushBridge, forgetThisDevice } from './push.js';
 import { DialogProvider } from './ui/Dialog.js';
 import { ToastProvider } from './ui/Toast.js';
 import { useDocumentTitle } from './useDocumentTitle.js';
@@ -211,6 +213,8 @@ function Shell() {
   return (
     <BrowserRouter>
       <RouteTitle nav={nav} />
+      {/* Taps on notifications, and the badge refreshing when one arrives — see shell/push.ts. */}
+      <PushBridge />
       {/*
         Above both layouts on purpose.
 
@@ -257,7 +261,11 @@ function Shell() {
               onSearch={() => setSearchOpen(true)}
               error={error}
               refused={refused}
-              onLogout={logout}
+              onLogout={() => {
+                // This device stops receiving this person's pushes before the session ends —
+                // a shared laptop must not go on buzzing for somebody who signed out.
+                void forgetThisDevice().finally(logout);
+              }}
             />
           }
         >
@@ -289,6 +297,8 @@ function Shell() {
           {/* One colleague. Behind core.people.manage like the directory it hangs off. */}
           <Route path="/settings/people/:id" element={<Page width="wide"><PersonDetail /></Page>} />
           <Route path="/settings/modules" element={<Page><Modules /></Page>} />
+          {/* Your own — every signed-in person has one, so no capability gates it. */}
+          <Route path="/settings/notifications" element={<Page width="read"><NotificationSettings /></Page>} />
           <Route path="/settings" element={<Page width="read"><Settings /></Page>} />
           {/* Every address the app used to serve, before the URLs were named after the
               thing rather than the module that stores it. See shell/moved.tsx. */}

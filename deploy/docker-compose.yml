@@ -92,6 +92,11 @@ services:
       # as in deploy/.env for the reason written a few lines down: a value this file does not
       # enumerate reaches the host and stops.
       VERCEL_PROXY_SECRET: ${VERCEL_PROXY_SECRET:-}
+      # Web Push. Named here for the same reason: unlisted, the keys would reach the host and
+      # stop, and push would silently be off in production.
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-https://hub.finsera.nl}
       # Shared with Caddy's on-demand-TLS `ask` URL, so that endpoint answers the reverse
       # proxy and not anyone who can reach /api. Unset leaves it open.
       PORTAL_ASK_TOKEN: ${PORTAL_ASK_TOKEN:-}

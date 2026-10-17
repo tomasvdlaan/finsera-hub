@@ -278,6 +278,9 @@ export function TopNav({
                 */}
                 {me && (
                   <>
+                    <NavLink to="/settings/notifications" role="menuitem" onClick={() => setMenu(false)}>
+                      Notifications
+                    </NavLink>
                     <NavLink to="/settings" role="menuitem" onClick={() => setMenu(false)}>
                       Organisation
                     </NavLink>

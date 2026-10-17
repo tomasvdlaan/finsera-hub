@@ -570,6 +570,67 @@ export const notifications = core.table(
 );
 
 /**
+ * A browser or installed app that may receive pushes for one person.
+ *
+ * The endpoint is the push service's address for that one installation (Apple's, Google's,
+ * Mozilla's); `p256dh` and `auth` are the keys our payloads are encrypted to, so the relay sees
+ * that a message exists and never what it says. A 404 or 410 from the service means the
+ * subscription is gone and the row is revoked; so do repeated failures. Signing out removes the
+ * row for that device — a shared laptop must not keep receiving somebody else's pushes.
+ */
+export const pushDevices = core.table(
+  'push_devices',
+  {
+    id: uuid('id').primaryKey(),
+    personId: uuid('person_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    endpoint: text('endpoint').notNull(),
+    p256dh: text('p256dh').notNull(),
+    auth: text('auth').notNull(),
+    /** "iPhone", "Mac · Chrome" — from the user agent, so the list is recognisable. */
+    label: text('label').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    lastSuccessAt: timestamp('last_success_at', { withTimezone: true }),
+    failures: integer('failures').notNull().default(0),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex('push_devices_endpoint').on(t.endpoint),
+    index('push_devices_person_idx').on(t.personId),
+  ],
+);
+
+/**
+ * Every attempt to deliver a notification outside the app, and what became of it.
+ *
+ * So "did it reach my phone?" has an answer, a held push has somewhere to wait for the working
+ * day, and the four-week review (brief §4.7) can see which categories are opened and which are
+ * switched off. `status`: held (waiting for working hours), sent, failed, skipped (with why).
+ */
+export const notificationDeliveries = core.table(
+  'notification_deliveries',
+  {
+    id: uuid('id').primaryKey(),
+    notificationId: uuid('notification_id')
+      .notNull()
+      .references(() => notifications.id, { onDelete: 'cascade' }),
+    channel: text('channel').notNull(), // 'push' | 'email'
+    status: text('status').notNull(),
+    reason: text('reason'),
+    scheduledFor: timestamp('scheduled_for', { withTimezone: true }),
+    sentAt: timestamp('sent_at', { withTimezone: true }),
+    openedAt: timestamp('opened_at', { withTimezone: true }),
+    error: text('error'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('notification_deliveries_once').on(t.notificationId, t.channel),
+    index('notification_deliveries_held_idx').on(t.status, t.scheduledFor),
+  ],
+);
+
+/**
  * How one person wants to be told. One row each, a single jsonb document like the dashboard:
  * it is only ever read and written whole, and its shape — categories, hours, thresholds —
  * belongs to the service that validates it, not to a migration per new setting. A person with
