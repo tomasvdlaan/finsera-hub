@@ -33,7 +33,9 @@ CREATE INDEX "notifications_insight_idx" ON "core"."notifications" USING btree (
 -- writes, so a mention later re-read through either path stays one row.
 INSERT INTO "core"."notifications" ("id", "person_id", "category", "tier", "subject_id", "subject_type", "actor_id", "title", "group_key", "dedupe_key", "created_at")
 SELECT m."id", m."user_id", 'mention', 'now', m."subject_id", m."subject_type", m."author_id",
-       u."display_name" || ' mentioned you on ' || e."display_name",
+       CASE WHEN m."user_id" = m."author_id"
+            THEN 'Your reminder on “' || e."display_name" || '”'
+            ELSE u."display_name" || ' mentioned you on “' || e."display_name" || '”' END,
        'comments:' || m."subject_id", 'mention:' || m."id", m."created_at"
   FROM "core"."mentions" m
   JOIN "core"."users" u ON u."id" = m."author_id"

@@ -31,8 +31,10 @@ export function useAttentionCount(enabled: boolean): number | undefined {
     if (!enabled) return;
     let alive = true;
 
-    const refresh = () => {
-      if (document.visibilityState !== 'visible') return;
+    // The minute poll skips a hidden page; anything somebody just did refreshes regardless —
+    // they are plainly looking at it.
+    const refresh = (always = false) => {
+      if (!always && document.visibilityState !== 'visible') return;
       void Promise.all([
         api.get<Array<{ id: string }>>('/insights?status=open').catch(() => []),
         api.get<{ unread: number }>('/core/notifications/count').catch(() => ({ unread: 0 })),
@@ -41,17 +43,19 @@ export function useAttentionCount(enabled: boolean): number | undefined {
       });
     };
 
-    refresh();
-    const timer = window.setInterval(refresh, POLL_MS);
-    window.addEventListener(CHANGED, refresh);
-    window.addEventListener('focus', refresh);
-    document.addEventListener('visibilitychange', refresh);
+    const now = () => refresh(true);
+    const poll = () => refresh();
+    now();
+    const timer = window.setInterval(poll, POLL_MS);
+    window.addEventListener(CHANGED, now);
+    window.addEventListener('focus', poll);
+    document.addEventListener('visibilitychange', poll);
     return () => {
       alive = false;
       window.clearInterval(timer);
-      window.removeEventListener(CHANGED, refresh);
-      window.removeEventListener('focus', refresh);
-      document.removeEventListener('visibilitychange', refresh);
+      window.removeEventListener(CHANGED, now);
+      window.removeEventListener('focus', poll);
+      document.removeEventListener('visibilitychange', poll);
     };
   }, [enabled]);
 

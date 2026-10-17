@@ -22,7 +22,8 @@ export const NOTIFICATION_CATEGORIES = [
   { key: 'time', label: 'Time', description: 'A clock running long, timesheets returned or waiting.' },
   { key: 'money', label: 'Money', description: 'Invoices paid or overdue, budgets, contracts.' },
   { key: 'meeting', label: 'Meetings', description: 'Notes finalised, action points waiting on you.' },
-  { key: 'project', label: 'Projects', description: 'Added to a project, sprints starting and ending.' },
+  // Only the sprint rule feeds this so far; project membership needs a CRM event (brief §5).
+  { key: 'project', label: 'Projects', description: 'A sprint on your project ending with work still open.' },
 ] as const;
 export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number]['key'];
 
