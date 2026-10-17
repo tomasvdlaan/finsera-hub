@@ -4,7 +4,14 @@ import { eq } from 'drizzle-orm';
 import { AuditService } from '../audit/audit.service.js';
 import { CommentService } from '../comments/comment.service.js';
 import { MentionService } from '../comments/mention.service.js';
-import { departments, mentions, notifications, userDepartments, users } from '../db/core.schema.js';
+import {
+  comments as commentsTable,
+  departments,
+  mentions,
+  notifications,
+  userDepartments,
+  users,
+} from '../db/core.schema.js';
 import { EventHandlerRegistry } from '../events/event-handler.registry.js';
 import { ManifestRegistry } from '../manifest/manifest.registry.js';
 import { PermissionService } from '../permissions/permission.service.js';
@@ -271,6 +278,57 @@ describe('notifications', () => {
       const [entry] = await service.list(marijn);
       expect(entry!.title).toBe('Tomas sent back your week of 12 Oct');
       expect(entry!.url).toBe('/time/week?date=2026-10-12');
+    });
+
+    describe('comments', () => {
+      const joris: Actor = { userId: crypto.randomUUID(), role: 'member' };
+      beforeEach(() => seedUser(joris.userId, 'member', 'Joris'));
+
+      const created = async (author: Actor, body: string, parentId?: string) => {
+        const c = await comments.add(author, { subjectId: item, body, parentId });
+        const [parent] = parentId
+          ? await testDb.select().from(commentsTable).where(eq(commentsTable.id, parentId))
+          : [];
+        await producers.commented({
+          eventId: crypto.randomUUID(),
+          eventName: 'comment.created',
+          entityType: 'demo_item',
+          entityId: item,
+          actorId: author.userId,
+          payload: { commentId: c.id, parentId: parentId ?? null, parentAuthorId: parent?.authorId ?? null },
+        });
+        return c;
+      };
+
+      it('tells people already in the thread, quietly, and not the author', async () => {
+        await created(marijn, 'I had a look');
+        await created(tomas, 'Thanks — shipping it');
+        const [entry] = await service.list(marijn);
+        expect(entry!.title).toBe('Tomas commented on “Rework the roles”');
+        expect(entry!.tier).toBe('quiet');
+        expect(await service.list(tomas)).toHaveLength(0);
+      });
+
+      it('says "replied to you" to the author of the comment being answered', async () => {
+        const first = await created(marijn, 'Is this done?');
+        await created(tomas, 'Yes', first.id);
+        expect((await service.list(marijn))[0]!.title).toBe('Tomas replied to you on “Rework the roles”');
+      });
+
+      it('does not tell somebody twice when they are also named in it', async () => {
+        await created(marijn, 'Started');
+        await created(tomas, 'Over to you @Marijn Jansen');
+        // The mention producer tells Marijn; the comment producer leaves Marijn out.
+        const forMarijn = (await testDb.select().from(notifications)).filter((n) => n.personId === marijn.userId);
+        expect(forMarijn.filter((n) => n.category === 'comment')).toHaveLength(0);
+      });
+
+      it('stays quiet on a record somebody muted', async () => {
+        await created(marijn, 'Started');
+        await service.mute(marijn, item, true);
+        await created(tomas, 'Another thought');
+        expect(await service.list(marijn)).toHaveLength(0);
+      });
     });
 
     it('tells admins a week is waiting, at the quieter tier', async () => {

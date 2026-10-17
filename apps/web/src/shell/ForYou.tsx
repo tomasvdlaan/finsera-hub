@@ -27,6 +27,7 @@ const ago = (iso: string): string => {
 export function ForYou() {
   const [items, setItems] = useState<NotificationView[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [muted, setMuted] = useState<string[]>([]);
 
   const load = useCallback(
     () =>
@@ -53,6 +54,21 @@ export function ForYou() {
     } catch (e) {
       setError((e as Error).message);
       void load();
+    }
+  };
+
+  /*
+   * Muting a thread stops comment notifications about that record — not mentions, and not
+   * assignments: muting a conversation is not muting the people in it addressing you.
+   */
+  const mute = async (n: NotificationView) => {
+    if (!n.subjectId) return;
+    try {
+      await api.post('/core/notifications/mute', { subjectId: n.subjectId, muted: true });
+      await read([n.id]);
+      setMuted((m) => [...m, n.subjectId!]);
+    } catch (e) {
+      setError((e as Error).message);
     }
   };
 
@@ -95,6 +111,15 @@ export function ForYou() {
                 <button type="button" className="link-button" onClick={() => void read([n.id])}>
                   mark read
                 </button>
+              )}
+              {n.category === 'comment' && n.subjectId && (
+                muted.includes(n.subjectId) ? (
+                  <span className="muted">muted</span>
+                ) : (
+                  <button type="button" className="link-button" onClick={() => void mute(n)}>
+                    mute this thread
+                  </button>
+                )
               )}
             </div>
           </li>

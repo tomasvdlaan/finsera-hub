@@ -438,12 +438,27 @@ export class MeetingsService {
         entityType: 'meeting_note',
         entityId: id,
       });
+      /*
+       * Who was in it, by account, and who it was shared with — those of them who can open it.
+       * Carried so they can be told the notes are ready; the core cannot read who attended.
+       */
+      const [present, shared] = await Promise.all([
+        tx.select({ userId: attendees.userId }).from(attendees).where(eq(attendees.noteId, id)),
+        tx.select({ userId: noteViewers.userId }).from(noteViewers).where(eq(noteViewers.noteId, id)),
+      ]);
+      const people = [note.createdBy, ...present.map((p) => p.userId), ...shared.map((v) => v.userId)].filter(
+        (u): u is string => typeof u === 'string',
+      );
       await this.events.publish(tx, {
         name: 'meeting_note.finalised',
         entityType: 'meeting_note',
         entityId: id,
         actorId: actor.userId,
-        payload: { title: note.title, clientId: note.clientId },
+        payload: {
+          title: note.title,
+          clientId: note.clientId,
+          people: await this.openableBy(tx, id, people),
+        },
       });
     });
     return this.get(actor, id);
@@ -1020,6 +1035,26 @@ export class MeetingsService {
    * would put its existence, and its title, on their screen. This module owns that rule, so
    * it applies it here, with the same `visibleNotes` every listing goes through.
    */
+  /**
+   * Of these people, the active ones who can open this note — by the same `visibleNotes` rule
+   * every listing uses, so an event never names somebody a restricted note is shut to.
+   */
+  private async openableBy(tx: Tx, noteId: string, userIds: string[]): Promise<string[]> {
+    const can: string[] = [];
+    for (const userId of [...new Set(userIds)]) {
+      const person = await this.users.byId(userId);
+      if (!person?.isActive) continue;
+      const who: Actor = { userId: person.id, role: person.role as Actor['role'] };
+      const [visible] = await tx
+        .select({ id: notes.id })
+        .from(notes)
+        .where(and(eq(notes.id, noteId), visibleNotes(who, await this.memberships(who))))
+        .limit(1);
+      if (visible) can.push(userId);
+    }
+    return can;
+  }
+
   private async announceActionItem(
     tx: Tx,
     actor: Actor,
@@ -1027,15 +1062,7 @@ export class MeetingsService {
     actionItemId: string,
     assigneeId: string,
   ): Promise<void> {
-    const person = await this.users.byId(assigneeId);
-    if (!person?.isActive) return;
-    const assignee: Actor = { userId: person.id, role: person.role as Actor['role'] };
-    const [visible] = await tx
-      .select({ id: notes.id })
-      .from(notes)
-      .where(and(eq(notes.id, noteId), visibleNotes(assignee, await this.memberships(assignee))))
-      .limit(1);
-    if (!visible) return;
+    if ((await this.openableBy(tx, noteId, [assigneeId])).length === 0) return;
     await this.events.publish(tx, {
       name: 'action_item.assigned',
       entityType: 'meeting_note',

@@ -1,7 +1,7 @@
 import { Inject, Injectable, type OnModuleInit } from '@nestjs/common';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, isNull, ne } from 'drizzle-orm';
 import { DB, type Database } from '../db/db.module.js';
-import { departments, entities, userDepartments, users } from '../db/core.schema.js';
+import { comments, departments, entities, mentions, userDepartments, users } from '../db/core.schema.js';
 import { EventHandlerRegistry, type EventContext } from '../events/event-handler.registry.js';
 import { NotificationService } from './notification.service.js';
 
@@ -33,6 +33,74 @@ export class NotificationProducers implements OnModuleInit {
     this.handlers.bind('core', 'notifyQuoteRejected', (ctx) => this.quoteDecided(ctx, false));
     this.handlers.bind('core', 'notifyTimesheetReturned', (ctx) => this.timesheetReturned(ctx));
     this.handlers.bind('core', 'notifyTimesheetSubmitted', (ctx) => this.timesheetSubmitted(ctx));
+    this.handlers.bind('core', 'notifyCommented', (ctx) => this.commented(ctx));
+    this.handlers.bind('core', 'notifyMeetingFinalised', (ctx) => this.meetingFinalised(ctx));
+  }
+
+  /**
+   * A comment on a thread you are part of — quiet, in-app, collapsed per record.
+   *
+   * "Part of" is known to the core alone: whoever has already written in this thread, and the
+   * author of the comment being replied to. Nobody named in the same comment — they are told
+   * by the mention, and twice would be once too many. A record you muted stays quiet.
+   */
+  async commented(ctx: EventContext): Promise<void> {
+    const commentId = ctx.payload.commentId as string | undefined;
+    if (!commentId) return;
+    const [earlier, named] = await Promise.all([
+      this.db
+        .selectDistinct({ authorId: comments.authorId })
+        .from(comments)
+        .where(and(eq(comments.subjectId, ctx.entityId), ne(comments.id, commentId), isNull(comments.deletedAt))),
+      this.db.select({ userId: mentions.userId }).from(mentions).where(eq(mentions.commentId, commentId)),
+    ]);
+    const parentAuthor = ctx.payload.parentAuthorId as string | null | undefined;
+    const skip = new Set([ctx.actorId, ...named.map((n) => n.userId)]);
+    const to = [...new Set([parentAuthor, ...earlier.map((e) => e.authorId)])].filter(
+      (u): u is string => typeof u === 'string' && !skip.has(u),
+    );
+    if (to.length === 0) return;
+    const [actor, subject] = await Promise.all([this.nameOf(ctx.actorId), this.subjectName(ctx.entityId)]);
+
+    for (const personId of to) {
+      const settings = await this.notifications.settings(personId);
+      if (settings.muted.includes(ctx.entityId)) continue;
+      await this.notifications.notify({
+        personId,
+        category: 'comment',
+        tier: 'quiet',
+        title:
+          personId === parentAuthor
+            ? `${actor ?? 'Somebody'} replied to you on ${subject}`
+            : `${actor ?? 'Somebody'} commented on ${subject}`,
+        // The thread's group, shared with mentions: one line per conversation in For you.
+        groupKey: `comments:${ctx.entityId}`,
+        dedupeKey: `comment:${commentId}:${personId}`,
+        subjectId: ctx.entityId,
+        subjectType: ctx.entityType,
+        actorId: ctx.actorId,
+      });
+    }
+  }
+
+  /** The notes of a meeting you were in, or were given, are final. The meetings module names who. */
+  async meetingFinalised(ctx: EventContext): Promise<void> {
+    const people = (ctx.payload.people ?? []) as string[];
+    if (people.length === 0) return;
+    const title = ctx.payload.title as string | undefined;
+    for (const personId of people) {
+      await this.notifications.notify({
+        personId,
+        category: 'meeting',
+        tier: 'quiet',
+        title: `The notes from ${title ? `“${title.slice(0, 80)}”` : 'a meeting'} are final`,
+        groupKey: `meeting:${ctx.entityId}`,
+        dedupeKey: `meeting.finalised:${ctx.eventId}:${personId}`,
+        subjectId: ctx.entityId,
+        subjectType: ctx.entityType,
+        actorId: ctx.actorId,
+      });
+    }
   }
 
   /** Somebody was named in a comment. One notification per person named. */

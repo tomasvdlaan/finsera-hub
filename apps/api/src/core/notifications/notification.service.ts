@@ -311,6 +311,18 @@ export class NotificationService {
       .where(and(isNull(notifications.clearedAt), sql`${notifications.groupKey} LIKE ${`${prefix}%`}`));
   }
 
+  /**
+   * Mute or unmute comment notifications on one record. A mention or an assignment still gets
+   * through — muting a thread is not muting the people in it addressing you.
+   */
+  async mute(actor: Actor, subjectId: string, muted: boolean): Promise<NotificationSettings> {
+    const current = await this.settings(actor.userId);
+    const set = new Set(current.muted);
+    if (muted) set.add(subjectId);
+    else set.delete(subjectId);
+    return this.saveSettings(actor, { ...current, muted: [...set] });
+  }
+
   /** This person's settings, with every default filled in. */
   async settings(personId: string): Promise<NotificationSettings> {
     const [row] = await this.db

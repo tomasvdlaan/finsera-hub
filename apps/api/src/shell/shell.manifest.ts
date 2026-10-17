@@ -45,6 +45,8 @@ export const coreManifest = defineManifest({
     { event: 'quote.rejected', handler: 'notifyQuoteRejected' },
     { event: 'timesheet.returned', handler: 'notifyTimesheetReturned' },
     { event: 'timesheet.submitted', handler: 'notifyTimesheetSubmitted' },
+    { event: 'comment.created', handler: 'notifyCommented' },
+    { event: 'meeting_note.finalised', handler: 'notifyMeetingFinalised' },
   ],
 
   permissions: [

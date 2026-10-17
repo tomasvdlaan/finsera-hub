@@ -45,6 +45,13 @@ export class NotificationsController {
     return this.notifications.saveSettings(actor, body);
   }
 
+  /** Stop (or resume) comment notifications for one record. */
+  @Post('mute')
+  mute(@CurrentActor() actor: Actor, @Body() body: { subjectId?: string; muted?: boolean }) {
+    if (!body?.subjectId) return this.notifications.settings(actor.userId);
+    return this.notifications.mute(actor, body.subjectId, body.muted !== false);
+  }
+
   /** Opened from a push on a device: counts as reading it, and as the push having worked. */
   @Post(':id/opened')
   async opened(@CurrentActor() actor: Actor, @Param('id') id: string) {
