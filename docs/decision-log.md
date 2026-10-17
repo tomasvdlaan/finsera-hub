@@ -122,6 +122,7 @@ Phase 0 (walking skeleton) approved for build against `phase0-spec.md` as drafte
 | O6 | AI cost model: token budget/user/month, alerts, metering | Estimate before Phase 2; revisit at G3 | Transcription is the expected cost spike. |
 | O7 | Tool-autonomy promotion criteria (draft → autonomous) | Before Phase 7 | Track record + eval pass + low blast radius. |
 | O8 | Client communication on AI processing; DPA language | Before any client-facing AI (6c output / Phase 7) | Involve whoever handles DPAs. |
+| O9 | Mail provider (gate **G8**): Graph `sendMail` vs. a transactional provider vs. SMTP | Before notifications N6 (email digest, client mail) | Recommendation on record: Graph `sendMail` from one mailbox under an application access policy — see the 2026-10-17 entry. |
 
 ---
 
@@ -1077,3 +1078,51 @@ SSRF guard on the source URL hold here without being restated.
 `artefact-publiceren` skill with the GitHub and Vercel credentials it already holds, and
 moving it into the platform would mean the API owning both. The split stands: the skill
 publishes, the assistant registers.
+
+## 2026-10-17 — Notifications deliver the Inbox · **Decided**
+
+Brief: [notifications-brief.md](notifications-brief.md). **All twelve recommendations (N1–N12)
+accepted as written; nothing built yet.**
+
+This narrowly reverses the elevation plan's *"a notifications system — don't build"*. That call
+rested on *"/inbox with a live badge is the right size"*, and the live badge was never built —
+the count is fetched once, at sign-in — while the phone tier means hub is now used where no tab
+stays open. The principle under the old call survives intact and is what this is built on: **one
+triage queue.** A notification is a way an Inbox item reaches you, never a second place it lives.
+
+What was decided, in short:
+
+- **One record per person** (`core.notifications`); in-app is the record and cannot be turned
+  off, push and email are logged deliveries of it. States from Insights rules notify when raised
+  for you or escalated, and clear when they resolve.
+- **Three tiers:** *Now* pushes, *Today* waits for one morning brief, *Quiet* stays in-app. The
+  catalogue in the brief's §4.2 assigns every moment; a person may move a category down.
+- **No bell and no second count:** the Inbox gains *For you*; the badge becomes live by polling
+  (60s while visible, on focus, on push) before anything heavier.
+- **Web Push with VAPID**, through a push-only service worker that caches nothing. Lock screens
+  show who and the title — **never a body, never an amount**, the same line the ticket events
+  already draw. Sign-out removes the device.
+- **Working hours** (default Mon–Fri 08:30–18:30, Europe/Amsterdam): push outside them is held
+  for the morning, with no exception for anything at night — a clock left running overnight is
+  answered in the morning, where the Time page asks for the real hours.
+- **Never the actor, collapsed by subject, capped per day, deduplicated** against at-least-once
+  delivery.
+- **Hub notifications in English, client mail in Dutch.** Clients get email only, three
+  messages, after G8.
+
+**Two faults in the event dispatcher are fixed first (N0), before any subscriber exists.**
+`fanOut()` skips events nobody subscribes to without recording that it did, so they never leave
+its 200-event window — already more than 200 of them, so a new subscriber would never be
+reached. And a subscriber receives the whole history, so a notifier's first run would announce
+every mention since July. Subscribers get a start point; events without one are marked and passed.
+
+**Comments and mentions go on the bus.** They were kept off *by design* when nothing listened;
+that reason no longer holds. The comment body still never travels.
+
+**G8 is now due**, and is recorded as O9: notifications are the first feature that needs mail on
+its own terms. The recommendation is Graph `sendMail` from one mailbox under an application
+access policy, because `finsera.nl` already authenticates Microsoft 365 mail (SPF, Microsoft DKIM,
+DMARC aligned) and it adds no new data processor — but it is decided as G8, in its own note.
+
+**Revisit if:** the four-week review after N2 shows a category opened rarely and switched off
+often — that category moves down a tier, rather than its wording being tuned.
