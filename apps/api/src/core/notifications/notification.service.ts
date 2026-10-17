@@ -298,6 +298,14 @@ export class NotificationService {
     return cleared.length;
   }
 
+  /** Uncleared groups whose key starts with `prefix` — for a producer tidying up after itself. */
+  async openGroups(prefix: string): Promise<Array<{ personId: string; groupKey: string }>> {
+    return this.db
+      .selectDistinct({ personId: notifications.personId, groupKey: notifications.groupKey })
+      .from(notifications)
+      .where(and(isNull(notifications.clearedAt), sql`${notifications.groupKey} LIKE ${`${prefix}%`}`));
+  }
+
   /** This person's settings, with every default filled in. */
   async settings(personId: string): Promise<NotificationSettings> {
     const [row] = await this.db

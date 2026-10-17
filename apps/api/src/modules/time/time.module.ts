@@ -1,3 +1,4 @@
+import { TimerReminders } from './timer-reminders.js';
 import { Module, type OnModuleInit } from '@nestjs/common';
 import type { Actor } from '@platform/contracts';
 import { AiToolRegistry } from '../../core/llm/tool-registry.service.js';
@@ -18,7 +19,7 @@ import { TimeExportService } from './time-export.service.js';
 @Module({
   imports: [CrmModule],
   controllers: [TimeController],
-  providers: [TimeService, TimeExportService],
+  providers: [TimeService, TimeExportService, TimerReminders],
   exports: [TimeService, TimeExportService],
 })
 export class TimeModule implements OnModuleInit {

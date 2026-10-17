@@ -209,6 +209,78 @@ export function NotificationSettings() {
             </div>
           </Card>
 
+          <Card
+            span={12}
+            title="A clock left running"
+            sub="Reminders about your own timer, during working hours only — a clock left on overnight is mentioned the next morning, where the Time page asks for the hours you actually worked."
+          >
+            <ul className="toggle-list">
+              <li>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={settings.timer.enabled}
+                    onChange={(e) => set({ timer: { ...settings.timer, enabled: e.target.checked } })}
+                  />
+                  <span>
+                    <strong>Remind me</strong>
+                  </span>
+                </label>
+              </li>
+              {settings.timer.enabled && (
+                <>
+                  <li>
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={settings.timer.afterHours > 0}
+                        onChange={(e) =>
+                          set({ timer: { ...settings.timer, afterHours: e.target.checked ? 3 : 0 } })
+                        }
+                      />
+                      <span>
+                        After{' '}
+                        <input
+                          type="number"
+                          min={1}
+                          max={12}
+                          className="inline-number"
+                          aria-label="Hours before the first reminder"
+                          value={settings.timer.afterHours || 3}
+                          disabled={settings.timer.afterHours === 0}
+                          onChange={(e) =>
+                            set({ timer: { ...settings.timer, afterHours: Math.max(1, Number(e.target.value) || 3) } })
+                          }
+                        />{' '}
+                        hours of running
+                      </span>
+                    </label>
+                  </li>
+                  <li>
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={settings.timer.endOfDay}
+                        onChange={(e) => set({ timer: { ...settings.timer, endOfDay: e.target.checked } })}
+                      />
+                      <span>When the working day ends and it is still running</span>
+                    </label>
+                  </li>
+                  <li>
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={settings.timer.overnight}
+                        onChange={(e) => set({ timer: { ...settings.timer, overnight: e.target.checked } })}
+                      />
+                      <span>The morning after, if it ran overnight</span>
+                    </label>
+                  </li>
+                </>
+              )}
+            </ul>
+          </Card>
+
           <div className="row">
             <Button variant="primary" disabled={busy} onClick={() => void save()}>
               Save

@@ -1,18 +1,36 @@
 import type { NotificationSettings } from '@platform/contracts';
 
 /** The clock and weekday at an instant in a time zone — `Intl`, so DST is the zone's problem. */
-function localParts(at: Date, timeZone: string): { day: number; minutes: number } {
+function localParts(at: Date, timeZone: string): { day: number; minutes: number; date: string } {
   const parts = new Intl.DateTimeFormat('en-GB', {
     timeZone,
     weekday: 'short',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
     hourCycle: 'h23',
   }).formatToParts(at);
   const get = (type: string) => parts.find((p) => p.type === type)?.value ?? '';
   const day = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].indexOf(get('weekday')) + 1;
-  return { day, minutes: Number(get('hour')) * 60 + Number(get('minute')) };
+  return {
+    day,
+    minutes: Number(get('hour')) * 60 + Number(get('minute')),
+    date: `${get('year')}-${get('month')}-${get('day')}`,
+  };
 }
+
+/** A person's local weekday (Monday = 1), minutes past midnight and ISO date at an instant. */
+export function localClock(
+  settings: NotificationSettings,
+  at: Date,
+): { day: number; minutes: number; date: string } {
+  return localParts(at, safeZone(settings.timeZone));
+}
+
+/** "18:30" → 1110. */
+export const minutesOf = (hhmm: string): number => toMinutes(hhmm);
 
 const toMinutes = (hhmm: string) => {
   const [h, m] = hhmm.split(':').map(Number);
