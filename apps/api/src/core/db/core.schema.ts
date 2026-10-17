@@ -522,6 +522,68 @@ export const mentions = core.table(
 );
 
 /**
+ * Something one person is being told about (docs/notifications-brief.md).
+ *
+ * The Inbox's record of it, which is what in-app means: push and email are deliveries of this
+ * row, never the other way round. One row per occurrence, made unique by `dedupe_key` — a
+ * mention id, an event id — so an event delivered twice (the bus is at-least-once) still makes
+ * one notification. "Five comments on this task" is a reading of several rows that share a
+ * `group_key`, done when the list is read, rather than a counter that a redelivery could
+ * inflate.
+ */
+export const notifications = core.table(
+  'notifications',
+  {
+    id: uuid('id').primaryKey(),
+    personId: uuid('person_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    /** What kind of moment: 'mention', 'task', 'ticket', 'time', … — what settings switch. */
+    category: text('category').notNull(),
+    /** 'now' | 'today' | 'quiet' — what decides whether it may interrupt. */
+    tier: text('tier').notNull(),
+    /** The record it is about; opening the notification opens this. Null for a digest. */
+    subjectId: uuid('subject_id').references(() => entities.id),
+    subjectType: text('subject_type'),
+    /** Who caused it. Null for the system (a rule, a clock). */
+    actorId: uuid('actor_id').references(() => users.id, { onDelete: 'set null' }),
+    /** The one sentence that may appear on a lock screen: who, what, which — never a body. */
+    title: text('title').notNull(),
+    groupKey: text('group_key').notNull(),
+    dedupeKey: text('dedupe_key').notNull(),
+    /**
+     * Set when the notification is about an Insights item. No foreign key: that table belongs
+     * to the insights module, and the core references no module's schema.
+     */
+    insightId: uuid('insight_id'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    readAt: timestamp('read_at', { withTimezone: true }),
+    /** When its cause went away — the ticket answered, the clock stopped. Cleared is not read. */
+    clearedAt: timestamp('cleared_at', { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex('notifications_once').on(t.personId, t.dedupeKey),
+    /* The two questions the Inbox asks: what is waiting for me, and how many. */
+    index('notifications_waiting_idx').on(t.personId, t.clearedAt, t.readAt),
+    index('notifications_insight_idx').on(t.insightId),
+  ],
+);
+
+/**
+ * How one person wants to be told. One row each, a single jsonb document like the dashboard:
+ * it is only ever read and written whole, and its shape — categories, hours, thresholds —
+ * belongs to the service that validates it, not to a migration per new setting. A person with
+ * no row gets the defaults, which are chosen to be right for somebody who never opens the page.
+ */
+export const notificationSettings = core.table('notification_settings', {
+  personId: uuid('person_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  settings: jsonb('settings').notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
  * One person's dashboard.
  *
  * A single jsonb column rather than a row per placement, because the layout is only ever read

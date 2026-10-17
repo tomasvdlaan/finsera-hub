@@ -1234,6 +1234,22 @@ export class ScrumService {
         actorId: actor.userId,
         payload: { projectId: input.projectId, status },
       });
+      /*
+       * Created with somebody on it is being assigned, too.
+       *
+       * Only the update path used to say so, and the commonest way a task reaches somebody —
+       * an action point from a meeting, made a task with its owner already set — goes through
+       * here. Anything listening for assignments never heard about those.
+       */
+      if (assigneeId) {
+        await this.events.publish(tx, {
+          name: 'task.assigned',
+          entityType: 'task',
+          entityId: id,
+          actorId: actor.userId,
+          payload: { assigneeId },
+        });
+      }
     });
 
     return this.getTask(actor, id);

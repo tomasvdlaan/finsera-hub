@@ -6,6 +6,7 @@ import { AssistantController } from './assistant.controller.js';
 import { coreManifest } from './shell.manifest.js';
 import { SearchService } from './search.service.js';
 import { ShellController } from './shell.controller.js';
+import { NotificationsController } from './notifications.controller.js';
 import { DashboardService } from '../core/registry/dashboard.service.js';
 import { TimelineService, type RecentQuery } from './timeline.service.js';
 
@@ -17,7 +18,7 @@ import { TimelineService, type RecentQuery } from './timeline.service.js';
  * collision into a startup failure rather than a runtime surprise.
  */
 @Module({
-  controllers: [ShellController, AssistantController],
+  controllers: [ShellController, AssistantController, NotificationsController],
   providers: [TimelineService, SearchService, DashboardService],
   exports: [TimelineService],
 })

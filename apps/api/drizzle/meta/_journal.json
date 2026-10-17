@@ -505,6 +505,13 @@
       "when": 1792236672856,
       "tag": "0071_event_subscriber_start",
       "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1792237059182,
+      "tag": "0072_notifications",
+      "breakpoints": true
     }
   ]
 }
