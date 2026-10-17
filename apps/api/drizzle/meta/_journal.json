@@ -498,6 +498,13 @@
       "when": 1790159241478,
       "tag": "0070_proposal_ledger",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1792236672856,
+      "tag": "0071_event_subscriber_start",
+      "breakpoints": true
     }
   ]
 }

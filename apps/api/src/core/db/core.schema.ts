@@ -163,6 +163,19 @@ export const eventDeliveries = core.table(
   ],
 );
 
+/**
+ * When each subscriber started listening.
+ *
+ * Written the first time a running dispatcher sees a subscriber declared, and never again —
+ * so it is the deploy that introduced the subscriber, not the latest restart. Events older
+ * than this are not fanned out to it unless it declared `replay` (see the manifest contract).
+ */
+export const eventSubscribers = core.table('event_subscribers', {
+  subscriber: text('subscriber').primaryKey(), // '<module>.<handlerName>'
+  startsAt: timestamp('starts_at', { withTimezone: true }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 /** Every mutation on core entities is logged (Master §30 / audit principle). */
 export const auditLog = core.table(
   'audit_log',
