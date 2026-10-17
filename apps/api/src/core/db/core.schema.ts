@@ -549,6 +549,11 @@ export const notifications = core.table(
     actorId: uuid('actor_id').references(() => users.id, { onDelete: 'set null' }),
     /** The one sentence that may appear on a lock screen: who, what, which — never a body. */
     title: text('title').notNull(),
+    /**
+     * Where opening it goes, when that is not the subject's own page — a ticket's thread, whose
+     * events are recorded against the client because a ticket is not a registry record.
+     */
+    url: text('url'),
     groupKey: text('group_key').notNull(),
     dedupeKey: text('dedupe_key').notNull(),
     /**

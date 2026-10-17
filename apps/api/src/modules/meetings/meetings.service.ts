@@ -2,7 +2,7 @@ import { BadRequestException, Inject, Injectable, Logger, NotFoundException } fr
 import type { Actor } from '@platform/contracts';
 import { and, asc, desc, eq, inArray, lte, ne, sql } from 'drizzle-orm';
 import { AuditService } from '../../core/audit/audit.service.js';
-import { DB, type Database } from '../../core/db/db.module.js';
+import { DB, type Database, type Tx } from '../../core/db/db.module.js';
 import { EventBus } from '../../core/events/event-bus.service.js';
 import { UserService } from '../../core/auth/user.service.js';
 import { LinkService } from '../../core/links/link.service.js';
@@ -996,16 +996,53 @@ export class MeetingsService {
     if (!item.text?.trim()) throw new BadRequestException('An action point needs text');
 
     const id = this.registry.newId();
-    await this.db.insert(actionItems).values({
-      id,
-      noteId,
-      text: item.text.trim(),
-      assigneeId: item.assigneeId ?? null,
-      dueOn: item.dueOn ?? null,
-      source: item.source ?? 'typed',
-      proposalId: item.proposalId ?? null,
+    await this.db.transaction(async (tx) => {
+      await tx.insert(actionItems).values({
+        id,
+        noteId,
+        text: item.text.trim(),
+        assigneeId: item.assigneeId ?? null,
+        dueOn: item.dueOn ?? null,
+        source: item.source ?? 'typed',
+        proposalId: item.proposalId ?? null,
+      });
+      if (item.assigneeId) await this.announceActionItem(tx, actor, noteId, id, item.assigneeId);
     });
     return this.get(actor, noteId);
+  }
+
+  /**
+   * Tell the bus an action point now has an owner — but only an owner who can open the
+   * meeting.
+   *
+   * The core checks visibility by type, and a meeting note can be restricted one at a time:
+   * the meeting about a person, shut to everyone not named. Notifying somebody outside it
+   * would put its existence, and its title, on their screen. This module owns that rule, so
+   * it applies it here, with the same `visibleNotes` every listing goes through.
+   */
+  private async announceActionItem(
+    tx: Tx,
+    actor: Actor,
+    noteId: string,
+    actionItemId: string,
+    assigneeId: string,
+  ): Promise<void> {
+    const person = await this.users.byId(assigneeId);
+    if (!person?.isActive) return;
+    const assignee: Actor = { userId: person.id, role: person.role as Actor['role'] };
+    const [visible] = await tx
+      .select({ id: notes.id })
+      .from(notes)
+      .where(and(eq(notes.id, noteId), visibleNotes(assignee, await this.memberships(assignee))))
+      .limit(1);
+    if (!visible) return;
+    await this.events.publish(tx, {
+      name: 'action_item.assigned',
+      entityType: 'meeting_note',
+      entityId: noteId,
+      actorId: actor.userId,
+      payload: { assigneeId, actionItemId },
+    });
   }
 
   /**
@@ -1134,13 +1171,19 @@ export class MeetingsService {
       }
     }
 
-    await this.db
-      .update(actionItems)
-      .set({
-        assigneeId: patch.assigneeId === undefined ? item.assigneeId : patch.assigneeId,
-        dueOn: patch.dueOn === undefined ? item.dueOn : patch.dueOn,
-      })
-      .where(eq(actionItems.id, itemId));
+    await this.db.transaction(async (tx) => {
+      await tx
+        .update(actionItems)
+        .set({
+          assigneeId: patch.assigneeId === undefined ? item.assigneeId : patch.assigneeId,
+          dueOn: patch.dueOn === undefined ? item.dueOn : patch.dueOn,
+        })
+        .where(eq(actionItems.id, itemId));
+      // Only a new owner is news; changing a due date tells nobody.
+      if (patch.assigneeId && patch.assigneeId !== item.assigneeId) {
+        await this.announceActionItem(tx, actor, noteId, itemId, patch.assigneeId);
+      }
+    });
 
     return this.get(actor, noteId);
   }

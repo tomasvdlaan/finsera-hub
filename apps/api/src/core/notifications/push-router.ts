@@ -116,6 +116,7 @@ export class PushRouter implements OnModuleInit, OnApplicationBootstrap, OnAppli
           readAt: notifications.readAt,
           clearedAt: notifications.clearedAt,
           subjectId: notifications.subjectId,
+          url: notifications.url,
         })
         .from(notificationDeliveries)
         .innerJoin(notifications, eq(notifications.id, notificationDeliveries.notificationId))
@@ -182,10 +183,10 @@ export class PushRouter implements OnModuleInit, OnApplicationBootstrap, OnAppli
 
   private async payloadFor(
     id: string,
-    n: { personId: string; title: string; groupKey: string; subjectId?: string | null },
+    n: { personId: string; title: string; groupKey: string; subjectId?: string | null; url?: string | null },
   ) {
-    let url = '/insights';
-    if (n.subjectId) {
+    let url = n.url?.startsWith('/') ? n.url : '/insights';
+    if (!n.url && n.subjectId) {
       const [e] = await this.db
         .select({ urlPath: entities.urlPath, deletedAt: entities.deletedAt })
         .from(entities)

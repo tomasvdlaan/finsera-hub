@@ -1,0 +1,1 @@
+ALTER TABLE "core"."notifications" ADD COLUMN "url" text;

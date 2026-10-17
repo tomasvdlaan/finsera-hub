@@ -307,7 +307,9 @@ describe('PortalTicketsService', () => {
       expect(event.entity_type).toBe('client');
       expect(event.entity_id).toBe(clientId);
       const payload = event.payload as Record<string, unknown>;
-      expect(payload).toEqual({ ticketId: id, subject: 'Waar staat de factuur van juli?' });
+      // The ticket, its subject, and who answers for the client — so the right person is told.
+      expect(payload).toMatchObject({ ticketId: id, subject: 'Waar staat de factuur van juli?' });
+      expect(Object.keys(payload).sort()).toEqual(['ownerId', 'subject', 'ticketId']);
       // The body stays in the thread. On the bus it would reach places nobody audited — the
       // assistant among them — and a client's words are not our instructions.
       expect(JSON.stringify(payload)).not.toContain('niet vinden');

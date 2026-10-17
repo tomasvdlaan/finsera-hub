@@ -1875,7 +1875,8 @@ export class ScrumService {
           entityType: 'task',
           entityId: id,
           actorId: actor.userId,
-          payload: { reason, status: task.status },
+          // Who it waits on travels, so that person can be told; it was stored and left out.
+          payload: { reason, status: task.status, blockedOnUserId },
         });
       }
     });

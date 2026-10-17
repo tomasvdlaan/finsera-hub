@@ -18,6 +18,9 @@ export const timeManifest = defineManifest({
 
   publishes: [
     { name: 'time_entry.created', description: 'Hours were logged, or a timer was started.' },
+    { name: 'timesheet.submitted', description: 'A week of hours was submitted for approval.' },
+    { name: 'timesheet.approved', description: 'A submitted week was approved.' },
+    { name: 'timesheet.returned', description: 'A submitted week was sent back, with a reason.' },
   ],
 
   subscribes: [],

@@ -3,7 +3,7 @@ import type { Actor } from '@platform/contracts';
 import { and, asc, eq, sql } from 'drizzle-orm';
 import { v7 as uuidv7 } from 'uuid';
 import { AuditService } from '../../core/audit/audit.service.js';
-import { DB, type Database } from '../../core/db/db.module.js';
+import { DB, type Database, type Tx } from '../../core/db/db.module.js';
 import { EventBus } from '../../core/events/event-bus.service.js';
 import { ScrumService } from '../scrum/scrum.service.js';
 import { portalTicketMessages, portalTickets } from './portal.schema.js';
@@ -128,7 +128,8 @@ export class PortalTicketsService {
         name: 'portal.ticket_opened',
         entityType: 'client',
         entityId: visitor.clientId,
-        payload: { ticketId: id, subject },
+        // Who answers for this client, so the right person is told (see ownerOf).
+        payload: { ticketId: id, subject, ownerId: await this.ownerOf(tx, visitor.clientId) },
       });
     });
 
@@ -177,7 +178,12 @@ export class PortalTicketsService {
         name: 'portal.ticket_replied',
         entityType: 'client',
         entityId: visitor.clientId,
-        payload: { ticketId },
+        payload: {
+          ticketId,
+          subject: ticket.subject,
+          assignedTo: ticket.assignedTo,
+          ownerId: await this.ownerOf(tx, visitor.clientId),
+        },
       });
     });
     return { id, status: 'waiting_on_finsera' as const };
@@ -341,6 +347,15 @@ export class PortalTicketsService {
         entityId: ticket.clientId,
         detail: { ticketId, assignedTo: userId },
       });
+      if (userId && userId !== ticket.assignedTo) {
+        await this.events.publish(tx, {
+          name: 'ticket.assigned',
+          entityType: 'client',
+          entityId: ticket.clientId,
+          actorId: actor.userId,
+          payload: { ticketId, subject: ticket.subject, assignedTo: userId },
+        });
+      }
     });
     return { id: ticketId, assignedTo: userId };
   }
@@ -419,6 +434,18 @@ export class PortalTicketsService {
   }
 
   /** A ticket, if it is this client's. One 404 for "no such ticket" and "not yours" alike. */
+  /**
+   * The colleague who answers for this client, from CRM's published view.
+   *
+   * Read here, by the module that publishes the event, because the core reads no module's
+   * tables: the payload has to say who should hear about it. Null for a client with no owner,
+   * and the notification falls to the delivery department instead.
+   */
+  private async ownerOf(tx: Tx, clientId: string): Promise<string | null> {
+    const { rows } = await tx.execute(sql`SELECT owner_id FROM crm.v_clients WHERE id = ${clientId}`);
+    return ((rows[0] as { owner_id?: string | null } | undefined)?.owner_id ?? null) as string | null;
+  }
+
   private async ownedBy(ticketId: string, clientId: string) {
     const [ticket] = await this.db
       .select()

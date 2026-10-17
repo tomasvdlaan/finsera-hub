@@ -36,6 +36,15 @@ export const coreManifest = defineManifest({
   subscribes: [
     { event: 'comment.mentioned', handler: 'notifyMentioned' },
     { event: 'task.assigned', handler: 'notifyTaskAssigned' },
+    { event: 'task.blocked', handler: 'notifyTaskBlocked' },
+    { event: 'action_item.assigned', handler: 'notifyActionItem' },
+    { event: 'portal.ticket_opened', handler: 'notifyTicketOpened' },
+    { event: 'portal.ticket_replied', handler: 'notifyTicketReplied' },
+    { event: 'ticket.assigned', handler: 'notifyTicketAssigned' },
+    { event: 'quote.accepted', handler: 'notifyQuoteAccepted' },
+    { event: 'quote.rejected', handler: 'notifyQuoteRejected' },
+    { event: 'timesheet.returned', handler: 'notifyTimesheetReturned' },
+    { event: 'timesheet.submitted', handler: 'notifyTimesheetSubmitted' },
   ],
 
   permissions: [

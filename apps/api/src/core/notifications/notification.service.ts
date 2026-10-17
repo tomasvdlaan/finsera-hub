@@ -33,6 +33,8 @@ export interface NotifyInput {
   subjectType?: string | null;
   actorId?: string | null;
   insightId?: string | null;
+  /** Where opening it goes, when that is not the subject's page. A path on this site. */
+  url?: string | null;
 }
 
 /** A notification as it was written, for whatever delivers it next (push, in N1). */
@@ -124,6 +126,7 @@ export class NotificationService {
         subjectType: input.subjectType ?? null,
         actorId: input.actorId ?? null,
         insightId: input.insightId ?? null,
+        url: input.url?.startsWith('/') ? input.url : null,
       })
       .onConflictDoNothing()
       .returning({ id: notifications.id });
@@ -159,6 +162,7 @@ export class NotificationService {
         subjectId: notifications.subjectId,
         readAt: notifications.readAt,
         createdAt: notifications.createdAt,
+        url: notifications.url,
         actorName: users.displayName,
         urlPath: entities.urlPath,
         deletedAt: entities.deletedAt,
@@ -191,7 +195,7 @@ export class NotificationService {
         category: r.category,
         tier: r.tier as NotificationTier,
         title: r.title,
-        url: r.urlPath && !r.deletedAt ? r.urlPath : null,
+        url: r.url ?? (r.urlPath && !r.deletedAt ? r.urlPath : null),
         subjectId: r.subjectId,
         actorName: r.actorName ?? null,
         count: r.readAt ? 0 : 1,

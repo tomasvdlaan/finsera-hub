@@ -4,7 +4,7 @@ import { eq } from 'drizzle-orm';
 import { AuditService } from '../audit/audit.service.js';
 import { CommentService } from '../comments/comment.service.js';
 import { MentionService } from '../comments/mention.service.js';
-import { mentions, notifications, users } from '../db/core.schema.js';
+import { departments, mentions, notifications, userDepartments, users } from '../db/core.schema.js';
 import { EventHandlerRegistry } from '../events/event-handler.registry.js';
 import { ManifestRegistry } from '../manifest/manifest.registry.js';
 import { PermissionService } from '../permissions/permission.service.js';
@@ -218,6 +218,67 @@ describe('notifications', () => {
         payload: { assigneeId: marijn.userId },
       });
       expect(await service.list(marijn)).toHaveLength(0);
+    });
+
+    const ctx = (eventName: string, payload: Record<string, unknown>, actorId: string | null = tomas.userId) => ({
+      eventId: crypto.randomUUID(),
+      eventName,
+      entityType: 'demo_item',
+      entityId: item,
+      actorId,
+      payload,
+    });
+
+    it('tells the person a ticket is assigned to when the client replies, and links to the thread', async () => {
+      const ticketId = crypto.randomUUID();
+      await producers.ticketReplied(
+        ctx('portal.ticket_replied', { ticketId, subject: 'Supplier page', assignedTo: marijn.userId }, null),
+      );
+      const [entry] = await service.list(marijn);
+      expect(entry!.title).toBe('Rework the roles replied on “Supplier page”');
+      expect(entry!.url).toBe(`/portal/tickets/${ticketId}`);
+      expect(await service.list(tomas)).toHaveLength(0);
+    });
+
+    it('falls to the department when nobody is named', async () => {
+      const [dept] = await testDb
+        .insert(departments)
+        .values({ id: crypto.randomUUID(), key: 'delivery', label: 'Delivery' })
+        .onConflictDoNothing()
+        .returning();
+      const deliveryId =
+        dept?.id ?? (await testDb.select().from(departments).where(eq(departments.key, 'delivery')))[0]!.id;
+      await testDb.insert(userDepartments).values({ userId: marijn.userId, departmentId: deliveryId });
+
+      await producers.ticketOpened(ctx('portal.ticket_opened', { ticketId: crypto.randomUUID(), subject: 'Login', ownerId: null }, null));
+
+      expect(await service.list(marijn)).toHaveLength(1);
+      expect(await service.list(tomas)).toHaveLength(0);
+    });
+
+    it('says a client accepted a quote in the portal, and tells its author', async () => {
+      await producers.quoteDecided(
+        ctx('quote.accepted', { number: 'Q2026-0003', clientId: item, createdBy: marijn.userId, ownerId: null }, null),
+        true,
+      );
+      const [entry] = await service.list(marijn);
+      expect(entry!.title).toBe('Rework the roles accepted quote Q2026-0003 in the portal');
+      expect(entry!.tier).toBe('now');
+    });
+
+    it('tells somebody their week was sent back, without the reason, and where to fix it', async () => {
+      await producers.timesheetReturned(ctx('timesheet.returned', { personId: marijn.userId, weekOf: '2026-10-12' }));
+      const [entry] = await service.list(marijn);
+      expect(entry!.title).toBe('Tomas sent back your week of 12 Oct');
+      expect(entry!.url).toBe('/time/week?date=2026-10-12');
+    });
+
+    it('tells admins a week is waiting, at the quieter tier', async () => {
+      await producers.timesheetSubmitted(ctx('timesheet.submitted', { personId: marijn.userId, weekOf: '2026-10-12' }, marijn.userId));
+      const [entry] = await service.list(tomas);
+      expect(entry!.title).toBe('Marijn Jansen submitted their week of 12 Oct');
+      expect(entry!.tier).toBe('today');
+      expect(await service.list(marijn)).toHaveLength(0); // not an approver, and their own act
     });
   });
 });
