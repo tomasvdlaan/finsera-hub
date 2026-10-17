@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { defineManifest, notificationSettingsSchema, type Actor } from '@platform/contracts';
 import { eq } from 'drizzle-orm';
-import { notificationDeliveries } from '../db/core.schema.js';
+import { notificationDeliveries, pushDevices } from '../db/core.schema.js';
 import { ManifestRegistry } from '../manifest/manifest.registry.js';
 import { PermissionService } from '../permissions/permission.service.js';
 import { RegistryService } from '../registry/registry.service.js';
@@ -155,6 +155,44 @@ describe('push router', () => {
     const rows = await testDb.select().from(notificationDeliveries);
     expect(rows.filter((r) => r.status === 'sent')).toHaveLength(2);
     expect(rows.find((r) => r.notificationId === c!.id)!.status).toBe('skipped');
+  });
+
+  describe('the morning brief', () => {
+    /** Wednesday 14 October 2026, 08:32 in Amsterdam — two minutes into the default day. */
+    const MORNING = new Date('2026-10-14T06:32:00Z');
+
+    beforeEach(async () => {
+      await testDb.insert(pushDevices).values({
+        id: crypto.randomUUID(),
+        personId: marijn.userId,
+        endpoint: 'https://push.example/marijn',
+        p256dh: 'k',
+        auth: 'a',
+        label: 'iPhone · app',
+      });
+    });
+
+    it('sends one line at the start of the day when several things wait', async () => {
+      await write({ groupKey: 'a', tier: 'today' });
+      await write({ groupKey: 'b', tier: 'today' });
+      expect(await router.sendBriefs(MORNING)).toBe(1);
+      expect(push.send.mock.calls.at(-1)![1].title).toBe('2 things for you today');
+      // Not itself one of the things: the brief does not appear in For you or the badge.
+      expect(await notifications.count(marijn)).toBe(2);
+    });
+
+    it('sends it once a day, and not at all when nothing waits', async () => {
+      expect(await router.sendBriefs(MORNING)).toBe(0);
+      await write({ groupKey: 'a', tier: 'today' });
+      expect(await router.sendBriefs(MORNING)).toBe(1);
+      expect(await router.sendBriefs(new Date(MORNING.getTime() + 3 * 60_000))).toBe(0);
+    });
+
+    it('waits for the start of the day', async () => {
+      await write({ groupKey: 'a', tier: 'today' });
+      expect(await router.sendBriefs(new Date('2026-10-14T05:00:00Z'))).toBe(0);
+      expect(await router.sendBriefs(new Date('2026-10-14T09:00:00Z'))).toBe(0);
+    });
   });
 
   it('marks a notification read when it is opened from a push — but only its owner’s', async () => {

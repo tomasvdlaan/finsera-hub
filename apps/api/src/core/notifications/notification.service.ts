@@ -73,7 +73,11 @@ export class NotificationService {
     this.listeners.push(fn);
   }
 
-  async notify(input: NotifyInput): Promise<CreatedNotification | null> {
+  /**
+   * Write a notification for one person, if the rules allow — and hand it to the delivery
+   * hooks, unless the caller will deliver it itself (`deliver: false`, the morning brief).
+   */
+  async notify(input: NotifyInput, opts: { deliver?: boolean } = {}): Promise<CreatedNotification | null> {
     /*
      * Never about your own act — with one exception, kept on purpose.
      *
@@ -133,6 +137,7 @@ export class NotificationService {
     if (!row) return null; // already told — a redelivered event
 
     const created: CreatedNotification = { ...input, id: row.id };
+    if (opts.deliver === false) return created;
     for (const fn of this.listeners) {
       // A delivery failure is the delivery's problem: the record is written and stays.
       try {

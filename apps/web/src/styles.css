@@ -9421,6 +9421,7 @@ a.btn { text-decoration: none; }
 .toggle-list input { margin-top: 3px; }
 .day-picker { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-4); }
 .hours-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: var(--space-3); }
+.brief-toggle { margin: 0 0 var(--space-4); }
 .inline-number { width: 4rem; padding: 0.15rem var(--space-2); }
 .install-steps ol { margin: var(--space-2) 0 0; padding-left: var(--space-5); display: grid; gap: var(--space-1); }
 

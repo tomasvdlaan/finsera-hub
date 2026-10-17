@@ -31,6 +31,7 @@ import { NO_EXPORT } from '../time/time-export.service.js';
 import { insightsManifest } from './insights.manifest.js';
 import { DepartmentsService } from '../../core/auth/departments.service.js';
 import { InsightsService } from './insights.service.js';
+import { NotificationService } from '../../core/notifications/notification.service.js';
 
 const actor: Actor = { userId: crypto.randomUUID(), role: 'admin' };
 const iso = (daysFromNow: number) =>
@@ -44,6 +45,9 @@ describe('InsightsService', () => {
   let contracts: ContractsService;
   let insights: InsightsService;
   let departments: DepartmentsService;
+  let scrum: ScrumService;
+  let notifier: NotificationService;
+  let notifying: InsightsService;
   let clientId: string;
   let projectId: string;
 
@@ -85,10 +89,12 @@ describe('InsightsService', () => {
       testDb, registry, permissions, audit, bus, links, crm, docs, settings,
     );
     contracts = new ContractsService(testDb, registry, permissions, audit, bus, links, crm);
-    const scrum = new ScrumService(testDb, registry, permissions, audit, bus, links, crm, time);
+    scrum = new ScrumService(testDb, registry, permissions, audit, bus, links, crm, time);
     departments = new DepartmentsService(testDb, audit);
     await departments.ensureStandard();
     insights = new InsightsService(testDb, registry, permissions, audit, departments);
+    notifier = new NotificationService(testDb, permissions);
+    notifying = new InsightsService(testDb, registry, permissions, audit, departments, notifier);
 
     await Promise.all([
       crm.ensureReportingViews(),
@@ -335,6 +341,38 @@ describe('InsightsService', () => {
   describe('insights raised about one person', () => {
     const mate = crypto.randomUUID();
     const member: Actor = { userId: mate, role: 'member' };
+
+    /*
+     * Raised for somebody by name, it reaches them; when its cause goes away, so does the
+     * notification — cleared, not marked read, because they never acted on it.
+     */
+    it('tells the person an overdue task is theirs, and clears it when that stops being true', async () => {
+      const task = await scrum.createTask(actor, {
+        projectId,
+        title: 'Fix the export',
+        assigneeId: mate,
+        dueOn: iso(-3),
+      });
+      await notifying.refresh();
+
+      const [told] = await notifier.list(member);
+      expect(told!.tier).toBe('today');
+      expect(told!.category).toBe('task');
+
+      await scrum.updateTask(actor, task.id, { dueOn: iso(5) });
+      await notifying.refresh();
+      expect(await notifier.list(member)).toEqual([]);
+    });
+
+    it('does not turn a clock left running into a notification — it has its own reminders', async () => {
+      await time.createEntry(member, {
+        projectId,
+        personId: mate,
+        startedAt: new Date(Date.now() - 30 * 60 * 60_000).toISOString(),
+      });
+      await notifying.refresh();
+      expect(await notifier.list(member)).toEqual([]);
+    });
 
     const clockRunningFor = async (who: Actor) => {
       await time.createEntry(who, {

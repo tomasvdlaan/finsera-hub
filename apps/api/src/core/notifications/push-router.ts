@@ -6,13 +6,13 @@ import {
   type OnApplicationShutdown,
   type OnModuleInit,
 } from '@nestjs/common';
-import { and, eq, gte, inArray, isNull, lte, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNull, lte, ne, sql } from 'drizzle-orm';
 import { v7 as uuidv7 } from 'uuid';
 import { DB, type Database } from '../db/db.module.js';
-import { entities, notificationDeliveries, notifications } from '../db/core.schema.js';
+import { entities, notificationDeliveries, notifications, pushDevices } from '../db/core.schema.js';
 import { NotificationService, type CreatedNotification } from './notification.service.js';
 import { PushService } from './push.service.js';
-import { nextWorkingStart, withinWorkingHours } from './working-hours.js';
+import { localClock, minutesOf, nextWorkingStart, withinWorkingHours } from './working-hours.js';
 
 /** One push per subject per this long; the rest are in the Inbox (brief N8). */
 const COLLAPSE_MS = 15 * 60_000;
@@ -50,12 +50,84 @@ export class PushRouter implements OnModuleInit, OnApplicationBootstrap, OnAppli
 
   onApplicationBootstrap(): void {
     if (process.env.NODE_ENV === 'test' || process.env.NOTIFICATIONS_DISABLED) return;
-    this.timer = setInterval(() => void this.releaseHeld(), TICK_MS);
+    this.timer = setInterval(() => void this.minute(), TICK_MS);
     this.timer.unref?.();
   }
 
   onApplicationShutdown(): void {
     if (this.timer) clearInterval(this.timer);
+  }
+
+  /** Once a minute: what waited for the working day, then the morning brief. */
+  async minute(now = new Date()): Promise<void> {
+    await this.releaseHeld(now);
+    await this.sendBriefs(now);
+  }
+
+  /**
+   * The morning brief (brief N4): one push at the start of somebody's working day, saying what
+   * is waiting — so everything that was not worth interrupting for during the day still reaches
+   * them once, instead of a dozen times.
+   *
+   * Sent within ten minutes of their working day starting, at most once a day (the dedupe key is
+   * the date), only when something unread is waiting, and only to people with a device. It is a
+   * notification like any other so the delivery is logged and the rules apply — then cleared at
+   * once, because a line saying "three things" is not itself one of the three.
+   */
+  async sendBriefs(now = new Date()): Promise<number> {
+    if (!this.push.enabled) return 0;
+    const people = await this.db
+      .selectDistinct({ personId: pushDevices.personId })
+      .from(pushDevices)
+      .where(isNull(pushDevices.revokedAt));
+
+    let sent = 0;
+    for (const { personId } of people) {
+      const settings = await this.notifications.settings(personId);
+      if (!settings.brief.enabled) continue;
+      const clock = localClock(settings, now);
+      const start = minutesOf(settings.workStart);
+      if (!settings.workDays.includes(clock.day)) continue;
+      if (clock.minutes < start || clock.minutes >= start + 10) continue;
+
+      const waiting = await this.db
+        .select({ title: notifications.title, groupKey: notifications.groupKey, tier: notifications.tier })
+        .from(notifications)
+        .where(
+          and(
+            eq(notifications.personId, personId),
+            isNull(notifications.readAt),
+            isNull(notifications.clearedAt),
+            ne(notifications.category, 'brief'),
+          ),
+        )
+        .orderBy(desc(notifications.createdAt))
+        .limit(100);
+      const groups = [...new Map(waiting.map((w) => [w.groupKey, w])).values()];
+      if (groups.length === 0) continue;
+
+      const title =
+        groups.length === 1 ? `Today: ${groups[0]!.title}` : `${groups.length} things for you today`;
+      // Delivered here rather than by the creation hook, so it is routed once, at `now`.
+      const created = await this.notifications.notify(
+        {
+          personId,
+          category: 'brief',
+          tier: 'now',
+          title,
+          groupKey: 'brief',
+          dedupeKey: `brief:${clock.date}`,
+          url: '/insights',
+        },
+        { deliver: false },
+      );
+      if (created) {
+        await this.route(created, now);
+        await this.notifications.clear({ groupKey: 'brief', personId });
+        sent++;
+      }
+    }
+    return sent;
   }
 
   async decide(n: CreatedNotification, now = new Date()): Promise<Decision> {
@@ -79,8 +151,8 @@ export class PushRouter implements OnModuleInit, OnApplicationBootstrap, OnAppli
     return { status: 'send' };
   }
 
-  async route(n: CreatedNotification): Promise<void> {
-    const decision = await this.decide(n);
+  async route(n: CreatedNotification, now = new Date()): Promise<void> {
+    const decision = await this.decide(n, now);
     // `tier` skips are not worth a row each: most notifications are not meant to push at all.
     if (decision.status === 'skipped' && decision.reason.startsWith('tier ')) return;
 

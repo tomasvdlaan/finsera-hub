@@ -192,6 +192,25 @@ export function NotificationSettings() {
                 );
               })}
             </div>
+            <ul className="toggle-list brief-toggle">
+              <li>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={settings.brief.enabled}
+                    onChange={(e) => set({ brief: { enabled: e.target.checked } })}
+                  />
+                  <span>
+                    <strong>Morning brief</strong>
+                    <span className="muted">
+                      {' '}
+                      — one notification as your day starts, saying what is waiting, instead of one
+                      for each thing that did not need to interrupt you.
+                    </span>
+                  </span>
+                </label>
+              </li>
+            </ul>
             <div className="hours-row">
               <Field label="From" type="time" value={settings.workStart} onChange={(e) => set({ workStart: e.target.value })} />
               <Field label="Until" type="time" value={settings.workEnd} onChange={(e) => set({ workEnd: e.target.value })} />
