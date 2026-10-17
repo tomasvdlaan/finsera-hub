@@ -17,6 +17,7 @@ import { AssistantPage } from './AssistantPage.js';
 import { StarredAnswers } from './StarredAnswers.js';
 import { CommandBar } from './CommandBar.js';
 import { TopNav, type NavCounts } from './TopNav.js';
+import { useAttentionCount } from './notifications.js';
 import { BottomNav } from './BottomNav.js';
 import { LiveMeetingProvider } from './LiveMeeting.js';
 import { RunningTimerProvider } from './useRunningTimer.js';
@@ -122,7 +123,6 @@ function Shell() {
   const [nav, setNav] = useState<NavItem[]>([]);
   const [me, setMe] = useState<CurrentUser | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
-  const [counts, setCounts] = useState<NavCounts>({});
   const [error, setError] = useState<string | null>(null);
   /** Authenticated, and turned away by the platform — a deactivated or unlisted account. */
   const [refused, setRefused] = useState<string | null>(null);
@@ -168,29 +168,11 @@ function Shell() {
         }
         setError(e.message);
       });
-
-    /*
-     * Counts for the rail, and failing quietly on purpose.
-     *
-     * A badge is an ornament on navigation that has to work — so if the insights sweep is
-     * unavailable the rail renders without the number rather than not at all.
-     */
-    /*
-     * The badge is everything waiting, not everything a rule found.
-     *
-     * Mentions are counted in with the insights because they land on the same page and the
-     * nav has one number for it — and because a mention somebody typed is the item in that
-     * list least worth making people go and look for.
-     */
-    Promise.all([
-      api.get<Array<{ status?: string }>>('/insights?status=open').catch(() => []),
-      api.get<Array<{ id: string }>>('/core/mentions').catch(() => []),
-    ])
-      .then(([open, mentions]) =>
-        setCounts((c) => ({ ...c, attention: open.length + mentions.length })),
-      )
-      .catch(() => undefined);
   }, [user]);
+
+  // The Inbox number, kept live — see shell/notifications.ts.
+  const attention = useAttentionCount(!!user);
+  const counts: NavCounts = { attention };
 
   if (loading) return <div className="centered">Loading…</div>;
 

@@ -9405,6 +9405,12 @@ a.btn { text-decoration: none; }
 }
 .mention-list > li:last-child { border-bottom: 0; padding-bottom: 0; }
 .mention-who { font-size: var(--text-sm); }
+/* For you: unread entries carry their weight; read ones stay for reference, quieter. */
+.for-you .mention-who a { font-weight: var(--weight-strong); }
+.for-you > li[data-read] .mention-who a { font-weight: var(--weight-normal); color: var(--muted); }
+.for-you > li[data-read] .mention-excerpt { opacity: 0.75; }
+.for-you-more { color: var(--accent); font-weight: var(--weight-strong); }
+.for-you-meta { display: flex; align-items: center; gap: var(--space-3); font-size: var(--text-xs); }
 /* Two lines at most: this is a reminder to go and read it, not the reading. */
 .mention-excerpt {
   margin: 0;

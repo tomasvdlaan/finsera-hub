@@ -80,4 +80,9 @@ export interface NotificationView {
   count: number;
   read: boolean;
   createdAt: string;
+  /**
+   * For a mention, the start of the comment — shown in the app, which is behind a sign-in.
+   * Never part of `title`, which is what may reach a lock screen.
+   */
+  excerpt?: string;
 }

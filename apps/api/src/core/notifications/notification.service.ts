@@ -11,6 +11,7 @@ import {
 } from '@platform/contracts';
 import { DB, type Database } from '../db/db.module.js';
 import {
+  comments,
   entities,
   mentions,
   notificationSettings,
@@ -40,6 +41,9 @@ export interface CreatedNotification extends NotifyInput {
 }
 
 type Listener = (n: CreatedNotification) => void | Promise<void>;
+
+/** How much of a mentioning comment the in-app entry shows — the same as the mentions list. */
+const EXCERPT = 160;
 
 /** How long a read notification stays in the list before only the unread ones remain. */
 const KEEP_READ_DAYS = 14;
@@ -195,7 +199,30 @@ export class NotificationService {
         createdAt: r.createdAt.toISOString(),
       });
     }
-    return [...groups.values()].slice(0, limit);
+    const shown = [...groups.values()].slice(0, limit);
+    await this.attachExcerpts(shown);
+    return shown;
+  }
+
+  /**
+   * The start of the comment, for mention entries — in one query for the whole page. In-app
+   * only: the list sits behind a sign-in, a lock screen does not.
+   */
+  private async attachExcerpts(shown: NotificationView[]): Promise<void> {
+    const ids = shown.filter((n) => n.category === 'mention').map((n) => n.id);
+    if (ids.length === 0) return;
+    const found = await this.db
+      .select({ id: notifications.id, body: comments.body, deletedAt: comments.deletedAt })
+      .from(notifications)
+      .innerJoin(mentions, sql`${notifications.dedupeKey} = 'mention:' || ${mentions.id}::text`)
+      .innerJoin(comments, eq(comments.id, mentions.commentId))
+      .where(inArray(notifications.id, ids));
+    const byId = new Map(found.map((f) => [f.id, f]));
+    for (const n of shown) {
+      const f = byId.get(n.id);
+      if (!f || f.deletedAt) continue;
+      n.excerpt = f.body.length > EXCERPT ? `${f.body.slice(0, EXCERPT).trimEnd()}…` : f.body;
+    }
   }
 
   /** The badge: how many things — groups, not occurrences — are unread. */

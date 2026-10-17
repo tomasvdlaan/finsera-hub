@@ -182,6 +182,9 @@ describe('notifications', () => {
       const [entry] = await service.list(marijn);
       expect(entry!.title).toBe('Tomas mentioned you on “Rework the roles”');
       expect(entry!.category).toBe('mention');
+      // The comment shows in the app; it is never in the title, which may reach a lock screen.
+      expect(entry!.excerpt).toContain('look at this');
+      expect(entry!.title).not.toContain('look at this');
 
       await service.markRead(marijn, [entry!.id]);
       const [after] = await testDb.select().from(mentions).where(eq(mentions.id, mention!.id));

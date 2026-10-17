@@ -5,6 +5,7 @@ import { Badge } from '../../shell/ui/primitives.js';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { useShared } from '../../lib/useShared.js';
+import { ForYou } from '../../shell/ForYou.js';
 
 export interface Insight {
   id: string;
@@ -142,17 +143,6 @@ interface Blocked {
   daysInColumn: number;
 }
 
-/** An unread mention, as `MentionService.listFor` returns it. */
-interface Mention {
-  id: string;
-  excerpt: string;
-  authorName: string;
-  subjectName: string;
-  /** From the registry, so this page needs to know nothing about what kind of thing it is. */
-  url: string | null;
-  createdAt: string;
-}
-
 /**
  * One queue for everything that wants a person.
  *
@@ -170,7 +160,6 @@ export function Insights() {
   const [error, setError] = useState<string | null>(null);
   const [requests, setRequests] = useState<Request[]>([]);
   const [blocked, setBlocked] = useState<Blocked[]>([]);
-  const [mentions, setMentions] = useState<Mention[]>([]);
 
   const load = useCallback(
     () =>
@@ -197,23 +186,7 @@ export function Insights() {
       .get<Blocked[]>('/scrum/tasks?blockedOnUserId=me')
       .then(setBlocked)
       .catch(() => setBlocked([]));
-    api.get<Mention[]>('/core/mentions').then(setMentions).catch(() => setMentions([]));
   }, []);
-
-  /**
-   * Reading a mention is the thing that clears it.
-   *
-   * Removed from the list here rather than by re-fetching, because the server has already
-   * agreed by the time this runs and a reload would make the row flicker before leaving.
-   */
-  const readMention = async (ids?: string[]) => {
-    try {
-      await api.post('/core/mentions/read', { ids });
-      setMentions((current) => (ids ? current.filter((m) => !ids.includes(m.id)) : []));
-    } catch (e) {
-      setError((e as Error).message);
-    }
-  };
 
   const act = async (fn: () => Promise<unknown>) => {
     setBusy(true);
@@ -236,48 +209,13 @@ export function Insights() {
       />
 
       {/*
-        Somebody wrote your name.
+        Somebody addressed you.
 
-        Above the insights and above the blocked cards, because it is the only thing in this
-        inbox a person typed on purpose and addressed to you. Everything else here was worked
-        out by a rule.
+        Above the insights and above the blocked cards, because these are the things in this
+        inbox a person did to you on purpose — named you, gave you a task. Everything else here
+        was worked out by a rule.
       */}
-      {mentions.length > 0 && (
-        <Card
-          span={12}
-          tone="info"
-          title={`${mentions.length} ${mentions.length === 1 ? 'mention' : 'mentions'}`}
-          sub="Someone named you in a comment."
-          aside={
-            <button type="button" className="chip" onClick={() => void readMention()}>
-              Mark all read
-            </button>
-          }
-        >
-          <ul className="mention-list">
-            {mentions.map((m) => (
-              <li key={m.id}>
-                <div className="mention-who">
-                  <strong>{m.authorName}</strong>
-                  <span className="muted"> on </span>
-                  {m.url ? (
-                    // Following it is reading it, so it clears on the way out.
-                    <Link to={m.url} onClick={() => void readMention([m.id])}>
-                      {m.subjectName}
-                    </Link>
-                  ) : (
-                    <span>{m.subjectName}</span>
-                  )}
-                </div>
-                <p className="mention-excerpt muted">{m.excerpt}</p>
-                <button type="button" className="link-button" onClick={() => void readMention([m.id])}>
-                  mark read
-                </button>
-              </li>
-            ))}
-          </ul>
-        </Card>
-      )}
+      <ForYou />
 
       {/*
         Blocked work first.
