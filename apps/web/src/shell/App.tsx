@@ -17,6 +17,7 @@ import { AssistantPage } from './AssistantPage.js';
 import { StarredAnswers } from './StarredAnswers.js';
 import { CommandBar } from './CommandBar.js';
 import { TopNav, type NavCounts } from './TopNav.js';
+import { useAttentionCount } from './notifications.js';
 import { BottomNav } from './BottomNav.js';
 import { LiveMeetingProvider } from './LiveMeeting.js';
 import { RunningTimerProvider } from './useRunningTimer.js';
@@ -30,6 +31,8 @@ import { People } from './People.js';
 import { Costs } from './Costs.js';
 import { PersonDetail } from './PersonDetail.js';
 import { Settings } from './Settings.js';
+import { NotificationSettings } from './NotificationSettings.js';
+import { PushBridge, forgetThisDevice } from './push.js';
 import { DialogProvider } from './ui/Dialog.js';
 import { ToastProvider } from './ui/Toast.js';
 import { useDocumentTitle } from './useDocumentTitle.js';
@@ -122,7 +125,6 @@ function Shell() {
   const [nav, setNav] = useState<NavItem[]>([]);
   const [me, setMe] = useState<CurrentUser | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
-  const [counts, setCounts] = useState<NavCounts>({});
   const [error, setError] = useState<string | null>(null);
   /** Authenticated, and turned away by the platform — a deactivated or unlisted account. */
   const [refused, setRefused] = useState<string | null>(null);
@@ -168,29 +170,11 @@ function Shell() {
         }
         setError(e.message);
       });
-
-    /*
-     * Counts for the rail, and failing quietly on purpose.
-     *
-     * A badge is an ornament on navigation that has to work — so if the insights sweep is
-     * unavailable the rail renders without the number rather than not at all.
-     */
-    /*
-     * The badge is everything waiting, not everything a rule found.
-     *
-     * Mentions are counted in with the insights because they land on the same page and the
-     * nav has one number for it — and because a mention somebody typed is the item in that
-     * list least worth making people go and look for.
-     */
-    Promise.all([
-      api.get<Array<{ status?: string }>>('/insights?status=open').catch(() => []),
-      api.get<Array<{ id: string }>>('/core/mentions').catch(() => []),
-    ])
-      .then(([open, mentions]) =>
-        setCounts((c) => ({ ...c, attention: open.length + mentions.length })),
-      )
-      .catch(() => undefined);
   }, [user]);
+
+  // The Inbox number, kept live — see shell/notifications.ts.
+  const attention = useAttentionCount(!!user);
+  const counts: NavCounts = { attention };
 
   if (loading) return <div className="centered">Loading…</div>;
 
@@ -229,6 +213,8 @@ function Shell() {
   return (
     <BrowserRouter>
       <RouteTitle nav={nav} />
+      {/* Taps on notifications, and the badge refreshing when one arrives — see shell/push.ts. */}
+      <PushBridge />
       {/*
         Above both layouts on purpose.
 
@@ -275,7 +261,11 @@ function Shell() {
               onSearch={() => setSearchOpen(true)}
               error={error}
               refused={refused}
-              onLogout={logout}
+              onLogout={() => {
+                // This device stops receiving this person's pushes before the session ends —
+                // a shared laptop must not go on buzzing for somebody who signed out.
+                void forgetThisDevice().finally(logout);
+              }}
             />
           }
         >
@@ -307,6 +297,8 @@ function Shell() {
           {/* One colleague. Behind core.people.manage like the directory it hangs off. */}
           <Route path="/settings/people/:id" element={<Page width="wide"><PersonDetail /></Page>} />
           <Route path="/settings/modules" element={<Page><Modules /></Page>} />
+          {/* Your own — every signed-in person has one, so no capability gates it. */}
+          <Route path="/settings/notifications" element={<Page width="read"><NotificationSettings /></Page>} />
           <Route path="/settings" element={<Page width="read"><Settings /></Page>} />
           {/* Every address the app used to serve, before the URLs were named after the
               thing rather than the module that stores it. See shell/moved.tsx. */}

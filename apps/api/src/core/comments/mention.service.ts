@@ -69,13 +69,15 @@ export class MentionService {
       authorId: string;
       userIds: string[];
     },
-  ): Promise<void> {
+  ): Promise<Array<{ id: string; userId: string }>> {
     // Yourself included: see the note on `mentions_not_self` in the schema for why a
     // deliberate note-to-self is a reminder rather than noise.
     const named = [...new Set(input.userIds)];
-    if (named.length === 0) return;
+    if (named.length === 0) return [];
 
-    await tx
+    // Returns only the mentions this call created — an edit that leaves a name in place
+    // writes nothing, and so tells nobody twice.
+    return tx
       .insert(mentions)
       .values(
         named.map((userId) => ({
@@ -87,7 +89,8 @@ export class MentionService {
           subjectType: input.subjectType,
         })),
       )
-      .onConflictDoNothing();
+      .onConflictDoNothing()
+      .returning({ id: mentions.id, userId: mentions.userId });
   }
 
   /** What is waiting for the person asking. Never for anybody else. */

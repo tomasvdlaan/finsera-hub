@@ -43,7 +43,33 @@ export const userManager = new UserManager({
   userStore: new WebStorageStateStore({ store: window.sessionStorage }),
 });
 
-export const login = () => userManager.signinRedirect();
+/**
+ * Where sign-in should land, if it is somewhere this app serves.
+ *
+ * Only a path on this origin: it starts with one slash, not two (`//evil.example` is another
+ * host), and has no backslash (which some browsers read as a slash). Anything else is dropped
+ * rather than repaired, because this value round-trips through the identity provider and a
+ * choosable destination after sign-in is an open redirect.
+ */
+export function safeReturnPath(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  if (!value.startsWith('/') || value.startsWith('//') || value.includes('\\')) return null;
+  if (value.startsWith('/auth/')) return null;
+  return value;
+}
+
+/*
+ * Sign in, and come back to where you were.
+ *
+ * It used to land on `/` every time. That mattered little until notifications: a tap on one
+ * opens the app at the thing it is about, and on an installed iPhone app — where a session
+ * lives in one window — that open is often a fresh one that has to sign in first, which then
+ * forgot where the tap was going.
+ */
+export const login = () =>
+  userManager.signinRedirect({
+    state: { returnTo: safeReturnPath(window.location.pathname + window.location.search) },
+  });
 
 /**
  * Drop the stored session without going anywhere.

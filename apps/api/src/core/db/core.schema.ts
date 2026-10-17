@@ -163,6 +163,19 @@ export const eventDeliveries = core.table(
   ],
 );
 
+/**
+ * When each subscriber started listening.
+ *
+ * Written the first time a running dispatcher sees a subscriber declared, and never again —
+ * so it is the deploy that introduced the subscriber, not the latest restart. Events older
+ * than this are not fanned out to it unless it declared `replay` (see the manifest contract).
+ */
+export const eventSubscribers = core.table('event_subscribers', {
+  subscriber: text('subscriber').primaryKey(), // '<module>.<handlerName>'
+  startsAt: timestamp('starts_at', { withTimezone: true }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 /** Every mutation on core entities is logged (Master §30 / audit principle). */
 export const auditLog = core.table(
   'audit_log',
@@ -507,6 +520,134 @@ export const mentions = core.table(
      */
   ],
 );
+
+/**
+ * Something one person is being told about (docs/notifications-brief.md).
+ *
+ * The Inbox's record of it, which is what in-app means: push and email are deliveries of this
+ * row, never the other way round. One row per occurrence, made unique by `dedupe_key` — a
+ * mention id, an event id — so an event delivered twice (the bus is at-least-once) still makes
+ * one notification. "Five comments on this task" is a reading of several rows that share a
+ * `group_key`, done when the list is read, rather than a counter that a redelivery could
+ * inflate.
+ */
+export const notifications = core.table(
+  'notifications',
+  {
+    id: uuid('id').primaryKey(),
+    personId: uuid('person_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    /** What kind of moment: 'mention', 'task', 'ticket', 'time', … — what settings switch. */
+    category: text('category').notNull(),
+    /** 'now' | 'today' | 'quiet' — what decides whether it may interrupt. */
+    tier: text('tier').notNull(),
+    /** The record it is about; opening the notification opens this. Null for a digest. */
+    subjectId: uuid('subject_id').references(() => entities.id),
+    subjectType: text('subject_type'),
+    /** Who caused it. Null for the system (a rule, a clock). */
+    actorId: uuid('actor_id').references(() => users.id, { onDelete: 'set null' }),
+    /** The one sentence that may appear on a lock screen: who, what, which — never a body. */
+    title: text('title').notNull(),
+    /**
+     * Where opening it goes, when that is not the subject's own page — a ticket's thread, whose
+     * events are recorded against the client because a ticket is not a registry record.
+     */
+    url: text('url'),
+    groupKey: text('group_key').notNull(),
+    dedupeKey: text('dedupe_key').notNull(),
+    /**
+     * Set when the notification is about an Insights item. No foreign key: that table belongs
+     * to the insights module, and the core references no module's schema.
+     */
+    insightId: uuid('insight_id'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    readAt: timestamp('read_at', { withTimezone: true }),
+    /** When its cause went away — the ticket answered, the clock stopped. Cleared is not read. */
+    clearedAt: timestamp('cleared_at', { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex('notifications_once').on(t.personId, t.dedupeKey),
+    /* The two questions the Inbox asks: what is waiting for me, and how many. */
+    index('notifications_waiting_idx').on(t.personId, t.clearedAt, t.readAt),
+    index('notifications_insight_idx').on(t.insightId),
+  ],
+);
+
+/**
+ * A browser or installed app that may receive pushes for one person.
+ *
+ * The endpoint is the push service's address for that one installation (Apple's, Google's,
+ * Mozilla's); `p256dh` and `auth` are the keys our payloads are encrypted to, so the relay sees
+ * that a message exists and never what it says. A 404 or 410 from the service means the
+ * subscription is gone and the row is revoked; so do repeated failures. Signing out removes the
+ * row for that device — a shared laptop must not keep receiving somebody else's pushes.
+ */
+export const pushDevices = core.table(
+  'push_devices',
+  {
+    id: uuid('id').primaryKey(),
+    personId: uuid('person_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    endpoint: text('endpoint').notNull(),
+    p256dh: text('p256dh').notNull(),
+    auth: text('auth').notNull(),
+    /** "iPhone", "Mac · Chrome" — from the user agent, so the list is recognisable. */
+    label: text('label').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    lastSuccessAt: timestamp('last_success_at', { withTimezone: true }),
+    failures: integer('failures').notNull().default(0),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex('push_devices_endpoint').on(t.endpoint),
+    index('push_devices_person_idx').on(t.personId),
+  ],
+);
+
+/**
+ * Every attempt to deliver a notification outside the app, and what became of it.
+ *
+ * So "did it reach my phone?" has an answer, a held push has somewhere to wait for the working
+ * day, and the four-week review (brief §4.7) can see which categories are opened and which are
+ * switched off. `status`: held (waiting for working hours), sent, failed, skipped (with why).
+ */
+export const notificationDeliveries = core.table(
+  'notification_deliveries',
+  {
+    id: uuid('id').primaryKey(),
+    notificationId: uuid('notification_id')
+      .notNull()
+      .references(() => notifications.id, { onDelete: 'cascade' }),
+    channel: text('channel').notNull(), // 'push' | 'email'
+    status: text('status').notNull(),
+    reason: text('reason'),
+    scheduledFor: timestamp('scheduled_for', { withTimezone: true }),
+    sentAt: timestamp('sent_at', { withTimezone: true }),
+    openedAt: timestamp('opened_at', { withTimezone: true }),
+    error: text('error'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('notification_deliveries_once').on(t.notificationId, t.channel),
+    index('notification_deliveries_held_idx').on(t.status, t.scheduledFor),
+  ],
+);
+
+/**
+ * How one person wants to be told. One row each, a single jsonb document like the dashboard:
+ * it is only ever read and written whole, and its shape — categories, hours, thresholds —
+ * belongs to the service that validates it, not to a migration per new setting. A person with
+ * no row gets the defaults, which are chosen to be right for somebody who never opens the page.
+ */
+export const notificationSettings = core.table('notification_settings', {
+  personId: uuid('person_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  settings: jsonb('settings').notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
 
 /**
  * One person's dashboard.

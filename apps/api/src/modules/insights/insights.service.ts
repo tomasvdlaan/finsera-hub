@@ -1,4 +1,5 @@
-import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { NotificationService } from '../../core/notifications/notification.service.js';
+import { BadRequestException, Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import type { Actor } from '@platform/contracts';
 import { and, desc, eq, inArray, isNull, notInArray, or, sql } from 'drizzle-orm';
 import { AuditService } from '../../core/audit/audit.service.js';
@@ -21,6 +22,22 @@ import { RULES, type Candidate } from './rules.js';
  * is useful; a model deciding which invoices are overdue is a worse version of a WHERE
  * clause.
  */
+
+/** Which settings category each person-addressed rule belongs to. A rule absent here never notifies. */
+const CATEGORY_OF: Record<string, string> = {
+  task_aging_wip: 'task',
+  task_overdue: 'task',
+  task_blocked: 'task',
+  waiting_on_client_too_long: 'task',
+  ticket_waiting_on_us: 'client',
+  quote_accepted_by_client: 'client',
+  invoice_overdue: 'money',
+  unbilled_work_ageing: 'money',
+  budget_nearly_spent: 'money',
+  contract_notice_closing: 'money',
+  sprint_ending_soon_with_open_work: 'project',
+  action_item_undecided: 'meeting',
+};
 @Injectable()
 export class InsightsService {
   private readonly logger = new Logger(InsightsService.name);
@@ -31,7 +48,43 @@ export class InsightsService {
     private readonly permissions: PermissionService,
     private readonly audit: AuditService,
     private readonly departments: DepartmentsService,
+    /* Optional so a test can build the engine without the notification layer. */
+    @Optional() private readonly notifications?: NotificationService,
   ) {}
+
+  /**
+   * An item raised for somebody by name reaches them as a notification
+   * (docs/notifications-brief.md N1, §4.2): *today* when it appears, promoted to *now* the
+   * occurrence it escalates to urgent, cleared when it resolves.
+   *
+   * Only items with a `personId`. One addressed to a department stays in the Inbox — copying it
+   * into every member's *For you* would make two lists that say the same thing, which is the
+   * thing the brief exists to prevent. Rules about the platform or answered elsewhere are left
+   * out: `setup_incomplete` is a chore, `quote_unanswered` a department's, and a clock left
+   * running has its own reminders now.
+   */
+  private async tell(
+    row: { id: string; rule: string; personId: string | null; subjectId: string | null; subjectType: string | null; title: string },
+    occurrence: 'raised' | 'urgent' | 'reopened',
+  ): Promise<void> {
+    if (!this.notifications || !row.personId) return;
+    const category = CATEGORY_OF[row.rule];
+    if (!category) return;
+    await this.notifications.notify({
+      personId: row.personId,
+      category,
+      tier: occurrence === 'urgent' ? 'now' : 'today',
+      title: row.title,
+      groupKey: `insight:${row.id}`,
+      dedupeKey:
+        occurrence === 'reopened'
+          ? `insight.reopened:${row.id}:${new Date().toISOString().slice(0, 10)}`
+          : `insight.${occurrence}:${row.id}`,
+      subjectId: row.subjectId,
+      subjectType: row.subjectType,
+      insightId: row.id,
+    });
+  }
 
   /**
    * Run every rule and reconcile the results against what is already known.
@@ -67,8 +120,9 @@ export class InsightsService {
         .limit(1);
 
       if (!existing) {
+        const id = this.registry.newId();
         await this.db.insert(insightRows).values({
-          id: this.registry.newId(),
+          id,
           key: c.key,
           rule: c.rule,
           subjectId: c.subjectId,
@@ -84,6 +138,10 @@ export class InsightsService {
           lastSeenAt: now,
         });
         raised++;
+        await this.tell(
+          { id, rule: c.rule, personId: c.personId ?? null, subjectId: c.subjectId, subjectType: c.subjectType, title: c.title },
+          c.severity === 'urgent' ? 'urgent' : 'raised',
+        );
         continue;
       }
 
@@ -108,6 +166,13 @@ export class InsightsService {
         })
         .where(eq(insightRows.id, existing.id));
       refreshed++;
+
+      // Dismissed means "I know" — it stays quiet however it changes.
+      if (existing.status !== 'dismissed') {
+        const told = { id: existing.id, rule: c.rule, personId: c.personId ?? null, subjectId: c.subjectId, subjectType: c.subjectType, title: c.title };
+        if (existing.status === 'resolved') await this.tell(told, 'reopened');
+        else if (c.severity === 'urgent' && existing.severity !== 'urgent') await this.tell(told, 'urgent');
+      }
     }
 
     // Anything not seen this run has stopped being true: it resolves itself. An insight
@@ -123,6 +188,11 @@ export class InsightsService {
         ),
       )
       .returning({ id: insightRows.id });
+
+    // Its cause went away, so what was said about it goes too — cleared, not marked read.
+    if (this.notifications) {
+      for (const r of stale) await this.notifications.clear({ insightId: r.id });
+    }
 
     return { raised, refreshed, resolved: stale.length };
   }

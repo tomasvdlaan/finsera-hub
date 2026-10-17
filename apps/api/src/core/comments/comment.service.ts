@@ -5,12 +5,14 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import type { Actor } from '@platform/contracts';
 import { and, asc, eq, isNull } from 'drizzle-orm';
 import { v7 as uuidv7 } from 'uuid';
 import { AuditService } from '../audit/audit.service.js';
-import { DB, type Database } from '../db/db.module.js';
+import { DB, type Database, type Tx } from '../db/db.module.js';
+import { EventBus } from '../events/event-bus.service.js';
 import { comments, users } from '../db/core.schema.js';
 import { PermissionService } from '../permissions/permission.service.js';
 import { RegistryService } from '../registry/registry.service.js';
@@ -55,7 +57,60 @@ export class CommentService {
     private readonly permissions: PermissionService,
     private readonly audit: AuditService,
     private readonly mentions: MentionService,
+    /*
+     * Optional only so a test can build comments without declaring the core's events; in the
+     * running app it is always there. Comments and mentions were kept off the bus while
+     * nothing listened — notifications listen now (docs/notifications-brief.md §4.6).
+     */
+    @Optional() private readonly events?: EventBus,
   ) {}
+
+  /**
+   * Tell the bus, in the comment's own transaction: that a comment was written, and whom it
+   * newly named. The body never travels — a subscriber gets who, where and to whom, and reads
+   * anything else it is allowed to.
+   */
+  private async announce(
+    tx: Tx,
+    actor: Actor,
+    input: {
+      commentId: string;
+      subjectId: string;
+      subjectType: string;
+      parentId: string | null;
+      created: boolean;
+      named: Array<{ id: string; userId: string }>;
+    },
+  ): Promise<void> {
+    if (!this.events) return;
+    if (input.created) {
+      let parentAuthorId: string | null = null;
+      if (input.parentId) {
+        const [parent] = await tx
+          .select({ authorId: comments.authorId })
+          .from(comments)
+          .where(eq(comments.id, input.parentId))
+          .limit(1);
+        parentAuthorId = parent?.authorId ?? null;
+      }
+      await this.events.publish(tx, {
+        name: 'comment.created',
+        entityType: input.subjectType,
+        entityId: input.subjectId,
+        actorId: actor.userId,
+        payload: { commentId: input.commentId, parentId: input.parentId, parentAuthorId },
+      });
+    }
+    if (input.named.length > 0) {
+      await this.events.publish(tx, {
+        name: 'comment.mentioned',
+        entityType: input.subjectType,
+        entityId: input.subjectId,
+        actorId: actor.userId,
+        payload: { commentId: input.commentId, mentions: input.named },
+      });
+    }
+  }
 
   /** The thread on one entity, oldest first, with deleted comments kept as tombstones. */
   async listFor(actor: Actor, subjectId: string): Promise<CommentView[]> {
@@ -147,12 +202,20 @@ export class CommentService {
        * A mention that outlived a rolled-back comment would point at a row that never
        * existed, and the person would open an empty page wondering what they missed.
        */
-      await this.mentions.record(tx, {
+      const named = await this.mentions.record(tx, {
         commentId: id,
         subjectId: input.subjectId,
         subjectType: subject.entityType,
         authorId: actor.userId,
         userIds: namesIn(body, people),
+      });
+      await this.announce(tx, actor, {
+        commentId: id,
+        subjectId: input.subjectId,
+        subjectType: subject.entityType,
+        parentId: input.parentId ?? null,
+        created: true,
+        named,
       });
       await this.audit.record(tx, {
         actorId: actor.userId,
@@ -187,12 +250,21 @@ export class CommentService {
        * nobody twice. Removing a name leaves the mention standing, which is the honest
        * outcome — it was delivered, and an edit is not a recall.
        */
-      await this.mentions.record(tx, {
+      const named = await this.mentions.record(tx, {
         commentId: id,
         subjectId: existing.subjectId,
         subjectType: existing.subjectType,
         authorId: actor.userId,
         userIds: namesIn(trimmed, people),
+      });
+      // An edit is not a new comment; only the names it newly adds are news.
+      await this.announce(tx, actor, {
+        commentId: id,
+        subjectId: existing.subjectId,
+        subjectType: existing.subjectType,
+        parentId: null,
+        created: false,
+        named,
       });
       await this.audit.record(tx, {
         actorId: actor.userId,

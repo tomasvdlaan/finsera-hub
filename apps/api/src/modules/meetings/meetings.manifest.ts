@@ -15,6 +15,10 @@ export const meetingsManifest = defineManifest({
   ],
 
   publishes: [
+    {
+      name: 'action_item.assigned',
+      description: 'An action point in a meeting was given to someone who can open the meeting.',
+    },
     { name: 'meeting_note.created', description: 'A meeting note was started.' },
     { name: 'meeting_note.finalised', description: 'A meeting note was marked done.' },
   ],

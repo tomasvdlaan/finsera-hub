@@ -59,6 +59,14 @@ export const publishedEventSchema = z.object({
 export const subscriptionSchema = z.object({
   event: z.string(), //   event name published by any module (validated at bootstrap)
   handler: z.string(), // method key on this module's service; must be idempotent
+  /*
+   * Whether this subscriber also receives events published before it was first registered.
+   *
+   * Off by default, because the first subscriber of all was a notifier: delivering it the
+   * whole log would have announced every mention since the platform began. A projection that
+   * rebuilds state from history is the case for turning it on.
+   */
+  replay: z.boolean().default(false),
 });
 
 export const permissionSchema = z.object({

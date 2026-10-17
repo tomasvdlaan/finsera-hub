@@ -50,7 +50,7 @@ export async function truncate(statement: SQL): Promise<void> {
 
 export async function resetDb(): Promise<void> {
   await truncate(
-    sql`TRUNCATE core.audit_log, core.event_deliveries, core.events, core.links, core.entities, core.files, core.users RESTART IDENTITY CASCADE`,
+    sql`TRUNCATE core.audit_log, core.event_deliveries, core.event_subscribers, core.events, core.links, core.entities, core.files, core.users RESTART IDENTITY CASCADE`,
   );
 }
 

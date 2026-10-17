@@ -5,7 +5,7 @@ import { ManifestRegistry } from '../manifest/manifest.registry.js';
 import { EventBus } from './event-bus.service.js';
 import { EventDispatcher } from './event-dispatcher.service.js';
 import { EventHandlerRegistry } from './event-handler.registry.js';
-import { eventDeliveries, events } from '../db/core.schema.js';
+import { eventDeliveries, eventSubscribers, events } from '../db/core.schema.js';
 import { resetDb, testDb } from '../../test/db.js';
 
 function manifests() {
@@ -16,7 +16,11 @@ function manifests() {
       version: '1.0.0',
       entities: [{ type: 'demo_item', displayTemplate: '{t}', urlPattern: '/demo/:id', readPermission: 'demo.items.read' }],
       permissions: [{ capability: 'demo.items.read', description: 'Read demo items.' }],
-      publishes: [{ name: 'demo_item.created', description: 'created' }],
+      publishes: [
+        { name: 'demo_item.created', description: 'created' },
+        // Published and subscribed to by nobody — the shape of most of the real log.
+        { name: 'demo_item.archived', description: 'archived' },
+      ],
       subscribes: [{ event: 'demo_item.created', handler: 'onItemCreated' }],
     }),
   );
@@ -253,5 +257,103 @@ describe('EventDispatcher', () => {
     await dispatcher.drain();
 
     expect(late).toHaveBeenCalledOnce();
+  });
+
+  it('is not starved by a backlog of events nobody subscribes to', async () => {
+    const { bus, dispatcher, handlers } = build();
+    const demo = vi.fn();
+    handlers.bind('demo', 'onItemCreated', demo);
+    handlers.bind('watcher', 'onAnyItem', () => {});
+
+    // More unsubscribed events than the fan-out window holds, all older than the one that
+    // matters. They used to fill the window permanently.
+    await testDb.transaction(async (tx) => {
+      for (let i = 0; i < 250; i++) {
+        await bus.publish(tx, {
+          name: 'demo_item.archived',
+          entityType: 'demo_item',
+          entityId: crypto.randomUUID(),
+        });
+      }
+    });
+    await publish(bus);
+    await dispatcher.drain();
+
+    expect(demo).toHaveBeenCalledOnce();
+    // Nothing is written for the events nobody listens to.
+    expect(await testDb.select().from(eventDeliveries)).toHaveLength(2);
+  });
+
+  it('does not hand a new subscriber the history from before it started listening', async () => {
+    const { dispatcher, handlers } = build();
+    const demo = vi.fn();
+    handlers.bind('demo', 'onItemCreated', demo);
+    handlers.bind('watcher', 'onAnyItem', () => {});
+
+    // An event from well before this subscriber's deploy.
+    await testDb.insert(events).values({
+      id: crypto.randomUUID(),
+      eventName: 'demo_item.created',
+      entityType: 'demo_item',
+      entityId: crypto.randomUUID(),
+      payload: {},
+      createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
+    });
+    await dispatcher.drain();
+
+    expect(demo).not.toHaveBeenCalled();
+  });
+
+  it('keeps the start point across restarts, so a redeploy does not drop events', async () => {
+    const first = build();
+    first.handlers.bind('demo', 'onItemCreated', () => {});
+    first.handlers.bind('watcher', 'onAnyItem', () => {});
+    await first.dispatcher.drain(); // registers the subscribers
+    const [registered] = await testDb
+      .select()
+      .from(eventSubscribers)
+      .where(eq(eventSubscribers.subscriber, 'demo.onItemCreated'));
+
+    const second = build(); // a later boot
+    second.handlers.bind('demo', 'onItemCreated', () => {});
+    second.handlers.bind('watcher', 'onAnyItem', () => {});
+    await second.dispatcher.drain();
+    const [after] = await testDb
+      .select()
+      .from(eventSubscribers)
+      .where(eq(eventSubscribers.subscriber, 'demo.onItemCreated'));
+
+    expect(after!.startsAt).toEqual(registered!.startsAt);
+  });
+
+  it('gives history to a subscriber that asked for replay', async () => {
+    const m = new ManifestRegistry();
+    m.register(
+      defineManifest({
+        name: 'demo',
+        version: '1.0.0',
+        entities: [{ type: 'demo_item', displayTemplate: '{t}', urlPattern: '/demo/:id', readPermission: 'demo.items.read' }],
+        permissions: [{ capability: 'demo.items.read', description: 'Read demo items.' }],
+        publishes: [{ name: 'demo_item.created', description: 'created' }],
+        subscribes: [{ event: 'demo_item.created', handler: 'rebuild', replay: true }],
+      }),
+    );
+    m.seal();
+    const handlers = new EventHandlerRegistry();
+    const dispatcher = new EventDispatcher(testDb, new EventBus(m), m, handlers);
+    const rebuild = vi.fn();
+    handlers.bind('demo', 'rebuild', rebuild);
+
+    await testDb.insert(events).values({
+      id: crypto.randomUUID(),
+      eventName: 'demo_item.created',
+      entityType: 'demo_item',
+      entityId: crypto.randomUUID(),
+      payload: {},
+      createdAt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
+    });
+    await dispatcher.drain();
+
+    expect(rebuild).toHaveBeenCalledOnce();
   });
 });

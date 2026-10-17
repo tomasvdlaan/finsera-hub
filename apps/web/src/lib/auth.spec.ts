@@ -168,3 +168,48 @@ describe('the way out of a bad session', () => {
     );
   });
 });
+
+/**
+ * Where sign-in lands. The value round-trips through the identity provider, so anything that
+ * is not a path on this origin is an open redirect waiting for a phishing link.
+ */
+describe('the destination after sign-in', () => {
+  let safeReturnPath: (v: unknown) => string | null;
+
+  beforeEach(async () => {
+    vi.resetModules();
+    vi.stubGlobal('window', { location: { origin: 'http://localhost:5173' }, sessionStorage: {} });
+    vi.doMock('oidc-client-ts', () => ({
+      User: class {},
+      WebStorageStateStore: class {},
+      UserManager: class {
+        events = {
+          addUserLoaded: () => {},
+          addUserUnloaded: () => {},
+          addAccessTokenExpired: () => {},
+          addSilentRenewError: () => {},
+        };
+      },
+    }));
+    ({ safeReturnPath } = await import('./auth.js'));
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.doUnmock('oidc-client-ts');
+  });
+
+  it('keeps a path on this site, query included', () => {
+    expect(safeReturnPath('/tasks/123?notification=abc')).toBe('/tasks/123?notification=abc');
+  });
+
+  it('refuses anywhere else', () => {
+    for (const bad of ['https://evil.example/', '//evil.example/x', '/\\evil.example', 'tasks', '', null, 42]) {
+      expect(safeReturnPath(bad)).toBeNull();
+    }
+  });
+
+  it('never returns to the callback itself', () => {
+    expect(safeReturnPath('/auth/callback?code=x')).toBeNull();
+  });
+});

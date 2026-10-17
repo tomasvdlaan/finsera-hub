@@ -1,7 +1,8 @@
 # Notifications — being told, wherever you are
 
 **Status:** drafted 2026-10-17; **all recommendations (N1–N12) accepted the same day** — see the
-decision log, 2026-10-17. Nothing built; N0 is next
+decision log, 2026-10-17. **N0–N5 built 2026-10-17** (§5); not yet deployed, and production needs
+its own VAPID keys first. Not built: the *Projects* moments (§4.2) and everything after G8
 **Reverses, narrowly:** [ui-elevation-plan.md](ui-elevation-plan.md) §5, *"A notifications system — don't
 build"*. §2 says what changed and why the principle behind that call survives
 **Keeps:** [ui-ux-plan.md](ui-ux-plan.md) §2, *"one triage queue, and a new alert type joins it or does not
@@ -389,6 +390,30 @@ N0 and N1 are most of the work and all of the risk; every later step is a produc
 the catalogue. Estimates are in risk, not days, as elsewhere: the risky parts are the dispatcher
 change (it touches every event in production) and the iPhone enable flow (it can only be tested
 on a device).
+
+### What was built, and where it differs from the above
+
+All of N0–N5, in that order, one commit per step. Departures from the design, each for a reason
+found while building it:
+
+- **No stored count (§4.1).** One row per occurrence, unique by a dedupe key, and "five comments"
+  is computed when the list is read. A counter could be inflated by the bus redelivering an event.
+- **A self-mention is still recorded (N8).** Naming yourself is a deliberate reminder the Inbox has
+  always shown (see `mentions` in the schema). It is never pushed.
+- **Visibility uses `visibleIds`, not `canSee`.** `canSee` only says a record exists; the first test
+  of "a member is not told about an admin-only type" caught it. Record-level restriction — a
+  restricted meeting note — is checked by the module that publishes, which owns the rule.
+- **Payloads name the recipients.** The core reads no module's tables, so the portal and sales add
+  the client's owner (from `crm.v_clients`), meetings add who may open the note, and so on. When
+  nobody is named, the department the matching Inbox rule uses.
+- **Insights notify only when raised for a person.** Department-addressed items stay in the Inbox;
+  copying them into every member's *For you* would be two lists saying the same thing.
+- **A notification may carry its own `url`**, because a ticket is not a registry record and should
+  open its thread rather than its client.
+- **Sign-in returns to where it started** (a same-site path only), because a tap on a notification
+  often opens a window that has to sign in first.
+- **Not built:** being added to a project, made lead or owner, sprints on your project — each needs
+  a CRM or scrum event that does not exist yet.
 
 ## 6. Out of scope, on purpose
 

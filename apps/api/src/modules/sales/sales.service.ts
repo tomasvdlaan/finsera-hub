@@ -392,6 +392,9 @@ export class SalesService {
           clientId: quote.clientId,
           projectId,
           totalCents: quote.totalCents,
+          // Who should hear about it — see ownerOf.
+          createdBy: quote.createdBy,
+          ownerId: await this.ownerOf(tx, quote.clientId),
         },
       });
     });
@@ -478,6 +481,8 @@ export class SalesService {
           number: quote.number,
           clientId: quote.clientId,
           projectId: null,
+          createdBy: quote.createdBy,
+          ownerId: await this.ownerOf(tx, quote.clientId),
           totalCents: quote.totalCents,
           viaPortal: true,
         },
@@ -510,7 +515,13 @@ export class SalesService {
         entityType: 'quote',
         entityId: id,
         actorId: actor.userId,
-        payload: { number: quote.number, clientId: quote.clientId, reason: reason ?? null },
+        payload: {
+          number: quote.number,
+          clientId: quote.clientId,
+          reason: reason ?? null,
+          createdBy: quote.createdBy,
+          ownerId: await this.ownerOf(tx, quote.clientId),
+        },
       });
     });
 
@@ -794,5 +805,14 @@ export class SalesService {
              q.sent_at, q.decided_at, q.created_at
         FROM sales.quotes q
     `);
+  }
+
+  /**
+   * The colleague who answers for this client, from CRM's published view — carried on the
+   * quote events so the core, which reads no module's tables, knows whom to tell.
+   */
+  private async ownerOf(tx: Tx, clientId: string): Promise<string | null> {
+    const { rows } = await tx.execute(sql`SELECT owner_id FROM crm.v_clients WHERE id = ${clientId}`);
+    return ((rows[0] as { owner_id?: string | null } | undefined)?.owner_id ?? null) as string | null;
   }
 }

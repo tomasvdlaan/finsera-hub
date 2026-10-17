@@ -1024,15 +1024,25 @@ export class TimeService {
       throw new BadRequestException('That week has already been approved');
     }
 
-    const [row] = await this.db
-      .insert(timesheets)
-      .values({ id: uuidv7(), personId, weekOf: monday, status: 'submitted' })
-      .onConflictDoUpdate({
-        target: [timesheets.personId, timesheets.weekOf],
-        set: { status: 'submitted', submittedAt: new Date(), decidedAt: null, decidedBy: null, note: null },
-      })
-      .returning();
-    return row;
+    return this.db.transaction(async (tx) => {
+      const [row] = await tx
+        .insert(timesheets)
+        .values({ id: uuidv7(), personId, weekOf: monday, status: 'submitted' })
+        .onConflictDoUpdate({
+          target: [timesheets.personId, timesheets.weekOf],
+          set: { status: 'submitted', submittedAt: new Date(), decidedAt: null, decidedBy: null, note: null },
+        })
+        .returning();
+      // So whoever approves hears that a week is waiting on them.
+      await this.events.publish(tx, {
+        name: 'timesheet.submitted',
+        entityType: 'timesheet',
+        entityId: row!.id,
+        actorId: personId,
+        payload: { personId, weekOf: monday },
+      });
+      return row;
+    });
   }
 
   /**
@@ -1055,38 +1065,49 @@ export class TimeService {
       throw new BadRequestException('Say why you are sending it back — a week returned without a reason cannot be fixed');
     }
 
-    const [row] = await this.db
-      .update(timesheets)
-      .set({
-        status: input.approve ? 'approved' : 'returned',
-        decidedAt: new Date(),
-        decidedBy: actor.userId,
-        note: input.approve ? null : note,
-      })
-      .where(
-        and(
-          eq(timesheets.personId, input.personId),
-          eq(timesheets.weekOf, monday),
-          // Only a submitted week can be decided. Deciding an already-decided one would let a
-          // second approver silently overwrite the first, and the audit trail would show only
-          // the last opinion.
-          eq(timesheets.status, 'submitted'),
-        ),
-      )
-      .returning();
+    return this.db.transaction(async (tx) => {
+      const [row] = await tx
+        .update(timesheets)
+        .set({
+          status: input.approve ? 'approved' : 'returned',
+          decidedAt: new Date(),
+          decidedBy: actor.userId,
+          note: input.approve ? null : note,
+        })
+        .where(
+          and(
+            eq(timesheets.personId, input.personId),
+            eq(timesheets.weekOf, monday),
+            // Only a submitted week can be decided. Deciding an already-decided one would let a
+            // second approver silently overwrite the first, and the audit trail would show only
+            // the last opinion.
+            eq(timesheets.status, 'submitted'),
+          ),
+        )
+        .returning();
 
-    if (!row) throw new NotFoundException('No week is waiting on a decision there');
+      if (!row) throw new NotFoundException('No week is waiting on a decision there');
 
-    await this.db.transaction((tx) =>
-      this.audit.record(tx, {
+      await this.audit.record(tx, {
         actorId: actor.userId ?? null,
         action: input.approve ? 'time.week.approved' : 'time.week.returned',
         entityType: 'timesheet',
         entityId: row.id,
         detail: { personId: input.personId, weekOf: monday, note: note ?? null },
-      }),
-    );
-    return row;
+      });
+      /*
+       * A returned week is the person's to fix, so they are told. The note stays out of the
+       * event — it is about somebody's hours, and the Time page shows it where they will act.
+       */
+      await this.events.publish(tx, {
+        name: input.approve ? 'timesheet.approved' : 'timesheet.returned',
+        entityType: 'timesheet',
+        entityId: row.id,
+        actorId: actor.userId ?? null,
+        payload: { personId: input.personId, weekOf: monday },
+      });
+      return row;
+    });
   }
 
   /** Every week waiting on somebody, with what is in it. Drives the approvals widget. */

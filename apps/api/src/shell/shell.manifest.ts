@@ -19,6 +19,36 @@ export const coreManifest = defineManifest({
   name: 'core',
   version: '1.0.0',
 
+  /*
+   * Comments belong to the core — they hang off any record — so their events are declared
+   * here. Kept off the bus while nothing listened; notifications listen now. Neither carries
+   * the comment's body.
+   */
+  publishes: [
+    { name: 'comment.created', description: 'A comment was written on a record.' },
+    { name: 'comment.mentioned', description: 'A comment newly named one or more people.' },
+  ],
+
+  /*
+   * Notifications (docs/notifications-brief.md). Handlers are bound by NotificationProducers
+   * in the core; each turns an event into notifications for the people it addresses.
+   */
+  subscribes: [
+    { event: 'comment.mentioned', handler: 'notifyMentioned' },
+    { event: 'task.assigned', handler: 'notifyTaskAssigned' },
+    { event: 'task.blocked', handler: 'notifyTaskBlocked' },
+    { event: 'action_item.assigned', handler: 'notifyActionItem' },
+    { event: 'portal.ticket_opened', handler: 'notifyTicketOpened' },
+    { event: 'portal.ticket_replied', handler: 'notifyTicketReplied' },
+    { event: 'ticket.assigned', handler: 'notifyTicketAssigned' },
+    { event: 'quote.accepted', handler: 'notifyQuoteAccepted' },
+    { event: 'quote.rejected', handler: 'notifyQuoteRejected' },
+    { event: 'timesheet.returned', handler: 'notifyTimesheetReturned' },
+    { event: 'timesheet.submitted', handler: 'notifyTimesheetSubmitted' },
+    { event: 'comment.created', handler: 'notifyCommented' },
+    { event: 'meeting_note.finalised', handler: 'notifyMeetingFinalised' },
+  ],
+
   permissions: [
     {
       capability: 'core.activity.read',

@@ -66,6 +66,10 @@ export const portalManifest = defineManifest({
         'A client replied on one of their own tickets, so it is waiting on us again. ' +
         'Recorded against the client, with the ticket id.',
     },
+    {
+      name: 'ticket.assigned',
+      description: 'A client ticket was given to one of us to answer.',
+    },
   ],
   subscribes: [],
 

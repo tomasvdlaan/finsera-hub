@@ -5,15 +5,24 @@ import {
   type OnApplicationBootstrap,
   type OnApplicationShutdown,
 } from '@nestjs/common';
-import { and, asc, eq, inArray, lt, or, sql } from 'drizzle-orm';
+import { and, asc, eq, gte, inArray, lt, or, sql } from 'drizzle-orm';
 import { DB, type Database } from '../db/db.module.js';
-import { eventDeliveries, events } from '../db/core.schema.js';
+import { eventDeliveries, eventSubscribers, events } from '../db/core.schema.js';
 import { EventBus } from './event-bus.service.js';
 import { EventHandlerRegistry, type EventContext } from './event-handler.registry.js';
 import { ManifestRegistry } from '../manifest/manifest.registry.js';
 
 const MAX_ATTEMPTS = 5;
 const POLL_INTERVAL_MS = 5_000;
+/*
+ * How far before boot a new subscriber's start point is set.
+ *
+ * The start is taken from the app's clock and compared with `events.created_at`, which is the
+ * database's. A minute absorbs any skew between the two, at the cost of a new subscriber
+ * possibly seeing the last minute before its deploy — harmless, where missing the first
+ * minute after it would not be.
+ */
+const START_MARGIN_MS = 60_000;
 
 /**
  * The delivery half of the event bus (Master §9) — in-process, DB-backed, no broker.
@@ -28,6 +37,10 @@ export class EventDispatcher implements OnApplicationBootstrap, OnApplicationShu
   private timer?: NodeJS.Timeout;
   private running = false;
   private stopped = false;
+  /** When this process came up; a subscriber first seen now starts listening from here. */
+  private readonly bootedAt = new Date(Date.now() - START_MARGIN_MS);
+  /** Subscriber key → the time it started listening. Loaded once per process. */
+  private starts?: Map<string, Date>;
 
   constructor(
     @Inject(DB) private readonly db: Database,
@@ -65,25 +78,88 @@ export class EventDispatcher implements OnApplicationBootstrap, OnApplicationShu
   }
 
   /**
-   * Create one delivery row per declared subscriber for events that have none yet.
-   * Splitting fan-out from delivery is what lets a subscriber added later pick up
-   * only new events, while a replay is just flipping rows back to 'pending'.
+   * When each declared subscriber started listening, registering any seen for the first time.
+   *
+   * The row is written once and never moved, so a restart does not reset it: the start point
+   * is the deploy that introduced the subscriber. A subscriber that declared `replay` starts
+   * at the beginning of the log instead.
+   */
+  private async subscriberStarts(): Promise<Map<string, Date>> {
+    if (this.starts) return this.starts;
+    const declared = this.manifests
+      .all()
+      .flatMap((m) => m.subscribes.map((s) => ({ key: `${m.name}.${s.handler}`, replay: s.replay })));
+    if (declared.length > 0) {
+      await this.db
+        .insert(eventSubscribers)
+        .values(
+          declared.map((d) => ({
+            subscriber: d.key,
+            startsAt: d.replay ? new Date(0) : this.bootedAt,
+          })),
+        )
+        .onConflictDoNothing();
+    }
+    const rows = await this.db.select().from(eventSubscribers);
+    this.starts = new Map(rows.map((r) => [r.subscriber, r.startsAt]));
+    return this.starts;
+  }
+
+  /**
+   * Create one delivery row per subscriber for events that have none yet.
+   * Splitting fan-out from delivery is what lets a replay be just flipping rows back to
+   * 'pending'.
+   *
+   * Only events somebody listens to are looked at, and only from when they started
+   * listening. Both conditions are in the query rather than the loop, and that is the fix
+   * for a fault that never mattered while nothing subscribed: the window used to be "the
+   * oldest 200 events with no delivery rows", and an event nobody subscribes to never gets
+   * one — so once 200 of those existed, the window filled with them permanently and no
+   * subscriber would ever have been reached. And without a start point, the first subscriber
+   * would have been handed the platform's entire history.
    */
   private async fanOut(): Promise<void> {
+    const starts = await this.subscriberStarts();
+    const startOf = (module: string, handler: string) =>
+      starts.get(`${module}.${handler}`) ?? this.bootedAt;
+
+    // Per event name, the earliest point any of its subscribers listens from.
+    const from = new Map<string, Date>();
+    for (const m of this.manifests.all()) {
+      for (const s of m.subscribes) {
+        const at = startOf(m.name, s.handler);
+        const current = from.get(s.event);
+        if (!current || at < current) from.set(s.event, at);
+      }
+    }
+    if (from.size === 0) return;
+
     const unfanned = await this.db
       .select({
         id: events.id,
         eventName: events.eventName,
+        createdAt: events.createdAt,
       })
       .from(events)
       .where(
-        sql`NOT EXISTS (SELECT 1 FROM ${eventDeliveries} WHERE ${eventDeliveries.eventId} = ${events.id})`,
+        and(
+          or(
+            ...[...from].map(([name, at]) =>
+              and(eq(events.eventName, name), gte(events.createdAt, at)),
+            ),
+          ),
+          sql`NOT EXISTS (SELECT 1 FROM ${eventDeliveries} WHERE ${eventDeliveries.eventId} = ${events.id})`,
+        ),
       )
       .orderBy(asc(events.createdAt))
       .limit(200);
 
     for (const event of unfanned) {
-      const subscribers = this.manifests.subscribersOf(event.eventName);
+      // Every event here has at least one subscriber listening from before it — the query
+      // guarantees it — so it always leaves the window. Later starters skip it.
+      const subscribers = this.manifests
+        .subscribersOf(event.eventName)
+        .filter((s) => event.createdAt >= startOf(s.module, s.handler));
       if (subscribers.length === 0) continue;
 
       await this.db
