@@ -82,6 +82,33 @@ export class PortalAdminController {
   }
 
   /**
+   * A link with which somebody who has already signed in once chooses a new password.
+   *
+   * Only for a login bound to a Zitadel account. A pending invitation has no password to
+   * forget, and its answer is the invitation link — so that is what the error points at
+   * rather than minting a reset for an account that may not exist.
+   *
+   * Like the invitation, nothing is mailed from here. The link goes back to the screen and a
+   * person sends it. Unlike `provision`, this throws on failure: there is no half-finished
+   * state worth preserving, and "no link" is the whole answer.
+   */
+  @Post('users/:id/reset-link')
+  async resetLink(@CurrentActor() actor: Actor, @Param('id', ParseUUIDPipe) id: string) {
+    const row = await this.users.byId(actor, id);
+    if (row.disabledAt) {
+      throw new BadRequestException('That access was revoked — restore it before sending a link');
+    }
+    if (!row.oidcSubject) {
+      throw new BadRequestException(
+        'This person has not activated their account yet — send the registration link instead',
+      );
+    }
+    const { url } = await this.zitadel.passwordReset(row.oidcSubject);
+    await this.users.recordPasswordReset(actor, row.id, row.email);
+    return { reset: { url } };
+  }
+
+  /**
    * The Zitadel half: an account, the portal role, and a single-use link.
    *
    * Returns a `warning` rather than throwing, because everything the caller asked for that
