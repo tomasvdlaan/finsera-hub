@@ -108,6 +108,44 @@ export class ZitadelAdminService {
     return { url: this.inviteUrl(zitadelUserId, code), zitadelUserId };
   }
 
+  /**
+   * A single-use link on which an existing account chooses a new password.
+   *
+   * The same shape as an invitation and for the same reasons: `returnCode` makes Zitadel hand
+   * the code back instead of mailing it, so the message goes out from a person, from an
+   * address the client recognises, with a link on our own domain. Asking again invalidates
+   * the previous code, which the screen says before the button is pressed.
+   */
+  async passwordReset(zitadelUserId: string): Promise<{ url: string }> {
+    this.assertConfigured();
+    const body = await this.zitadel.call<{ verificationCode?: string }>(
+      'POST',
+      `/v2/users/${zitadelUserId}/password_reset`,
+      { returnCode: {} },
+    );
+    if (!body.verificationCode) {
+      throw new ServiceUnavailableException('Zitadel returned no password reset code');
+    }
+    return { url: this.resetUrl(zitadelUserId, body.verificationCode) };
+  }
+
+  /**
+   * Our own domain first, Zitadel's page as the fallback — see `inviteUrl` for why.
+   * `ZITADEL_RESET_URL` overrides both, for an instance whose password page lives elsewhere.
+   */
+  private resetUrl(userId: string, code: string): string {
+    const ownHost = process.env.PORTAL_AUTH_HOST;
+    const template =
+      process.env.ZITADEL_RESET_URL ||
+      (ownHost
+        ? `https://${ownHost}/api/portal-auth/reset-password?userId={userId}&code={code}`
+        : `${this.issuer}/ui/v2/login/password/set?userId={userId}&code={code}`);
+    return template
+      .replace('{userId}', encodeURIComponent(userId))
+      .replace('{code}', encodeURIComponent(code))
+      .replace('{orgId}', encodeURIComponent(this.organisationId));
+  }
+
   /** The account with this address, or null. The search itself is the shared client's. */
   async findByEmail(email: string): Promise<string | null> {
     return (await this.zitadel.searchByEmail(email))?.userId ?? null;
