@@ -5,6 +5,7 @@ import { CoreModule } from './core/core.module.js';
 import { ShellModule } from './shell/shell.module.js';
 import { CrmModule } from './modules/crm/crm.module.js';
 import { DocsModule } from './modules/docs/docs.module.js';
+import { HelpModule } from './modules/help/help.module.js';
 import { BillingModule } from './modules/billing/billing.module.js';
 import { InsightsModule } from './modules/insights/insights.module.js';
 import { MeetingsModule } from './modules/meetings/meetings.module.js';
@@ -66,6 +67,7 @@ import { WhiteboardModule } from './modules/whiteboard/whiteboard.module.js';
     MeetingsModule,
     PortalModule,
     WhiteboardModule,
+    HelpModule,
   ],
 })
 export class AppModule {}
