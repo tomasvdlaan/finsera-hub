@@ -5,6 +5,7 @@ import { AuditService } from '../audit/audit.service.js';
 import { users } from '../db/core.schema.js';
 import { resetDb, testDb, truncate } from '../../test/db.js';
 import { UserService } from './user.service.js';
+import type { Actor } from '@platform/contracts';
 
 /**
  * Who is allowed to become an internal user.
@@ -200,5 +201,89 @@ describe('UserService profile refresh', () => {
       /deactivated/,
     );
     expect(calls.count).toBe(0);
+  });
+});
+
+/**
+ * The agent role: made by an administrator, never by signing in.
+ *
+ * First sign-in provisions a `member`, and a member holds everything. An automated account has
+ * to be narrowed after it exists, so the two ways this could go wrong are the ones tested:
+ * signing in handing out `agent` by accident (or members dressing up as one), and the person
+ * directory letting the last administrator slip away by being turned into one.
+ */
+describe('UserService agent role', () => {
+  let service: UserService;
+
+  beforeEach(async () => {
+    await resetDb();
+    await truncate(sql`TRUNCATE core.users CASCADE`);
+    service = new UserService(testDb, new AuditService(testDb), new ZitadelTokens());
+  });
+
+  async function seed(role: 'admin' | 'member' | 'agent', name: string) {
+    const id = crypto.randomUUID();
+    await testDb.insert(users).values({
+      id,
+      oidcSubject: `sub-${name}`,
+      email: `${name}@finsera.nl`,
+      displayName: name,
+      role,
+    });
+    return { id, actor: { userId: id, role } as Actor };
+  }
+
+  it('never provisions an agent by signing in', async () => {
+    await seed('admin', 'boss');
+    const actor = await service.resolveFromClaims(
+      { sub: 'sub-robot', preferred_username: 'paperclip-agent', roles: ['internal'] },
+      'tok',
+    );
+    expect(actor.role).toBe('member');
+  });
+
+  it('keeps an established agent an agent when it signs in again', async () => {
+    await seed('agent', 'robot');
+    const actor = await service.resolveFromClaims({ sub: 'sub-robot', roles: [] }, 'tok');
+    expect(actor.role).toBe('agent');
+  });
+
+  it('lets an administrator make somebody an agent', async () => {
+    const boss = await seed('admin', 'boss');
+    const robot = await seed('member', 'robot');
+    const updated = await service.updatePerson(boss.actor, robot.id, { role: 'agent' });
+    expect(updated?.role).toBe('agent');
+  });
+
+  it('refuses a role the platform does not know', async () => {
+    const boss = await seed('admin', 'boss');
+    const robot = await seed('member', 'robot');
+    await expect(
+      service.updatePerson(boss.actor, robot.id, { role: 'superuser' as never }),
+    ).rejects.toThrow(/Role must be one of/);
+  });
+
+  it('will not let an administrator turn themselves into an agent', async () => {
+    const boss = await seed('admin', 'boss');
+    await seed('admin', 'second');
+    await expect(service.updatePerson(boss.actor, boss.id, { role: 'agent' })).rejects.toThrow(
+      /another admin/,
+    );
+  });
+
+  it('will not turn the only administrator into an agent', async () => {
+    const boss = await seed('admin', 'boss');
+    const second = await seed('member', 'second');
+    // Who may call this is the controller's rule; the guard under test is the service's own.
+    await expect(service.updatePerson(second.actor, boss.id, { role: 'agent' })).rejects.toThrow();
+    const stillAdmin = await testDb.select().from(users).where(eq(users.id, boss.id));
+    expect(stillAdmin[0]?.role).toBe('admin');
+  });
+
+  it('allows demoting an administrator to an agent while another remains', async () => {
+    const boss = await seed('admin', 'boss');
+    const second = await seed('admin', 'second');
+    const updated = await service.updatePerson(boss.actor, second.id, { role: 'agent' });
+    expect(updated?.role).toBe('agent');
   });
 });

@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { defineManifest, type Actor } from '@platform/contracts';
 import { z } from 'zod';
 import { ManifestRegistry } from '../manifest/manifest.registry.js';
@@ -140,33 +140,125 @@ describe('MCP exposability guard', () => {
   });
 });
 
-describe('MCP exposability of the real platform', () => {
-  it('can offer every tool every shipped manifest declares', async () => {
-    // Every manifest in the app, found by filename so a new module is covered without editing this.
-    const src = join(__dirname, '..', '..');
-    const files = [
-      join(src, 'shell', 'shell.manifest.ts'),
-      ...readdirSync(join(src, 'modules')).flatMap((m) => {
-        const dir = join(src, 'modules', m);
-        return readdirSync(dir)
-          .filter((f) => f.endsWith('.manifest.ts'))
-          .map((f) => join(dir, f));
-      }),
-    ];
-    const manifests = new ManifestRegistry();
-    for (const file of files) {
-      const mod = (await import(/* @vite-ignore */ file)) as Record<string, unknown>;
-      for (const value of Object.values(mod)) {
-        if (value && typeof value === 'object' && 'aiTools' in value && 'name' in value) {
-          manifests.register(value as Parameters<ManifestRegistry['register']>[0]);
-        }
+/** Every manifest the app ships, found by filename so a new module is covered without editing this. */
+async function realManifests(): Promise<ManifestRegistry> {
+  const src = join(__dirname, '..', '..');
+  const files = [
+    join(src, 'shell', 'shell.manifest.ts'),
+    ...readdirSync(join(src, 'modules')).flatMap((m) => {
+      const dir = join(src, 'modules', m);
+      return readdirSync(dir)
+        .filter((f) => f.endsWith('.manifest.ts'))
+        .map((f) => join(dir, f));
+    }),
+  ];
+  const manifests = new ManifestRegistry();
+  for (const file of files) {
+    const mod = (await import(/* @vite-ignore */ file)) as Record<string, unknown>;
+    for (const value of Object.values(mod)) {
+      if (value && typeof value === 'object' && 'aiTools' in value && 'name' in value) {
+        manifests.register(value as Parameters<ManifestRegistry['register']>[0]);
       }
     }
-    manifests.seal();
+  }
+  manifests.seal();
+  return manifests;
+}
+
+describe('MCP exposability of the real platform', () => {
+  it('can offer every tool every shipped manifest declares', async () => {
+    const manifests = await realManifests();
     expect(manifests.aiTools().length).toBeGreaterThan(0);
 
     const registry = new AiToolRegistry(manifests, new PermissionService(testDb, manifests));
     await expect(new McpService(registry, manifests).assertEveryToolExposable()).resolves.toBeUndefined();
+  });
+});
+
+/**
+ * What an agent account is offered on the real platform.
+ *
+ * The role exists so an automated sign-in sees the board and the documents and not the books.
+ * Checked against the shipped manifests rather than a demo one, because the claim is about the
+ * actual tools: that nothing financial, contractual or confidential is on the list.
+ */
+describe('agent tool surface on the real platform', () => {
+  const agent: Actor = { userId: crypto.randomUUID(), role: 'agent' };
+  const saved = process.env.AGENT_CAPABILITIES;
+  afterEach(() => {
+    if (saved === undefined) delete process.env.AGENT_CAPABILITIES;
+    else process.env.AGENT_CAPABILITIES = saved;
+  });
+
+  async function offered(actor: Actor) {
+    const manifests = await realManifests();
+    const registry = new AiToolRegistry(manifests, new PermissionService(testDb, manifests));
+    const declared = new Map(manifests.aiTools().map((t) => [t.name, t]));
+    return (await registry.availableFor(actor)).map((t) => ({ name: t.name, permission: declared.get(t.name)!.permission }));
+  }
+
+  it('is offered the board and the documents by default, read-only', async () => {
+    delete process.env.AGENT_CAPABILITIES;
+    const tools = await offered(agent);
+    const names = tools.map((t) => t.name);
+    expect(names).toEqual(expect.arrayContaining(['scrum_list_tasks', 'scrum_task_detail', 'docs_search', 'docs_list']));
+    // Every tool it is offered is justified by a capability on the default list.
+    for (const t of tools) expect(['scrum.tasks.read', 'docs.read']).toContain(t.permission);
+  });
+
+  it('is not offered anything that changes a task, or any money, contract or transcript', async () => {
+    delete process.env.AGENT_CAPABILITIES;
+    const names = (await offered(agent)).map((t) => t.name);
+    for (const withheld of [
+      'scrum_create_task',
+      'scrum_update_task',
+      'scrum_move_task',
+      'billing_list_invoices',
+      'reporting_revenue',
+      'reporting_project_profitability',
+      'sales_list_contracts',
+      'meetings_transcript',
+      'activity_recent',
+      'crm_create_lead',
+      'time_log_hours',
+    ]) {
+      expect(names, withheld).not.toContain(withheld);
+    }
+  });
+
+  it('widens only when the deployment says so', async () => {
+    process.env.AGENT_CAPABILITIES = 'scrum.tasks.read,scrum.tasks.write,docs.read';
+    const names = (await offered(agent)).map((t) => t.name);
+    expect(names).toContain('scrum_create_task');
+    expect(names).not.toContain('billing_list_invoices');
+  });
+
+  it('is offered far less than a member', async () => {
+    delete process.env.AGENT_CAPABILITIES;
+    const member = await offered({ ...agent, role: 'member' });
+    expect((await offered(agent)).length).toBeLessThan(member.length / 2);
+  });
+});
+
+/** The same rule through the MCP service itself, on the demo manifest whose tools are bound. */
+describe('MCP for an agent', () => {
+  beforeEach(resetDb);
+  const agent: Actor = { userId: crypto.randomUUID(), role: 'agent' };
+  const saved = process.env.AGENT_CAPABILITIES;
+  afterEach(() => {
+    if (saved === undefined) delete process.env.AGENT_CAPABILITIES;
+    else process.env.AGENT_CAPABILITIES = saved;
+  });
+
+  it('lists only the tools its capabilities allow, and calls only those', async () => {
+    process.env.AGENT_CAPABILITIES = 'demo.items.read';
+    const { mcp } = setup();
+    expect((await mcp.listTools(agent)).map((t) => t.name)).toEqual(['demo_list']);
+
+    const ok = await mcp.callTool(agent, 'demo_list', { id: 'x' });
+    expect(ok.isError).toBe(false);
+    // The tool exists and a member could call it; for this account it does not.
+    await expect(mcp.callTool(agent, 'demo_create', { id: 'x' })).rejects.toBeInstanceOf(McpUnknownToolError);
   });
 });
 

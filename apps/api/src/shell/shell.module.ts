@@ -3,6 +3,7 @@ import type { Actor } from '@platform/contracts';
 import { AiToolRegistry } from '../core/llm/tool-registry.service.js';
 import { ManifestRegistry } from '../core/manifest/manifest.registry.js';
 import { McpService } from '../core/llm/mcp.service.js';
+import { PermissionService } from '../core/permissions/permission.service.js';
 import { AssistantController } from './assistant.controller.js';
 import { McpController } from './mcp.controller.js';
 import { coreManifest } from './shell.manifest.js';
@@ -29,6 +30,7 @@ export class ShellModule implements OnModuleInit, OnApplicationBootstrap {
     private readonly manifests: ManifestRegistry,
     private readonly aiTools: AiToolRegistry,
     private readonly mcp: McpService,
+    private readonly permissions: PermissionService,
     private readonly timeline: TimelineService,
   ) {}
 
@@ -86,5 +88,8 @@ export class ShellModule implements OnModuleInit, OnApplicationBootstrap {
     // The MCP endpoint offers exactly the registry's tools, so the one way it could fall
     // short of the assistant is a tool it cannot express. That stops the server too.
     await this.mcp.assertEveryToolExposable();
+
+    // The agent allowlist names capabilities, and only now are all of them registered.
+    this.permissions.assertAgentCapabilitiesValid();
   }
 }

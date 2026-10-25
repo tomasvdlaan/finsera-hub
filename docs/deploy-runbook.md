@@ -511,6 +511,30 @@ The API now refuses to start in production when that directory cannot be written
 deploy's health check fails and `update.sh` rolls back rather than serving a platform whose
 uploads are quietly broken.
 
+## Giving an automated account access (agents over MCP)
+
+An external tool signs in as a Zitadel **service user** and calls `POST /api/mcp`. It sees the
+hub's AI tools, narrowed to what the `agent` role holds. Decision log: "An agent role".
+
+1. **Zitadel:** create a service user (Access Token Type **JWT** — opaque tokens are rejected),
+   generate its client secret, and add an **authorization** for it on the hub project with the
+   `internal` role.
+2. **Its token** must carry two audiences and the roles: the project id, so the roles are
+   asserted, and the hub application's client id, so the guard accepts it —
+   `scope="openid urn:zitadel:iam:org:project:id:<PROJECT_ID>:aud urn:zitadel:iam:org:project:id:<ZITADEL_CLIENT_ID>:aud urn:zitadel:iam:org:projects:roles"`
+   with the `client_credentials` grant. Zitadel echoes any audience asked for, which is why the
+   audience is not the lock; the `internal` role is.
+3. **First call** provisions the account as a `member` — which holds everything. **Change it
+   straight away:** People → the account → Role → *Agent (restricted)*.
+4. **What it may hold** is `AGENT_CAPABILITIES` in `deploy/.env` (default
+   `scrum.tasks.read,docs.read`). Changing it is an edit and `docker compose up -d api`. A
+   misspelt or admin-only name stops the API at boot, with the name in the log.
+5. **Verify:** list the tools with a fresh token — only the allowed ones should appear, and
+   nothing from billing, reporting, sales, contracts or meetings.
+
+An agent sees every task and every document, not just those for one client — the role narrows by
+area, not by record.
+
 ## Deploying changes afterwards
 
 ```bash

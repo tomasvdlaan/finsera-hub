@@ -3,9 +3,19 @@ import { z } from 'zod';
 /** Shared core types used by both api and web. */
 
 /** The identity every request carries. There is no broad service actor for user paths. */
+/**
+ * Who an account is, for the purposes of what it may hold.
+ *
+ * `agent` is an automated account — a Zitadel service user an external tool signs in as. It
+ * is never created by signing in (provisioning always makes a `member`) and holds nothing
+ * except the allowlist in `AGENT_CAPABILITIES`; see `PermissionService.can`.
+ */
+export const ACTOR_ROLES = ['admin', 'member', 'agent'] as const;
+export type ActorRole = (typeof ACTOR_ROLES)[number];
+
 export interface Actor {
   userId: string;
-  role: 'admin' | 'member';
+  role: ActorRole;
 }
 
 /** What the registry exposes about any entity — enough to render a link, nothing more. */
@@ -68,7 +78,7 @@ export const currentUserSchema = z.object({
   id: z.string().uuid(),
   email: z.string(),
   displayName: z.string(),
-  role: z.enum(['admin', 'member']),
+  role: z.enum(ACTOR_ROLES),
   /**
    * Every capability this person actually holds, resolved server-side from the manifests.
    *

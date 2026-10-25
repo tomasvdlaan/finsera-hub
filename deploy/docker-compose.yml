@@ -66,6 +66,12 @@ services:
       ZITADEL_INTERNAL_ROLE: ${ZITADEL_INTERNAL_ROLE:-internal}
       ZITADEL_PORTAL_ROLE: ${ZITADEL_PORTAL_ROLE:-portal_client}
       ZITADEL_PROJECT_ID: ${ZITADEL_PROJECT_ID:-}
+      # What an `agent` account (an automated sign-in, e.g. Paperclip over MCP) may hold,
+      # comma-separated capability names. Unset keeps the default: scrum.tasks.read,docs.read.
+      # Empty gives agents nothing. A typo or an admin-only name stops the API at boot.
+      # `-` and not `:-` on purpose: `:-` also replaces an empty value, which would turn a
+      # deliberate "agents get nothing" back into the default.
+      AGENT_CAPABILITIES: ${AGENT_CAPABILITIES-scrum.tasks.read,docs.read}
       # Creating a client login from the hub. Unset, the invitation is still written and
       # the account is made by hand — the screen says so rather than failing silently.
       # This block existing at all is the lesson from OPENROUTER_API_KEY above: a value in
