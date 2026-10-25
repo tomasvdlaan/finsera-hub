@@ -21,6 +21,7 @@ import { EmbeddingService } from './llm/embedding.service.js';
 import { LlmService } from './llm/llm.service.js';
 import { OrchestratorService } from './llm/orchestrator.service.js';
 import { AiToolRegistry } from './llm/tool-registry.service.js';
+import { McpService } from './llm/mcp.service.js';
 import { ManifestRegistry } from './manifest/manifest.registry.js';
 import { PermissionService } from './permissions/permission.service.js';
 import { RegistryService } from './registry/registry.service.js';
@@ -58,6 +59,7 @@ const services = [
   LlmService,
   EmbeddingService,
   AiToolRegistry,
+  McpService,
   OrchestratorService,
   StorageService,
   FileTypeRegistry,
