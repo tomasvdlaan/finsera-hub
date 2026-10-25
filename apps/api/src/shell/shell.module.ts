@@ -2,7 +2,9 @@ import { Module, type OnApplicationBootstrap, type OnModuleInit } from '@nestjs/
 import type { Actor } from '@platform/contracts';
 import { AiToolRegistry } from '../core/llm/tool-registry.service.js';
 import { ManifestRegistry } from '../core/manifest/manifest.registry.js';
+import { McpService } from '../core/llm/mcp.service.js';
 import { AssistantController } from './assistant.controller.js';
+import { McpController } from './mcp.controller.js';
 import { coreManifest } from './shell.manifest.js';
 import { SearchService } from './search.service.js';
 import { ShellController } from './shell.controller.js';
@@ -18,7 +20,7 @@ import { TimelineService, type RecentQuery } from './timeline.service.js';
  * collision into a startup failure rather than a runtime surprise.
  */
 @Module({
-  controllers: [ShellController, AssistantController, NotificationsController],
+  controllers: [ShellController, AssistantController, McpController, NotificationsController],
   providers: [TimelineService, SearchService, DashboardService],
   exports: [TimelineService],
 })
@@ -26,6 +28,7 @@ export class ShellModule implements OnModuleInit, OnApplicationBootstrap {
   constructor(
     private readonly manifests: ManifestRegistry,
     private readonly aiTools: AiToolRegistry,
+    private readonly mcp: McpService,
     private readonly timeline: TimelineService,
   ) {}
 
@@ -50,7 +53,7 @@ export class ShellModule implements OnModuleInit, OnApplicationBootstrap {
     });
   }
 
-  onApplicationBootstrap(): void {
+  async onApplicationBootstrap(): Promise<void> {
     this.manifests.seal();
 
     /*
@@ -79,5 +82,9 @@ export class ShellModule implements OnModuleInit, OnApplicationBootstrap {
           'Bind them by tool name in the owning module, or remove the declaration.',
       );
     }
+
+    // The MCP endpoint offers exactly the registry's tools, so the one way it could fall
+    // short of the assistant is a tool it cannot express. That stops the server too.
+    await this.mcp.assertEveryToolExposable();
   }
 }
