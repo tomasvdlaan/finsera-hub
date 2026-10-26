@@ -27,7 +27,7 @@ export const users = core.table('users', {
   oidcSubject: text('oidc_subject').notNull().unique(), // Zitadel `sub` claim
   email: text('email').notNull(),
   displayName: text('display_name').notNull(),
-  role: text('role').notNull().default('member'), // 'admin' | 'member'
+  role: text('role').notNull().default('member'), // 'admin' | 'member' | 'agent'
   /**
    * Whether this person may still use the platform.
    *

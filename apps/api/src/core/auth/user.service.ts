@@ -6,7 +6,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import type { Actor } from '@platform/contracts';
+import { ACTOR_ROLES, type Actor, type ActorRole } from '@platform/contracts';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { v7 as uuidv7 } from 'uuid';
 import { DB, type Database } from '../db/db.module.js';
@@ -398,7 +398,7 @@ export class UserService {
     actor: Actor,
     id: string,
     patch: {
-      role?: 'admin' | 'member';
+      role?: ActorRole;
       isActive?: boolean;
       jobTitle?: string | null;
       startedOn?: string | null;
@@ -410,13 +410,27 @@ export class UserService {
     if (!target) throw new NotFoundException('No such person');
 
     /*
+     * A role the platform knows, checked here because nothing upstream does.
+     *
+     * The controller types the body and does not validate it, so until `agent` existed an
+     * unrecognised role string was written straight to the column and would have read, to
+     * `can`, as a stranger who holds nothing — a locked-out account with no message. The
+     * list is the contract's, so this cannot drift from what an Actor may be.
+     */
+    if (patch.role !== undefined && !(ACTOR_ROLES as readonly string[]).includes(patch.role)) {
+      throw new BadRequestException(`Role must be one of: ${ACTOR_ROLES.join(', ')}`);
+    }
+    // Anything that is not administrator ends this person's administration — member or agent.
+    const leavingAdmin = patch.role !== undefined && patch.role !== 'admin';
+
+    /*
      * You may not lock yourself out.
      *
      * Demoting or deactivating yourself is a single click away from a platform nobody can
      * administer, and the recovery is a hand-written UPDATE against production. Somebody else
      * can always do it to you — this only stops the accident.
      */
-    if (id === actor.userId && (patch.role === 'member' || patch.isActive === false)) {
+    if (id === actor.userId && (leavingAdmin || patch.isActive === false)) {
       throw new BadRequestException('Ask another admin to do that to your own account');
     }
 
@@ -427,7 +441,7 @@ export class UserService {
      * demoting *them* leaves a platform whose settings, approvals and permissions nobody can
      * reach.
      */
-    const losingAdmin = target.role === 'admin' && (patch.role === 'member' || patch.isActive === false);
+    const losingAdmin = target.role === 'admin' && (leavingAdmin || patch.isActive === false);
     if (losingAdmin) {
       const admins = await this.db
         .select({ id: users.id })

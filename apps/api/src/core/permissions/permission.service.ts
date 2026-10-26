@@ -6,6 +6,32 @@ import { entities } from '../db/core.schema.js';
 import { ManifestRegistry } from '../manifest/manifest.registry.js';
 
 /**
+ * What an `agent` account may hold when `AGENT_CAPABILITIES` is not set: read the board and
+ * read the documents, and nothing that changes anything.
+ *
+ * Narrower than the default for a member on purpose. A member holds every capability a module
+ * declares, which is right for a colleague and far too much for an automated account whose
+ * prompts, tools and model provider the business does not control. Widening this is a
+ * decision — an environment variable and a deploy — not something a role does by default.
+ */
+export const DEFAULT_AGENT_CAPABILITIES: readonly string[] = ['scrum.tasks.read', 'docs.read'];
+
+/**
+ * The capabilities named by `AGENT_CAPABILITIES`, or the default when it is unset.
+ *
+ * Unset and empty are different answers: unset means "use the default", empty means "this
+ * deployment gives agents nothing", and collapsing the two would turn a deliberate lockdown
+ * back into the default.
+ */
+export function parseAgentCapabilities(raw: string | undefined): string[] {
+  if (raw === undefined) return [...DEFAULT_AGENT_CAPABILITIES];
+  return raw
+    .split(',')
+    .map((c) => c.trim())
+    .filter((c) => c.length > 0);
+}
+
+/**
  * Permissions (Master §12).
  *
  * The POLICY here is deliberately permissive in v0 — record-level access arrives with
@@ -18,10 +44,59 @@ import { ManifestRegistry } from '../manifest/manifest.registry.js';
  */
 @Injectable()
 export class PermissionService {
+  /** The parsed allowlist and the raw string it came from, so it is re-read only on change. */
+  private agentRaw: string | undefined | null = null;
+  private agentSet: ReadonlySet<string> = new Set();
+
   constructor(
     @Inject(DB) private readonly db: Database,
     private readonly manifests: ManifestRegistry,
   ) {}
+
+  /**
+   * What an `agent` may hold right now.
+   *
+   * Read at call time rather than at construction, like every other setting here: a provider
+   * can be built before config loads, and a test can change the variable and see it.
+   */
+  private agentCapabilities(): ReadonlySet<string> {
+    const raw = process.env.AGENT_CAPABILITIES;
+    if (raw !== this.agentRaw) {
+      this.agentRaw = raw;
+      this.agentSet = new Set(parseAgentCapabilities(raw));
+    }
+    return this.agentSet;
+  }
+
+  /**
+   * Refuse to start when the agent allowlist names something an agent must not hold.
+   *
+   * Two ways to get it wrong, and both are silent without this. A misspelt capability grants
+   * nothing and nobody notices until an agent is mysteriously unable to read the board. An
+   * `adminOnly` capability is worse the other way: `can` would refuse it anyway, so the
+   * variable would read as though the agent had it. Either way the file says one thing and
+   * the platform does another, so it stops the server instead.
+   *
+   * Called once every manifest is registered — the shell does it next to the other checks that
+   * need to see the whole platform.
+   */
+  assertAgentCapabilitiesValid(): void {
+    const declared = new Map(
+      this.manifests.all().flatMap((m) => m.permissions).map((p) => [p.capability, p]),
+    );
+    const problems: string[] = [];
+    for (const capability of parseAgentCapabilities(process.env.AGENT_CAPABILITIES)) {
+      const found = declared.get(capability);
+      if (!found) problems.push(`'${capability}' is declared by no module`);
+      else if (found.adminOnly) problems.push(`'${capability}' is admin-only and cannot be held by an agent`);
+    }
+    if (problems.length > 0) {
+      throw new Error(
+        `AGENT_CAPABILITIES is invalid: ${problems.join('; ')}. ` +
+          'Use capability names from the module manifests, or unset it for the default.',
+      );
+    }
+  }
 
   /**
    * Does this entity exist and is this actor entitled to reach it at all?
@@ -102,8 +177,8 @@ export class PermissionService {
   /**
    * Does this actor hold a capability (e.g. 'demo.items.create')?
    *
-   * v0: admins hold everything; members hold every capability a module declared. The
-   * capability must be declared in some manifest — an undeclared one is a bug, not an
+   * v0: admins hold everything; members hold every capability a module declared; agents hold
+   * only the allowlist. The capability must be declared in some manifest — an undeclared one is a bug, not an
    * implicit deny, so it throws rather than silently returning false.
    */
   async can(actor: Actor, capability: string): Promise<boolean> {
@@ -120,6 +195,13 @@ export class PermissionService {
     }
 
     if (actor.role === 'admin') return true;
+    // An agent holds only what the deployment lists, and never an admin-only capability even
+    // if somebody lists one. This is a positive list on purpose: a capability added tomorrow
+    // is denied to agents until somebody decides otherwise, where "members hold everything"
+    // would hand it over the day it ships.
+    if (actor.role === 'agent') {
+      return !declared.adminOnly && this.agentCapabilities().has(capability);
+    }
     // A capability may opt out of the members-hold-everything default. Reserved for the
     // few whose blast radius reaches outside the business, such as granting a client a login.
     return actor.role === 'member' && !declared.adminOnly;

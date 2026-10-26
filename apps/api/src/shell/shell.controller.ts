@@ -493,7 +493,7 @@ export class ShellController {
     @Param('id') id: string,
     @Body()
     body: {
-      role?: 'admin' | 'member';
+      role?: 'admin' | 'member' | 'agent';
       isActive?: boolean;
       jobTitle?: string | null;
       startedOn?: string | null;

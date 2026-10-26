@@ -22,7 +22,7 @@ interface Person {
   id: string;
   email: string;
   displayName: string;
-  role: 'admin' | 'member';
+  role: 'admin' | 'member' | 'agent';
   isActive: boolean;
   jobTitle: string | null;
   startedOn: string | null;
@@ -126,7 +126,7 @@ export function People() {
                       It lives beside their job title and their contract now, where the
                       question "what should this person be able to reach" is actually asked.
                     */}
-                    {p.role === 'admin' ? 'Admin' : 'Member'}
+                    {p.role === 'admin' ? 'Admin' : p.role === 'agent' ? 'Agent' : 'Member'}
                   </td>
                   <td>
                     {/*

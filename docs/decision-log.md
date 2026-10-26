@@ -1126,3 +1126,44 @@ DMARC aligned) and it adds no new data processor — but it is decided as G8, in
 
 **Revisit if:** the four-week review after N2 shows a category opened rarely and switched off
 often — that category moves down a tier, rather than its wording being tuned.
+
+
+## 2026-10-25 — An agent role: a service account holds a list, not everything · **Decided**
+
+An external tool — Paperclip, over the MCP endpoint — signs in as a Zitadel service user. First
+sign-in provisions a `member`, and a member holds **every capability a module declares**, which
+is right for a colleague and far too much for an automated account: its prompts, its tools and
+its model provider are not ours. On the shipped platform a member-level service account is
+offered 45 tools, among them invoices, revenue, project profitability, contracts, quotes and
+meeting transcripts.
+
+**A third role, `agent`, that holds only an explicit allowlist.**
+- `AGENT_CAPABILITIES` (comma-separated capability names). **Unset: `scrum.tasks.read,docs.read`**
+  — read the board and the documents. **Empty: nothing.** Unset and empty differ on purpose, and
+  the compose file uses `${VAR-default}` rather than `${VAR:-default}` so an empty value is not
+  quietly turned back into the default.
+- A **positive list**: a capability added tomorrow reaches members the day it ships and agents
+  only when somebody names it. An `adminOnly` capability is refused to an agent even if listed.
+- **A typo or an admin-only name stops the API at boot**, next to the unbound-tool and
+  MCP-exposability checks, rather than granting nothing and being noticed when an agent
+  mysteriously cannot read the board.
+- **Signing in never makes an agent.** An administrator sets the role on the person page
+  ("Agent (restricted)") or through `PATCH /people/:id`; `updatePerson` now validates the role
+  and treats *any* role other than administrator as leaving administration, so the last admin
+  cannot be turned into an agent.
+- **Both surfaces narrow together.** The hub assistant and MCP both build their tools through
+  `AiToolRegistry`, which filters by `PermissionService.can`; nothing else was changed to make
+  that so, which is the point of there being one list.
+
+**What this does not do: it narrows by area, not by record.** There is still no per-client or
+per-project scoping, so an agent holding `scrum.tasks.read` and `docs.read` sees *all* tasks and
+*all* documents. Check what the document library holds before widening, and before agents run.
+If that is too broad, the next step is scoping documents to chosen folders — separate work.
+
+**Not in the default, deliberately:** every write (`scrum.tasks.write` is the first to add, once
+agent behaviour has been watched), the activity feed (it shows every change to every record,
+invoices and hours included), CRM, time, billing, sales, reporting and meetings.
+
+**Revisit if:** an agent needs a capability the list cannot express, or a second kind of
+automated account needs a different list — then the allowlist moves from one variable to
+a per-account setting.

@@ -32,7 +32,7 @@ interface Person {
   id: string;
   email: string;
   displayName: string;
-  role: 'admin' | 'member';
+  role: 'admin' | 'member' | 'agent';
   isActive: boolean;
   jobTitle: string | null;
   startedOn: string | null;
@@ -374,6 +374,7 @@ export function PersonDetail() {
                 >
                   <option value="member">Member</option>
                   <option value="admin">Administrator</option>
+                  <option value="agent">Agent (restricted)</option>
                 </select>
                 {/* An administrator can reach settings, cost rates and the people directory;
                     everyone else can reach the work. Said here because the two words on
@@ -381,7 +382,9 @@ export function PersonDetail() {
                 <span className="field-hint">
                   {person?.role === 'admin'
                     ? 'Can manage people, settings and cost rates.'
-                    : 'Can reach the work, but not settings or cost rates.'}
+                    : person?.role === 'agent'
+                      ? 'An automated account. Holds only the capabilities the deployment allows agents, never admin ones.'
+                      : 'Can reach the work, but not settings or cost rates.'}
                 </span>
               </label>
 

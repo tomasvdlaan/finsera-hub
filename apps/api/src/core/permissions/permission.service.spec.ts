@@ -1,7 +1,11 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { defineManifest, type Actor } from '@platform/contracts';
 import { ManifestRegistry } from '../manifest/manifest.registry.js';
-import { PermissionService } from './permission.service.js';
+import {
+  DEFAULT_AGENT_CAPABILITIES,
+  PermissionService,
+  parseAgentCapabilities,
+} from './permission.service.js';
 import { RegistryService } from '../registry/registry.service.js';
 import { AuditService } from '../audit/audit.service.js';
 import { auditLog } from '../db/core.schema.js';
@@ -262,5 +266,108 @@ describe('AuditService', () => {
 
     const [row] = await testDb.select().from(auditLog);
     expect(row).toMatchObject({ aiInitiated: true, conversationId });
+  });
+});
+
+/**
+ * The agent role: an automated account that holds only what the deployment lists.
+ *
+ * Members hold every capability a module declares, which is right for a colleague and wrong
+ * for an automated sign-in. These pin the shape of the difference — a positive list, closed
+ * by default, that cannot be talked into holding an admin-only capability.
+ */
+describe('PermissionService agents', () => {
+  const agent: Actor = { userId: crypto.randomUUID(), role: 'agent' };
+  const saved = process.env.AGENT_CAPABILITIES;
+
+  afterEach(() => {
+    if (saved === undefined) delete process.env.AGENT_CAPABILITIES;
+    else process.env.AGENT_CAPABILITIES = saved;
+  });
+
+  const service = () => new PermissionService(testDb, makeManifests());
+
+  it('defaults to reading the board and the documents, and nothing more', () => {
+    delete process.env.AGENT_CAPABILITIES;
+    expect(DEFAULT_AGENT_CAPABILITIES).toEqual(['scrum.tasks.read', 'docs.read']);
+    expect(parseAgentCapabilities(undefined)).toEqual(['scrum.tasks.read', 'docs.read']);
+  });
+
+  it('reads unset and empty as different answers', () => {
+    // Unset is "use the default"; empty is "this deployment gives agents nothing".
+    expect(parseAgentCapabilities('')).toEqual([]);
+    expect(parseAgentCapabilities(' a.b , c.d ,, ')).toEqual(['a.b', 'c.d']);
+  });
+
+  it('holds exactly the listed capabilities', async () => {
+    process.env.AGENT_CAPABILITIES = 'demo.items.read';
+    const permissions = service();
+    expect(await permissions.can(agent, 'demo.items.read')).toBe(true);
+    // A member would hold this; an agent was not given it.
+    expect(await permissions.can(agent, 'demo.items.create')).toBe(false);
+    expect(await permissions.can({ ...agent, role: 'member' }, 'demo.items.create')).toBe(true);
+  });
+
+  it('holds nothing when the list is empty', async () => {
+    process.env.AGENT_CAPABILITIES = '';
+    const permissions = service();
+    expect(await permissions.can(agent, 'demo.items.read')).toBe(false);
+    expect(await permissions.can(agent, 'demo.items.create')).toBe(false);
+  });
+
+  it('is refused an admin-only capability even when somebody lists it', async () => {
+    process.env.AGENT_CAPABILITIES = 'demo.people.manage';
+    expect(await service().can(agent, 'demo.people.manage')).toBe(false);
+  });
+
+  it('is denied a capability nobody has decided on yet', async () => {
+    // The point of a positive list: a capability added tomorrow reaches members the day it
+    // ships and reaches agents only when somebody names it.
+    process.env.AGENT_CAPABILITIES = 'demo.items.read';
+    const manifests = new ManifestRegistry();
+    manifests.register(
+      defineManifest({
+        name: 'later',
+        version: '1.0.0',
+        permissions: [{ capability: 'later.thing.write', description: 'Added after the list was written.' }],
+      }),
+    );
+    manifests.seal();
+    const permissions = new PermissionService(testDb, manifests);
+    expect(await permissions.can({ ...agent, role: 'member' }, 'later.thing.write')).toBe(true);
+    expect(await permissions.can(agent, 'later.thing.write')).toBe(false);
+  });
+
+  it('still treats an undeclared capability as a bug, not a denial', async () => {
+    process.env.AGENT_CAPABILITIES = 'demo.items.read';
+    await expect(service().can(agent, 'demo.nonsense')).rejects.toThrow(/Unknown capability/);
+  });
+
+  it('picks up a changed list without a new instance', async () => {
+    const permissions = service();
+    process.env.AGENT_CAPABILITIES = 'demo.items.read';
+    expect(await permissions.can(agent, 'demo.items.read')).toBe(true);
+    process.env.AGENT_CAPABILITIES = 'demo.items.create';
+    expect(await permissions.can(agent, 'demo.items.read')).toBe(false);
+    expect(await permissions.can(agent, 'demo.items.create')).toBe(true);
+  });
+
+  describe('startup validation', () => {
+    it('passes for declared, non-admin capabilities', () => {
+      process.env.AGENT_CAPABILITIES = 'demo.items.read,demo.items.create';
+      expect(() => service().assertAgentCapabilitiesValid()).not.toThrow();
+      process.env.AGENT_CAPABILITIES = '';
+      expect(() => service().assertAgentCapabilitiesValid()).not.toThrow();
+    });
+
+    it('refuses a capability no module declares, naming it', () => {
+      process.env.AGENT_CAPABILITIES = 'demo.items.read,demo.itmes.read';
+      expect(() => service().assertAgentCapabilitiesValid()).toThrow(/'demo\.itmes\.read' is declared by no module/);
+    });
+
+    it('refuses an admin-only capability, naming it', () => {
+      process.env.AGENT_CAPABILITIES = 'demo.people.manage';
+      expect(() => service().assertAgentCapabilitiesValid()).toThrow(/admin-only/);
+    });
   });
 });
