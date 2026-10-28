@@ -240,7 +240,6 @@ export function EntityPicker({
       window.removeEventListener('scroll', follow, true);
     };
     // Only when it opens; re-running on every keystroke would reset the highlight.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   // A new search starts at the top of what it found.
