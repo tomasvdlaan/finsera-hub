@@ -9659,6 +9659,7 @@ a.btn { text-decoration: none; }
   cursor: pointer;
   font-size: var(--text-sm);
 }
+.entity-option.is-nested { padding-left: calc(var(--space-2) + 1.1rem); }
 .entity-option.is-active { background: var(--wash); }
 .entity-option.is-selected { color: var(--accent); font-weight: 600; }
 .entity-option-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
