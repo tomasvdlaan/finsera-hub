@@ -37,6 +37,10 @@ interface Option {
   hint?: string;
   group: string | null;
   value: EntityValue;
+  /** A project listed under its client: indented, and the client name is not repeated. */
+  nested?: boolean;
+  /** The client row a nested project belongs to, so a search can keep the parent in view. */
+  parent?: string;
 }
 
 const fold = (s: string): string =>
@@ -112,27 +116,40 @@ export function EntityPicker({
   const options = useMemo<Option[]>(() => {
     const out: Option[] = [];
     if (emptyLabel !== null) out.push({ key: '', label: emptyLabel, group: null, value: {} });
-    if (wantProjects) {
-      for (const p of projectList) {
-        out.push({
-          key: `p:${p.id}`,
-          label: p.name,
-          hint: p.clientName ?? undefined,
-          group: wantClients ? 'Projects' : null,
-          value: { projectId: p.id, clientId: null },
-        });
-      }
+    const projectOption = (p: PickerProject, nested: boolean): Option => ({
+      key: `p:${p.id}`,
+      label: p.name,
+      hint: p.clientName ?? undefined,
+      group: null,
+      value: { projectId: p.id, clientId: null },
+      nested,
+    });
+    const byClient = new Map<string, PickerProject[]>();
+    const loose: PickerProject[] = [];
+    for (const p of wantProjects ? projectList : []) {
+      if (!p.clientName) loose.push(p);
+      else byClient.set(p.clientName, [...(byClient.get(p.clientName) ?? []), p]);
     }
+
+    /*
+     * Projects sit under their client, indented.
+     *
+     * A flat "Project — Client" list repeated every client name on every row and spread one
+     * client's work across the list. With clients selectable too, the client row doubles as
+     * the heading; without them (projects only) it is a plain heading.
+     */
     if (wantClients) {
       for (const c of clientList) {
-        out.push({
-          key: `c:${c.id}`,
-          label: c.name,
-          group: wantProjects ? 'Clients — no project yet' : null,
-          value: { projectId: null, clientId: c.id },
-        });
+        out.push({ key: `c:${c.id}`, label: c.name, group: null, value: { projectId: null, clientId: c.id } });
+        for (const p of byClient.get(c.name) ?? []) out.push({ ...projectOption(p, true), parent: `c:${c.id}` });
+        byClient.delete(c.name);
       }
     }
+    // Clients the client list did not name (or every client, when they are not selectable).
+    for (const [name, list] of [...byClient.entries()].sort(([a], [z]) => a.localeCompare(z))) {
+      list.forEach((p) => out.push({ ...projectOption(p, true), group: name }));
+    }
+    loose.forEach((p) => out.push({ ...projectOption(p, false), group: wantClients || byClient.size ? 'No client' : null }));
     return out;
   }, [emptyLabel, wantProjects, wantClients, projectList, clientList]);
 
@@ -161,9 +178,10 @@ export function EntityPicker({
     const q = fold(query.trim());
     if (!q) return options;
     // The empty choice stays out of a search: typing is looking for something.
-    return options.filter(
-      (o) => o.key !== '' && fold(`${o.label} ${o.hint ?? ''}`).includes(q),
-    );
+    const hit = (o: Option) => o.key !== '' && fold(`${o.label} ${o.hint ?? ''}`).includes(q);
+    // A matching project keeps its client row above it, or the indent has nothing to hang from.
+    const parents = new Set(options.filter((o) => o.parent && hit(o)).map((o) => o.parent));
+    return options.filter((o) => hit(o) || parents.has(o.key));
   }, [options, query]);
 
   const close = useCallback(
@@ -375,7 +393,7 @@ export function EntityPicker({
                       data-index={i}
                       role="option"
                       aria-selected={o.key === selectedKey}
-                      className={`entity-option${i === active ? ' is-active' : ''}${o.key === selectedKey ? ' is-selected' : ''}`}
+                      className={`entity-option${i === active ? ' is-active' : ''}${o.key === selectedKey ? ' is-selected' : ''}${o.nested ? ' is-nested' : ''}`}
                       // A click, so that starting a scroll on a touch screen does not pick the
                       // row under the finger; the mouse-down default is cancelled so the
                       // search field keeps focus until the choice lands.
@@ -384,7 +402,7 @@ export function EntityPicker({
                       onPointerMove={() => i !== active && setActive(i)}
                     >
                       <span className="entity-option-label">{o.label}</span>
-                      {o.hint && <span className="entity-option-hint">{o.hint}</span>}
+                      {o.hint && !o.nested && <span className="entity-option-hint">{o.hint}</span>}
                       {o.key === selectedKey && (
                         <span className="entity-check" aria-hidden="true">
                           ✓

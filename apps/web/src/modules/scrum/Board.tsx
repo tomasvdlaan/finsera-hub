@@ -8,10 +8,12 @@ import {
   KeyboardSensor,
   PointerSensor,
   closestCorners,
+  pointerWithin,
   useDroppable,
   useSensor,
   useSensors,
   type DragEndEvent,
+  type CollisionDetection,
   type DragStartEvent,
   type KeyboardCoordinateGetter,
 } from '@dnd-kit/core';
@@ -87,6 +89,25 @@ const boardKeyboardCoordinates: KeyboardCoordinateGetter = (event, args) => {
   // Keep the inset and the height, so the card lands beside where it came from rather than
   // snapping to the top of a column it has nothing to do with yet.
   return { x: next.left + (collisionRect.left - columns[here]!.left), y: collisionRect.top };
+};
+
+/**
+ * What the card is over: the thing under the pointer, then the nearest by corners.
+ *
+ * `closestCorners` alone measures to the corners of every droppable, and a column's corners
+ * are far apart — so a card dragged into an empty column lost to a card in the neighbouring one
+ * that happened to be nearer, and an empty To Do could not be dropped on at all. The pointer is
+ * the honest answer when there is one: a card under it wins (so ordering within a column still
+ * works), otherwise the column it is in. The keyboard has no pointer and falls through to the
+ * corners, which is what it was tuned against.
+ */
+const collision: CollisionDetection = (args) => {
+  const under = pointerWithin(args);
+  if (under.length > 0) {
+    const card = under.find((c) => !String(c.id).startsWith('column:'));
+    return card ? [card] : under;
+  }
+  return closestCorners(args);
 };
 
 function Column({
@@ -996,7 +1017,7 @@ export function Board() {
         <div className={openId ? 'board-stage has-preview' : 'board-stage'}>
           <DndContext
             sensors={sensors}
-            collisionDetection={closestCorners}
+            collisionDetection={collision}
             onDragStart={onDragStart}
             onDragEnd={onDragEnd}
             onDragCancel={() => setCarried(null)}
