@@ -23,6 +23,7 @@ import { useToast } from '../../shell/ui/Toast.js';
 interface Project {
   id: string;
   name: string;
+  clientId?: string | null;
   clientName?: string | null;
 }
 
