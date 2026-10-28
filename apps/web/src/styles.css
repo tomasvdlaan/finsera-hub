@@ -4807,6 +4807,16 @@ button.nav-me:hover { background: var(--surface); }
   box-shadow: inset 0 1px 0 0 rgb(255 255 255 / 0.05);
 }
 .composer input { flex: 1; min-width: 0; }
+form.composer textarea {
+  flex: 1;
+  min-width: 0;
+  resize: none;
+  max-height: 12rem;
+  line-height: var(--leading-norm);
+  /* 16px: below that, Safari on a phone zooms the page when the field takes focus. */
+  font-size: 16px;
+}
+form.composer { align-items: flex-end; }
 .assistant-page .composer { position: sticky; bottom: 0; background: var(--bg); }
 
 /* The overlay, once it has stopped being a list of results. */
