@@ -1,3 +1,4 @@
+import { EntityPicker } from '../../shell/ui/EntityPicker.js';
 import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import {
@@ -195,13 +196,14 @@ export function EntryRow({
     <li>
       <form onSubmit={(e) => void save(e)} style={{ width: '100%' }}>
         <div className="row">
-          <select value={projectId} onChange={(e) => setProjectId(e.target.value)} aria-label="Project">
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
+          <EntityPicker
+            label="Project"
+            kinds={['project']}
+            emptyLabel={null}
+            value={{ projectId }}
+            projects={projects}
+            onChange={(t) => setProjectId(t.projectId ?? '')}
+          />
           <input
             type="date"
             value={workedOn}

@@ -88,9 +88,19 @@ export function AssistantPage() {
    */
   const openedId = useRef<string | undefined>(undefined);
   openedId.current = conversationId;
+  /*
+   * The conversation that was on screen when "new" was pressed.
+   *
+   * `reset()` only takes effect on the next render, but the effect that gives a new thread its
+   * URL runs in the same pass and still sees the old id — so it saw "a conversation with no URL"
+   * and navigated straight back to the thread being left. New chat did nothing.
+   */
+  const left = useRef<string | undefined>(undefined);
   useEffect(() => {
-    if (!id) reset();
-    else if (id !== openedId.current) void open(id);
+    if (!id) {
+      left.current = openedId.current;
+      reset();
+    } else if (id !== openedId.current) void open(id);
   }, [id, open, reset]);
 
   /*
@@ -116,7 +126,7 @@ export function AssistantPage() {
 
   /* A new thread gets its own URL once the server has named it. */
   useEffect(() => {
-    if (conversationId && !id) {
+    if (conversationId && !id && conversationId !== left.current) {
       navigate(`/assistant/${conversationId}`, { replace: true });
       refreshHistory();
     }

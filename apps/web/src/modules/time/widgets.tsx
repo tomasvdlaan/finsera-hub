@@ -2,6 +2,7 @@ import { Card, Figure } from '../../shell/ui/card.js';
 import { Skeleton } from '../../shell/ui/data.js';
 import { Rhythm, Meter, Heatmap, Bullet, Split, Legend, type Slice } from '../../shell/ui/viz.js';
 import { useShared } from '../../lib/useShared.js';
+import { EntityPicker } from '../../shell/ui/EntityPicker.js';
 import { useState } from 'react';
 import { api } from '../../lib/api.js';
 import { Act, ActRow } from '../../shell/ui/act.js';
@@ -350,7 +351,6 @@ export const timeWidgets: Record<string, WidgetDef> = {
     permission: 'time.entries.write_own',
     Component: () => {
       const { running, needsDuration, busy, stop, start } = useRunningTimer();
-      const projects = useShared<Array<{ id: string; name: string }>>('/crm/projects');
       const [picking, setPicking] = useState(false);
 
       /*
@@ -368,19 +368,15 @@ export const timeWidgets: Record<string, WidgetDef> = {
             <div className="card-meta" style={{ marginTop: 'var(--space-2)' }}>Nothing running</div>
             {picking ? (
               <div className="card-foot">
-                <select
-                  aria-label="Project"
-                  defaultValue=""
-                  onChange={(e) => {
-                    if (e.target.value) void start({ projectId: e.target.value });
-                    setPicking(false);
-                  }}
-                >
-                  <option value="">Pick a project…</option>
-                  {(projects.data ?? []).map((p) => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
-                </select>
+                <EntityPicker
+                  label="Project or client"
+                  value={{}}
+                  emptyLabel={null}
+                  placeholder="Pick a project…"
+                  autoOpen
+                  onChange={(t) => void start(t)}
+                  onClose={() => setPicking(false)}
+                />
               </div>
             ) : (
               <div className="card-foot">
@@ -412,23 +408,19 @@ export const timeWidgets: Record<string, WidgetDef> = {
           </div>
           {picking && (
             <div className="card-foot" style={{ borderTop: 0, paddingTop: 'var(--space-2)' }}>
-              <select
-                aria-label="Switch to project"
-                defaultValue=""
+              <EntityPicker
+                label="Switch to"
+                value={{}}
+                emptyLabel={null}
+                placeholder="Switch to…"
+                autoOpen
                 disabled={busy}
-                onChange={(e) => {
-                  // switchTo stops the running clock and starts the new one in one call, which
-                  // is the whole reason it exists — doing it as stop-then-start leaves a gap
-                  // that gets billed to nobody.
-                  if (e.target.value) void start({ projectId: e.target.value });
-                  setPicking(false);
-                }}
-              >
-                <option value="">Switch to…</option>
-                {(projects.data ?? []).map((p) => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
-                ))}
-              </select>
+                // switchTo stops the running clock and starts the new one in one call, which
+                // is the whole reason it exists — doing it as stop-then-start leaves a gap
+                // that gets billed to nobody.
+                onChange={(t) => void start(t)}
+                onClose={() => setPicking(false)}
+              />
             </div>
           )}
         </Card>

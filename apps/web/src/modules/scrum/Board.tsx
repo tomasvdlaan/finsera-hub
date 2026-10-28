@@ -220,6 +220,19 @@ function Column({
   );
 }
 
+/**
+ * How cards are ordered inside a column.
+ *
+ * 'smart' is the default: most urgent first, and within a priority your own cards before
+ * anyone else's. 'manual' is the stored drag order, for when you have arranged a column by hand
+ * and want to see it that way — a sort that silently overrode every drag would make dragging
+ * look broken.
+ */
+type Sort = 'smart' | 'manual';
+
+/** Highest first. `PRIORITIES` runs low to urgent, so the rank is its mirror. */
+const priorityRank = (p: Task['priority']): number => PRIORITIES.length - PRIORITIES.indexOf(p);
+
 /** What the rows are grouped by. 'none' is one board, the way it has always been. */
 type Lane = 'none' | 'assignee' | 'priority' | 'type';
 
@@ -282,6 +295,8 @@ export function Board() {
   const [openId, setOpenId] = useState<string | null>(null);
   const [filters, setFilters] = useState<Filters>(NO_FILTERS);
   const [lane, setLane] = useState<Lane>('none');
+  const [sort, setSort] = useState<Sort>('smart');
+  const [meId, setMeId] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   /** The card currently being carried, so the overlay has something to draw. */
   const [carried, setCarried] = useState<Task | null>(null);
@@ -314,6 +329,10 @@ export function Board() {
       .get<Person[]>('/core/users')
       .then(setPeople)
       .catch(() => setPeople([]));
+    api
+      .get<{ id: string }>('/core/me')
+      .then((me) => setMeId(me.id))
+      .catch(() => setMeId(null));
   }, []);
 
   const load = useCallback(async () => {
@@ -398,7 +417,7 @@ export function Board() {
    */
   const shown = useMemo(() => {
     const today = new Date().toISOString().slice(0, 10);
-    return inScope.filter((t) => {
+    const visible = inScope.filter((t) => {
       if (!filters.subtasks && t.parentId) return false;
       if (filters.assignee === 'none' && t.assigneeId !== null) return false;
       if (filters.assignee && filters.assignee !== 'none' && t.assigneeId !== filters.assignee)
@@ -412,7 +431,16 @@ export function Board() {
       if (filters.flag === 'stale' && (t.completedAt || t.daysInColumn < 5)) return false;
       return true;
     });
-  }, [inScope, filters]);
+    if (sort === 'manual') return visible;
+    // Array.prototype.sort is stable, so ties keep the server's order — the manual order is
+    // the tiebreak rather than being thrown away.
+    return [...visible].sort(
+      (a, b) =>
+        priorityRank(a.priority) - priorityRank(b.priority) ||
+        Number(b.assigneeId === meId && meId !== null) -
+          Number(a.assigneeId === meId && meId !== null),
+    );
+  }, [inScope, filters, sort, meId]);
 
   /** Every label in use on this board, so the filter offers what exists and nothing else. */
   const labels = useMemo(
@@ -740,6 +768,16 @@ export function Board() {
             <option value="assignee">By person</option>
             <option value="priority">By priority</option>
             <option value="type">By type</option>
+          </select>
+        </span>
+
+        <span className="filter-lanes">
+          <label htmlFor="sort-select" className="faint">
+            Sort
+          </label>
+          <select id="sort-select" value={sort} onChange={(e) => setSort(e.target.value as Sort)}>
+            <option value="smart">Priority, then mine</option>
+            <option value="manual">Manual order</option>
           </select>
         </span>
 
