@@ -9572,3 +9572,86 @@ a.btn { text-decoration: none; }
 }
 .formatbar button:hover:not(:disabled) { color: var(--text); border-color: var(--muted); }
 .formatbar button:disabled { opacity: .5; cursor: default; }
+
+/* Help: a search box, and pages that are mostly prose. */
+.help-search { grid-column: 1 / -1; margin-bottom: .75rem; }
+.help-search input { width: 100%; font-size: 15px; padding: .6rem .8rem; }
+.help-hits, .help-list { list-style: none; padding: 0; margin: 0; display: grid; gap: .6rem; }
+.help-hits li p { margin: .15rem 0 0; font-size: 13px; }
+.help-hits .badge { margin-left: .4rem; }
+.help-list li { line-height: 1.4; }
+.help-article { display: grid; gap: 1rem; }
+.help-toc { font-size: 13px; padding: .6rem .8rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.help-toc ul { list-style: none; padding: 0; margin: .3rem 0 0; display: grid; gap: .15rem; }
+.help-body h2 { scroll-margin-top: 4.5rem; }
+.help-body { max-width: 72ch; }
+
+/* ── Entity picker ───────────────────────────────────────────────────────────
+ * The project / client chooser. A button and a popover rather than a native select, which
+ * Safari draws with its own menu and clips long labels in. */
+.entity-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  text-align: left;
+  cursor: pointer;
+  /* Matches the neighbouring inputs; the width is the caller's to set. */
+  -webkit-appearance: none;
+  appearance: none;
+}
+.entity-picker:disabled { cursor: default; opacity: 0.6; }
+.entity-picker-value { flex: 1; min-width: 0; display: flex; gap: var(--space-2); align-items: baseline; }
+.entity-picker-label,
+.entity-picker-hint { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.entity-picker-label { flex: 0 1 auto; }
+.entity-picker-hint { flex: 0 1000 auto; color: var(--muted); font-size: var(--text-xs); }
+.entity-picker.is-empty .entity-picker-label { color: var(--muted); }
+.entity-picker-caret { color: var(--faint); font-size: var(--text-xs); }
+.timer .entity-picker { width: 100%; font-size: var(--text-sm); }
+
+.entity-popover {
+  position: fixed;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  color: var(--text);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.18);
+  overflow: hidden;
+}
+.entity-search {
+  /* 16px: below that, Safari on a phone zooms the page when the field takes focus. */
+  font-size: 16px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  width: 100%;
+  flex: none;
+}
+.entity-search:focus-visible { outline: none; box-shadow: inset 0 -2px 0 var(--accent); }
+.entity-list { overflow-y: auto; overscroll-behavior: contain; padding: var(--space-1); }
+.entity-group {
+  padding: var(--space-2) var(--space-2) var(--space-1);
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--faint);
+}
+.entity-option {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: 0.45rem var(--space-2);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--text-sm);
+}
+.entity-option.is-active { background: var(--wash); }
+.entity-option.is-selected { color: var(--accent); font-weight: 600; }
+.entity-option-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.entity-option-hint { color: var(--muted); font-size: var(--text-xs); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.entity-check { margin-left: auto; }
+.entity-empty { margin: 0; padding: var(--space-3); color: var(--muted); font-size: var(--text-sm); }
