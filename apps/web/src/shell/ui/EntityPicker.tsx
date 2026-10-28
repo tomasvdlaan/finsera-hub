@@ -14,6 +14,8 @@ import { useShared } from '../../lib/useShared.js';
 export interface PickerProject {
   id: string;
   name: string;
+  /** What the API returns. The name is looked up from the client list when it is not sent. */
+  clientId?: string | null;
   clientName?: string | null;
 }
 
@@ -108,7 +110,8 @@ export function EntityPicker({
     wantProjects && !projects ? '/crm/projects' : null,
   );
   const fetchedClients = useShared<PickerClient[]>(
-    wantClients && !clients ? '/crm/clients' : null,
+    // Also for projects alone: the project rows carry a client id, not a name.
+    (wantClients || wantProjects) && !clients ? '/crm/clients' : null,
   );
   const projectList = projects ?? fetchedProjects.data ?? [];
   const clientList = clients ?? fetchedClients.data ?? [];
@@ -116,19 +119,28 @@ export function EntityPicker({
   const options = useMemo<Option[]>(() => {
     const out: Option[] = [];
     if (emptyLabel !== null) out.push({ key: '', label: emptyLabel, group: null, value: {} });
+    const nameOf = new Map(clientList.map((c) => [c.id, c.name]));
+    const clientNameOf = (p: PickerProject): string | undefined =>
+      p.clientName ?? (p.clientId ? nameOf.get(p.clientId) : undefined);
+
     const projectOption = (p: PickerProject, nested: boolean): Option => ({
       key: `p:${p.id}`,
       label: p.name,
-      hint: p.clientName ?? undefined,
+      hint: clientNameOf(p),
       group: null,
       value: { projectId: p.id, clientId: null },
       nested,
     });
+
+    // Grouped by client id where the project has one; a name is only a fallback.
+    const groupKey = (p: PickerProject): string | undefined =>
+      p.clientId ?? (p.clientName ? `name:${p.clientName}` : undefined);
     const byClient = new Map<string, PickerProject[]>();
     const loose: PickerProject[] = [];
     for (const p of wantProjects ? projectList : []) {
-      if (!p.clientName) loose.push(p);
-      else byClient.set(p.clientName, [...(byClient.get(p.clientName) ?? []), p]);
+      const k = groupKey(p);
+      if (!k) loose.push(p);
+      else byClient.set(k, [...(byClient.get(k) ?? []), p]);
     }
 
     /*
@@ -141,15 +153,20 @@ export function EntityPicker({
     if (wantClients) {
       for (const c of clientList) {
         out.push({ key: `c:${c.id}`, label: c.name, group: null, value: { projectId: null, clientId: c.id } });
-        for (const p of byClient.get(c.name) ?? []) out.push({ ...projectOption(p, true), parent: `c:${c.id}` });
-        byClient.delete(c.name);
+        for (const p of byClient.get(c.id) ?? []) out.push({ ...projectOption(p, true), parent: `c:${c.id}` });
+        byClient.delete(c.id);
       }
     }
-    // Clients the client list did not name (or every client, when they are not selectable).
-    for (const [name, list] of [...byClient.entries()].sort(([a], [z]) => a.localeCompare(z))) {
+    // Everything left: projects-only mode, or a client the list did not include.
+    const rest = [...byClient.values()]
+      .map((list) => ({ name: clientNameOf(list[0]!) ?? 'Other', list }))
+      .sort((a, z) => a.name.localeCompare(z.name));
+    for (const { name, list } of rest) {
       list.forEach((p) => out.push({ ...projectOption(p, true), group: name }));
     }
-    loose.forEach((p) => out.push({ ...projectOption(p, false), group: wantClients || byClient.size ? 'No client' : null }));
+    loose.forEach((p) =>
+      out.push({ ...projectOption(p, false), group: wantClients || rest.length ? 'No client' : null }),
+    );
     return out;
   }, [emptyLabel, wantProjects, wantClients, projectList, clientList]);
 
