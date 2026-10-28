@@ -4807,17 +4807,65 @@ button.nav-me:hover { background: var(--surface); }
   box-shadow: inset 0 1px 0 0 rgb(255 255 255 / 0.05);
 }
 .composer input { flex: 1; min-width: 0; }
+
+/*
+ * The chat box: one rounded field with the send button inside it.
+ *
+ * The textarea carries no border or background of its own — the form is the field, and takes
+ * the focus ring — so growing to a second or third line reads as the box getting taller, not as
+ * a control being added. The scroll bar is hidden: past the height cap the text still scrolls
+ * (wheel, touch, caret), it just does not draw a track that competes with what is being typed.
+ */
+form.composer {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4);
+  border-radius: var(--radius-lg);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+form.composer:focus-within {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px var(--accent-bg);
+}
 form.composer textarea {
   flex: 1;
   min-width: 0;
+  box-sizing: border-box;
   resize: none;
-  max-height: 12rem;
+  overflow-y: hidden;
+  max-height: 11rem;
+  padding: 0.4rem 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
   line-height: var(--leading-norm);
   /* 16px: below that, Safari on a phone zooms the page when the field takes focus. */
   font-size: 16px;
+  scrollbar-width: none;
 }
-form.composer { align-items: flex-end; }
-.assistant-page .composer { position: sticky; bottom: 0; background: var(--bg); }
+form.composer textarea::-webkit-scrollbar { display: none; }
+form.composer textarea:focus-visible { outline: none; box-shadow: none; }
+.composer-send {
+  flex: none;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-pill);
+  border: 0;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-size: 1.05rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: opacity var(--transition-fast), transform var(--transition-fast);
+}
+.composer-send:hover:not(:disabled) { transform: translateY(-1px); }
+.composer-send:disabled { opacity: 0.3; cursor: default; }
+.assistant-page .composer { position: sticky; bottom: 0; background: var(--surface); }
 
 /* The overlay, once it has stopped being a list of results. */
 .cmdk-thread {

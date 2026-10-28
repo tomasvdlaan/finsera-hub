@@ -1,5 +1,4 @@
 import { useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
-import { Button } from '../ui/primitives.js';
 
 /**
  * The box you type the next question into.
@@ -30,6 +29,9 @@ export function Composer({
     if (!el) return;
     el.style.height = 'auto';
     el.style.height = `${el.scrollHeight}px`;
+    // No scroll bar until there is something to scroll: a bar that appears on the second line
+    // is what made the box feel cramped.
+    el.style.overflowY = el.scrollHeight > el.clientHeight + 1 ? 'auto' : 'hidden';
   }, [value]);
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -59,9 +61,15 @@ export function Composer({
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={onKeyDown}
       />
-      <Button type="submit" variant="primary" disabled={busy || !value.trim()}>
-        {busy ? '…' : 'Ask'}
-      </Button>
+      <button
+        type="submit"
+        className="composer-send"
+        disabled={busy || !value.trim()}
+        aria-label={busy ? 'Waiting for an answer' : 'Ask'}
+        title="Send (Enter) · new line (Shift+Enter)"
+      >
+        {busy ? '…' : '↑'}
+      </button>
     </form>
   );
 }
