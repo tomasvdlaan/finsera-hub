@@ -1,7 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NextFunction, Request, Response } from 'express';
 import { isPrivate } from './portal-pages.service.js';
-import { portalProxy, rewriteRootUrls, sameOriginPath, underSource } from './portal-proxy.js';
+import { generateKeyPairSync } from 'node:crypto';
+import { createLocalJWKSet, jwtVerify } from 'jose';
+import { identityJwks } from './identity-token.js';
+import {
+  portalProxy,
+  rewriteActionRedirect,
+  rewriteRootUrls,
+  sameOriginPath,
+  underSource,
+} from './portal-proxy.js';
 
 const CLIENT = 'c-duce';
 const PAGE = {
@@ -458,5 +467,257 @@ describe('isPrivate', () => {
     for (const address of ['76.76.21.21', '1.1.1.1', '172.32.0.1', '192.169.0.1', '2606:4700::1']) {
       expect(isPrivate(address), address).toBe(false);
     }
+  });
+});
+
+/** A request whose body is still a stream, the way multipart and text/plain arrive. */
+function streamedWrite(path: string, type: string, bytes: Buffer, extra: Record<string, string> = {}) {
+  return {
+    path,
+    originalUrl: path,
+    url: path,
+    method: 'POST',
+    headers: { host: 'duce.finsera.nl', cookie: 'psid=secret', 'content-type': type, ...extra },
+    body: undefined,
+    async *[Symbol.asyncIterator]() {
+      yield bytes;
+    },
+  } as unknown as Request;
+}
+
+describe('portalProxy for a Next.js artefact', () => {
+  const NEXT_PAGE = {
+    ...PAGE,
+    slug: 'vertragingsmeldingen',
+    sourceUrl: 'https://vertragingsmeldingen.vercel.app/vertragingsmeldingen',
+    timeoutMs: 30_000,
+  };
+  const base = (over: Record<string, unknown> = {}) =>
+    deps({ pages: { find: vi.fn().mockResolvedValue(NEXT_PAGE), secretFor: vi.fn().mockReturnValue('s') }, ...over });
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    const { privateKey } = generateKeyPairSync('ed25519');
+    process.env.PORTAL_IDENTITY_KEY = privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
+    delete process.env.PORTAL_IDENTITY_ISSUER;
+    fetchMock = vi.fn().mockResolvedValue(upstream('<html></html>', { 'content-type': 'text/html' }));
+    vi.stubGlobal('fetch', fetchMock);
+  });
+  afterEach(() => {
+    delete process.env.PORTAL_IDENTITY_KEY;
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  const sent = () => (fetchMock.mock.calls[0] as [string, RequestInit])[1].headers as Record<string, string>;
+
+  it('tells the artefact who is looking, in a token it can verify with our public key', async () => {
+    const d = base({
+      sessions: {
+        resolve: vi.fn().mockResolvedValue({
+          id: 's-1', kind: 'client', portalUserId: 'pu-1', staffUserId: null, clientId: CLIENT,
+          email: 'anna@dochorse.nl', identityName: 'Anna de Vries',
+        }),
+      },
+    });
+    await portalProxy(d)(
+      streamedWrite('/vertragingsmeldingen/', 'text/plain', Buffer.from('x'), {
+        'x-finsera-identity': 'forged-by-the-browser',
+      }),
+      fakeRes(),
+      vi.fn() as NextFunction,
+    );
+    const token = sent()['x-finsera-identity'] ?? '';
+    expect(token).not.toBe('forged-by-the-browser');
+
+    const jwks = createLocalJWKSet((await identityJwks())!);
+    const { payload, protectedHeader } = await jwtVerify(token, jwks, {
+      issuer: 'https://hub.finsera.nl',
+      audience: 'vertragingsmeldingen',
+      algorithms: ['EdDSA'],
+    });
+    expect(protectedHeader.kid).toBeTruthy();
+    expect(payload).toMatchObject({ sub: 'pu-1', email: 'anna@dochorse.nl', name: 'Anna de Vries', kind: 'client' });
+    expect((payload.exp ?? 0) - (payload.iat ?? 0)).toBe(60);
+  });
+
+  it('names a colleague by their staff id, and says they are staff', async () => {
+    const d = base({
+      sessions: {
+        resolve: vi.fn().mockResolvedValue({
+          id: 's-2', kind: 'staff', portalUserId: null, staffUserId: 'u-9', clientId: CLIENT,
+          email: 'tomas@finsera.nl', identityName: 'Tomas',
+        }),
+      },
+    });
+    await portalProxy(d)(fakeReq('/vertragingsmeldingen/'), fakeRes(), vi.fn() as NextFunction);
+    const jwks = createLocalJWKSet((await identityJwks())!);
+    const { payload } = await jwtVerify(sent()['x-finsera-identity'] ?? '', jwks, {
+      audience: 'vertragingsmeldingen',
+    });
+    expect(payload).toMatchObject({ sub: 'u-9', kind: 'staff', name: 'Tomas' });
+  });
+
+  it('sends no identity, and still serves, when no key is configured', async () => {
+    delete process.env.PORTAL_IDENTITY_KEY;
+    const res = fakeRes();
+    await portalProxy(base())(fakeReq('/vertragingsmeldingen/'), res, vi.fn() as NextFunction);
+    expect(sent()['x-finsera-identity']).toBeUndefined();
+    expect(res.statusCode).toBe(200);
+  });
+
+  it('refuses to serve with a key that is set and wrong', async () => {
+    process.env.PORTAL_IDENTITY_KEY = 'not a key';
+    const res = fakeRes();
+    await portalProxy(base())(fakeReq('/vertragingsmeldingen/'), res, vi.fn() as NextFunction);
+    expect(res.statusCode).toBe(503);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('forwards the headers a server action and the App Router need, and nothing else', async () => {
+    const req = fakeWrite('/vertragingsmeldingen/orders/', {});
+    Object.assign(req.headers, {
+      'next-action': 'abc123',
+      'next-router-state-tree': '%5B%22%22%5D',
+      'next-router-prefetch': '1',
+      'next-router-segment-prefetch': '/_tree',
+      'next-url': '/vertragingsmeldingen/orders',
+      rsc: '1',
+      'x-something-else': 'no',
+    });
+    await portalProxy(base())(req, fakeRes(), vi.fn() as NextFunction);
+    const h = sent();
+    expect(h).toMatchObject({
+      'next-action': 'abc123',
+      'next-router-state-tree': '%5B%22%22%5D',
+      'next-router-prefetch': '1',
+      'next-router-segment-prefetch': '/_tree',
+      'next-url': '/vertragingsmeldingen/orders',
+      rsc: '1',
+    });
+    expect(h['x-something-else']).toBeUndefined();
+    expect(h.cookie).toBeUndefined();
+  });
+
+  it('passes the headers that tell the router what happened', async () => {
+    fetchMock.mockResolvedValue(
+      upstream('0:{}', {
+        'content-type': 'text/x-component',
+        'x-action-redirect': '/vertragingsmeldingen/orders;push',
+        'x-action-revalidated': '[[],0,0]',
+        'x-nextjs-rewritten-path': '/orders',
+        'x-nextjs-postponed': '1',
+        vary: 'rsc, next-router-state-tree',
+      }),
+    );
+    const res = fakeRes();
+    await portalProxy(base())(fakeWrite('/vertragingsmeldingen/orders/', {}), res, vi.fn() as NextFunction);
+    expect(res.headers).toMatchObject({
+      'x-action-redirect': '/vertragingsmeldingen/orders;push',
+      'x-action-revalidated': '[[],0,0]',
+      'x-nextjs-rewritten-path': '/orders',
+      'x-nextjs-postponed': '1',
+      vary: 'rsc, next-router-state-tree',
+      'content-type': 'text/x-component',
+    });
+  });
+
+  it('does not follow an action redirect to another site', async () => {
+    fetchMock.mockResolvedValue(
+      upstream('', { 'x-action-redirect': 'https://evil.example/x;push', 'content-type': 'text/x-component' }),
+    );
+    const res = fakeRes();
+    await portalProxy(base())(fakeWrite('/vertragingsmeldingen/a', {}), res, vi.fn() as NextFunction);
+    expect(res.headers['x-action-redirect']).toBeUndefined();
+  });
+
+  it('hands multipart and text/plain bodies over byte for byte', async () => {
+    const multipart = Buffer.from('--b\r\nContent-Disposition: form-data; name="1_x"\r\n\r\nhallo\r\n--b--\r\n');
+    await portalProxy(base())(
+      streamedWrite('/vertragingsmeldingen/', 'multipart/form-data; boundary=b', multipart, { 'next-action': 'a1' }),
+      fakeRes(),
+      vi.fn() as NextFunction,
+    );
+    let init = (fetchMock.mock.calls[0] as [string, RequestInit])[1];
+    expect(Buffer.from(init.body as Buffer).equals(multipart)).toBe(true);
+    expect((init.headers as Record<string, string>)['content-type']).toBe('multipart/form-data; boundary=b');
+
+    fetchMock.mockClear();
+    const text = Buffer.from('["$K1",{"naam":"regel 1"}]');
+    await portalProxy(base())(
+      streamedWrite('/vertragingsmeldingen/', 'text/plain;charset=UTF-8', text, { 'next-action': 'a2' }),
+      fakeRes(),
+      vi.fn() as NextFunction,
+    );
+    init = (fetchMock.mock.calls[0] as [string, RequestInit])[1];
+    expect(Buffer.from(init.body as Buffer).equals(text)).toBe(true);
+    expect((init.headers as Record<string, string>)['content-type']).toBe('text/plain;charset=UTF-8');
+  });
+
+  it('records which server action a write was, and still no body', async () => {
+    const d = base();
+    await portalProxy(d)(
+      streamedWrite('/vertragingsmeldingen/', 'text/plain', Buffer.from('mailtekst'), { 'next-action': 'a2' }),
+      fakeRes(),
+      vi.fn() as NextFunction,
+    );
+    const detail = (vi.mocked(d.audit.record).mock.calls[0]?.[1] as { detail: Record<string, unknown> }).detail;
+    expect(detail).toMatchObject({ action: 'a2', method: 'POST', path: '/vertragingsmeldingen/' });
+    expect(JSON.stringify(detail)).not.toContain('mailtekst');
+  });
+
+  it('waits as long as this page was told to', async () => {
+    const spy = vi.spyOn(AbortSignal, 'timeout');
+    await portalProxy(base())(fakeReq('/vertragingsmeldingen/'), fakeRes(), vi.fn() as NextFunction);
+    expect(spy).toHaveBeenCalledWith(30_000);
+  });
+
+  it('fetches under the basePath and does not double it in the markup', async () => {
+    fetchMock.mockResolvedValue(
+      upstream('<script src="/vertragingsmeldingen/_next/a.js"></script><a href="/favicon.ico">', {
+        'content-type': 'text/html',
+      }),
+    );
+    const res = fakeRes();
+    await portalProxy(base())(fakeReq('/vertragingsmeldingen/'), res, vi.fn() as NextFunction);
+    expect((fetchMock.mock.calls[0] as [string])[0]).toBe('https://vertragingsmeldingen.vercel.app/vertragingsmeldingen/');
+    expect(String(res.body)).toContain('src="/vertragingsmeldingen/_next/a.js"');
+    expect(String(res.body)).not.toContain('/vertragingsmeldingen/vertragingsmeldingen');
+  });
+});
+
+describe('rewriteRootUrls with a source base path', () => {
+  it('leaves a URL that is already under the base, and prefixes the rest', () => {
+    const html = '<script src="/rapport/_next/a.js"></script><img src="/x.png"><a href="/rapport">';
+    expect(rewriteRootUrls(html, 'rapport', '/rapport')).toBe(
+      '<script src="/rapport/_next/a.js"></script><img src="/rapport/x.png"><a href="/rapport">',
+    );
+  });
+
+  it('maps a differently named base onto the slug', () => {
+    expect(rewriteRootUrls('<script src="/intern/_next/a.js">', 'rapport', '/intern')).toBe(
+      '<script src="/rapport/_next/a.js">',
+    );
+  });
+
+  it('does not mistake a longer name for the base', () => {
+    expect(rewriteRootUrls('<a href="/rapportage">', 'rapport', '/rapport')).toBe(
+      '<a href="/rapport/rapportage">',
+    );
+  });
+});
+
+describe('rewriteActionRedirect', () => {
+  const src = 'https://x.vercel.app/vertragingsmeldingen';
+  it('keeps a path under the base, and adds the base to one without it', () => {
+    expect(rewriteActionRedirect('/vertragingsmeldingen/orders;push', src, 'vertragingsmeldingen')).toBe(
+      '/vertragingsmeldingen/orders;push',
+    );
+    expect(rewriteActionRedirect('/orders;replace', src, 'vertragingsmeldingen')).toBe(
+      '/vertragingsmeldingen/orders;replace',
+    );
+  });
+  it('refuses another origin', () => {
+    expect(rewriteActionRedirect('https://evil.example/a;push', src, 'vertragingsmeldingen')).toBeNull();
   });
 });

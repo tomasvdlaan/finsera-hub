@@ -1,0 +1,2 @@
+ALTER TABLE "portal"."pages" ADD COLUMN "timeout_ms" integer DEFAULT 10000 NOT NULL;--> statement-breakpoint
+ALTER TABLE "portal"."pages" ADD CONSTRAINT "portal_pages_timeout" CHECK ("portal"."pages"."timeout_ms" BETWEEN 5000 AND 60000);

@@ -58,3 +58,6 @@ apps/web/public/excalidraw-assets/
 # pnpm's local content-addressable store. Half a gigabyte of package tarballs that
 # `pnpm install` rebuilds from the lockfile — it is a cache, not a source.
 .pnpm-store/
+
+# Throwaway keys from apps/api/scripts/identity-test-kit.mjs
+.identity-test/

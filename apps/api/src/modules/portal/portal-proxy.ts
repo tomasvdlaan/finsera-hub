@@ -11,6 +11,7 @@ import { assertPublicSource } from './portal-pages.service.js';
 import type { PortalAccessService } from './portal-access.service.js';
 import type { PortalSessionsService } from './portal-sessions.service.js';
 import { upstreamCredentials } from './vercel-headers.js';
+import { IDENTITY_HEADER, identityAvailable, signIdentity } from './identity-token.js';
 
 /** Long enough for a cold serverless start, short enough that a hung origin is not our problem. */
 const TIMEOUT_MS = 10_000;
@@ -31,6 +32,36 @@ const HOP_BY_HOP = new Set([
 
 /** What comes back to the browser, and nothing else — an allow-list, not a blocklist. */
 const PASS_THROUGH = ['content-type', 'content-length', 'etag', 'last-modified'];
+
+/**
+ * What a Next.js App Router page says to its own server, and which the server needs to hear.
+ *
+ * `Next-Action` is what makes a server action a server action rather than a page render;
+ * the router headers are what make a navigation a partial RSC fetch rather than a full
+ * reload. Without them every save button posts into the void and every click reloads.
+ *
+ * Forwarded for every proxied page rather than per page: they are hints about which part of
+ * the page tree to render and which function to call, none of them carries a credential,
+ * and a page that is not Next.js ignores them. Still a named list — what a browser may add
+ * to the upstream request is the Hub's decision, not the browser's, which is also why a
+ * client-sent `x-finsera-identity` never arrives.
+ */
+const REQUEST_PASS = [
+  'next-action',
+  'next-router-state-tree',
+  'next-router-prefetch',
+  'next-router-segment-prefetch',
+  'next-url',
+  'rsc',
+];
+
+/**
+ * The matching answers. `x-action-redirect` is handled apart (see `rewriteActionRedirect`)
+ * because it is a URL, and a URL from upstream is only ever followed while it stays inside
+ * the page. `vary` is passed so the browser's own cache keeps an RSC payload and the HTML for
+ * the same address apart, even though ours is `no-store`.
+ */
+const RESPONSE_PASS = ['x-action-revalidated', 'x-nextjs-rewritten-path', 'x-nextjs-postponed', 'vary'];
 
 /** Reading the page. Audited, and the only methods that may be redirected. */
 const READ = new Set(['GET', 'HEAD']);
@@ -215,6 +246,9 @@ export function portalProxy(deps: ProxyDeps) {
               subject: slug,
               path: req.path,
               method: req.method,
+              // Which server action, when it is one: an opaque id, and the difference between
+              // "saved a rule" and "saved a template" when somebody asks months later.
+              ...(serverAction(req) ? { action: serverAction(req) } : {}),
               email: session.email,
               ...(session.kind === 'staff'
                 ? { staff: true }
@@ -247,8 +281,26 @@ export function portalProxy(deps: ProxyDeps) {
       return res.status(400).type('text').send('Ongeldig adres.');
     }
 
+    let identity: string | null = null;
     try {
-      await serve(req, res, target, page, slug, host.host, deps, logger);
+      identity = await signIdentity({
+        aud: slug,
+        sub: (session.kind === 'staff' ? session.staffUserId : session.portalUserId) ?? session.id,
+        email: session.email,
+        name: session.identityName ?? null,
+        kind: session.kind,
+      });
+    } catch (err) {
+      // A key that is set and wrong is not "no identity": the page would run as if nobody
+      // had been told who is here, and an artefact that records who did what would record
+      // nothing. Louder than that.
+      logger.error(`Cannot sign an identity for '${slug}': ${(err as Error).message}`);
+      return res.status(503).type('text').send('Even niet beschikbaar. Probeer het zo opnieuw.');
+    }
+    if (!identity) await warnNoIdentity(logger);
+
+    try {
+      await serve(req, res, target, page, slug, host.host, deps, logger, identity);
     } catch (err) {
       if (res.headersSent) {
         // Mid-stream: the browser already has a status and some bytes, so there is no error
@@ -270,11 +322,12 @@ async function serve(
   req: Request,
   res: Response,
   target: string,
-  page: { sourceUrl: string; bypassSecretEnc: string | null },
+  page: { sourceUrl: string; bypassSecretEnc: string | null; timeoutMs?: number },
   slug: string,
   hostname: string,
   deps: ProxyDeps,
   logger: Logger,
+  identity: string | null = null,
 ) {
   await (deps.validateSource ?? assertPublicSource)(target);
   const secret = deps.pages.secretFor(page);
@@ -290,6 +343,10 @@ async function serve(
       // proxy secret, which lets a Vercel project refuse anything that did not come through
       // here. Neither ever leaves this process, and the second goes to `*.vercel.app` only.
       ...upstreamCredentials(target, secret),
+      // Signed per request, sixty seconds. Set after the allow-listed ones so that nothing
+      // the browser sent can stand in for it.
+      ...forwarded(req),
+      ...(identity ? { [IDENTITY_HEADER]: identity } : {}),
       accept: req.headers.accept ?? '*/*',
       ...(req.headers['accept-language']
         ? { 'accept-language': String(req.headers['accept-language']) }
@@ -298,7 +355,7 @@ async function serve(
       'user-agent': 'Finsera-Portal/1.0',
     },
     ...(body ? { body: body.data } : {}),
-    signal: AbortSignal.timeout(TIMEOUT_MS),
+    signal: AbortSignal.timeout(page.timeoutMs ?? TIMEOUT_MS),
   });
 
   if (upstream.status >= 300 && upstream.status < 400) {
@@ -315,6 +372,16 @@ async function serve(
   for (const name of PASS_THROUGH) {
     const value = upstream.headers.get(name);
     if (value && !HOP_BY_HOP.has(name)) res.setHeader(name, value);
+  }
+  for (const name of RESPONSE_PASS) {
+    const value = upstream.headers.get(name);
+    if (value) res.setHeader(name, value);
+  }
+  const actionRedirect = upstream.headers.get('x-action-redirect');
+  if (actionRedirect) {
+    const rewritten = rewriteActionRedirect(actionRedirect, page.sourceUrl, slug);
+    if (rewritten) res.setHeader('x-action-redirect', rewritten);
+    else logger.warn(`Upstream for '${slug}' sent an action redirect off-origin; dropped`);
   }
   // Never in a shared cache: this is one client's report, served from a URL that differs
   // from another client's only by hostname. `set-cookie` is dropped by omission — the
@@ -378,7 +445,7 @@ async function serve(
     // Read whole and rewrite. Bounded by the same cap as everything else, and the only
     // case where the body is buffered — a stylesheet cannot be rewritten in pieces.
     const buffer = await readCapped(upstream.body, MAX_BYTES);
-    const body = rewriteRootUrls(buffer.toString('utf8'), slug);
+    const body = rewriteRootUrls(buffer.toString('utf8'), slug, new URL(page.sourceUrl).pathname);
     res.removeHeader('Content-Length');
     res.end(body);
     return;
@@ -414,6 +481,19 @@ async function serve(
 async function requestBody(req: Request): Promise<{ type: string; data: string | Buffer } | null> {
   const type = req.headers['content-type'];
   if (req.body !== undefined) {
+    /*
+     * Parsed, so re-serialised in the form it arrived in. Nest also registers the urlencoded
+     * parser, so a plain form post lands here too — and sending it on as JSON under a
+     * urlencoded content type would be a body nobody can read. Multipart and text/plain are
+     * parsed by nothing, take the stream path below, and arrive byte for byte.
+     */
+    if (type && /^application\/x-www-form-urlencoded/i.test(type)) {
+      const params = new URLSearchParams();
+      for (const [key, value] of Object.entries(req.body as Record<string, unknown>)) {
+        for (const v of Array.isArray(value) ? value : [value]) params.append(key, String(v));
+      }
+      return { type, data: params.toString() };
+    }
     return { type: type ?? 'application/json', data: JSON.stringify(req.body) };
   }
 
@@ -458,10 +538,79 @@ async function readCapped(body: ReadableStream<Uint8Array>, cap: number): Promis
  * runtime, and it does not try. `//` is skipped because that is a protocol-relative URL to
  * another host, not a path.
  */
-export function rewriteRootUrls(body: string, slug: string): string {
+export function rewriteRootUrls(body: string, slug: string, sourceBase = ''): string {
+  const base = sourceBase.replace(/\/$/, '');
+  const move = (path: string) => {
+    // A page whose source already lives under a path — a Next app with `basePath` — writes
+    // that path into every URL it emits. Prefixing the slug again would give
+    // `/slug/slug/_next/…`, so a URL already under the source's own base is mapped to the
+    // slug instead of being given a second one. Slug and base are usually the same word, in
+    // which case this leaves the URL exactly as it was.
+    const under =
+      base !== '' &&
+      (path === base || ['/', '?', '#'].some((c) => path.startsWith(`${base}${c}`)));
+    if (under) return `/${slug}${path.slice(base.length)}`;
+    return `/${slug}${path}`;
+  };
   return body
-    .replace(/\b(src|href|action|poster|data-src)=(["'])\/(?!\/)/gi, `$1=$2/${slug}/`)
-    .replace(/url\(\s*(["']?)\/(?!\/)/gi, `url($1/${slug}/`);
+    .replace(/\b(src|href|action|poster|data-src)=(["'])\/(?!\/)([^"']*)/gi, (_m, attr, quote, rest) =>
+      `${attr}=${quote}${move(`/${rest}`)}`,
+    )
+    .replace(/url\(\s*(["']?)\/(?!\/)([^"')\s]*)/gi, (_m, quote, rest) => `url(${quote}${move(`/${rest}`)}`);
+}
+
+/**
+ * A server action's `x-action-redirect`, kept inside the page — or dropped.
+ *
+ * Next sends `<path>;<push|replace>`. The path is the app's own, so it is read the way an
+ * upstream redirect is: through the source's base path, back to a path under the slug. An
+ * address on another origin is not followed, for the reason `sameOriginPath` gives.
+ */
+export function rewriteActionRedirect(value: string, sourceUrl: string, slug: string): string | null {
+  const [target, mode] = value.split(';');
+  if (!target) return null;
+  const source = new URL(sourceUrl);
+  const base = source.pathname.replace(/\/$/, '');
+  let url: URL;
+  try {
+    url = new URL(target, source);
+  } catch {
+    return null;
+  }
+  if (url.origin !== source.origin) return null;
+  // No basePath: the app's `/orders` is `/slug/orders`. With one, it is already under it.
+  const path = base && !url.pathname.startsWith(base) ? `${base}${url.pathname}` : url.pathname;
+  const out = sameOriginPath(`${path}${url.search}${url.hash}`, sourceUrl, slug);
+  return out ? (mode ? `${out};${mode}` : out) : null;
+}
+
+/** The allow-listed request headers a browser sent, ready to hand to `fetch`. */
+function forwarded(req: Request): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const name of REQUEST_PASS) {
+    const value = req.headers[name];
+    // A header sent twice is an array; the first is the one a server would read.
+    const one = Array.isArray(value) ? value[0] : value;
+    if (one) out[name] = one;
+  }
+  return out;
+}
+
+/** The server action a write names, trimmed — metadata for the audit, never a body. */
+function serverAction(req: Request): string | null {
+  const value = req.headers['next-action'];
+  const one = Array.isArray(value) ? value[0] : value;
+  return one ? one.slice(0, 64) : null;
+}
+
+let warned = false;
+/** Once per process: pages that do not verify an identity are fine, but the gap is worth one line. */
+async function warnNoIdentity(logger: Logger) {
+  if (warned) return;
+  warned = true;
+  if (!(await identityAvailable())) {
+    logger.warn('PORTAL_IDENTITY_KEY is not set: proxied pages receive no x-finsera-identity');
+  }
 }
 
 /**

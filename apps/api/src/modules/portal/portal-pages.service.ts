@@ -57,6 +57,12 @@ export interface PageInput {
   sourceUrl: string;
   /** Write-only. Undefined leaves it alone; null clears it; a string replaces it. */
   bypassSecret?: string | null;
+  /**
+   * How long the proxy waits for this deployment, in seconds. Undefined leaves it alone;
+   * null goes back to the default. For a report whose first request after a cold start runs
+   * a warehouse query — see `PAGE_TIMEOUT_*`.
+   */
+  timeoutSeconds?: number | null;
   enabled?: boolean;
 }
 
@@ -69,6 +75,16 @@ export interface AddPageToolInput {
   kind?: 'proxy' | 'redirect';
 }
 
+/** What a page waits for its deployment when nobody said otherwise. */
+export const PAGE_TIMEOUT_DEFAULT_MS = 10_000;
+/**
+ * The bounds on asking for more. The upper end is not arbitrary: past a minute the visitor
+ * has reloaded, the request is still holding a socket here, and a hung deployment becomes
+ * everybody's problem instead of that page's.
+ */
+export const PAGE_TIMEOUT_MIN_MS = 5_000;
+export const PAGE_TIMEOUT_MAX_MS = 60_000;
+
 /** What a page looks like to whoever may administer one. Never the secret itself. */
 export interface PageRow {
   id: string;
@@ -78,6 +94,7 @@ export interface PageRow {
   sourceUrl: string;
   enabled: boolean;
   hasSecret: boolean;
+  timeoutSeconds: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -263,6 +280,7 @@ export class PortalPagesService {
       // Whether one is set, never what it is. A write-only field that reads back as "set"
       // is the only shape that lets somebody see the state without seeing the credential.
       hasSecret: r.bypassSecretEnc !== null,
+      timeoutSeconds: Math.round(r.timeoutMs / 1000),
       createdAt: r.createdAt,
       updatedAt: r.updatedAt,
     }));
@@ -348,6 +366,7 @@ export class PortalPagesService {
         kind: input.kind ?? 'proxy',
         sourceUrl,
         bypassSecretEnc: this.encrypt(input.bypassSecret ?? null),
+        timeoutMs: this.timeoutMs(input.timeoutSeconds, PAGE_TIMEOUT_DEFAULT_MS),
         enabled: input.enabled ?? true,
         createdBy: actor.userId,
       });
@@ -395,6 +414,7 @@ export class PortalPagesService {
             input.bypassSecret === undefined
               ? before.bypassSecretEnc
               : this.encrypt(input.bypassSecret),
+          timeoutMs: this.timeoutMs(input.timeoutSeconds, before.timeoutMs),
           enabled: input.enabled ?? before.enabled,
           updatedAt: new Date(),
         })
@@ -438,6 +458,19 @@ export class PortalPagesService {
       });
     });
     return { id };
+  }
+
+  /** Seconds in, milliseconds out, and refused rather than clamped when it is out of range. */
+  private timeoutMs(seconds: number | null | undefined, whenUndefined: number): number {
+    if (seconds === undefined) return whenUndefined;
+    if (seconds === null) return PAGE_TIMEOUT_DEFAULT_MS;
+    const ms = Math.round(Number(seconds) * 1000);
+    if (!Number.isFinite(ms) || ms < PAGE_TIMEOUT_MIN_MS || ms > PAGE_TIMEOUT_MAX_MS) {
+      throw new BadRequestException(
+        `The time-out must be between ${PAGE_TIMEOUT_MIN_MS / 1000} and ${PAGE_TIMEOUT_MAX_MS / 1000} seconds`,
+      );
+    }
+    return ms;
   }
 
   /** The decrypted bypass secret for a page, for the proxy alone. */

@@ -3,6 +3,7 @@ import {
   boolean,
   check,
   index,
+  integer,
   pgSchema,
   text,
   timestamp,
@@ -330,6 +331,14 @@ export const portalPages = portal.table(
      * failure — a secret written in the clear "for now" is one nobody ever comes back to.
      */
     bypassSecretEnc: text('bypass_secret_enc'),
+    /**
+     * How long the proxy waits for this deployment before giving up, in milliseconds.
+     *
+     * Per page because the right answer differs by page: a static report answers in
+     * milliseconds, a worklist whose first request after a cold start runs warehouse queries
+     * needs tens of seconds. Bounded in the service as well as here.
+     */
+    timeoutMs: integer('timeout_ms').notNull().default(10000),
     enabled: boolean('enabled').notNull().default(true),
     createdBy: uuid('created_by').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -342,6 +351,7 @@ export const portalPages = portal.table(
     check('portal_pages_kind', sql`${t.kind} IN ('proxy', 'redirect')`),
     check('portal_pages_slug_shape', sql`${t.slug} ~ '^[a-z0-9][a-z0-9-]{0,58}[a-z0-9]$'`),
     check('portal_pages_source_https', sql`${t.sourceUrl} LIKE 'https://%'`),
+    check('portal_pages_timeout', sql`${t.timeoutMs} BETWEEN 5000 AND 60000`),
   ],
 );
 

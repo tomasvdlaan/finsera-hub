@@ -42,7 +42,7 @@ export function PortalPages({
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState({ slug: '', title: '', sourceUrl: '', bypassSecret: '', kind: 'proxy' });
+  const [draft, setDraft] = useState({ slug: '', title: '', sourceUrl: '', bypassSecret: '', kind: 'proxy', timeoutSeconds: '' });
 
   const load = () =>
     api
@@ -65,8 +65,9 @@ export function PortalPages({
         kind: draft.kind,
         sourceUrl: draft.sourceUrl.trim(),
         bypassSecret: draft.bypassSecret.trim() || null,
+        ...(draft.timeoutSeconds ? { timeoutSeconds: Number(draft.timeoutSeconds) } : {}),
       });
-      setDraft({ slug: '', title: '', sourceUrl: '', bypassSecret: '', kind: 'proxy' });
+      setDraft({ slug: '', title: '', sourceUrl: '', bypassSecret: '', kind: 'proxy', timeoutSeconds: '' });
       setOpen(false);
       await load();
     } catch (err) {
@@ -233,10 +234,25 @@ export function PortalPages({
               Without one, the deployment has to be publicly reachable.
             </p>
           )}
+          <div className="row">
+            <input
+              type="number"
+              min={5}
+              max={60}
+              style={{ width: '9rem' }}
+              value={draft.timeoutSeconds}
+              onChange={(e) => setDraft({ ...draft, timeoutSeconds: e.target.value })}
+              placeholder="Time-out (s)"
+              title="How long to wait for the deployment. Default 10, at most 60."
+            />
+            <span className="muted">Seconds to wait for the deployment; 10 if left empty.</span>
+          </div>
           <p className="muted">
-            Build the report with a relative base (<code>base: &apos;./&apos;</code> in Vite,{' '}
-            <code>assetPrefix</code> in Next) so its assets resolve under the page. Root-absolute
-            URLs in HTML and CSS are rewritten as a fallback; ones built in JavaScript are not.
+            Build the report with a relative base (<code>base: &apos;./&apos;</code> in Vite) so its
+            assets resolve under the page. A Next.js app should use <code>basePath</code> equal to
+            the slug and <code>trailingSlash: true</code>, and its source URL should end in that
+            path. Root-absolute URLs in HTML and CSS are rewritten as a fallback; ones built in
+            JavaScript are not.
           </p>
           <div className="row">
             <button type="submit" disabled={busy}>

@@ -39,6 +39,12 @@ export interface ResolvedSession {
   email: string | null;
   /** For a client session: what to call them, and when they were last here before this visit. */
   displayName: string | null;
+  /**
+   * What to call this person to somebody else's system: their name, for either kind of
+   * login. `displayName` above stays null for staff because the portal greets a client by
+   * name and a colleague previewing it by nothing.
+   */
+  identityName?: string | null;
   previousSeenAt: Date | null;
   /**
    * Which sections this login may see, re-read on every request for the same reason the
@@ -115,6 +121,7 @@ export class PortalSessionsService {
         userDisabledAt: portalUsers.disabledAt,
         userClientId: portalUsers.clientId,
         staffEmail: staffUser.email,
+        staffName: staffUser.displayName,
         staffActive: staffUser.isActive,
       })
       .from(portalSessions)
@@ -161,6 +168,7 @@ export class PortalSessionsService {
       clientId: row.clientId,
       email: row.kind === 'staff' ? row.staffEmail : row.email,
       displayName: row.kind === 'staff' ? null : row.displayName,
+      identityName: row.kind === 'staff' ? row.staffName : row.displayName,
       previousSeenAt: row.kind === 'staff' ? null : row.previousSeenAt,
       seesInvoices: row.kind === 'staff' ? true : (row.seesInvoices ?? true),
       seesQuotes: row.kind === 'staff' ? true : (row.seesQuotes ?? true),

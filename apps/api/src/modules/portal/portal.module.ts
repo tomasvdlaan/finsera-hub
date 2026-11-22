@@ -10,6 +10,7 @@ import { PortalAuthController } from './portal-auth.controller.js';
 import { PortalAuthGuard } from './portal-auth.guard.js';
 import { PortalAdminController } from './portal-admin.controller.js';
 import { PortalHostController } from './portal-host.controller.js';
+import { IdentityJwksController } from './identity-jwks.controller.js';
 import { PortalPagesService, type AddPageToolInput } from './portal-pages.service.js';
 import { PortalHostService } from './portal-host.service.js';
 import { PortalIdentityService } from './portal-identity.service.js';
@@ -47,6 +48,7 @@ import { PortalTicketsService } from './portal-tickets.service.js';
     PortalHostController,
     PortalPreviewController,
     PortalAdminController,
+    IdentityJwksController,
   ],
   providers: [
     ZitadelAdminService,

@@ -103,6 +103,11 @@ services:
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
       VAPID_SUBJECT: ${VAPID_SUBJECT:-https://hub.finsera.nl}
+      # Signs `x-finsera-identity` for proxied artefacts (Ed25519, PKCS#8 PEM, base64). Unset
+      # and artefacts receive no identity; the JWKS endpoint answers 404. Named here because
+      # a value this file does not enumerate never reaches the container.
+      PORTAL_IDENTITY_KEY: ${PORTAL_IDENTITY_KEY:-}
+      PORTAL_IDENTITY_ISSUER: ${PORTAL_IDENTITY_ISSUER:-}
       # Shared with Caddy's on-demand-TLS `ask` URL, so that endpoint answers the reverse
       # proxy and not anyone who can reach /api. Unset leaves it open.
       PORTAL_ASK_TOKEN: ${PORTAL_ASK_TOKEN:-}
