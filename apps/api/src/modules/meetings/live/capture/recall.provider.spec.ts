@@ -221,6 +221,36 @@ describe('RecallSession', () => {
     await expect(session.speak(Buffer.from('x'), 'audio/wav')).rejects.toThrow(/MP3/);
   });
 
+  /*
+   * A frame that looks right and carries nothing.
+   *
+   * This path used to `return` in silence, and the silence was the problem: if Recall moves
+   * the buffer in its realtime payload, the event name and the participant still match, every
+   * frame is dropped, and the meeting produces no words with not one line in the log to say
+   * why. The counter is bounded like its two neighbours — three frames is enough to see the
+   * shape, and a changed payload means every frame.
+   */
+  it('says so when an audio frame carries no buffer', async () => {
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+
+    const noBuffer = Buffer.from(
+      JSON.stringify({
+        event: 'audio_separate_raw.data',
+        // The shape a renamed field would produce: everything else intact.
+        data: { data: { audio: 'eyJ…', participant: { id: '7', name: 'Marieke' } } },
+      }),
+    );
+    for (let i = 0; i < 6; i++) await socket.deliver(noBuffer);
+
+    expect(segments).toHaveLength(0);
+    const complaints = warn.mock.calls.filter((c) => /no buffer/i.test(String(c[0])));
+    // Logged, and capped — a broken payload must not write a line per frame for an hour.
+    expect(complaints).toHaveLength(3);
+    expect(String(complaints[0]![0])).toMatch(/payload shape may have changed/i);
+
+    warn.mockRestore();
+  });
+
   it('survives a malformed message', async () => {
     await socket.deliver(Buffer.from('not json at all'));
     await say('7', 'Marieke');

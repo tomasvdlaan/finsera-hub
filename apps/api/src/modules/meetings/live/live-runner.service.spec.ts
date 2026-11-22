@@ -55,6 +55,7 @@ describe('LiveRunner', () => {
   let runner: LiveRunner;
   let sessions: LiveRegistry;
   let live: {
+    transcriptionProblem: ReturnType<typeof vi.fn>;
     transcribeSegment: ReturnType<typeof vi.fn>;
     extract: ReturnType<typeof vi.fn>;
     costCents: ReturnType<typeof vi.fn>;
@@ -114,6 +115,9 @@ describe('LiveRunner', () => {
     });
 
     live = {
+      // Null means "this deployment can transcribe". A string here is what stops a recording
+      // from starting at all — see the configuration tests at the bottom of this file.
+      transcriptionProblem: vi.fn(() => null as string | null),
       transcribeSegment: vi.fn().mockResolvedValue('We should add supplier drill-down.'),
       extract: vi.fn().mockImplementation((session: LiveSession) => {
         // A real proposal id, because it now travels into `action_items.proposal_id` —
@@ -244,6 +248,43 @@ describe('LiveRunner', () => {
     await expect(
       runner.startBot(actor, note.id, 'https://teams.microsoft.com/meet/123'),
     ).rejects.toThrow(/already being captured/);
+  });
+
+  /*
+   * The failure this gate exists for.
+   *
+   * Transcription used to run on whatever the FAST slot pointed at, and two of the options
+   * offered there cannot take audio. Nothing noticed: the bot joined the client's meeting,
+   * announced itself, billed recording-hours, and every utterance died inside a `catch` that
+   * deliberately keeps the meeting alive — one warning per sentence, in a log nobody reads
+   * while they are in a meeting. An hour later there was an empty note and no explanation.
+   *
+   * The configuration is knowable before any of that happens, so now it is asked first.
+   */
+  it('refuses to send a bot when the audio could not be transcribed', async () => {
+    const note = await noteWithConsent();
+    live.transcriptionProblem.mockReturnValue('GOOGLE_GENERATIVE_AI_API_KEY is not set');
+
+    await expect(
+      runner.startBot(actor, note.id, 'https://teams.microsoft.com/meet/123'),
+    ).rejects.toThrow(/GOOGLE_GENERATIVE_AI_API_KEY/);
+
+    // Nothing was started and nobody's meeting was joined: the cost of being wrong here is a
+    // bot in a client's call that cannot do the one thing it is there for.
+    expect(capture.join).not.toHaveBeenCalled();
+    expect(sessions.get(note.id)).toBeUndefined();
+  });
+
+  it('checks the configuration before it checks the bot', async () => {
+    // Ordering matters for the message somebody reads: "the key is missing" is actionable,
+    // and "the bot could not join" sends them looking at Teams.
+    const note = await noteWithConsent();
+    capture.isConfigured.mockReturnValue(true);
+    live.transcriptionProblem.mockReturnValue('Transcription is set to anthropic:…');
+
+    await expect(
+      runner.startBot(actor, note.id, 'https://teams.microsoft.com/meet/123'),
+    ).rejects.toThrow(/Transcription is set to/);
   });
 
   it('leaves no session behind when the bot cannot join', async () => {

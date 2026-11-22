@@ -8,6 +8,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { getLiveLanguage } from './LiveLanguage.js';
 import { api } from '../lib/api.js';
 import { getUser } from '../lib/auth.js';
 import {
@@ -258,6 +259,8 @@ export function LiveMeetingProvider({ children }: { children: ReactNode }) {
       // Told to the server so it can say, on reconnect, whether the audio can be picked back
       // up without asking — a microphone can, a shared tab cannot.
       if (source) url.searchParams.set('source', source);
+      // Only read when this connection starts a new session; adopting or watching ignores it.
+      url.searchParams.set('language', getLiveLanguage());
 
       const ws = new WebSocket(url);
       socket.current = ws;
@@ -362,7 +365,10 @@ export function LiveMeetingProvider({ children }: { children: ReactNode }) {
       // got admitted looks exactly like one that is listening.
       dispatch({ type: 'connecting', noteId });
       try {
-        await api.post(`/meetings/${noteId}/live/start`, { meetingUrl: meetingUrl.trim() });
+        await api.post(`/meetings/${noteId}/live/start`, {
+          meetingUrl: meetingUrl.trim(),
+          language: getLiveLanguage(),
+        });
         capturing.current = false; // Recall streams the audio; this socket only watches
         await openSocket(noteId);
       } catch (e) {

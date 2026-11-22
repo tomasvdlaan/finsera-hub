@@ -2,7 +2,12 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { sql } from 'drizzle-orm';
 import { resetDb, testDb, truncate } from '../../test/db.js';
 import { ModelConfigService } from './model-config.service.js';
-import { availableModels } from './models.js';
+import {
+  availableModels,
+  isKnownTranscriber,
+  transcriptionRefusal,
+  transcriptionSpec,
+} from './models.js';
 import { OpenRouterService } from './openrouter.service.js';
 
 /**
@@ -187,5 +192,101 @@ describe('the catalogue', () => {
     process.env.ANTHROPIC_API_KEY = '';
     process.env.GOOGLE_GENERATIVE_AI_API_KEY = 'test-key';
     expect(availableModels('fast').some((m) => m.provider === 'anthropic')).toBe(false);
+  });
+});
+
+/**
+ * What transcribes meeting audio, and why it is not one of the slots above.
+ *
+ * This is the regression these tests exist for. Transcription used to ask for the FAST slot,
+ * so an administrator choosing a cheaper model decided whether live meetings produced any
+ * words at all — and two of the options there cannot take audio. Claude throws on `audio/wav`
+ * before the request leaves the process; a text-only model behind the gateway rejects it on
+ * arrival. Both failed one utterance at a time, inside a `catch` that deliberately does not
+ * end the meeting, so a recording ran to the end and wrote an empty note.
+ *
+ * It is also not a performance choice to begin with. G3 accepts a capture processor receiving
+ * raw client audio only on the condition that nothing else sees the content, and names Gemini
+ * as the mitigation. A dropdown must not be able to withdraw that.
+ */
+describe('the transcription model', () => {
+  const env = { ...process.env };
+
+  beforeEach(() => {
+    process.env.GOOGLE_GENERATIVE_AI_API_KEY = 'test-key';
+    delete process.env.MODEL_TRANSCRIBE;
+  });
+
+  afterEach(() => {
+    process.env = { ...env };
+  });
+
+  it('is Gemini by default, whatever the fast slot says', () => {
+    process.env.MODEL_FAST = 'anthropic:claude-haiku-4-5-20251001';
+    expect(transcriptionSpec()).toBe('google:gemini-3.1-flash-lite');
+    expect(transcriptionRefusal()).toBeNull();
+  });
+
+  it('ignores the fast slot entirely, even when that is a Gemini too', () => {
+    // Not a coincidence worth relying on: the two settings are now unrelated, and a test that
+    // passed only because they happened to agree would hide the next time they did not.
+    process.env.MODEL_FAST = 'google:gemini-3.7-flash';
+    expect(transcriptionSpec()).toBe('google:gemini-3.1-flash-lite');
+  });
+
+  it('takes MODEL_TRANSCRIBE when it is set', () => {
+    process.env.MODEL_TRANSCRIBE = 'google:gemini-3.7-flash';
+    expect(transcriptionSpec()).toBe('google:gemini-3.7-flash');
+    expect(transcriptionRefusal()).toBeNull();
+  });
+
+  it('treats an empty or blank value as unset', () => {
+    // The shape an unused variable actually has in a .env file, and the one that reached
+    // production: `MODEL_TRANSCRIBE=` with nothing after it.
+    process.env.MODEL_TRANSCRIBE = '   ';
+    expect(transcriptionSpec()).toBe('google:gemini-3.1-flash-lite');
+  });
+
+  it('refuses Claude, which cannot take audio at all', () => {
+    process.env.MODEL_TRANSCRIBE = 'anthropic:claude-haiku-4-5-20251001';
+    expect(transcriptionRefusal()).toMatch(/only goes to Gemini/i);
+  });
+
+  it('refuses the gateway, which is a policy answer rather than a capability one', () => {
+    /*
+     * Some OpenRouter models would carry the audio — the openai-compatible provider does send
+     * `input_audio` for a WAV. That is exactly why this is refused in code: the reason is D6
+     * and G3, not whether it would technically work, and a rule nobody has to remember is the
+     * only kind that survives a cost-saving afternoon.
+     */
+    process.env.MODEL_TRANSCRIBE = 'openrouter:google/gemini-3.7-flash';
+    process.env.OPENROUTER_API_KEY = 'sk-or-test';
+    expect(transcriptionRefusal()).toMatch(/only goes to Gemini/i);
+  });
+
+  it('refuses when the Google key is missing, rather than failing per utterance', () => {
+    // The production shape: MODEL_FAST named a Gemini while the key was empty, so every call
+    // threw and the only trace was a warning per sentence.
+    process.env.GOOGLE_GENERATIVE_AI_API_KEY = '';
+    expect(transcriptionRefusal()).toMatch(/GOOGLE_GENERATIVE_AI_API_KEY is not set/);
+  });
+
+  it('says what to do about it', () => {
+    // A refusal reaches somebody mid-meeting, through a button that would not start. It has to
+    // name the variable to change, not just report that something is wrong.
+    process.env.MODEL_TRANSCRIBE = 'anthropic:claude-haiku-4-5-20251001';
+    expect(transcriptionRefusal()).toMatch(/MODEL_TRANSCRIBE/);
+  });
+
+  it('allows an unlisted Gemini through, because the variable takes shell access', () => {
+    process.env.MODEL_TRANSCRIBE = 'google:gemini-9.9-flash-unreleased';
+    expect(transcriptionRefusal()).toBeNull();
+    // Still visibly not one this file has seen work, for anyone who wants to know.
+    expect(isKnownTranscriber()).toBe(false);
+  });
+
+  it('knows which catalogue entries have actually been handed audio', () => {
+    expect(isKnownTranscriber('google:gemini-3.1-flash-lite')).toBe(true);
+    expect(isKnownTranscriber('anthropic:claude-haiku-4-5-20251001')).toBe(false);
   });
 });

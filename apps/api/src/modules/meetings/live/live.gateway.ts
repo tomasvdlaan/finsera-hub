@@ -14,6 +14,7 @@ import { LiveRegistry } from './live-registry.service.js';
 import { LiveRunner } from './live-runner.service.js';
 import { LiveService } from './live.service.js';
 import { LiveSession } from './live-session.js';
+import { parseLanguage } from './transcription-language.js';
 
 interface Client {
   socket: WebSocket;
@@ -156,8 +157,20 @@ export class LiveGateway implements OnGatewayConnection, OnGatewayDisconnect, On
         return;
       }
 
+      /*
+       * Refused before this tab starts holding a microphone.
+       *
+       * Checked only when STARTING a session, not when adopting or watching one: a reload
+       * mid-meeting must get its session back even if somebody has broken the configuration
+       * since, because dropping it there would end a meeting that is still running — the exact
+       * failure the orphan path above exists to prevent.
+       */
+      const cannotTranscribe = this.live.transcriptionProblem();
+      if (cannotTranscribe) throw new Error(cannotTranscribe);
+
       const kind = url.searchParams.get('source') === 'tab' ? 'tab' : 'microphone';
       const session = new LiveSession(noteId, actor.userId, new Date(), kind);
+      session.language = parseLanguage(url.searchParams.get('language'));
       this.clients.set(socket, { socket, session, actor });
 
       /*

@@ -1,3 +1,4 @@
+import type { TranscriptionLanguage } from './transcription-language.js';
 /**
  * The state of one live meeting, in memory.
  *
@@ -110,6 +111,12 @@ export class LiveSession {
    * bot ever got in — the one fact you most want after coming back to a meeting.
    */
   joinedAt: Date | null = null;
+
+  /**
+   * The language the meeting is spoken in, or null to let the model detect it per segment.
+   * Chosen by whoever starts the recording; see transcription-language.ts for why it matters.
+   */
+  language: TranscriptionLanguage | null = null;
 
   /** Set while an extraction is in flight, so ticks cannot overlap. */
   extracting = false;

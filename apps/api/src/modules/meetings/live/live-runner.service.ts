@@ -7,6 +7,7 @@ import { RecallProvider } from './capture/recall.provider.js';
 import { LiveRegistry } from './live-registry.service.js';
 import { LiveService } from './live.service.js';
 import { LiveSession, type Proposal } from './live-session.js';
+import type { TranscriptionLanguage } from './transcription-language.js';
 import { ConversationService } from './conversation.service.js';
 import { AiToolRegistry } from '../../../core/llm/tool-registry.service.js';
 import { LlmService } from '../../../core/llm/llm.service.js';
@@ -185,16 +186,32 @@ export class LiveRunner {
    * `recordSpeaker`. Announcing the recording in the room is the part that actually matters,
    * and no gate here ever did that.
    */
-  async startBot(actor: Actor, noteId: string, meetingUrl: string) {
+  async startBot(
+    actor: Actor,
+    noteId: string,
+    meetingUrl: string,
+    language: TranscriptionLanguage | null = null,
+  ) {
     await this.meetings.get(actor, noteId);
     if (!this.recall.isConfigured()) {
       throw new BadRequestException('RECALL_API_KEY is not set');
     }
+    /*
+     * Refused here, before a bot walks into a client's meeting.
+     *
+     * A capture that cannot be transcribed is worse than no capture: the bot announces itself,
+     * sits in the call, costs recording-hours, and produces an empty note — and the only trace
+     * is one warning per utterance in a log nobody is reading during a meeting. The same facts
+     * are knowable now, so this asks now.
+     */
+    const cannotTranscribe = this.live.transcriptionProblem();
+    if (cannotTranscribe) throw new BadRequestException(cannotTranscribe);
     if (this.sessions.get(noteId)) {
       throw new BadRequestException('This meeting is already being captured');
     }
 
     const live = new LiveSession(noteId, actor.userId);
+    live.language = language;
     this.sessions.start(noteId, live);
     // The note learns when the meeting actually began, not just which day it was filed on.
     await this.meetings.stampSession(actor, noteId, { startedAt: live.startedAt });

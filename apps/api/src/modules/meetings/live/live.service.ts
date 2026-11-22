@@ -4,6 +4,7 @@ import { LlmService } from '../../../core/llm/llm.service.js';
 import { clearing, guidance, type Eagerness } from './eagerness.js';
 import { LiveSession, type Proposal, type RunningState } from './live-session.js';
 import type { ProposalContext } from './proposal-ledger.service.js';
+import { languageInstruction } from './transcription-language.js';
 import { worthReading } from './triage.js';
 
 /** Roughly what a token costs, so a meeting can show a number rather than a shrug. */
@@ -80,6 +81,17 @@ export class LiveService {
   constructor(private readonly llm: LlmService) {}
 
   /**
+   * Why this deployment cannot transcribe, or null when it can.
+   *
+   * Passed straight through rather than answered here, and kept on this service rather than
+   * read from the model catalogue directly, so the rule that `LlmService` is the only door to
+   * a vendor still holds for the question "can we?" as well as for the call itself.
+   */
+  transcriptionProblem(): string | null {
+    return this.llm.transcriptionProblem();
+  }
+
+  /**
    * Transcribe one audio segment.
    *
    * Segments arrive as complete, self-contained audio files rather than a raw stream:
@@ -97,10 +109,18 @@ export class LiveService {
         'Transcribe this meeting audio verbatim. Output only the words spoken, with ' +
         'speaker labels if you can distinguish speakers. Do not summarise, do not ' +
         'comment, and do not add anything that was not said. If the audio contains no ' +
-        'discernible speech, output nothing at all.',
+        'discernible speech, output nothing at all.' +
+        languageInstruction(session.language),
       data: audio,
       mediaType: mimeType,
-      role: 'fast',
+      /*
+       * Its own model, not the fast slot.
+       *
+       * This used to say 'fast', which meant an administrator choosing a cheaper model on the
+       * settings screen decided whether meetings produced any words — and two of the options
+       * offered there cannot take audio at all. See the transcription note in models.ts.
+       */
+      role: 'transcribe',
     });
 
     session.tokensIn += result.usage.inputTokens;

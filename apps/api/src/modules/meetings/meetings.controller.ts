@@ -17,6 +17,7 @@ import type { Actor } from '@platform/contracts';
 import { CurrentActor } from '../../core/auth/current-actor.decorator.js';
 import { Public } from '../../core/auth/public.decorator.js';
 import { LiveRunner } from './live/live-runner.service.js';
+import { parseLanguage } from './live/transcription-language.js';
 import { MeetingsService, type CreateNoteInput } from './meetings.service.js';
 import { TEMPLATE_LIST } from './templates.js';
 
@@ -104,9 +105,9 @@ export class MeetingsController {
   startLive(
     @CurrentActor() actor: Actor,
     @Param('id') id: string,
-    @Body() body: { meetingUrl: string },
+    @Body() body: { meetingUrl: string; language?: string },
   ) {
-    return this.live.startBot(actor, id, body.meetingUrl);
+    return this.live.startBot(actor, id, body.meetingUrl, parseLanguage(body.language));
   }
 
   /**

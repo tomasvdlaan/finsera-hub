@@ -8,6 +8,7 @@ import {
 import { z } from 'zod';
 import { UsageService, type UsageContext } from '../usage/usage.service.js';
 import { ModelConfigService } from '../usage/model-config.service.js';
+import { transcriptionRefusal, transcriptionSpec } from '../usage/models.js';
 import {
   openRouterMetadataExtractor,
   openRouterMetadataOf,
@@ -22,7 +23,14 @@ import {
   type ToolSet,
 } from 'ai';
 
-export type ModelRole = 'strong' | 'fast';
+/**
+ * Which model answers.
+ *
+ * `strong` and `fast` are slots an administrator chooses between. `transcribe` is not: it is
+ * configured only through `MODEL_TRANSCRIBE` and constrained to Gemini, because meeting audio
+ * going to a second processor is what G3's DPA story rules out. See `transcriptionRefusal`.
+ */
+export type ModelRole = 'strong' | 'fast' | 'transcribe';
 
 export interface GenerateOptions {
   role?: ModelRole;
@@ -146,12 +154,30 @@ export class LlmService {
    * is worse than not pricing it.
    */
   async specFor(role: ModelRole = 'strong'): Promise<string> {
+    /*
+     * Transcription answers from the environment and never from the settings table — which is
+     * the whole correction. It used to borrow the `fast` slot, so choosing a cheaper model on
+     * a settings screen silently decided whether live meetings produced any words, and could
+     * send a client's meeting audio to a processor G3 does not permit.
+     */
+    if (role === 'transcribe') return transcriptionSpec();
+
     // Absent in the specs that construct this directly, where the environment is the whole
     // configuration and there is no table to read.
     if (this.models) return this.models.specFor(role);
     return role === 'fast'
       ? (process.env.MODEL_FAST ?? 'anthropic:claude-haiku-4-5-20251001')
       : (process.env.MODEL_STRONG ?? 'anthropic:claude-opus-4-8');
+  }
+
+  /**
+   * Why this deployment cannot transcribe, or null when it can.
+   *
+   * Exposed so the two places a recording starts can refuse before a bot joins somebody's
+   * call, rather than leaving it to be discovered utterance by utterance afterwards.
+   */
+  transcriptionProblem(): string | null {
+    return transcriptionRefusal();
   }
 
   /**
@@ -328,8 +354,23 @@ export class LlmService {
     role?: ModelRole;
     context?: UsageContext;
   }): Promise<{ text: string; usage: { inputTokens: number; outputTokens: number } }> {
+    const role = opts.role ?? 'transcribe';
+
+    /*
+     * Checked here because this is the only door audio goes through.
+     *
+     * The callers are gated too, before a bot joins — but a gate at the start of a recording
+     * cannot cover a model changed while one is running, and the failure this replaces was
+     * precisely a silent one. A thrown error with the reason in it beats an SDK message about
+     * media types, which is what the logs used to carry.
+     */
+    if (role === 'transcribe') {
+      const refusal = this.transcriptionProblem();
+      if (refusal) throw new Error(refusal);
+    }
+
     const result = await generateText({
-      model: await this.resolveModel(opts.role ?? 'fast'),
+      model: await this.resolveModel(role),
       messages: [
         {
           role: 'user',
@@ -344,7 +385,7 @@ export class LlmService {
     const usage = readUsage(result.usage);
     // 'transcribe' rather than 'generate': this is the audio path, and it is the one most
     // worth being able to isolate on the page.
-    await this.meter(opts.role ?? 'fast', 'transcribe', usage, opts.context, result.providerMetadata);
+    await this.meter(role, 'transcribe', usage, opts.context, result.providerMetadata);
 
     return {
       text: result.text,
