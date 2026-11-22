@@ -1230,6 +1230,11 @@ export class OrchestratorService {
       'Money is stored in whole euro cents; durations in whole minutes. Convert for the reader.',
       "Be brief. This is a colleague's working tool, not a chat product.",
       `Today is ${new Date().toISOString().slice(0, 10)}.`,
+      // How-to questions are about the product, not the business's data, and a model that
+      // answers them from general knowledge of software will describe buttons that do not exist.
+      'For questions about how to use the platform itself — where something is, how to do a task, ' +
+        'who may do it — call help_search and answer from the page it returns ' +
+        'page, naming it. If no page covers it, say so.',
       'You may show a record as a card by citing it inline as [[entity:<its id>]], using ' +
         'a real id from a tool result. Do this SPARINGLY — at most one or two per answer, ' +
         'and only for the record the reader is most likely to open or act on next. ' +

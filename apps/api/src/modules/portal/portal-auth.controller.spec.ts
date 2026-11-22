@@ -30,7 +30,11 @@ describe('PortalAuthController wiring', () => {
       // `welcome` is where Zitadel's Default Redirect URI lands somebody whose account has
       // just been created. Public and stateless by design — it reads nothing and grants
       // nothing, which is what makes it a safe target for a redirect we do not control.
-      'activate', 'callback', 'complete', 'login', 'logout', 'signedOut', 'start', 'welcome',
+      //
+      // `resetPassword` is `activate`'s sibling: the same own-domain hop, for the link in a
+      // password-reset mail.
+      'activate', 'callback', 'complete', 'login', 'logout', 'resetPassword', 'signedOut',
+      'start', 'welcome',
     ]);
   });
 });

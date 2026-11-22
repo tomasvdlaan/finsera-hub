@@ -419,6 +419,37 @@ export class PortalAuthController {
   }
 
   /**
+   * The password-reset link a client is sent — on our domain, then on to the provider.
+   *
+   * The same reasoning and the same safety as `activate`: the destination is this
+   * deployment's own issuer and a fixed path, and only `userId` and `code` travel. No
+   * destination cookie is set; somebody resetting a password already has a portal address
+   * and finishes at the provider's own confirmation page.
+   */
+  @Get('reset-password')
+  async resetPassword(
+    @Req() req: Request,
+    @Res() res: Response,
+    @Query('userId') userId?: string,
+    @Query('code') code?: string,
+  ) {
+    await this.requireAuthHost(req);
+    const issuer = process.env.ZITADEL_ISSUER;
+    if (!issuer || !userId || !code) {
+      return this.page(
+        res,
+        400,
+        'Link onvolledig',
+        'Deze link is niet compleet. Vraag ons om een nieuwe.',
+      );
+    }
+    const target = new URL(`${issuer}/ui/v2/login/password/set`);
+    target.searchParams.set('userId', userId);
+    target.searchParams.set('code', code);
+    return res.redirect(302, target.toString());
+  }
+
+  /**
    * Where the identity provider sends the browser once it has ended its session.
    *
    * On the login host, because a post-logout URI is exact-match at the provider and

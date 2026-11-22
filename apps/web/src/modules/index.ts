@@ -14,6 +14,7 @@ import { salesWebModule } from './sales/index.js';
 import { scrumWebModule } from './scrum/index.js';
 import { timeWebModule } from './time/index.js';
 import { whiteboardWebModule } from './whiteboard/index.js';
+import { helpWebModule } from './help/index.js';
 
 /**
  * The composition root for frontend modules — the one file that changes when a module
@@ -34,6 +35,7 @@ export const webModules: WebModule[] = [
   insightsWebModule,
   meetingsWebModule,
   whiteboardWebModule,
+  helpWebModule,
 ];
 
 /**

@@ -347,6 +347,20 @@ export class PortalUsersService {
     });
   }
 
+  /** Leave a trace that a reset link was issued — who asked, for whom, never the code. */
+  async recordPasswordReset(actor: Actor, id: string, email: string): Promise<void> {
+    await this.require(actor, 'portal.admin');
+    await this.db.transaction(async (tx) => {
+      await this.audit.record(tx, {
+        actorId: actor.userId,
+        action: 'portal.password_reset_issued',
+        entityType: 'portal_user',
+        entityId: id,
+        detail: { email },
+      });
+    });
+  }
+
   /** One invitation, by id — for the routes that re-issue a link. */
   /**
    * Let this invitation bind to a different account than the one it bound to.

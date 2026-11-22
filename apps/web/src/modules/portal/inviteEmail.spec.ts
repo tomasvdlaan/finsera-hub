@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { escapeHtml, inviteEmail } from './inviteEmail.js';
+import { escapeHtml, inviteEmail, resetEmail } from './inviteEmail.js';
 
 const base = {
   clientName: 'DocHorse',
@@ -170,5 +170,27 @@ describe('the invitation email', () => {
     expect(mail.html).toMatch(/<td align="center" bgcolor="#C2AB44" style="background:#C2AB44;/);
     expect(mail.html).toContain('line-height:20px;text-decoration:none;');
     expect(mail.html).not.toContain('border-radius');
+  });
+});
+
+describe('resetEmail', () => {
+  const reset = { portalHost: 'dochorse.finsera.nl', url: 'https://portal.finsera.nl/api/portal-auth/reset-password?userId=1&code=A&B' };
+
+  it('puts the link in both renderings and says what to do if it was not asked for', () => {
+    const mail = resetEmail({ ...reset, name: 'Anna' });
+    expect(mail.text).toContain(reset.url);
+    expect(mail.text).toMatch(/negeren/);
+    expect(mail.html).toContain('Nieuw wachtwoord kiezen');
+    expect(mail.text).toContain('Beste Anna,');
+  });
+
+  it('escapes the link and name in the HTML', () => {
+    const mail = resetEmail({ ...reset, name: '<b>x</b>' });
+    expect(mail.html).not.toContain('<b>x</b>');
+    expect(mail.html).toContain('code=A&amp;B');
+  });
+
+  it('stays inline and self-contained like the invitation', () => {
+    expect(resetEmail(reset).html).not.toMatch(/<style|class=|<img|src=|url\(/);
   });
 });

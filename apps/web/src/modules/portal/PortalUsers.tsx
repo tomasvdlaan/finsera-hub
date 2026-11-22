@@ -2,13 +2,17 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { Empty, Panel } from '../../shell/ui/primitives.js';
-import { inviteEmail } from './inviteEmail.js';
+import { inviteEmail, resetEmail } from './inviteEmail.js';
 
 interface InviteResult {
   id?: string;
   /** Null when Zitadel could not be reached or is not configured; `warning` says which. */
   invite: { url: string } | null;
   warning: string | null;
+}
+
+interface ResetResult {
+  reset: { url: string };
 }
 
 interface PortalUser {
@@ -114,7 +118,7 @@ export function PortalUsers({
    * re-fetched and gone on reload — if it is lost, a new one is issued, which is also the
    * only honest thing to offer since issuing invalidates the last.
    */
-  const [issued, setIssued] = useState<{ email: string; name?: string; url: string } | null>(null);
+  const [issued, setIssued] = useState<{ email: string; name?: string; url: string; kind: 'invite' | 'reset' } | null>(null);
   /** Optional, and only for the greeting and the Zitadel profile. */
   const [name, setName] = useState('');
 
@@ -144,7 +148,7 @@ export function PortalUsers({
         // The access exists either way. A missing link is a sentence about configuration,
         // not a failed invitation, so it is a warning beside the row rather than an error
         // that implies nothing happened.
-        if (result.invite) setIssued({ email: address, name: person, url: result.invite.url });
+        if (result.invite) setIssued({ email: address, name: person, url: result.invite.url, kind: 'invite' });
         if (result.warning) setError(result.warning);
         load();
       })
@@ -160,10 +164,28 @@ export function PortalUsers({
       .post<InviteResult>(`/portal-admin/users/${user.id}/invite-link`, {})
       .then((result) => {
         if (result.invite) {
-          setIssued({ email: user.email, name: user.displayName ?? undefined, url: result.invite.url });
+          setIssued({ email: user.email, name: user.displayName ?? undefined, url: result.invite.url, kind: 'invite' });
         }
         if (result.warning) setError(result.warning);
       })
+      .catch((err: Error) => setError(err.message))
+      .finally(() => setBusy(false));
+  };
+
+  /** A link to choose a new password, for somebody who has signed in before. */
+  const resetPassword = (user: PortalUser) => {
+    setError(undefined);
+    setBusy(true);
+    api
+      .post<ResetResult>(`/portal-admin/users/${user.id}/reset-link`, {})
+      .then((result) =>
+        setIssued({
+          email: user.email,
+          name: user.displayName ?? undefined,
+          url: result.reset.url,
+          kind: 'reset',
+        }),
+      )
       .catch((err: Error) => setError(err.message))
       .finally(() => setBusy(false));
   };
@@ -229,6 +251,7 @@ export function PortalUsers({
           email={issued.email}
           name={issued.name}
           url={issued.url}
+          kind={issued.kind}
           clientName={clientName}
           portalHost={portalHost(portalSlug)}
           onDone={() => setIssued(null)}
@@ -296,6 +319,17 @@ export function PortalUsers({
                         row there is nothing to release, and offering it would invite the
                         reading that this is how you resend an invitation.
                       */}
+                      {/* Only once they have an account: a pending invitation has no password
+                          to forget, and its answer is the registration link beside it. */}
+                      {!u.pending && (
+                        <button
+                          disabled={busy}
+                          title="Issues a link to choose a new password. Any reset link sent earlier stops working."
+                          onClick={() => resetPassword(u)}
+                        >
+                          Reset password
+                        </button>
+                      )}
                       {!u.pending && (
                         <button
                           disabled={busy}
@@ -361,6 +395,7 @@ function InviteMessage({
   email,
   name,
   url,
+  kind,
   clientName,
   portalHost,
   onDone,
@@ -368,13 +403,17 @@ function InviteMessage({
   email: string;
   name?: string;
   url: string;
+  kind: 'invite' | 'reset';
   clientName: string;
   portalHost: string;
   onDone: () => void;
 }) {
   const [copied, setCopied] = useState<'link' | 'mail' | 'text' | null>(null);
   const [fallback, setFallback] = useState(false);
-  const mail = inviteEmail({ name, clientName, portalHost, url });
+  const mail =
+    kind === 'reset'
+      ? resetEmail({ name, portalHost, url })
+      : inviteEmail({ name, clientName, portalHost, url });
 
   const flash = (what: 'link' | 'mail' | 'text') => {
     setCopied(what);
@@ -418,7 +457,7 @@ function InviteMessage({
   return (
     <div className="invite-issued">
       <div className="row">
-        <strong>Registratielink voor {email}</strong>
+        <strong>{kind === 'reset' ? 'Link voor nieuw wachtwoord' : 'Registratielink'} voor {email}</strong>
         <button className="link-button" onClick={onDone}>
           klaar
         </button>
@@ -429,7 +468,7 @@ function InviteMessage({
       </p>
 
       <div className="row">
-        <input readOnly value={url} aria-label="Registratielink" onFocus={(e) => e.target.select()} />
+        <input readOnly value={url} aria-label={kind === 'reset' ? 'Link voor nieuw wachtwoord' : 'Registratielink'} onFocus={(e) => e.target.select()} />
         <button onClick={() => void copyText('link', url)}>
           {copied === 'link' ? 'Gekopieerd' : 'Kopieer link'}
         </button>

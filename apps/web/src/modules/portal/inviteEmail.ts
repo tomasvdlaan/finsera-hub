@@ -196,3 +196,72 @@ export function inviteEmail({ name, clientName, portalHost, url }: InviteEmailIn
 
   return { subject, text, html };
 }
+
+/**
+ * The message sent to somebody who has lost their password.
+ *
+ * Same constraints as the invitation — own domain, no images, no sign-off, a plain text that
+ * stands alone — and deliberately shorter: this person already has an account and knows the
+ * portal, so the only things to say are what the link does and that it is safe to ignore.
+ */
+export interface ResetEmailInput {
+  name?: string | null;
+  portalHost: string;
+  url: string;
+}
+
+export function resetEmail({ name, portalHost, url }: ResetEmailInput): InviteEmail {
+  const greeting = name?.trim() ? `Beste ${name.trim()}` : 'Beste';
+  const subject = 'Een nieuw wachtwoord voor het Finsera-klantportaal';
+
+  const text = [
+    `${greeting},`,
+    ``,
+    `U heeft aangegeven uw wachtwoord voor het klantportaal kwijt te zijn. Via de volgende`,
+    `link kiest u een nieuw wachtwoord:`,
+    `${url}`,
+    ``,
+    `Daarna logt u zoals gewoonlijk in op https://${portalHost}`,
+    ``,
+    `De link is persoonlijk en werkt één keer. Heeft u dit niet aangevraagd? Dan kunt u dit`,
+    `bericht negeren; uw wachtwoord blijft ongewijzigd.`,
+  ].join('\n');
+
+  const html = `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="font-family:-apple-system,'Segoe UI',Arial,sans-serif;">
+  <tr>
+    <td style="padding:8px 0;">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="560" align="left" style="width:560px;max-width:100%;">
+        <tr>
+          <td style="color:${INK};font-size:15px;line-height:25px;">
+            <p style="margin:0 0 16px 0;">${escapeHtml(greeting)},</p>
+            <p style="margin:0 0 16px 0;">
+              U heeft aangegeven uw wachtwoord voor het klantportaal kwijt te zijn. Via de knop
+              hieronder kiest u een nieuw wachtwoord.
+            </p>
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 22px 0;">
+              <tr>
+                <td align="center" bgcolor="${BRAND}" style="background:${BRAND};">
+                  <a href="${escapeHtml(url)}" style="display:inline-block;padding:11px 22px;color:${ON_BRAND};font-size:15px;font-weight:600;line-height:20px;text-decoration:none;">Nieuw wachtwoord kiezen</a>
+                </td>
+              </tr>
+            </table>
+            <p style="margin:0 0 16px 0;">
+              Daarna logt u zoals gewoonlijk in op
+              <a href="https://${escapeHtml(portalHost)}" style="color:${BRAND_DEEP};font-weight:700;text-decoration:none;">${escapeHtml(portalHost)}</a>.
+            </p>
+            <p style="margin:0 0 6px 0;color:${MUTED};font-size:13px;line-height:1.6;">
+              De link is persoonlijk en werkt één keer. Heeft u dit niet aangevraagd? Dan kunt u
+              dit bericht negeren; uw wachtwoord blijft ongewijzigd.
+            </p>
+            <p style="margin:0;color:${MUTED};font-size:13px;line-height:1.6;word-break:break-all;">
+              Werkt de knop niet? <a href="${escapeHtml(url)}" style="color:${BRAND_DEEP};">${escapeHtml(url)}</a>
+            </p>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>`;
+
+  return { subject, text, html };
+}

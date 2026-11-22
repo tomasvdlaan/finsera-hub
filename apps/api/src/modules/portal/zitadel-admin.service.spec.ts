@@ -34,6 +34,7 @@ describe('ZitadelAdminService', () => {
         if (path === '/v2/users/human') return json({ userId: 'zit-1' });
         if (path.endsWith('/grants')) return json({});
         if (path.endsWith('/invite_code')) return json({ inviteCode: 'the-code' });
+        if (path.endsWith('/password_reset')) return json({ verificationCode: 'reset-code' });
         return json({});
       }),
     );
@@ -49,6 +50,7 @@ describe('ZitadelAdminService', () => {
     process.env.ZITADEL_PROJECT_ID = 'proj-1';
     delete process.env.ZITADEL_ORG_ID;
     delete process.env.ZITADEL_INVITE_URL;
+    delete process.env.ZITADEL_RESET_URL;
     // Now decides the shape of the link, so a stray value in the ambient environment would
     // make this suite pass or fail depending on whose machine it ran on.
     delete process.env.PORTAL_AUTH_HOST;
@@ -109,6 +111,29 @@ describe('ZitadelAdminService', () => {
 
     const invite = await zitadel.inviteToPortal({ email: 'anna@dochorse.nl' });
     expect(invite.url).toBe('https://id.finsera.nl/invite?u=zit-1&c=the-code');
+  });
+
+  it('issues a password reset link on our own domain without letting Zitadel mail it', async () => {
+    process.env.PORTAL_AUTH_HOST = 'portal.finsera.nl';
+
+    const { url } = await zitadel.passwordReset('zit-1');
+
+    expect(url).toBe('https://portal.finsera.nl/api/portal-auth/reset-password?userId=zit-1&code=reset-code');
+    expect(calls.at(-1)).toEqual({
+      path: '/v2/users/zit-1/password_reset',
+      // returnCode, never sendLink: the point is that the code comes back to us.
+      body: { returnCode: {} },
+    });
+  });
+
+  it('falls back to the provider\'s password page when there is no auth host', async () => {
+    const { url } = await zitadel.passwordReset('zit-1');
+    expect(url).toBe('https://finsera.example/ui/v2/login/password/set?userId=zit-1&code=reset-code');
+  });
+
+  it('refuses a password reset when Zitadel returns no code', async () => {
+    respond({ '/password_reset': () => json({}) });
+    await expect(zitadel.passwordReset('zit-1')).rejects.toThrow(/no password reset code/);
   });
 
   it('re-uses an account that already exists rather than refusing', async () => {
