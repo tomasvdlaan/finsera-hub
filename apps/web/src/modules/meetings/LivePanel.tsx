@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { LanguageSelect, getLiveLanguage } from '../../shell/LiveLanguage.js';
 import {
   EAGERNESS_LEVELS,
   useLiveMeeting,
@@ -137,6 +138,7 @@ export function LivePanel({
 
   const [picked, setPicked] = useState<Source>('bot');
   const [meetingUrl, setMeetingUrl] = useState('');
+  const [language, setLanguage] = useState(getLiveLanguage);
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [deviceId, setDeviceId] = useState('');
 
@@ -205,6 +207,7 @@ export function LivePanel({
                 ))}
               </select>
             )}
+            <LanguageSelect value={language} onChange={setLanguage} />
             {picked === 'bot' ? (
               <>
                 <input

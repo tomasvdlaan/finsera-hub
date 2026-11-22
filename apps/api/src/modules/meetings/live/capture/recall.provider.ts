@@ -195,6 +195,17 @@ export class RecallSession implements CaptureSession {
   /** Counters so a shape mismatch is logged a few times, not every frame. */
   private unrecognised = 0;
   private noParticipant = 0;
+  /**
+   * Audio frames that arrived with nowhere to read the audio from.
+   *
+   * This used to `return` in silence, and that silence is a diagnostic hole worth closing: if
+   * Recall moves the buffer in its realtime payload, every frame is dropped, the event name
+   * and participant still look right, and the meeting produces no words with not one line in
+   * the log to say why. Counted and logged a few times, like the two above.
+   */
+  private noBuffer = 0;
+  /** Frames that carried audio, so "we received nothing" and "we read nothing" are distinct. */
+  private framesWithAudio = 0;
   /** Running while the stream is gone but the bot may still come back — see `onClosed`. */
   private reconnectTimer: NodeJS.Timeout | null = null;
   /** Keeps the stream from being closed for being quiet — see `attach`. */
@@ -351,7 +362,18 @@ export class RecallSession implements CaptureSession {
     if (!this.listening) return;
 
     const encoded = message.data?.data?.buffer;
-    if (!encoded) return;
+    if (!encoded) {
+      if (this.noBuffer < 3) {
+        this.noBuffer++;
+        this.logger.warn(
+          `Audio frame with no buffer — Recall's payload shape may have changed: ${raw
+            .toString()
+            .slice(0, 400)}`,
+        );
+      }
+      return;
+    }
+    this.framesWithAudio++;
 
     const pcm = Buffer.from(encoded, 'base64');
     const buffer = this.buffers.get(speaker.id) ?? new SpeechBuffer();
@@ -447,6 +469,20 @@ export class RecallSession implements CaptureSession {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
+
+    /*
+     * One line saying what the stream actually delivered.
+     *
+     * "The bot produced no text" has two completely different causes and they are
+     * indistinguishable after the fact: no audio ever arrived, or plenty arrived and
+     * transcription failed on every utterance. One number separates them, and recovering it
+     * afterwards meant reading provider code rather than a log.
+     */
+    this.logger.log(
+      `Recall session ${this.id} ended: ${this.framesWithAudio} audio frames from ` +
+        `${this.speakers.size} participants` +
+        (this.noBuffer > 0 ? `, ${this.noBuffer}+ frames with no readable buffer` : ''),
+    );
 
     // Flush anything held, so a meeting ending mid-sentence keeps that sentence.
     for (const [speakerId, buffer] of this.buffers) {

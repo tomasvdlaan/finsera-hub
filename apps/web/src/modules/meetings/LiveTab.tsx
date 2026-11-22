@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { LanguageSelect, getLiveLanguage } from '../../shell/LiveLanguage.js';
 import type { LiveState, Source } from '../../shell/liveMeetingReducer.js';
 import { elapsedSeconds } from '../../shell/liveMeetingReducer.js';
 import { Transcripts } from './Transcripts.js';
@@ -46,6 +47,7 @@ export function LiveTab({
 }) {
   const [picked, setPicked] = useState<Source>('bot');
   const [meetingUrl, setMeetingUrl] = useState('');
+  const [language, setLanguage] = useState(getLiveLanguage);
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [deviceId, setDeviceId] = useState('');
   const [, tick] = useState(0);
@@ -80,6 +82,10 @@ export function LiveTab({
               <option value="microphone">This microphone</option>
               <option value="tab">A browser tab</option>
             </select>
+          </div>
+
+          <div className="row">
+            <LanguageSelect value={language} onChange={setLanguage} style={{ flex: 1, minWidth: 0 }} />
           </div>
 
           {picked === 'bot' ? (

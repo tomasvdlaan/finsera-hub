@@ -82,7 +82,12 @@ describe('LiveGateway', () => {
   let sessions: LiveRegistry;
   let runner: LiveRunner;
   let behaviourRuns: BehaviourRegistry;
-  let live: { transcribeSegment: ReturnType<typeof vi.fn>; extract: ReturnType<typeof vi.fn>; costCents: ReturnType<typeof vi.fn> };
+  let live: {
+    transcriptionProblem: ReturnType<typeof vi.fn>;
+    transcribeSegment: ReturnType<typeof vi.fn>;
+    extract: ReturnType<typeof vi.fn>;
+    costCents: ReturnType<typeof vi.fn>;
+  };
   let clientId: string;
   let projectId: string;
 
@@ -125,6 +130,8 @@ describe('LiveGateway', () => {
 
     // The models are faked: this tests the gateway's behaviour, not the provider's.
     live = {
+      // Null means this deployment can transcribe; a string refuses the session.
+      transcriptionProblem: vi.fn(() => null as string | null),
       transcribeSegment: vi.fn().mockResolvedValue('We should add supplier drill-down.'),
       // Faithful to the real one, which updates the session's running state in place —
       // that state is what persist() writes, so a fake that only returned it would test
@@ -521,6 +528,45 @@ describe('LiveGateway', () => {
     expect(sessions.active).toContain(note.id);
     expect(sessions.isOrphaned(note.id)).toBe(true);
     expect((await meetings.get(actor, note.id)).endedAt).toBeNull();
+  });
+
+  /*
+   * The same gate the bot path has, on the path that does not need a vendor.
+   *
+   * It matters here too: the browser capture is the documented fallback for clients whose
+   * tenant blocks third-party bots, so "no bot" and "no transcription" are different problems
+   * and only one of them is fixed by holding a microphone.
+   */
+  it('refuses a new session when the audio could not be transcribed', async () => {
+    const note = await noteWithConsent();
+    live.transcriptionProblem.mockReturnValue('GOOGLE_GENERATIVE_AI_API_KEY is not set');
+
+    const socket = new FakeSocket();
+    await gateway.handleConnection(socket as never, request(`token=t&noteId=${note.id}`));
+
+    // The reason reaches the tab, which is the only place somebody is looking right now.
+    expect(socket.messagesOfType('error')[0]!.message).toMatch(/GOOGLE_GENERATIVE_AI_API_KEY/);
+    expect(socket.messagesOfType('ready')).toHaveLength(0);
+    expect(sessions.get(note.id)).toBeUndefined();
+  });
+
+  it('does not take a running meeting away from a reloading tab', async () => {
+    /*
+     * The gate is on starting, never on adopting. A configuration broken mid-meeting must not
+     * turn a reload into the end of the recording — that is precisely the failure the orphan
+     * path exists to prevent, and it would be a worse one than the gate avoids.
+     */
+    const note = await noteWithConsent();
+    const first = new FakeSocket();
+    await gateway.handleConnection(first as never, request(`token=t&noteId=${note.id}`));
+    await gateway.handleDisconnect(first as never);
+
+    live.transcriptionProblem.mockReturnValue('MODEL_TRANSCRIBE is set to something hopeless');
+    const reloaded = new FakeSocket();
+    await gateway.handleConnection(reloaded as never, request(`token=t&noteId=${note.id}`));
+
+    expect(reloaded.messagesOfType('ready')[0]!.mode).toBe('source');
+    expect(sessions.isOrphaned(note.id)).toBe(false);
   });
 
   it('gives the meeting back to a tab that comes straight back', async () => {
