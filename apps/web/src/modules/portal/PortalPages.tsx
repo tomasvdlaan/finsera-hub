@@ -14,6 +14,7 @@ interface Page {
   sourceUrl: string;
   enabled: boolean;
   hasSecret: boolean;
+  timeoutSeconds: number;
 }
 
 interface PageList {
@@ -36,7 +37,7 @@ export function PortalPages({
   clientId: string;
   portalSlug: string | null;
 }) {
-  const { confirm } = useDialog();
+  const { confirm, ask } = useDialog();
   const toast = useToast();
   const [data, setData] = useState<PageList>();
   const [error, setError] = useState<string>();
@@ -85,6 +86,51 @@ export function PortalPages({
     } catch (err) {
       setError((err as Error).message);
     }
+  };
+
+  /**
+   * Everything a page is called and pointed at, in one dialog. The secret field is blank on
+   * purpose: left empty it leaves the stored one alone, so editing a link never needs the
+   * credential to be typed again (or shown).
+   */
+  const edit = async (page: Page) => {
+    const v = await ask({
+      title: `Edit “${page.title}”`,
+      confirmLabel: 'Save',
+      fields: [
+        { name: 'title', label: 'Title', defaultValue: page.title, required: true },
+        {
+          name: 'slug',
+          label: 'Link',
+          defaultValue: page.slug,
+          required: true,
+          hint: 'The part after the client address. Changing it breaks links people already have.',
+        },
+        { name: 'sourceUrl', label: 'Source URL', defaultValue: page.sourceUrl, required: true },
+        {
+          name: 'timeoutSeconds',
+          label: 'Time-out (seconds)',
+          type: 'number',
+          defaultValue: String(page.timeoutSeconds),
+          hint: 'Between 5 and 60.',
+          required: true,
+        },
+        {
+          name: 'bypassSecret',
+          label: 'Bypass secret',
+          placeholder: page.hasSecret ? 'Leave empty to keep the current one' : 'Optional',
+        },
+      ],
+    });
+    if (!v) return;
+    const body: Record<string, unknown> = {
+      title: v.title.trim(),
+      slug: v.slug.trim(),
+      sourceUrl: v.sourceUrl.trim(),
+      timeoutSeconds: Number(v.timeoutSeconds),
+    };
+    if (v.bypassSecret.trim()) body.bypassSecret = v.bypassSecret.trim();
+    await patch(page, body);
   };
 
   const remove = async (page: Page) => {
@@ -162,10 +208,14 @@ export function PortalPages({
                 <td className="muted" style={{ maxWidth: '22rem', overflowWrap: 'anywhere' }}>
                   {p.sourceUrl}
                   {p.hasSecret && <span> · secret set</span>}
+                  <span> · time-out {p.timeoutSeconds}s</span>
                 </td>
                 <td className="num">
                   <button className="link-button" disabled={busy} onClick={() => void test(p)}>
                     test
+                  </button>{' '}
+                  <button className="link-button" onClick={() => void edit(p)}>
+                    edit
                   </button>{' '}
                   <button
                     className="link-button"
