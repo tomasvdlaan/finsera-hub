@@ -5,7 +5,7 @@ module: portal
 paths: []
 capability: portal.admin
 keywords: [assistant, add page, report card, tickets card, client page, chat, portal_add_page, timeline, events]
-updated: 2026-10-23
+updated: 2026-11-27
 ---
 
 The portal module shows up in three smaller places besides its own screens: a card on every client's page, a card in assistant answers, and one assistant action.
@@ -25,7 +25,7 @@ With `portal.admin`, ask the assistant in chat, for example "add the Q3 report a
 - The page is created **switched off**. The assistant's answer says "Not visible to <client> yet. Turn it on under Custom content on their page in hub." A person has to press **enable**. See [Custom content](help:portal/custom-content).
 - You give a **slug** (the short address, such as `rapportage-q3`), a **title** (what the client sees in Rapporten), the **source URL**, and optionally whether to serve it here (proxy, the default) or redirect.
 - The same rules as the form apply: the client must have a portal address, the address must not be one the portal already uses, the source must be https and public.
-- **Do not give the assistant a Vercel bypass secret.** It is typed on the page's own form, never in a conversation. A page added by the assistant has no secret, so if the source is protected, add the secret by removing and re-adding the page on the screen, or make the source reachable.
+- **Do not give the assistant a Vercel bypass secret.** It is typed on the page's own form, never in a conversation. A page added by the assistant has no secret, so if the source is protected, add the secret with **edit** on the page's row under **Custom content**, or make the source reachable.
 - The assistant can only add. It cannot switch a page on, change it, remove it, invite someone, or read what a client wrote in a ticket. That last limit is deliberate: nothing a client typed should ever be read by the assistant as if we had written it.
 
 ## What shows on a client's timeline

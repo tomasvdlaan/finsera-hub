@@ -34,6 +34,26 @@ export const portalManifest = defineManifest({
       // the list of who has one is admin-only to see as well.
       readPermission: 'portal.admin',
     },
+    {
+      /*
+       * A page is a record now, not a row.
+       *
+       * It was only ever a row in `portal.pages`, which was enough to serve it and not
+       * enough to *refer* to it: the assistant renders a card by citing an id, and a
+       * citation is dropped unless the registry can resolve it. Declaring it here is what
+       * makes that work — and, by the same stroke, makes a page findable in search and
+       * linkable from anywhere, because in this platform those are one mechanism rather
+       * than three.
+       *
+       * `portal.admin` to see that it exists at all: the registry is one table and a search
+       * across it without a permission would tell anybody who can reach the box which
+       * clients have which reports.
+       */
+      type: 'portal_page',
+      displayTemplate: '{title}',
+      urlPattern: '/portal/pages/:id',
+      readPermission: 'portal.admin',
+    },
   ],
   structuralRefs: [],
   publishes: [
@@ -101,7 +121,16 @@ export const portalManifest = defineManifest({
     { label: 'Client tickets', path: '/portal/tickets', icon: 'inbox', section: 'work', order: 4 },
   ],
   widgets: [{ slot: 'entity-page', component: 'portal:client-tickets' }],
-  chatWidgets: [],
+  /*
+   * The card the assistant shows after adding a page.
+   *
+   * Rendered only when the model cites the id that `portal_add_page` just returned, and
+   * only for somebody allowed to see it — the orchestrator grounds every citation against
+   * the tool results of that turn and then against the asker's own permissions. The card's
+   * most useful line is whether it is switched on, because that is the step still waiting
+   * for a person.
+   */
+  chatWidgets: [{ entityType: 'portal_page', component: 'portal:page-card' }],
   reportingViews: [
     {
       view: 'portal.v_tickets',

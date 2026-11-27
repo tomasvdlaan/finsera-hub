@@ -87,6 +87,8 @@ export class PortalModule implements OnModuleInit {
     // the definition ships with the code rather than in a migration somebody has to
     // remember. The portal had none until tickets needed to be visible outside it.
     await this.tickets.ensureReportingViews();
+    // Pages became records in the registry; the ones that predate that get registered here.
+    await this.pages.ensurePagesRegistered();
 
     // The only thing an assistant may do in here, and it cannot publish — see the manifest.
     this.aiTools.bind('portal_add_page', (actor: Actor, input: unknown) =>

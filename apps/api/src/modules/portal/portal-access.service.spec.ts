@@ -77,7 +77,7 @@ describe('PortalAccessService', () => {
       new EventBus(manifests),
       new LinkService(testDb, registry, permissions, audit, manifests),
     );
-    pages = new PortalPagesService(testDb, permissions, audit, new StorageService(), access);
+    pages = new PortalPagesService(testDb, permissions, audit, new StorageService(), access, registry);
     users = new PortalUsersService(
       testDb,
       permissions,

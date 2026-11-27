@@ -281,7 +281,9 @@ export function portalProxy(deps: ProxyDeps) {
       return res.status(400).type('text').send('Ongeldig adres.');
     }
 
-    let identity: string | null = null;
+    // No initial value: both ways out of the try either assign it or return, and an unused
+    // `= null` is what failed CI's lint on main from edfdcba onwards.
+    let identity: string | null;
     try {
       identity = await signIdentity({
         aud: slug,

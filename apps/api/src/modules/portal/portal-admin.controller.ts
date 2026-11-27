@@ -288,6 +288,12 @@ export class PortalAdminController {
     };
   }
 
+  /** One page by its own id, for a link from search or a card in chat. */
+  @Get('pages/:id')
+  page(@CurrentActor() actor: Actor, @Param('id', ParseUUIDPipe) id: string) {
+    return this.pages.getOne(actor, id);
+  }
+
   @Post('clients/:clientId/pages')
   createPage(
     @CurrentActor() actor: Actor,

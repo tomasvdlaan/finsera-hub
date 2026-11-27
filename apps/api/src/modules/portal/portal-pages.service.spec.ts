@@ -45,7 +45,7 @@ describe('PortalPagesService', () => {
       testDb, registry, permissions, audit,
       new EventBus(manifests), new LinkService(testDb, registry, permissions, audit, manifests),
     );
-    pages = new PortalPagesService(testDb, permissions, audit, new StorageService(), new PortalAccessService(testDb, permissions, audit));
+    pages = new PortalPagesService(testDb, permissions, audit, new StorageService(), new PortalAccessService(testDb, permissions, audit), registry);
     clientId = (await crm.createClient(admin, { name: 'Duce', status: 'active' })).id;
   });
 
@@ -277,6 +277,132 @@ describe('PortalPagesService', () => {
       await expect(
         pages.addPageTool(admin, { ...call(), clientId: crypto.randomUUID() }),
       ).rejects.toThrow(/No such client/);
+    });
+  });
+
+  /*
+   * A page is a record, which is what makes it citable, searchable and linkable.
+   *
+   * The assistant renders a card by citing an id, and the orchestrator drops any citation
+   * the registry cannot resolve — so "the card appears" and "the row is registered" are the
+   * same fact, and this is where it is asserted.
+   */
+  describe('the registry', () => {
+    const registered = async (id: string) =>
+      (
+        await testDb.execute<{ entity_type: string; display_name: string; url_path: string; deleted_at: Date | null }>(
+          sql`SELECT entity_type, display_name, url_path, deleted_at FROM core.entities WHERE id = ${id}`,
+        )
+      ).rows[0];
+
+    it('registers a page as it creates one', async () => {
+      const { id } = await pages.create(admin, clientId, {
+        slug: 'rapportage-q3',
+        title: 'Rapportage Q3',
+        sourceUrl: 'https://art-dochorse-maandrapportage-finsera.vercel.app',
+      });
+
+      const row = await registered(id);
+      expect(row?.entity_type).toBe('portal_page');
+      expect(row?.display_name).toBe('Rapportage Q3');
+      // The address a card and a search result both link to.
+      expect(row?.url_path).toBe(`/portal/pages/${id}`);
+    });
+
+    it('keeps the name in step when the page is retitled', async () => {
+      const { id } = await pages.create(admin, clientId, {
+        slug: 'rapportage-q3',
+        title: 'Rapportage Q3',
+        sourceUrl: 'https://art-dochorse-maandrapportage-finsera.vercel.app',
+      });
+
+      await pages.update(admin, id, { title: 'Rapportage Q4' });
+
+      // A link that still says the old name is a link that lies in two places.
+      expect((await registered(id))?.display_name).toBe('Rapportage Q4');
+    });
+
+    it('retires the record when the page is deleted, without erasing it', async () => {
+      const { id } = await pages.create(admin, clientId, {
+        slug: 'rapportage-q3',
+        title: 'Rapportage Q3',
+        sourceUrl: 'https://art-dochorse-maandrapportage-finsera.vercel.app',
+      });
+
+      await pages.remove(admin, id);
+
+      // Soft: a link written in a note last year resolves to "this is gone" rather than to
+      // nothing at all.
+      expect((await registered(id))?.deleted_at).not.toBeNull();
+    });
+
+    it('registers the pages that existed before pages were records', async () => {
+      const { id } = await pages.create(admin, clientId, {
+        slug: 'ouder',
+        title: 'Van voor de registry',
+        sourceUrl: 'https://art-duce-noord-finsera.vercel.app',
+      });
+      // Exactly the state of the four pages in production before this change.
+      await testDb.execute(sql`DELETE FROM core.entities WHERE id = ${id}`);
+      expect(await registered(id)).toBeUndefined();
+
+      expect(await pages.ensurePagesRegistered()).toBe(1);
+
+      expect((await registered(id))?.display_name).toBe('Van voor de registry');
+    });
+
+    it('is a boot step that does nothing twice', async () => {
+      await pages.create(admin, clientId, {
+        slug: 'al-geregistreerd',
+        title: 'Al geregistreerd',
+        sourceUrl: 'https://art-duce-noord-finsera.vercel.app',
+      });
+
+      // Every boot runs it, so the ordinary case has to be a no-op rather than a duplicate
+      // key error that stops the API from starting.
+      expect(await pages.ensurePagesRegistered()).toBe(0);
+      expect(await pages.ensurePagesRegistered()).toBe(0);
+    });
+  });
+
+  describe('getOne', () => {
+    it('finds a page by its own id, which is all a link or a card has', async () => {
+      await crm.updateClient(admin, clientId, { portalSlug: 'duce' });
+      process.env.PORTAL_BASE_DOMAIN = 'finsera.nl';
+      const { id } = await pages.create(admin, clientId, {
+        slug: 'rapportage-q3',
+        title: 'Rapportage Q3',
+        sourceUrl: 'https://art-dochorse-maandrapportage-finsera.vercel.app',
+        enabled: false,
+      });
+
+      const page = await pages.getOne(admin, id);
+
+      expect(page.clientName).toBe('Duce');
+      expect(page.address).toBe('https://duce.finsera.nl/rapportage-q3/');
+      expect(page.enabled).toBe(false);
+      // Whether a secret is stored, never the secret.
+      expect(page).not.toHaveProperty('bypassSecretEnc');
+    });
+
+    it('says a client with no portal address has nowhere to show it', async () => {
+      const { id } = await pages.create(admin, clientId, {
+        slug: 'rapportage-q3',
+        title: 'Rapportage Q3',
+        sourceUrl: 'https://art-dochorse-maandrapportage-finsera.vercel.app',
+      });
+
+      expect((await pages.getOne(admin, id)).address).toBeNull();
+    });
+
+    it('is refused for a member', async () => {
+      const { id } = await pages.create(admin, clientId, {
+        slug: 'rapportage-q3',
+        title: 'Rapportage Q3',
+        sourceUrl: 'https://art-dochorse-maandrapportage-finsera.vercel.app',
+      });
+
+      await expect(pages.getOne(member, id)).rejects.toThrow(/portal.admin/);
     });
   });
 });

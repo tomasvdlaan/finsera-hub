@@ -1,7 +1,9 @@
 import type { WebModule } from '../types.js';
 import { ClientTickets } from './ClientTickets.js';
 import { PortalPreview } from './PortalPreview.js';
+import { PortalPageDetail } from './PortalPageDetail.js';
 import { PortalUserDetail } from './PortalUserDetail.js';
+import { PageChatCard } from './PageChatCard.js';
 import { portalWidgets } from './widgets.js';
 
 /**
@@ -22,9 +24,15 @@ export const portalWebModule: WebModule = {
     // The address `portal_user` entities carry, so a mention, a link or a search result
     // opens the person rather than the client they happen to belong to.
     { path: '/portal/users/:id', Component: PortalUserDetail },
+    // Where a page's own id leads — from a search result, a link, or the card in chat.
+    { path: '/portal/pages/:id', Component: PortalPageDetail },
   ],
 
   // A client's open tickets, on their page. The first widget this module has had: until
   // now the only way to see what a client had asked was the cross-client inbox.
   widgets: portalWidgets,
+
+  // The card the assistant renders when it cites a page it has just added. Keyed by entity
+  // type, matching `chatWidgets` in the manifest.
+  chatWidgets: { portal_page: PageChatCard },
 };
