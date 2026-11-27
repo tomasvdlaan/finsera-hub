@@ -14,6 +14,7 @@ import { v7 as uuidv7 } from 'uuid';
 import { AuditService } from '../../core/audit/audit.service.js';
 import { DB, type Database } from '../../core/db/db.module.js';
 import { PermissionService } from '../../core/permissions/permission.service.js';
+import { RegistryService } from '../../core/registry/registry.service.js';
 import { StorageService } from '../../core/storage/storage.service.js';
 import { PortalAccessService } from './portal-access.service.js';
 import type { PortalViewer } from './portal.projection.js';
@@ -121,6 +122,7 @@ export class PortalPagesService {
     private readonly audit: AuditService,
     private readonly storage: StorageService,
     private readonly access: PortalAccessService,
+    private readonly registry: RegistryService,
   ) {}
 
   /** The page a path's first segment names, if this client has one and it is on. */
@@ -263,6 +265,83 @@ export class PortalPagesService {
     return { hasLogo: key !== null };
   }
 
+  /**
+   * Every page that existed before pages were records, registered now.
+   *
+   * Idempotent and at boot, like `ensureReportingViews`, rather than a migration — and that
+   * is a judgement about this repository rather than a general preference. Two sessions are
+   * shipping migrations into the same journal, and drizzle applies by timestamp against a
+   * high-water mark: a migration numbered after one that has not merged yet is how a
+   * migration gets silently skipped, which the migrator already has an assertion for
+   * because it has already happened once here.
+   *
+   * It also has to be idempotent anyway. A registry row is derived from the page, so the
+   * honest shape is "make the derived thing match", computed every boot and cheap when
+   * there is nothing to do.
+   */
+  async ensurePagesRegistered(): Promise<number> {
+    const { rows } = await this.db.execute<{ id: string; title: string }>(sql`
+      SELECT p.id, p.title
+        FROM portal.pages p
+        LEFT JOIN core.entities e ON e.id = p.id
+       WHERE e.id IS NULL
+    `);
+    if (rows.length === 0) return 0;
+
+    await this.db.transaction(async (tx) => {
+      for (const row of rows) {
+        // Through the registry rather than an INSERT, so the owning module is derived from
+        // the manifest here exactly as it is for a page created a minute ago.
+        await this.registry.register(tx, {
+          id: row.id,
+          entityType: 'portal_page',
+          displayName: row.title,
+          urlPath: `/portal/pages/${row.id}`,
+        });
+      }
+    });
+    this.logger.log(`Registered ${rows.length} existing portal page(s) in the registry`);
+    return rows.length;
+  }
+
+  /**
+   * One page, by its own id — which is what a link from search or a card in chat has.
+   *
+   * Everywhere else in this service a page is reached through its client, because that is
+   * how the admin screen works. A record is reached by its id, so this is the read that
+   * makes `/portal/pages/:id` resolvable.
+   */
+  async getOne(
+    actor: Actor,
+    id: string,
+  ): Promise<PageRow & { clientId: string; clientName: string; address: string | null }> {
+    await this.require(actor, 'portal.admin');
+    const { rows } = await this.db.execute<{
+      client_id: string;
+      client_name: string;
+      portal_slug: string | null;
+    }>(sql`
+      SELECT c.id AS client_id, c.name AS client_name, c.portal_slug
+        FROM portal.pages p
+        JOIN crm.clients c ON c.id = p.client_id
+       WHERE p.id = ${id}
+    `);
+    const client = rows[0];
+    if (!client) throw new NotFoundException('No such page');
+
+    const page = (await this.list(actor, client.client_id)).find((r) => r.id === id);
+    if (!page) throw new NotFoundException('No such page');
+
+    return {
+      ...page,
+      clientId: client.client_id,
+      clientName: client.client_name,
+      address: client.portal_slug
+        ? `https://${client.portal_slug}.${process.env.PORTAL_BASE_DOMAIN ?? 'localhost:5174'}/${page.slug}/`
+        : null,
+    };
+  }
+
   async list(actor: Actor, clientId: string): Promise<PageRow[]> {
     await this.require(actor, 'portal.admin');
     const rows = await this.db
@@ -379,6 +458,19 @@ export class PortalPagesService {
         // from" is the question asked months later, and the row may have changed by then.
         detail: { slug, title, sourceUrl, kind: input.kind ?? 'proxy' },
       });
+      /*
+       * And it becomes a record, in the same transaction as the row.
+       *
+       * The registry is what lets a page be cited in chat, found in search and linked from
+       * anywhere — one mechanism rather than three — and a registry row written outside this
+       * transaction would survive a rollback as a name pointing at nothing.
+       */
+      await this.registry.register(tx, {
+        id,
+        entityType: 'portal_page',
+        displayName: title,
+        urlPath: `/portal/pages/${id}`,
+      });
     });
     return { id };
   }
@@ -400,12 +492,14 @@ export class PortalPagesService {
       if (clash) throw new BadRequestException(`This client already has a page at '${slug}'`);
     }
 
+    const title = input.title?.trim() || before.title;
+
     await this.db.transaction(async (tx) => {
       await tx
         .update(portalPages)
         .set({
           slug,
-          title: input.title?.trim() || before.title,
+          title,
           kind: input.kind ?? (before.kind as 'proxy' | 'redirect'),
           sourceUrl,
           // Undefined leaves the stored secret alone — a form that posts every field must
@@ -430,6 +524,11 @@ export class PortalPagesService {
           secretChanged: input.bypassSecret !== undefined,
         },
       });
+      // The registry denormalises the name for cheap link rendering, so a retitled page
+      // whose registry row still says the old thing is a link that lies in two places.
+      if (title !== before.title) {
+        await this.registry.updateDisplay(tx, id, { displayName: title });
+      }
     });
     const row = (await this.list(actor, before.clientId)).find((r) => r.id === id);
     // The row was updated a line ago inside a committed transaction, so its absence would
@@ -449,6 +548,9 @@ export class PortalPagesService {
       // tables and the page has just left them — and a `restricted` row for a dead id would
       // come back to life the day that id were reused.
       await this.access.forget(tx, 'page', id);
+      // Soft, like every other deletion in the registry: a link written in a note last year
+      // should resolve to "this is gone" rather than to nothing at all.
+      await this.registry.softDelete(tx, id);
       await this.audit.record(tx, {
         actorId: actor.userId,
         action: 'portal.page.delete',

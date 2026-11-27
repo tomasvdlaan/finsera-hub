@@ -1079,6 +1079,38 @@ SSRF guard on the source URL hold here without being restated.
 moving it into the platform would mean the API owning both. The split stands: the skill
 publishes, the assistant registers.
 
+## 2026-10-14 — A portal page becomes a record
+
+`portal_add_page` could create a page and the assistant could say so, but it could not *show*
+it: a card in chat is rendered by citing an id, and the orchestrator drops any citation the
+registry cannot resolve. Pages were rows in `portal.pages` and nothing else.
+
+So `portal_page` is now a declared entity, registered in the same transaction that inserts
+the row, renamed with it, and soft-deleted with it. The card follows from the declaration —
+`chatWidgets: [{ entityType: 'portal_page', component: 'portal:page-card' }]` — and so does
+everything else the registry powers: a page is searchable and linkable now, which is the
+platform's own rule that these are one mechanism rather than three. The card leads two ways,
+because they answer different questions: *open* is the client's real address, *custom
+content* is the panel where the switch lives. Its most useful line is **not visible yet**,
+since that is the step still waiting for a person.
+
+`/portal/pages/:id` exists because a record needs an address — reached from search, a link,
+or the card. It is a reading screen on purpose: everything about a page is edited under
+Custom content, and two screens that both edit one row is how they come to disagree.
+
+**The backfill is a boot step, not a migration**, and that is a judgement about this
+repository rather than a preference. Two sessions are shipping migrations into one journal;
+drizzle applies by timestamp against a high-water mark, so a migration numbered after one
+that has not merged yet is exactly how a migration gets silently skipped — which the migrator
+already carries an assertion for, because it has happened here before. A registry row is
+derived from the page anyway, so "make the derived thing match, every boot, cheaply when
+there is nothing to do" is the more honest shape. Asserted both ways: it registers what is
+missing, and it does nothing the second time.
+
+*Written 2026-10-14; the code sat uncommitted on a stale branch and was ported onto `main` on
+2026-11-27, after pages had become editable (`b95223e`). The Help guide already described this
+screen and card before they existed on `main`.*
+
 ## 2026-10-17 — Notifications deliver the Inbox · **Decided**
 
 Brief: [notifications-brief.md](notifications-brief.md). **All twelve recommendations (N1–N12)

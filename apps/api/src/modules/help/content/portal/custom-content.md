@@ -1,11 +1,11 @@
 ---
 title: Custom content (reports)
-summary: Add a report hosted elsewhere to a client's portal, test it, switch it on or off, and remove it.
+summary: Add a report hosted elsewhere to a client's portal, test it, edit it, switch it on or off, and remove it.
 module: portal
 paths: [/clients/:id/access, /portal/pages/:id]
 capability: portal.admin
-keywords: [custom content, report, rapport, dashboard, page, proxy, redirect, vercel, bypass secret, source url, slug, enable, disable, test]
-updated: 2026-10-23
+keywords: [custom content, report, rapport, dashboard, page, proxy, redirect, vercel, bypass secret, source url, slug, enable, disable, test, edit, time-out, timeout]
+updated: 2026-11-27
 ---
 
 Custom content is a report or dashboard that we host elsewhere (for example on Vercel) and show inside a client's portal, at an address on the client's own name: `<client address>/<page address>/`. The client finds it under **Rapporten**, and promoted on their front page under **Rapportages**.
@@ -48,11 +48,16 @@ Each row of the table shows the link, the title, who it is visible to, and the s
 
 ## Changing a page
 
-The screen only lets you add, test, switch on or off and remove. There is no way on screen to change a page's address, title, source or secret; to do that remove it and add it again (which resets who it is visible to).
+Press **edit** on a row. The dialog **Edit “<title>”** has the **Title**, the **Link** (the part after the client address), the **Source URL**, the **Time-out (seconds)** and the **Bypass secret**. Press **Save**.
+
+- Changing the **Link** breaks links people already have to the old address.
+- The **Time-out** is how long the portal waits for the source before giving up: between 5 and 60 seconds, 10 if nobody set one. Raise it for a report whose first load after a quiet period is slow.
+- The **Bypass secret** field is always empty. Leave it empty to keep the stored secret; type a new one to replace it.
+- Editing keeps who the page is visible to. Switching it on or off is the separate **enable** / **disable** link.
 
 ## The page's own screen
 
-Search results, links and the assistant's cards open `/portal/pages/<id>`: a reading screen, not a second editor. **Where it lives** shows the client (a link to their **Portal access** tab), the address (a link to the client's own view) and the status: "Visible to the client" or "Not visible yet — turn it on under Custom content". **Where it comes from** shows the source address, whether it is **Proxied** ("the client never sees this address") or **Redirect**, and whether a **Bypass secret** is "stored" or "none". Everything is changed under **Custom content** on the client.
+Search results, links and the assistant's cards open `/portal/pages/<id>`: a reading screen, not a second editor. **Where it lives** shows the client (a link to their **Portal access** tab), the address (a link to the client's own view) and the status: "Visible to the client" or "Not visible yet — turn it on under Custom content". **Where it comes from** shows the source address, whether it is **Proxied** ("the client never sees this address") or **Redirect**, whether a **Bypass secret** is "stored" or "none", and how many seconds it **Waits for it**. Everything is changed under **Custom content** on the client.
 
 ## Good to know
 
